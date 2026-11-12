@@ -1,4 +1,5 @@
 id: nist800-34.business-impact-analysis
+depends-on: [business-process, software-system]
 purpose: operations
 audience: [operations, product-lead, analyst, architect]
 definition: The study of what the loss of a process or a system would cost, and how soon it must be back.

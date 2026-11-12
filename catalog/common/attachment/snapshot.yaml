@@ -1,4 +1,5 @@
 id: practice.snapshot
+depends-on: []
 purpose: history
 audience: [architect, platform-devops, operations]
 definition: A full restore point of the graph at a time; the journal holds the increments from which the rest is rebuilt.

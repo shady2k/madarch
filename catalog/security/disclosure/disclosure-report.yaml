@@ -1,4 +1,5 @@
 id: practice.disclosure-report
+depends-on: [product]
 purpose: history
 audience: [security-engineer, architect]
 definition: A vulnerability report received from outside, with its handling and its resolution.

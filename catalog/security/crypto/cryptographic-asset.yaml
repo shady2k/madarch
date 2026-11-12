@@ -1,4 +1,5 @@
 id: cyclonedx.crypto-asset
+depends-on: [product]
 purpose: structure
 audience: [security-engineer, architect, developer]
 definition: A cryptographic algorithm, key or protocol the product relies on, with the properties it is judged by.

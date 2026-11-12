@@ -1,4 +1,5 @@
 id: practice.ownership-assignment
+depends-on: [owner]
 purpose: history
 audience: [product-lead, architect, developer, operations]
 definition: A recorded statement that one element is owned by one person or group, and since when.

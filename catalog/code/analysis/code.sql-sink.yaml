@@ -1,4 +1,5 @@
 id: practice.sql-sink
+depends-on: [code.file]
 purpose: structure
 audience: [developer, architect]
 definition: A call that runs SQL text as it is.

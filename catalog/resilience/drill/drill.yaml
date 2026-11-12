@@ -1,4 +1,5 @@
 id: nist800-34.exercise
+depends-on: [exercise-scenario]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A planned exercise in which a disruption is simulated and the plan is followed.

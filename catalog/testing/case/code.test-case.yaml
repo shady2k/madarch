@@ -1,4 +1,5 @@
 id: istqb.test-case
+depends-on: [code.file, test-condition]
 purpose: quality
 audience: [tester, developer]
 definition: A test and the code it exercises.

@@ -1,4 +1,5 @@
 id: ddd.bounded-context
+depends-on: [doc.term, subdomain]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A boundary within which one model and one language hold, as domain-driven design defines it.

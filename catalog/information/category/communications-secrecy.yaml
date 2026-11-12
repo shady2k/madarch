@@ -1,4 +1,5 @@
 id: practice.communications-secrecy
+depends-on: [information-category]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: Information about the fact and the content of a communication, which the law protects separately.

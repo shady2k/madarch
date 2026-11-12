@@ -1,4 +1,5 @@
 id: practice.firewall-rule
+depends-on: [network-zone, protocol]
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
 definition: A rule that allows or refuses traffic between addresses, ports and protocols.

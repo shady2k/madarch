@@ -1,4 +1,5 @@
 id: practice.training-dataset
+depends-on: [dataset, license]
 purpose: structure
 audience: [developer, architect, product-lead]
 definition: The data a model was trained on, with its source and its licence.

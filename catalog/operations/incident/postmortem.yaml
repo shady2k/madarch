@@ -1,4 +1,5 @@
 id: sre.postmortem
+depends-on: [incident]
 purpose: history
 audience: [operations, platform-devops]
 definition: 'The written account of an incident: its impact, its causes, its timeline and what follows from it.'

@@ -1,4 +1,5 @@
 id: iso42010.view
+depends-on: [architecture-description]
 purpose: understand
 audience: [architect, analyst, developer]
 definition: A representation of the architecture from one set of concerns, made of a viewpoint and a model.

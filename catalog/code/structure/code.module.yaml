@@ -1,4 +1,5 @@
 id: practice.module
+depends-on: [code.directory]
 purpose: structure
 audience: [developer, architect]
 definition: A folder of code with a purpose of its own, with the modules it depends on.

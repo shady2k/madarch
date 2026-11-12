@@ -1,4 +1,5 @@
 id: practice.information-item
+depends-on: [information-flow]
 purpose: structure
 audience: [analyst, architect, security-engineer]
 definition: One item carried by an information flow, linked to the glossary term that names it.

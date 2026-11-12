@@ -1,4 +1,5 @@
 id: practice.user-guide
+depends-on: [doc.use-case]
 purpose: understand
 audience: [product, analyst, designer, tester]
 definition: The tasks a person can do with the product and the procedures that reach them.

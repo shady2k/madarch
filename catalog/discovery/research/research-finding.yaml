@@ -1,4 +1,5 @@
 id: practice.research-finding
+depends-on: [research-question]
 purpose: understand
 audience: [product, analyst, designer]
 definition: What the research established, with the evidence it rests on.

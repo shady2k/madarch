@@ -1,4 +1,5 @@
 id: practice.screen
+depends-on: [doc.use-case]
 purpose: structure
 audience: [designer, developer]
 definition: A page or view a person sees, made of components and reached through a route.

@@ -1,4 +1,5 @@
 id: istqb.test-condition
+depends-on: [test-basis]
 purpose: quality
 audience: [tester, developer]
 definition: A testable aspect of the product that is meant to be tested.

@@ -1,4 +1,5 @@
 id: practice.job-to-be-done
+depends-on: [actor]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: The job a person hires the product to do, stated apart from any feature.

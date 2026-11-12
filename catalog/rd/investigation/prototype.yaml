@@ -1,4 +1,5 @@
 id: practice.prototype
+depends-on: [hypothesis]
 purpose: understand
 audience: [product, designer, developer, architect]
 definition: A throwaway build that explores an option before the product is committed to it.

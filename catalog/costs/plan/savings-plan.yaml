@@ -1,4 +1,5 @@
 id: practice.savings-plan
+depends-on: [cost-record]
 purpose: operations
 audience: [product-lead, operations, platform-devops]
 definition: A planned change that lowers the cost, with the saving it is expected to make.

@@ -1,4 +1,5 @@
 id: practice.usability-test
+depends-on: [research-question, user-flow]
 purpose: quality
 audience: [designer, tester, product, analyst]
 definition: A session in which people use the product while their success and trouble are recorded.

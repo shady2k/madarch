@@ -1,4 +1,5 @@
 id: ddd.value-object
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A domain value defined by its attributes, without an identity of its own.

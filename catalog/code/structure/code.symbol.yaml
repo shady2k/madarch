@@ -1,4 +1,5 @@
 id: practice.code-symbol
+depends-on: [code.file]
 purpose: structure
 audience: [developer, architect]
 definition: A function, a class or a constant the code declares, with its callers and its callees.

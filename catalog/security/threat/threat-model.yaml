@@ -1,4 +1,5 @@
 id: owasp.threat-model
+depends-on: [software-system]
 purpose: quality
 audience: [security-engineer, architect, developer]
 definition: A description of a system, its assumptions and its threats, with the mitigations that answer them.

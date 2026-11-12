@@ -1,4 +1,5 @@
 id: scrum.accountability
+depends-on: [business-role]
 purpose: history
 audience: [product-lead, product, architect]
 definition: What a role answers for, as the Scrum Guide states the accountabilities of a Scrum team.

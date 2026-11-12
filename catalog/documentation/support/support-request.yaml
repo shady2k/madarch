@@ -1,4 +1,5 @@
 id: practice.support-request
+depends-on: [product]
 purpose: quality
 audience: [operations, product, developer]
 definition: A question or a problem a person raises with the support of the product.

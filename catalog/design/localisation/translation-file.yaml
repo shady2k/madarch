@@ -1,4 +1,5 @@
 id: xliff.document
+depends-on: [locale, message]
 purpose: structure
 audience: [designer, developer]
 definition: An XLIFF file that carries the translation units of one language.

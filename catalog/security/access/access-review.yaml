@@ -1,4 +1,5 @@
 id: practice.access-review
+depends-on: [iam-grant]
 purpose: quality
 audience: [security-engineer, operations, product-lead]
 definition: A periodic check that every account still needs the access it has.

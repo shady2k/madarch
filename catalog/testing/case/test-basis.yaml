@@ -1,4 +1,5 @@
 id: istqb.test-basis
+depends-on: [product]
 purpose: quality
 audience: [tester, developer]
 definition: The body of knowledge a test condition is derived from, such as a requirement or a story.

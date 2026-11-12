@@ -1,4 +1,5 @@
 id: practice.prerequisites
+depends-on: [document]
 purpose: operations
 audience: [developer, platform-devops]
 definition: The tools the README says a newcomer needs.

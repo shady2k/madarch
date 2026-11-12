@@ -1,4 +1,5 @@
 id: practice.flaky-test
+depends-on: [test-result]
 purpose: quality
 audience: [tester, developer]
 definition: A test whose result differs between runs of the same code.

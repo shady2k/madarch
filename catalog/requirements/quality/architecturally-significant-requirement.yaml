@@ -1,4 +1,5 @@
 id: practice.asr
+depends-on: [doc.requirement]
 purpose: quality
 audience: [architect, analyst, developer, tester]
 definition: A requirement that measurably affects the architecture, so a decision answers it.

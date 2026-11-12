@@ -1,4 +1,5 @@
 id: istqb.test-session
+depends-on: [test-charter, test-environment]
 purpose: quality
 audience: [tester, developer]
 definition: One bounded period of exploratory testing, with what it found.

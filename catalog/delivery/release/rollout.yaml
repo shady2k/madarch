@@ -1,4 +1,5 @@
 id: practice.rollout
+depends-on: [desired-deployment]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The staged way a new version replaces the running one, with its pauses and its limits.

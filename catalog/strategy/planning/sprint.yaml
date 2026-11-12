@@ -1,4 +1,5 @@
 id: scrum.sprint
+depends-on: [backlog-item, team]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A fixed period in which the team turns backlog items into an increment.

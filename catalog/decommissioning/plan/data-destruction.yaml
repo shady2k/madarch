@@ -1,4 +1,5 @@
 id: nist800-88.destruction
+depends-on: [decommission-plan, information-classification]
 purpose: operations
 audience: [operations, platform-devops, product-lead]
 definition: The method by which data is made unrecoverable when its medium is retired.

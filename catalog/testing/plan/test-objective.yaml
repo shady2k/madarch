@@ -1,4 +1,5 @@
 id: istqb.test-objective
+depends-on: [test-basis]
 purpose: quality
 audience: [tester, developer]
 definition: The purpose a test level or a test is meant to serve.

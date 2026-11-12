@@ -1,4 +1,5 @@
 id: practice.escalation-policy
+depends-on: [on-call-schedule]
 purpose: operations
 audience: [operations, platform-devops]
 definition: The order in which people are told about an unanswered alert, and after how long.

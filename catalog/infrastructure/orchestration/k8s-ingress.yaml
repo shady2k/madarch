@@ -1,4 +1,5 @@
 id: kubernetes.ingress
+depends-on: [code.k8s-service]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A Kubernetes rule that routes traffic from outside the cluster to a service.

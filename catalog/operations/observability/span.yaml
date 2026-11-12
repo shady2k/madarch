@@ -1,4 +1,5 @@
 id: otel.span
+depends-on: [telemetry-resource]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: One operation in a trace, with its start, its duration and the parent it belongs to.

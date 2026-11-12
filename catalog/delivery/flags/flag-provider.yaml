@@ -1,4 +1,5 @@
 id: openfeature.provider
+depends-on: []
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The component that supplies flag definitions and answers evaluations.

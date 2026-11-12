@@ -1,4 +1,5 @@
 id: practice.link
+depends-on: [link-type]
 purpose: structure
 audience: [architect, analyst, developer]
 definition: A typed connection between two entities with its own id, attributes and history; its type is declared in the manifest.

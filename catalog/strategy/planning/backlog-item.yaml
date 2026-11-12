@@ -1,4 +1,5 @@
 id: scrum.backlog-item
+depends-on: [product-goal]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: 'One item of the product backlog: a need, a change or a defect, ordered by the product owner.'

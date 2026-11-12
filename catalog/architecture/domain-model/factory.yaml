@@ -1,4 +1,5 @@
 id: ddd.factory
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A domain object that builds aggregates or other complex objects.

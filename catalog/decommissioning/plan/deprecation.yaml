@@ -1,4 +1,5 @@
 id: practice.deprecation
+depends-on: [component]
 purpose: operations
 audience: [operations, platform-devops, product-lead]
 definition: The announcement that a part of the product will be withdrawn, and what replaces it.

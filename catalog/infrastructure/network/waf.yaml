@@ -1,4 +1,5 @@
 id: practice.waf
+depends-on: [external-interface]
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
 definition: A filter in front of a service that refuses requests matching an attack pattern.

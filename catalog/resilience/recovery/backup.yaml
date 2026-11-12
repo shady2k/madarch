@@ -1,4 +1,5 @@
 id: nist800-34.backup
+depends-on: [software-system]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A copy of data or configuration kept apart from the original so it can be restored.

@@ -1,4 +1,5 @@
 id: terraform.variable
+depends-on: [terraform-module]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A named value an infrastructure definition takes from its surroundings.

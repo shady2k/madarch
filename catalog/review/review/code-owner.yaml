@@ -1,4 +1,5 @@
 id: codeowners.owner
+depends-on: [code.repository]
 purpose: history
 audience: [developer, architect]
 definition: A person or a team a CODEOWNERS pattern makes the reviewer of some paths; it is review ownership only.

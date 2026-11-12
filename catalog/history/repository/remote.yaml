@@ -1,4 +1,5 @@
 id: practice.git-remote
+depends-on: [code.repository]
 purpose: structure
 audience: [developer, platform-devops]
 definition: A place a repository is published to and fetched from, by its address.

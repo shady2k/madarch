@@ -1,4 +1,5 @@
 id: c4.container
+depends-on: [software-system]
 purpose: structure
 audience: [developer, architect]
 definition: A deployable part of the system, with the interfaces it offers and the parts it depends on.

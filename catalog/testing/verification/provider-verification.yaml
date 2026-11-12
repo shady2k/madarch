@@ -1,4 +1,5 @@
 id: pact.provider-verification
+depends-on: [contract-test, test-environment]
 purpose: quality
 audience: [tester, developer]
 definition: The run in which a provider is checked against the contracts its consumers published.

@@ -1,4 +1,5 @@
 id: practice.sql-build
+depends-on: [code.symbol]
 purpose: structure
 audience: [developer, architect]
 definition: A function that builds SQL text by joining strings.

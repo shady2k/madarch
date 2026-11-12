@@ -1,4 +1,5 @@
 id: pact.consumer-contract
+depends-on: [integration]
 purpose: quality
 audience: [tester, developer]
 definition: The expectations one consumer records about a provider's interface.

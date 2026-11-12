@@ -1,4 +1,5 @@
 id: practice.style
+depends-on: [design-token]
 purpose: structure
 audience: [designer, developer]
 definition: A stylesheet or a set of style rules that applies to components and refers to tokens.

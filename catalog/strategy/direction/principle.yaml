@@ -1,4 +1,5 @@
 id: archimate.principle
+depends-on: [goal]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A normative property the architecture keeps, stated so a decision can be judged against it.

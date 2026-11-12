@@ -1,4 +1,5 @@
 id: practice.repository-landmark
+depends-on: [code.commit]
 purpose: history
 audience: [developer, architect, product-lead]
 definition: A repository landmark read from Git, with its commit and the files of that tree.

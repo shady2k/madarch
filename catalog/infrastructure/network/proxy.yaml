@@ -1,4 +1,5 @@
 id: practice.proxy
+depends-on: [code.service, protocol]
 purpose: structure
 audience: [operations, platform-devops, architect]
 definition: A component that forwards traffic and may change, cache or refuse it on the way.

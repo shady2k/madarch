@@ -1,4 +1,5 @@
 id: nist800-34.recovery-objective
+depends-on: [business-impact-analysis]
 purpose: operations
 audience: [operations, product-lead, analyst, architect]
 definition: A stated recovery time or recovery point for a system; the RTO and RPO values themselves are attributes.

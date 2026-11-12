@@ -1,4 +1,5 @@
 id: practice.protocol
+depends-on: []
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: An agreed set of rules two parties speak, such as HTTP or SMTP.

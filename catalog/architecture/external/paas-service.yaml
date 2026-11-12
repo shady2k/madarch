@@ -1,4 +1,5 @@
 id: practice.paas-service
+depends-on: [supplier]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A platform a supplier runs that the product deploys onto.

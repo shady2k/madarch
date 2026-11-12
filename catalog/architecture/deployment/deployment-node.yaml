@@ -1,4 +1,5 @@
 id: c4.deployment-node
+depends-on: [deployment-environment]
 purpose: operations
 audience: [architect, operations, platform-devops]
 definition: A place a container instance runs on, such as a server, a cluster or a virtual machine.

@@ -1,4 +1,5 @@
 id: practice.problem-dismissal
+depends-on: [document]
 purpose: quality
 audience: [product, analyst, developer, tester]
 definition: A person records why a finding is not a problem, naming its rule and stable identity.

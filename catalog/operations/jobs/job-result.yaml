@@ -1,4 +1,5 @@
 id: practice.job-result
+depends-on: [job-run]
 purpose: history
 audience: [operations, platform-devops]
 definition: What one run of a scheduled job produced or reported.

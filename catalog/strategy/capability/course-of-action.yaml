@@ -1,4 +1,5 @@
 id: archimate.course-of-action
+depends-on: [goal]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A chosen approach that works towards a goal over time.

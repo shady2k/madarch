@@ -1,4 +1,5 @@
 id: practice.interface-contract
+depends-on: [code.file]
 purpose: structure
 audience: [developer, architect, analyst, tester]
 definition: An OpenAPI, gRPC or AsyncAPI file that fixes an interface.

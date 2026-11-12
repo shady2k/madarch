@@ -1,4 +1,5 @@
 id: practice.sse-stream
+depends-on: [code.service]
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A server-sent event stream a service offers to its clients.

@@ -1,4 +1,5 @@
 id: otel.pipeline
+depends-on: [telemetry-resource]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: The path telemetry takes from the services that emit it to the stores and the tools that read it.

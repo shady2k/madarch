@@ -1,4 +1,5 @@
 id: practice.user-flow
+depends-on: [doc.use-case]
 purpose: understand
 audience: [product, analyst, designer]
 definition: The steps a person takes through the product to reach one outcome.

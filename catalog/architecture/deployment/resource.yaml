@@ -1,4 +1,5 @@
 id: backstage.resource
+depends-on: []
 purpose: operations
 audience: [architect, operations, platform-devops]
 definition: Infrastructure a component needs at runtime, such as a database, a topic or a bucket.

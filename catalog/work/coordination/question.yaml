@@ -1,4 +1,5 @@
 id: practice.question
+depends-on: [product]
 purpose: understand
 audience: [developer, product, analyst, product-lead]
 definition: The agent's clarification to the responsible person about an entity; while it is open the entity is blocked, and

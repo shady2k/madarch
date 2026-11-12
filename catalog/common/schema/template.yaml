@@ -1,4 +1,5 @@
 id: practice.page-template
+depends-on: [kind]
 purpose: structure
 audience: [architect, product-lead]
 definition: A structured page template whose ordered text, attributes and blocks describe a kind page.

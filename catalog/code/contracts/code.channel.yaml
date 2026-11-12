@@ -1,4 +1,5 @@
 id: practice.channel
+depends-on: [code.contract]
 purpose: structure
 audience: [developer, architect, analyst, tester]
 definition: A topic or a queue services publish to and read from.

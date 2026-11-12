@@ -1,4 +1,5 @@
 id: practice.interview
+depends-on: [actor, research-question]
 purpose: understand
 audience: [product, analyst, designer]
 definition: A recorded conversation with a person that yields research findings.

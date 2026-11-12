@@ -1,4 +1,5 @@
 id: practice.setup-command
+depends-on: [document]
 purpose: operations
 audience: [developer, platform-devops]
 definition: A command the README tells a newcomer to run.

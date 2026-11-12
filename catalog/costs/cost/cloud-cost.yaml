@@ -1,4 +1,5 @@
 id: focus.cloud-cost
+depends-on: [cloud-resource, cost-record]
 purpose: operations
 audience: [product-lead, operations, platform-devops]
 definition: The cost a cloud provider charges for the resources the product uses.

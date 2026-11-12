@@ -1,4 +1,5 @@
 id: openfeature.evaluation-context
+depends-on: [product]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The facts about a caller that the rules of a feature flag are evaluated against.

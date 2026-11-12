@@ -1,4 +1,5 @@
 id: practice.merge
+depends-on: [pull-request]
 purpose: history
 audience: [developer, tester, product-lead]
 definition: The integration of a branch or a pull request, with the lane it went through (C, B or A) and who allowed it.

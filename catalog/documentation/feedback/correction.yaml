@@ -1,4 +1,5 @@
 id: practice.correction
+depends-on: [document]
 purpose: quality
 audience: [product, analyst, developer, tester]
 definition: A person's statement that something the wiki says is wrong, with the ground it rests on.

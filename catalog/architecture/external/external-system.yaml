@@ -1,4 +1,5 @@
 id: c4.external-system
+depends-on: [software-system]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A software system outside the product's scope that the product communicates with.

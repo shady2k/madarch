@@ -1,4 +1,5 @@
 id: practice.assessment-finding
+depends-on: [product]
 purpose: quality
 audience: [security-engineer, tester, developer]
 definition: What one security assessment concluded, with its severity and the ground it rests on.

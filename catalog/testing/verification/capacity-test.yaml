@@ -1,4 +1,5 @@
 id: practice.capacity-test
+depends-on: [performance-test]
 purpose: quality
 audience: [tester, developer]
 definition: A test that finds how much load the product can take before it degrades.

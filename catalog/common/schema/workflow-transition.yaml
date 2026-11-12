@@ -1,4 +1,5 @@
 id: manifest.transitions
+depends-on: [event, workflow-status]
 purpose: structure
 audience: [architect, product-lead]
 definition: An allowed move from one status to another in a workflow, with the event that triggers it and the rule that allows

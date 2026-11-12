@@ -1,4 +1,5 @@
 id: manifest.link-types
+depends-on: [kind]
 purpose: structure
 audience: [architect, product-lead]
 definition: 'A declared kind of link between entities: its name, the kinds it may join and the labels it shows at each end;

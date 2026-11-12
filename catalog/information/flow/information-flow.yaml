@@ -1,4 +1,5 @@
 id: practice.information-flow
+depends-on: [doc.term]
 purpose: structure
 audience: [analyst, architect, security-engineer]
 definition: A movement of information from one place to another, each item it carries named by a glossary term.

@@ -1,4 +1,5 @@
 id: archimate.value-stream-stage
+depends-on: [business-capability, value-stream]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: One step of a value stream, with the capabilities that enable it.

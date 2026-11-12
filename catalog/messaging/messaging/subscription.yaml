@@ -1,4 +1,5 @@
 id: practice.subscription
+depends-on: [code.channel, code.service]
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: A consumer's standing interest in a topic or a queue, with the delivery rules it asks for.

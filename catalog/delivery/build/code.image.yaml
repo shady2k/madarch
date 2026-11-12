@@ -1,4 +1,5 @@
 id: practice.container-image
+depends-on: []
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A container image a deployment runs, named by its repository and its tag.

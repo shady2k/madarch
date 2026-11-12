@@ -1,4 +1,5 @@
 id: practice.maintenance-window
+depends-on: [code.service]
 purpose: operations
 audience: [operations, platform-devops]
 definition: A period in which the service may be unavailable while work is done on it.

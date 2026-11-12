@@ -1,4 +1,5 @@
 id: practice.performance-budget
+depends-on: [screen]
 purpose: quality
 audience: [tester, developer]
 definition: A limit a screen or a route must stay within, which a performance test checks.

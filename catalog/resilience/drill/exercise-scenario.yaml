@@ -1,4 +1,5 @@
 id: nist800-34.exercise-scenario
+depends-on: [contingency-plan]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: The disruption a drill simulates, with its extent and its duration.

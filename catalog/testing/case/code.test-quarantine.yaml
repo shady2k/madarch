@@ -50,11 +50,7 @@ key:
 - repository
 - path
 - name
-depends-on:
-- code.file
-- code.test-case
-- code.commit
-- task
+depends-on: [code.commit, code.test-case, task]
 origin: code
 details:
 - test

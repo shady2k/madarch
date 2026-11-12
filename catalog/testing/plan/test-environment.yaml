@@ -1,4 +1,5 @@
 id: istqb.test-environment
+depends-on: [technology]
 purpose: quality
 audience: [tester, developer]
 definition: The hardware, the services and the tools a test needs to run as it is meant to.

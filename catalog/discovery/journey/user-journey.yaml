@@ -1,4 +1,5 @@
 id: practice.user-journey
+depends-on: [job-to-be-done]
 purpose: understand
 audience: [product, analyst, designer]
 definition: A person's experience of reaching an outcome over time, including the moments outside the product.

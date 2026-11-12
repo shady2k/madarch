@@ -1,4 +1,5 @@
 id: practice.external-interface
+depends-on: [external-system]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: The interface a supplier or an outside system offers to the product, as arc42's context view states it.

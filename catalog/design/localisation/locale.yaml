@@ -1,4 +1,5 @@
 id: cldr.locale
+depends-on: []
 purpose: structure
 audience: [designer, developer]
 definition: A language and region the product is translated for, with its formatting rules.

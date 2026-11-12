@@ -1,4 +1,5 @@
 id: istqb.test-run
+depends-on: [code.commit, test-suite]
 purpose: quality
 audience: [tester, developer]
 definition: One execution of a test suite on one version of the product.

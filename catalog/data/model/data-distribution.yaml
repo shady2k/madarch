@@ -1,4 +1,5 @@
 id: dcat.distribution
+depends-on: [dataset]
 purpose: structure
 audience: [analyst, architect, developer]
 definition: One accessible form of a dataset, such as a file, an API or a stream, with its media type and address.

@@ -1,4 +1,5 @@
 id: ddd.domain-event
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: Something that happened in the domain that other parts of the model react to.

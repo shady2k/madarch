@@ -1,4 +1,5 @@
 id: asvs.requirement
+depends-on: []
 purpose: quality
 audience: [security-engineer, architect]
 definition: A requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.

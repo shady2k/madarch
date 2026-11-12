@@ -1,4 +1,5 @@
 id: practice.accessibility-conformance-report
+depends-on: [accessibility-evaluation]
 purpose: quality
 audience: [designer, tester, developer]
 definition: The report that states which success criteria a product meets and which it does not.

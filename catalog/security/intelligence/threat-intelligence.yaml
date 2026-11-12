@@ -1,4 +1,5 @@
 id: stix.threat-intelligence
+depends-on: []
 purpose: quality
 audience: [security-engineer, architect]
 definition: What is known about the campaigns, the tools and the targets of attackers, kept so it can be acted on.

@@ -1,4 +1,5 @@
 id: practice.assignment
+depends-on: [task, user]
 purpose: history
 audience: [product-lead, product, architect]
 definition: A piece of work given to a person or a group, with the time it is expected in.

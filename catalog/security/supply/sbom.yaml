@@ -1,4 +1,5 @@
 id: cyclonedx.bom
+depends-on: [product]
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
 definition: The list of the components a product is built from, with the versions and the relations between them.

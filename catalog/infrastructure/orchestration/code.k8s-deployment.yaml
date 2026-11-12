@@ -1,4 +1,5 @@
 id: kubernetes.deployment
+depends-on: [code.image, k8s-namespace]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: 'A Kubernetes Deployment: the image it runs, its replicas and its probes.'

@@ -1,4 +1,5 @@
 id: practice.tracker-task
+depends-on: [code.commit]
 purpose: history
 audience: [developer, product, product-lead, tester]
 definition: A tracker task that commit messages name, with the commits that name it.

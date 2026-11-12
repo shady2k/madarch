@@ -1,4 +1,5 @@
 id: graphql.schema-type
+depends-on: []
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A type of a GraphQL schema, with its fields.

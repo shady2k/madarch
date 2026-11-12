@@ -1,4 +1,5 @@
 id: sacm.argument
+depends-on: [assurance-claim, evidence]
 purpose: quality
 audience: [product, analyst, tester, architect]
 definition: The reasoning that links an assurance claim to its evidence.

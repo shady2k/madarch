@@ -1,4 +1,5 @@
 id: practice.api-operation
+depends-on: [code.contract]
 purpose: structure
 audience: [developer, architect, analyst, tester]
 definition: An operation an OpenAPI or a gRPC contract declares.

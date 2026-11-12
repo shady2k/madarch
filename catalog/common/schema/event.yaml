@@ -1,4 +1,5 @@
 id: manifest.event
+depends-on: []
 purpose: structure
 audience: [architect, product-lead]
 definition: 'A named happening that moves a workflow transition: an entity is created or linked, an approval package is approved,

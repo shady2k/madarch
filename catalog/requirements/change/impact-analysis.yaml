@@ -1,4 +1,5 @@
 id: practice.impact-analysis
+depends-on: [change-request]
 purpose: understand
 audience: [product, analyst, tester, architect, product-lead]
 definition: What a proposed change touches and what it costs, written before the change is accepted.

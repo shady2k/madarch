@@ -1,4 +1,5 @@
 id: practice.server
+depends-on: [deployment-environment]
 purpose: structure
 audience: [operations, platform-devops, architect]
 definition: A machine the product runs on, physical or virtual, with the resources it offers.

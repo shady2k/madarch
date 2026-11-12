@@ -1,4 +1,5 @@
 id: dtcg.design-token
+depends-on: []
 purpose: structure
 audience: [designer, developer]
 definition: A named design value, such as a colour or a spacing, that the product's styles refer to instead of repeating it.

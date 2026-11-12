@@ -1,4 +1,5 @@
 id: archimate.constraint
+depends-on: [product]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A limit on what the product may do, as arc42 section 2 and ArchiMate state it.

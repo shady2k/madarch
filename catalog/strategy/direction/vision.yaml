@@ -1,4 +1,5 @@
 id: practice.vision
+depends-on: [stakeholder]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: Where the product means to go and who it serves, as the product owner states it.

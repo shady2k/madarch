@@ -1,4 +1,5 @@
 id: practice.bug
+depends-on: [defect]
 purpose: quality
 audience: [developer, tester, product]
 definition: A task for a defect in the product, with the severity of the defect and the steps that show it.

@@ -1,4 +1,5 @@
 id: otel.metric-instrument
+depends-on: [code.file]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: A declared counter, gauge or histogram and the code that updates it.

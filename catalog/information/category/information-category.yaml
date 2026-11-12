@@ -1,4 +1,5 @@
 id: practice.information-category
+depends-on: [product]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: A class of information the product handles, which decides how it may be stored, shown and shared.

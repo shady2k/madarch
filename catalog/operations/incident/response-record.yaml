@@ -1,4 +1,5 @@
 id: practice.response-record
+depends-on: [incident]
 purpose: history
 audience: [operations, platform-devops]
 definition: What was done during an incident, by whom and when, kept as it happened.

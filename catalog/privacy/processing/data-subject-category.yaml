@@ -1,4 +1,5 @@
 id: gdpr.data-subject-category
+depends-on: []
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: A kind of person whose data is processed, such as a customer or an employee.

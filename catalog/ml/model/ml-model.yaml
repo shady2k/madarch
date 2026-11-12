@@ -1,4 +1,5 @@
 id: cyclonedx.ml-model
+depends-on: [training-run]
 purpose: structure
 audience: [developer, architect, product-lead]
 definition: A trained model the product uses, with the data and the code that produced it.

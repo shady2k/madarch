@@ -1,4 +1,5 @@
 id: pact.contract-test
+depends-on: [consumer-contract]
 purpose: quality
 audience: [tester, developer]
 definition: A check that a provider still honours the contract its consumers expect.

@@ -1,4 +1,5 @@
 id: iso29148.requirement
+depends-on: [doc.use-case]
 purpose: understand
 audience: [product, analyst, tester, developer, architect]
 definition: A provision the product must fulfil, read from the document section that states it; its type is an attribute.

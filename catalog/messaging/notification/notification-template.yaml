@@ -1,4 +1,5 @@
 id: practice.notification-template
+depends-on: []
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: The text of a notification with its placeholders, kept apart from the code that sends it.

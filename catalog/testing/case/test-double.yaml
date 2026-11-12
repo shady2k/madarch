@@ -1,4 +1,5 @@
 id: istqb.test-double
+depends-on: [component]
 purpose: quality
 audience: [tester, developer]
 definition: A stand-in for a component or an interface a test runs against.

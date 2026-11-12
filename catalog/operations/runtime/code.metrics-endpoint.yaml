@@ -1,4 +1,5 @@
 id: practice.metrics-endpoint
+depends-on: [code.route]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: The route that serves a service's metrics.

@@ -1,4 +1,5 @@
 id: practice.on-call-schedule
+depends-on: [team]
 purpose: operations
 audience: [operations, platform-devops]
 definition: Who is answering alerts at which time, and how they are reached.

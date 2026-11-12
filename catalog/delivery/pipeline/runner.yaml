@@ -1,4 +1,5 @@
 id: otel.cicd-worker
+depends-on: []
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The machine or the agent a pipeline job runs on.

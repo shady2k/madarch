@@ -1,4 +1,5 @@
 id: practice.document
+depends-on: [code.file]
 purpose: understand
 audience: [product, analyst, developer, operations]
 definition: A written page of the product, such as a README, a guide or a reference.

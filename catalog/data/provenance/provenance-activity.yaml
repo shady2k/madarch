@@ -1,4 +1,5 @@
 id: prov.activity
+depends-on: [provenance-entity]
 purpose: history
 audience: [analyst, architect, security-engineer]
 definition: Something that happened and produced or changed data, as PROV-O defines an activity.

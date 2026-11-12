@@ -1,4 +1,5 @@
 id: dqv.measurement
+depends-on: [dataset]
 purpose: quality
 audience: [analyst, tester, developer]
 definition: One measured quality value of a dataset, with the metric and the time it was taken.

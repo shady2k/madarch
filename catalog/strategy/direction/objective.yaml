@@ -1,4 +1,5 @@
 id: practice.objective
+depends-on: [goal]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A measurable objective under a goal, as an OKR states it.

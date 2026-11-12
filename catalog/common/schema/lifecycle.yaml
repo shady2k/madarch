@@ -1,4 +1,5 @@
 id: manifest.lifecycle
+depends-on: [kind, workflow]
 purpose: structure
 audience: [architect, product-lead]
 definition: The statuses and transitions an authored kind attaches through the manifest; an entity has one current status,

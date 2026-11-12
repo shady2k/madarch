@@ -1,4 +1,5 @@
 id: sacm.assurance-case
+depends-on: [assurance-argument]
 purpose: quality
 audience: [product, analyst, tester, architect]
 definition: A structured argument, with its evidence, that the product meets a claim such as a safety or security goal.

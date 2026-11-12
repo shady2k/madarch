@@ -1,4 +1,5 @@
 id: istqb.defect
+depends-on: [product]
 purpose: quality
 audience: [tester, developer]
 definition: An imperfection in a work product that may cause a failure.

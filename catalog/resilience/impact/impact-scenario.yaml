@@ -1,4 +1,5 @@
 id: nist800-34.impact-scenario
+depends-on: [business-impact-analysis]
 purpose: operations
 audience: [operations, product-lead, analyst, architect]
 definition: One described outage, with its effect over time and the point at which it becomes unacceptable.

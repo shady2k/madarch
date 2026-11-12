@@ -1,4 +1,5 @@
 id: istqb.test-report
+depends-on: [test-result]
 purpose: quality
 audience: [tester, developer]
 definition: 'The summary of a test run: what passed, what failed and what could not run.'

@@ -1,4 +1,5 @@
 id: practice.websocket-endpoint
+depends-on: [code.service]
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A WebSocket endpoint a service offers, with the messages it exchanges.

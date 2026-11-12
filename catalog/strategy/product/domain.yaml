@@ -1,4 +1,5 @@
 id: backstage.domain
+depends-on: [product]
 purpose: understand
 audience: [product, analyst, architect, developer]
 definition: A part of the business the product serves, which groups the systems that answer for it.

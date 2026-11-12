@@ -1,4 +1,5 @@
 id: slsa.builder-identity
+depends-on: [build-platform]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The identity a build platform used to run one build.

@@ -1,4 +1,5 @@
 id: practice.requirement-baseline
+depends-on: [doc.requirement]
 purpose: history
 audience: [product, analyst, tester, architect, product-lead]
 definition: The agreed set of requirements at a point in time, which changes are measured against.

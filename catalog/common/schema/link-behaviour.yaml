@@ -1,4 +1,5 @@
 id: manifest.link-behaviours
+depends-on: [link-type]
 purpose: structure
 audience: [architect, product-lead]
 definition: 'What a link type does when its entities change: its cardinality, its backlink, whether it is required and how

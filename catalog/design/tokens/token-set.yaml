@@ -1,4 +1,5 @@
 id: dtcg.token-set
+depends-on: [design-token]
 purpose: structure
 audience: [designer, developer]
 definition: A named set of design tokens that a theme or a context selects.

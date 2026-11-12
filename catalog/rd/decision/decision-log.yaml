@@ -1,4 +1,5 @@
 id: practice.decision-log
+depends-on: [doc.decision]
 purpose: history
 audience: [product, analyst, architect, developer]
 definition: The ordered record of the decisions taken, each beside the one it supersedes.

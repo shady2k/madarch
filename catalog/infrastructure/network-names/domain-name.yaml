@@ -1,4 +1,5 @@
 id: practice.domain-name
+depends-on: [product]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A name the product answers to on the network, with the zone that holds it.

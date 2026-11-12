@@ -1,4 +1,5 @@
 id: iso42010.architecture-description
+depends-on: [software-system, stakeholder]
 purpose: understand
 audience: [architect, analyst, developer]
 definition: The organised set of views, models and rationale that expresses an architecture, as ISO/IEC/IEEE 42010 defines

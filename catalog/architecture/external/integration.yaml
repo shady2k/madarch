@@ -1,4 +1,5 @@
 id: practice.integration
+depends-on: [external-interface, protocol]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A configured link between two systems, with the protocol and the data it carries.

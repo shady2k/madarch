@@ -1,4 +1,5 @@
 id: practice.field
+depends-on: [code.symbol]
 purpose: structure
 audience: [developer, architect]
 definition: A field or a property of a type, read on the page of the type that declares it.

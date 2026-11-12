@@ -1,4 +1,5 @@
 id: practice.tutorial
+depends-on: [doc.use-case]
 purpose: understand
 audience: [product, analyst, developer, operations]
 definition: A lesson that teaches by making a person complete a small piece of work.

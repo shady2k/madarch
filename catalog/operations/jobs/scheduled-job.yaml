@@ -1,4 +1,5 @@
 id: practice.scheduled-job
+depends-on: [code.service]
 purpose: operations
 audience: [operations, platform-devops]
 definition: Work the system runs on a timetable rather than in response to a request.

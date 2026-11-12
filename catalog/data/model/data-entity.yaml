@@ -1,4 +1,5 @@
 id: practice.data-entity
+depends-on: [domain-entity]
 purpose: structure
 audience: [analyst, architect, developer]
 definition: A thing of the domain as it is stored, with the attributes and the identity it keeps.

@@ -1,4 +1,5 @@
 id: stix.indicator
+depends-on: []
 purpose: quality
 audience: [security-engineer, architect]
 definition: An observable pattern, such as an address or a file hash, that suggests an attack.

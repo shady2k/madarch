@@ -1,4 +1,5 @@
 id: ddd.aggregate
+depends-on: [domain-entity]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A cluster of domain objects that changes as one unit, with one root entity.

@@ -1,4 +1,5 @@
 id: practice.compose-service
+depends-on: [code.file]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A service of a compose file, with its ports and its dependencies.

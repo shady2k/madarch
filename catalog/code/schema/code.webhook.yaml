@@ -1,4 +1,5 @@
 id: openapi.webhook
+depends-on: [code.contract]
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A callback a service sends to another system when something happens.

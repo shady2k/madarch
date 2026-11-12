@@ -1,4 +1,5 @@
 id: practice.team
+depends-on: [organization, product]
 purpose: history
 audience: [product-lead, architect, developer]
 definition: A group of people who work together and answer for a part of the product.

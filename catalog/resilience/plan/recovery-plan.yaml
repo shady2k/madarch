@@ -1,4 +1,5 @@
 id: nist800-34.recovery-plan
+depends-on: [contingency-plan]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: The ordered steps that restore one system, with the evidence that each step worked.

@@ -1,4 +1,5 @@
 id: openssf.scorecard-check
+depends-on: [code.repository]
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
 definition: One OpenSSF Scorecard check of a repository, with its score and the evidence it read.

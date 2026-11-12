@@ -1,4 +1,5 @@
 id: archimate.capability
+depends-on: [organization]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: What the organisation is able to do, independent of how it does it.

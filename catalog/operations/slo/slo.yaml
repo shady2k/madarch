@@ -1,4 +1,5 @@
 id: sre.slo
+depends-on: [sli]
 purpose: operations
 audience: [operations, developer, platform-devops, product-lead]
 definition: A target value or range for an SLI over a period, which the service is held to.

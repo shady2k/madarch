@@ -1,4 +1,5 @@
 id: practice.mutant
+depends-on: [code.file]
 purpose: quality
 audience: [tester, developer]
 definition: A copy of the code with one deliberate change, which a test is meant to catch.

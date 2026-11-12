@@ -1,4 +1,5 @@
 id: practice.incident-timeline
+depends-on: [incident]
 purpose: history
 audience: [operations, platform-devops]
 definition: 'The ordered times of an incident: detection, acknowledgement, mitigation and resolution.'

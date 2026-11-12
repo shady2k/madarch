@@ -1,4 +1,5 @@
 id: manifest.statuses
+depends-on: []
 purpose: structure
 audience: [architect, product-lead]
 definition: A named state an entity of a kind may be in, declared in the manifest's workflow; an entity has one current status,

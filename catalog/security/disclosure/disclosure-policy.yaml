@@ -1,4 +1,5 @@
 id: practice.disclosure-policy
+depends-on: [product]
 purpose: quality
 audience: [security-engineer, architect]
 definition: The published rules by which a researcher tells the product team about a vulnerability.

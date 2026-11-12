@@ -1,4 +1,5 @@
 id: sacm.claim
+depends-on: [doc.requirement]
 purpose: quality
 audience: [product, analyst, tester, architect]
 definition: A proposition an assurance case argues for, supported by argument and evidence.

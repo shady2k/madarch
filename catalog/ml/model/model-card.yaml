@@ -1,4 +1,5 @@
 id: practice.model-card
+depends-on: [evaluation-result]
 purpose: understand
 audience: [product, analyst, developer, product-lead]
 definition: The documented purpose, limits and evaluation of a model, written for the people who use it.

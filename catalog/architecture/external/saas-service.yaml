@@ -1,4 +1,5 @@
 id: practice.saas-service
+depends-on: [supplier]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A software service a supplier runs for the product, reached over an interface.

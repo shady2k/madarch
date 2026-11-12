@@ -1,4 +1,5 @@
 id: practice.known-failure
+depends-on: [document]
 purpose: operations
 audience: [developer, platform-devops]
 definition: A failure the README names, with its symptom and its fix.

@@ -1,4 +1,5 @@
 id: practice.supplier
+depends-on: [organization, product]
 purpose: operations
 audience: [product-lead, operations, security-engineer]
 definition: An organisation the product depends on for a service, a component or a platform.

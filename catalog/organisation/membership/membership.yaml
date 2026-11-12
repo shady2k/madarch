@@ -1,4 +1,5 @@
 id: org.membership
+depends-on: [business-role, team, user]
 purpose: history
 audience: [product-lead, product, architect]
 definition: A person's place in a group, with the role they hold there and for how long.

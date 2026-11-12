@@ -1,4 +1,5 @@
 id: gdpr.personal-data-category
+depends-on: []
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: A kind of personal data processed, such as a name, a location or a health record.

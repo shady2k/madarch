@@ -1,4 +1,5 @@
 id: practice.message-schema
+depends-on: [code.channel]
 purpose: structure
 audience: [developer, architect, analyst, tester]
 definition: The shape of a message sent over a channel.

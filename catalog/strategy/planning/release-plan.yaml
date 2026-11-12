@@ -1,4 +1,5 @@
 id: practice.release-plan
+depends-on: [roadmap-item]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: What a release is meant to contain, and when it is expected.

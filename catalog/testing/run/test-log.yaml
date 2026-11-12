@@ -1,4 +1,5 @@
 id: istqb.test-log
+depends-on: [test-run]
 purpose: quality
 audience: [tester, developer]
 definition: The chronological record of what a test run did.

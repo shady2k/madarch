@@ -1,4 +1,5 @@
 id: openfeature.variant
+depends-on: [feature-flag]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: One value a feature flag can take, chosen by its rules.

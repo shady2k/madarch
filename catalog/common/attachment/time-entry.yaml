@@ -1,4 +1,5 @@
 id: practice.time-entry
+depends-on: []
 purpose: history
 audience: [product-lead, developer]
 definition: A record of time spent on an entity, with its type (work time, waiting or an agent's run), its duration and the

@@ -33,8 +33,7 @@ fields:
 key:
 - database
 - name
-depends-on:
-- code.database
+depends-on: [code.database]
 terms:
 - '**/*.ts'
 - '**/*.tsx'

@@ -1,4 +1,5 @@
 id: practice.dependency
+depends-on: [code.manifest]
 purpose: structure
 audience: [developer, architect, platform-devops, security-engineer]
 definition: A library a service declares, with its version and where it is used.

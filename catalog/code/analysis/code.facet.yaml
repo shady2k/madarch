@@ -1,4 +1,5 @@
 id: practice.file-facet
+depends-on: [code.file]
 purpose: structure
 audience: [developer, architect]
 definition: What the code reader found out about one file, such as its role and its language.

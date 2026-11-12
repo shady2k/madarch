@@ -1,4 +1,5 @@
 id: nist800-34.exercise-result
+depends-on: [drill]
 purpose: quality
 audience: [operations, platform-devops, architect]
 definition: 'What a drill showed: the objectives reached, the time taken and the gaps found.'

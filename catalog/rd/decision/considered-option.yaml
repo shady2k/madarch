@@ -1,4 +1,5 @@
 id: madr.considered-option
+depends-on: [doc.decision]
 purpose: understand
 audience: [product, analyst, architect, developer]
 definition: One option a decision weighed, with the reason it was or was not taken.

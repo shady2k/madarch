@@ -1,4 +1,5 @@
 id: practice.user-role
+depends-on: [actor]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: The part a person plays when using the product, with the permissions and duties it carries.

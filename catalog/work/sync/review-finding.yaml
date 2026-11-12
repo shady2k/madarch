@@ -1,4 +1,5 @@
 id: practice.review-finding
+depends-on: [pull-request-review]
 purpose: quality
 audience: [developer, tester, product-lead]
 definition: 'A finding a review raises about a change, with its severity and its outcome: fixed, or declined with a reason.'

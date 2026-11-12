@@ -1,4 +1,5 @@
 id: practice.key-result
+depends-on: [objective]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A measurable result that tells whether an objective was reached.

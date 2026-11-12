@@ -1,4 +1,5 @@
 id: arc42.runtime-scenario
+depends-on: [component, doc.use-case]
 purpose: understand
 audience: [architect, analyst, developer]
 definition: 'arc42''s view of one runtime situation: the participants and the steps between them.'

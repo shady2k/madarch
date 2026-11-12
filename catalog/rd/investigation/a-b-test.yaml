@@ -1,4 +1,5 @@
 id: practice.ab-test
+depends-on: [experiment]
 purpose: understand
 audience: [product, analyst, designer, tester]
 definition: An experiment that gives different people different variants and compares the outcome.

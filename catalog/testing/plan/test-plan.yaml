@@ -1,4 +1,5 @@
 id: istqb.test-plan
+depends-on: [test-objective]
 purpose: quality
 audience: [tester, developer]
 definition: The objectives, the means and the schedule of the testing for a product or a change.

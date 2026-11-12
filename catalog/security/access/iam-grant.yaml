@@ -1,4 +1,5 @@
 id: practice.iam-grant
+depends-on: [iam-account, iam-policy]
 purpose: operations
 audience: [security-engineer, architect]
 definition: One permission given to a subject over a resource.

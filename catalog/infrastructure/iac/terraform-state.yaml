@@ -1,4 +1,5 @@
 id: terraform.state
+depends-on: [terraform-module]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: The record Terraform keeps of the resources it created and their last known attributes.

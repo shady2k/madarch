@@ -1,4 +1,5 @@
 id: cyclonedx.component
+depends-on: [sbom]
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
 definition: One component of a software bill of materials, of a type such as library, container or application.

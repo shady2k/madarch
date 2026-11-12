@@ -1,4 +1,5 @@
 id: practice.object-store
+depends-on: []
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A store that keeps objects under keys, with the buckets it holds.

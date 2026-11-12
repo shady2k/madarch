@@ -1,4 +1,5 @@
 id: oscal.component-definition
+depends-on: [component, profile]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: How one component implements the controls a profile selects, as OSCAL defines it.

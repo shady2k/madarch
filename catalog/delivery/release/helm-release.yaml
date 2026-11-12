@@ -1,4 +1,5 @@
 id: helm.release
+depends-on: [code.file, k8s-namespace]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A named, deployed instance of a Helm chart in one cluster and namespace.

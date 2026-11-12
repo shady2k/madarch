@@ -1,4 +1,5 @@
 id: iso15408.security-target
+depends-on: [product]
 purpose: quality
 audience: [security-engineer, architect]
 definition: The document that states the security problem of a product and the measures that answer it, as ISO/IEC 15408 defines

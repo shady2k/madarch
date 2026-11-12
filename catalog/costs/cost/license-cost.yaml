@@ -1,4 +1,5 @@
 id: focus.license-cost
+depends-on: [cost-record, license-agreement]
 purpose: operations
 audience: [product-lead, operations, platform-devops]
 definition: What the product pays for the licences its components need.

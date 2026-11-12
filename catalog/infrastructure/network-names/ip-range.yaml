@@ -1,4 +1,5 @@
 id: practice.ip-range
+depends-on: [deployment-environment]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A block of addresses the product's networks and rules are written against.

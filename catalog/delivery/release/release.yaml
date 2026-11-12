@@ -1,4 +1,5 @@
 id: practice.release
+depends-on: [change]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A version of the product made available to its users, with the changes it carries.

@@ -1,4 +1,5 @@
 id: alertmanager.receiver
+depends-on: [product]
 purpose: operations
 audience: [operations, platform-devops]
 definition: A place alerts are delivered to, such as a chat channel or a paging service.

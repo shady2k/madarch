@@ -1,4 +1,5 @@
 id: ddd.entity
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: An object of the domain with an identity of its own, which persists through change.

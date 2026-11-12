@@ -1,4 +1,5 @@
 id: practice.sast-scan
+depends-on: [code.file]
 purpose: quality
 audience: [security-engineer, tester, developer]
 definition: A tool run that reads the source for patterns that may be exploitable.

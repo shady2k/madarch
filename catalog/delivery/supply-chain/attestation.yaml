@@ -1,4 +1,5 @@
 id: in-toto.attestation
+depends-on: [in-toto-statement]
 purpose: quality
 audience: [developer, platform-devops, operations]
 definition: A signed statement about an artifact, such as its provenance or a scan result, in an in-toto envelope.

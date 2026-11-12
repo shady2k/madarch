@@ -45,8 +45,7 @@ fields:
 key:
 - table
 - name
-depends-on:
-- code.table
+depends-on: [code.table]
 terms:
 - '**/*.ts'
 - '**/*.tsx'

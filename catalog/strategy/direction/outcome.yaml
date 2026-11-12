@@ -1,4 +1,5 @@
 id: archimate.outcome
+depends-on: [goal]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: 'A result that follows from a goal: what is different once the goal is reached.'

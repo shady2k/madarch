@@ -1,4 +1,5 @@
 id: graphql.operation
+depends-on: [code.graphql-schema-type]
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A GraphQL query, mutation or subscription, with the types it reads and returns.

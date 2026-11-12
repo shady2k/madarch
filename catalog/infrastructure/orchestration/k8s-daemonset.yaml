@@ -1,4 +1,5 @@
 id: kubernetes.daemonset
+depends-on: [code.image, k8s-namespace]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A Kubernetes workload that runs one pod on every node it selects.

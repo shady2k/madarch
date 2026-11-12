@@ -1,4 +1,5 @@
 id: practice.audit-finding
+depends-on: [audit]
 purpose: quality
 audience: [security-engineer, architect]
 definition: One conclusion of an audit, with the evidence and the requirement it rests on.

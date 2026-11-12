@@ -1,4 +1,5 @@
 id: practice.troubleshooting-guide
+depends-on: [code.newcomer-failure]
 purpose: operations
 audience: [operations, product, developer]
 definition: The symptoms of a known failure and what resolves each of them.

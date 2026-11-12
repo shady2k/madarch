@@ -1,4 +1,5 @@
 id: practice.sso-configuration
+depends-on: [software-system]
 purpose: operations
 audience: [security-engineer, operations, platform-devops]
 definition: How a service trusts one identity provider to sign its users in.

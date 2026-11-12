@@ -1,4 +1,5 @@
 id: practice.touchpoint
+depends-on: [user-journey]
 purpose: understand
 audience: [product, analyst, designer]
 definition: A place in a journey where a person meets the product or the organisation.

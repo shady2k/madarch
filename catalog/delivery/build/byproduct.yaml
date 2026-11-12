@@ -1,4 +1,5 @@
 id: slsa.byproduct
+depends-on: [build]
 purpose: history
 audience: [developer, platform-devops, operations]
 definition: Something a build emitted besides its artifacts, such as a log or a scan result.

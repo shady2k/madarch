@@ -1,4 +1,5 @@
 id: istqb.test-charter
+depends-on: [test-objective]
 purpose: quality
 audience: [tester, developer]
 definition: The mission statement that guides one exploratory test session.

@@ -1,4 +1,5 @@
 id: practice.lockfile
+depends-on: [code.manifest]
 purpose: structure
 audience: [developer, architect, platform-devops, security-engineer]
 definition: A file that pins the exact versions of a package's dependencies.

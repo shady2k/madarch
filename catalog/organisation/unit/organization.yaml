@@ -1,4 +1,5 @@
 id: org.organization
+depends-on: []
 purpose: history
 audience: [product-lead, product, architect]
 definition: A body of people with a purpose, which holds its units and its members, as W3C ORG defines it.

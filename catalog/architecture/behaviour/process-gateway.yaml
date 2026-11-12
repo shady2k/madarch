@@ -1,4 +1,5 @@
 id: bpmn.gateway
+depends-on: [process-model]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A BPMN point where a process branches or joins, by a condition or an event.

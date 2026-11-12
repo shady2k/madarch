@@ -1,4 +1,5 @@
 id: sre.sli
+depends-on: [code.service]
 purpose: operations
 audience: [operations, platform-devops]
 definition: A quantitative measure of one aspect of the service as users experience it.

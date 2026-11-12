@@ -1,4 +1,5 @@
 id: practice.subcontractor
+depends-on: [supplier]
 purpose: operations
 audience: [product-lead, operations, security-engineer]
 definition: A party a supplier passes part of its work to, and the product depends on in turn.

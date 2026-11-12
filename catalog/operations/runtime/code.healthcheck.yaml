@@ -1,4 +1,5 @@
 id: practice.compose-healthcheck
+depends-on: [code.compose-service]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: A configured compose healthcheck command and its timing.

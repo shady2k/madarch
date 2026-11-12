@@ -1,4 +1,5 @@
 id: practice.upgrade
+depends-on: [technology]
 purpose: operations
 audience: [operations, platform-devops]
 definition: A move of a component or a platform to a newer version, with what it requires first.

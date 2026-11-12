@@ -28,8 +28,7 @@ fields:
 key:
 - name
 - email
-depends-on:
-- code.commit
+depends-on: [code.commit]
 origin: history
 history: author
 labels:

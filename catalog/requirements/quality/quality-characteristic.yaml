@@ -1,4 +1,5 @@
 id: iso25010.quality-characteristic
+depends-on: []
 purpose: quality
 audience: [product, analyst, tester, architect]
 definition: One of the quality characteristics a quality requirement is stated against, as ISO/IEC 25010 lists them.

@@ -1,4 +1,5 @@
 id: stride.threat
+depends-on: [threat-model]
 purpose: quality
 audience: [security-engineer, architect]
 definition: A way an attacker could harm the product, placed in one STRIDE category.

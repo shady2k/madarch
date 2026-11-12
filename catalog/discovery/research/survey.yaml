@@ -1,4 +1,5 @@
 id: practice.survey
+depends-on: [research-question]
 purpose: understand
 audience: [product, analyst, designer]
 definition: A set of questions put to many people, whose answers are evidence for a decision.

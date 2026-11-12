@@ -1,4 +1,5 @@
 id: practice.external-reference
+depends-on: []
 purpose: structure
 audience: [product-lead, analyst, developer]
 definition: 'A record of the same thing in another system: the system, its number there and the link, which any entity may

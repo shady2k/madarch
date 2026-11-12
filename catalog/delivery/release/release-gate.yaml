@@ -1,4 +1,5 @@
 id: practice.release-gate
+depends-on: [acceptance-criterion, release]
 purpose: quality
 audience: [developer, platform-devops, operations]
 definition: A check a release must pass before it may go on to the next environment.

@@ -1,4 +1,5 @@
 id: nist-ai-rmf.ai-system
+depends-on: [ml-model]
 purpose: structure
 audience: [security-engineer, product-lead, analyst]
 definition: A system that uses a model to make or support decisions, as the NIST AI risk framework treats it.

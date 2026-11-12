@@ -1,4 +1,5 @@
 id: practice.feature
+depends-on: [goal]
 purpose: understand
 audience: [developer, product, product-lead, tester]
 definition: A service the product offers that fulfils a stakeholder need, refined by stories and requirements.

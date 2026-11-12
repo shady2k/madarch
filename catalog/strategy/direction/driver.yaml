@@ -1,4 +1,5 @@
 id: archimate.driver
+depends-on: [domain, stakeholder]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: An external or internal condition that motivates the organisation to change.

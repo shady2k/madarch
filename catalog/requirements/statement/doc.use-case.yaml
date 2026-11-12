@@ -1,4 +1,5 @@
 id: practice.use-case
+depends-on: [actor, goal]
 purpose: understand
 audience: [product, analyst, tester, developer, architect]
 definition: A way an actor reaches a goal with the system, as the documents state it.

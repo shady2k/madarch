@@ -1,4 +1,5 @@
 id: practice.dashboard
+depends-on: [telemetry-resource]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: A screen of panels that shows the metrics and the logs of one subject over time.

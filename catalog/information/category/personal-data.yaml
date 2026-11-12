@@ -1,4 +1,5 @@
 id: gdpr.personal-data
+depends-on: [information-category]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: Information about an identified or identifiable person, as the GDPR defines it.

@@ -1,4 +1,5 @@
 id: mlmd.execution
+depends-on: [code.file, training-dataset]
 purpose: history
 audience: [developer, architect, product-lead]
 definition: One training of a model, with its parameters, its data and its output.

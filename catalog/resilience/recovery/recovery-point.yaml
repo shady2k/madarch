@@ -1,4 +1,5 @@
 id: nist800-34.recovery-point
+depends-on: [software-system]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: One point in time a restore can return the data to, and how much data that loses.

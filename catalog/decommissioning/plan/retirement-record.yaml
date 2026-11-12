@@ -1,4 +1,5 @@
 id: practice.retirement-record
+depends-on: [decommission-plan]
 purpose: history
 audience: [operations, platform-devops, product-lead]
 definition: 'The record that a system was retired: when, by whom and what is left of its data.'

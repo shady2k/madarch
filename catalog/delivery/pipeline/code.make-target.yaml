@@ -1,4 +1,5 @@
 id: practice.make-target
+depends-on: [code.file]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A target of a Makefile and the commands it runs.

@@ -1,4 +1,5 @@
 id: json-schema.schema
+depends-on: []
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A JSON Schema that fixes the shape of a payload, a configuration or a message.

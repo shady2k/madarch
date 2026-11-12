@@ -1,4 +1,5 @@
 id: practice.release-notes
+depends-on: [release]
 purpose: history
 audience: [product, analyst, developer, operations]
 definition: What one release changes for the people who use the product.

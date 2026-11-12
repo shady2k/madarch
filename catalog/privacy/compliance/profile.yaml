@@ -1,4 +1,5 @@
 id: oscal.profile
+depends-on: [control]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: A selection of controls from one or more catalogs, tailored for a purpose, as OSCAL defines it.

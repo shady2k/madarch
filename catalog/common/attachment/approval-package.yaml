@@ -1,4 +1,5 @@
 id: practice.approval-package
+depends-on: [kind]
 purpose: quality
 audience: [product-lead, analyst, developer]
 definition: 'A package of pending changes: what will be created or changed, its links and its risks, linked to the entity

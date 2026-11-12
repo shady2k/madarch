@@ -1,4 +1,5 @@
 id: practice.document-section
+depends-on: [document]
 purpose: understand
 audience: [product, analyst, developer, operations]
 definition: A heading and its section declared in a repository document.

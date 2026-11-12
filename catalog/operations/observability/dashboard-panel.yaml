@@ -1,4 +1,5 @@
 id: practice.dashboard-panel
+depends-on: [dashboard]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: One query and its picture on a dashboard.

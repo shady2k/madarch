@@ -1,4 +1,5 @@
 id: practice.cache-key
+depends-on: [cache]
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: The name a cached value is stored under, with its namespace and its lifetime.

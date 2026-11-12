@@ -1,4 +1,5 @@
 id: practice.ai-impact-assessment
+depends-on: [ai-system, stakeholder]
 purpose: quality
 audience: [security-engineer, product-lead, analyst]
 definition: The study of how an AI system affects the people it is used on, and the measures that answer it.

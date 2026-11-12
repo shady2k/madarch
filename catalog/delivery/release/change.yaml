@@ -1,4 +1,5 @@
 id: otel.vcs-change
+depends-on: [code.commit]
 purpose: history
 audience: [developer, platform-devops, operations]
 definition: A proposed or merged change to the product, from its first commit until it runs in production.

@@ -1,4 +1,5 @@
 id: practice.design-system
+depends-on: [design-token]
 purpose: understand
 audience: [designer, developer, architect]
 definition: The tokens, components and rules a product draws its interface from.

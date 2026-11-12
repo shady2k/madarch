@@ -1,4 +1,5 @@
 id: org.organizational-unit
+depends-on: [organization]
 purpose: history
 audience: [product-lead, product, architect]
 definition: A division of an organisation, above its teams.

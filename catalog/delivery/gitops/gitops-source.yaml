@@ -1,4 +1,5 @@
 id: opengitops.source
+depends-on: [code.commit]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The repository, path and revision a GitOps agent reads the desired state from.

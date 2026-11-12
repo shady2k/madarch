@@ -1,4 +1,5 @@
 id: archimate.assessment
+depends-on: [driver]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: The organisation's judgement of a driver, a goal or another element, and the grounds it rests on.

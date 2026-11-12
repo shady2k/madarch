@@ -1,4 +1,5 @@
 id: gdpr.transfer
+depends-on: [processing-activity, recipient]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: A transfer of personal data to a third country or an international organisation, with its safeguard.

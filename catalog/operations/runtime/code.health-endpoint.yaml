@@ -1,4 +1,5 @@
 id: practice.health-endpoint
+depends-on: [code.route]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: The route that tells whether a service is alive.

@@ -1,4 +1,5 @@
 id: practice.lifecycle-step
+depends-on: [task]
 purpose: history
 audience: [developer, product, product-lead, tester]
 definition: 'The record one step of an agent''s task writes as it ends: its duration, tokens, cost, model and outcome.'

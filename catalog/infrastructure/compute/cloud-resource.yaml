@@ -1,4 +1,5 @@
 id: practice.cloud-resource
+depends-on: [deployment-environment, technology]
 purpose: structure
 audience: [operations, platform-devops, architect]
 definition: A resource a cloud provider offers and the product uses, named by its provider type.

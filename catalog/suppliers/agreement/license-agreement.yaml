@@ -1,4 +1,5 @@
 id: practice.license-agreement
+depends-on: [supplier]
 purpose: operations
 audience: [product-lead, operations, security-engineer]
 definition: The terms under which a supplier lets the product use a component or a service.

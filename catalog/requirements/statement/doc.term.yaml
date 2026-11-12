@@ -36,8 +36,7 @@ fields:
   nullable: true
   producers:
   - person
-depends-on:
-- code.file
+depends-on: [code.file, domain]
 origin: person
 listing: glossary
 nav: own-page

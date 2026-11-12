@@ -1,4 +1,5 @@
 id: gdpr.special-category-data
+depends-on: [personal-data]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: Personal data of the kinds the GDPR treats as specially protected, such as health or beliefs.

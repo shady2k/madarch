@@ -1,4 +1,5 @@
 id: oscal.control
+depends-on: [control-catalog]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: One control of a catalog, with its statements, its parameters and its assessment methods.

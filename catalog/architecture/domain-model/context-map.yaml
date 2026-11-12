@@ -1,4 +1,5 @@
 id: ddd.context-map
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: The map of the bounded contexts and the relationships between them.

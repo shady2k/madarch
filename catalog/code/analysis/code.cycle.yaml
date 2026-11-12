@@ -1,4 +1,5 @@
 id: practice.dependency-cycle
+depends-on: [code.file]
 purpose: quality
 audience: [developer, architect]
 definition: Files or modules that import one another in a ring.

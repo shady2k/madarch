@@ -1,4 +1,5 @@
 id: nist800-34.geo-redundancy
+depends-on: [deployment-environment]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: Copies of a system or its data kept in a second region so the loss of one region is survivable.

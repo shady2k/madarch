@@ -1,4 +1,5 @@
 id: practice.threat-actor
+depends-on: []
 purpose: quality
 audience: [security-engineer, architect]
 definition: A person or a group whose capabilities and intentions the threat model reasons about.

@@ -1,4 +1,5 @@
 id: otel.cicd-task
+depends-on: [code.ci-workflow]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A job of a CI workflow and the steps it runs.

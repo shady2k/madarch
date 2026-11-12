@@ -1,4 +1,5 @@
 id: practice.network-port
+depends-on: [code.service, protocol]
 purpose: operations
 audience: [developer, architect, operations, platform-devops]
 definition: A network port a service listens on or publishes.

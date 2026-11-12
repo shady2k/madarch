@@ -1,4 +1,5 @@
 id: kubernetes.pod
+depends-on: [code.image, k8s-namespace]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: 'The smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'

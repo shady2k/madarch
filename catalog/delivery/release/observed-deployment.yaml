@@ -1,4 +1,5 @@
 id: practice.observed-deployment
+depends-on: [deployment]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: What actually runs in one environment, as the platform reports it, beside the desired state and the deployment

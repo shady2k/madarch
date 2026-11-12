@@ -1,4 +1,5 @@
 id: nist-ai-rmf.risk
+depends-on: [ai-system]
 purpose: quality
 audience: [security-engineer, product-lead, analyst]
 definition: A way an AI system may harm people or the organisation, with its likelihood and its effect.

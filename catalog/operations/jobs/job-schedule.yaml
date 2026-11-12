@@ -1,4 +1,5 @@
 id: practice.job-schedule
+depends-on: [scheduled-job]
 purpose: operations
 audience: [operations, platform-devops]
 definition: When and how often a scheduled job runs, with the limits it runs under.

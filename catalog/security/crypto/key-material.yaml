@@ -1,4 +1,5 @@
 id: practice.key-material
+depends-on: [crypto-algorithm]
 purpose: structure
 audience: [security-engineer, architect, developer]
 definition: A key the product uses to sign, encrypt or authenticate, with where it is kept and when it expires.

@@ -1,4 +1,5 @@
 id: backstage.user
+depends-on: []
 purpose: history
 audience: [product-lead, product, architect]
 definition: A person the product knows, with the identity they sign in by.

@@ -1,4 +1,5 @@
 id: nist800-34.contingency-plan
+depends-on: [recovery-objective]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: The plan that says how a system is brought back after a disruption, and by whom.

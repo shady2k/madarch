@@ -1,4 +1,5 @@
 id: practice.security-group
+depends-on: [network-zone]
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
 definition: A named set of firewall rules attached to the resources of one cloud network.

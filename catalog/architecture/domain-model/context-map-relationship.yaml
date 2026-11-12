@@ -1,4 +1,5 @@
 id: ddd.context-map-relationship
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A named relationship between two bounded contexts, such as partnership, shared kernel or anticorruption layer.

@@ -1,4 +1,5 @@
 id: practice.cache-policy
+depends-on: [cache]
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: The rule that decides when a cached value is written, reused and dropped.

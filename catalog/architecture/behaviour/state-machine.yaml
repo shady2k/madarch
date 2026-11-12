@@ -1,4 +1,5 @@
 id: uml.state-machine
+depends-on: [doc.term]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: The states a thing can be in and the transitions between them, as UML state machines define them.

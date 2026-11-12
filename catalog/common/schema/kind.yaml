@@ -1,4 +1,5 @@
 id: manifest.kinds
+depends-on: [product]
 purpose: structure
 audience: [architect, product-lead]
 definition: 'A declared kind of entity in the product manifest: its concept id, definition, sources, acquisition, status,

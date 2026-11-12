@@ -1,4 +1,5 @@
 id: earl.evaluation
+depends-on: [accessibility-success-criterion]
 purpose: quality
 audience: [designer, tester, developer]
 definition: A recorded evaluation of a resource against a criterion, with its result and the tool that made it.

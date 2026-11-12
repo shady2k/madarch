@@ -1,4 +1,5 @@
 id: c4.person
+depends-on: [product]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A person who interacts with the system, as C4's person is; an external system is a different kind, outside the

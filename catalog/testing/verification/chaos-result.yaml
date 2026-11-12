@@ -1,4 +1,5 @@
 id: practice.chaos-result
+depends-on: [chaos-experiment]
 purpose: quality
 audience: [tester, developer]
 definition: What a chaos experiment showed, with the steady state it compared against.

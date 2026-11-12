@@ -1,4 +1,5 @@
 id: practice.runtime-process
+depends-on: [code.service]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A program the system starts, and the port it listens on.

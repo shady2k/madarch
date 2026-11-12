@@ -1,4 +1,5 @@
 id: practice.how-to
+depends-on: [doc.use-case]
 purpose: operations
 audience: [product, analyst, developer, operations]
 definition: The steps that solve one real problem a person has.

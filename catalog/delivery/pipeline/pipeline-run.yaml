@@ -1,4 +1,5 @@
 id: otel.cicd-pipeline-run
+depends-on: [code.ci-workflow, code.commit]
 purpose: history
 audience: [developer, platform-devops, operations]
 definition: One execution of a pipeline on one revision, with its result and its duration.

@@ -1,4 +1,5 @@
 id: practice.bucket
+depends-on: [object-store]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A named container of objects in an object store, with its access rules.

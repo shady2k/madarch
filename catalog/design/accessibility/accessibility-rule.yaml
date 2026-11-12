@@ -1,4 +1,5 @@
 id: act.rule
+depends-on: [accessibility-success-criterion]
 purpose: quality
 audience: [designer, tester, developer]
 definition: A W3C ACT rule that checks one success criterion in a way tools can repeat.

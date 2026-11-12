@@ -1,4 +1,5 @@
 id: practice.pull-request-review
+depends-on: [pull-request]
 purpose: quality
 audience: [developer, tester]
 definition: The review one or more people gave a proposed change, with its comments and its verdict.

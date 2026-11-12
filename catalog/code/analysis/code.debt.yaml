@@ -1,4 +1,5 @@
 id: practice.debt-marker
+depends-on: [code.file]
 purpose: quality
 audience: [developer, architect]
 definition: A TODO or FIXME a comment left in the code, which names a debt rather than being one.

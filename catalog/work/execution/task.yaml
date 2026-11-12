@@ -1,4 +1,5 @@
 id: practice.product-task
+depends-on: [product]
 purpose: operations
 audience: [developer, product, product-lead, tester]
 definition: A scoped change a person plans, with the pages and the statements it affects; it is the work item for work with

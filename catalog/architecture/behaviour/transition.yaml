@@ -1,4 +1,5 @@
 id: uml.transition
+depends-on: [state]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A change from one state to another, with the event that triggers it.

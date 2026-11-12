@@ -1,4 +1,5 @@
 id: practice.deployment-environment
+depends-on: [software-system]
 purpose: operations
 audience: [architect, operations, platform-devops]
 definition: A named place the product is deployed into, such as staging or production, with the rules that protect it.

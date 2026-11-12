@@ -1,4 +1,5 @@
 id: practice.security-advisory
+depends-on: [release, vulnerability]
 purpose: quality
 audience: [security-engineer, architect]
 definition: A published notice of a vulnerability in the product, with the versions affected and the fix.

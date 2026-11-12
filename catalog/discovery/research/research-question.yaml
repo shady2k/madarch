@@ -1,4 +1,5 @@
 id: practice.research-question
+depends-on: [product]
 purpose: understand
 audience: [product, analyst, designer]
 definition: The question a piece of user research is meant to answer.

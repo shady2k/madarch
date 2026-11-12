@@ -1,4 +1,5 @@
 id: practice.business-rule
+depends-on: [domain]
 purpose: understand
 audience: [product, analyst, tester, developer, architect]
 definition: A rule the product keeps, stated in the documents, which the code is meant to enforce.

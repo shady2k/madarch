@@ -1,4 +1,5 @@
 id: openfeature.targeting-rule
+depends-on: [flag-evaluation-context, flag-variant]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The condition under which one variant of a feature flag is served.

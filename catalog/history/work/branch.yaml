@@ -1,4 +1,5 @@
 id: otel.vcs-ref
+depends-on: [code.commit]
 purpose: history
 audience: [developer, architect, product-lead]
 definition: A movable name for a line of commits in a repository.

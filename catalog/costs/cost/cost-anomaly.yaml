@@ -1,4 +1,5 @@
 id: focus.anomaly
+depends-on: [cost-record]
 purpose: quality
 audience: [product-lead, operations, platform-devops]
 definition: A cost that departed from what was expected, with the resource that caused it.

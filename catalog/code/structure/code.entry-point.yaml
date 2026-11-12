@@ -1,4 +1,5 @@
 id: practice.entry-point
+depends-on: [code.file]
 purpose: structure
 audience: [developer, architect]
 definition: Where a process of the system starts running.

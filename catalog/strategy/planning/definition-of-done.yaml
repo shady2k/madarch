@@ -1,4 +1,5 @@
 id: scrum.definition-of-done
+depends-on: [product]
 purpose: quality
 audience: [product, product-lead, tester, developer]
 definition: The shared standard an increment must meet to count as done.

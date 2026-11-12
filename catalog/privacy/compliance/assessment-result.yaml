@@ -1,4 +1,5 @@
 id: oscal.assessment-result
+depends-on: [assessment-plan]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: What an assessment found for each control, with the evidence it read.

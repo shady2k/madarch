@@ -1,4 +1,5 @@
 id: practice.security-exception
+depends-on: [policy]
 purpose: quality
 audience: [security-engineer, architect]
 definition: A recorded decision to accept a known deviation from a rule, with its reason and its end date.

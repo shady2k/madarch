@@ -1,4 +1,5 @@
 id: practice.frontend-route
+depends-on: [screen]
 purpose: structure
 audience: [designer, developer]
 definition: A client-side address that renders a screen and calls the operations it needs.

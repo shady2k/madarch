@@ -1,4 +1,5 @@
 id: practice.budget
+depends-on: [product]
 purpose: operations
 audience: [product-lead, operations, platform-devops]
 definition: A limit on what a product or a team may spend in a period, with who is warned when it nears.

@@ -1,4 +1,5 @@
 id: openfeature.flag
+depends-on: [product]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A switch that changes the product's behaviour without a new deployment.

@@ -1,4 +1,5 @@
 id: practice.trust-boundary
+depends-on: [information-flow, trust-zone]
 purpose: structure
 audience: [security-engineer, architect]
 definition: A line across which the level of trust changes, which data flows cross.

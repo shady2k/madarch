@@ -1,4 +1,5 @@
 id: practice.support-answer
+depends-on: [support-request]
 purpose: understand
 audience: [operations, product, developer]
 definition: The answer support gave a request, and whether it solved the problem.

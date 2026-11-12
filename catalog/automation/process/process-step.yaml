@@ -1,4 +1,5 @@
 id: practice.process-step
+depends-on: [business-process]
 purpose: operations
 audience: [analyst, platform-devops, operations]
 definition: One step of a business process; whether it is done by hand, automated or by an agent is an attribute.

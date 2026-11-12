@@ -1,4 +1,5 @@
 id: practice.job-run
+depends-on: [scheduled-job]
 purpose: history
 audience: [operations, platform-devops]
 definition: One execution of a scheduled job, with its result and how long it took.

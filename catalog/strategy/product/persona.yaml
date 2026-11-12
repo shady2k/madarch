@@ -1,4 +1,5 @@
 id: practice.persona
+depends-on: [research-finding]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: A described kind of user, with the goals and behaviour the research found.

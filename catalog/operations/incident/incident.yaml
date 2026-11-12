@@ -1,4 +1,5 @@
 id: sre.incident
+depends-on: [code.service]
 purpose: operations
 audience: [operations, platform-devops]
 definition: An unplanned event that harms or may harm the service, with its impact and its timeline.

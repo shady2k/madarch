@@ -1,4 +1,5 @@
 id: spdx.license
+depends-on: []
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
 definition: The terms a component may be used under, named by its SPDX identifier.

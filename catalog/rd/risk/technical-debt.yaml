@@ -1,4 +1,5 @@
 id: practice.technical-debt
+depends-on: [component]
 purpose: quality
 audience: [developer, architect, product-lead]
 definition: A known weakness of the implementation that will cost more to fix later than now.

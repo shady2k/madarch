@@ -1,4 +1,5 @@
 id: practice.ai-incident
+depends-on: [ai-system]
 purpose: operations
 audience: [security-engineer, product-lead, analyst]
 definition: A harm or a near miss an AI system caused, kept so it can be answered and learned from.

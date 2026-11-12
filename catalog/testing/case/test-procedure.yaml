@@ -1,4 +1,5 @@
 id: istqb.test-procedure
+depends-on: [code.test-case]
 purpose: quality
 audience: [tester, developer]
 definition: The order in which test cases are run, and what has to be in place before them.

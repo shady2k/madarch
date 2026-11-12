@@ -1,4 +1,5 @@
 id: slsa.subject
+depends-on: [build]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: What a build produced, named by its digest so it can be verified.

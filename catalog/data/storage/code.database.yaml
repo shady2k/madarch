@@ -24,9 +24,7 @@ fields:
   binding: db-schema@1.repository
 key:
 - name
-depends-on:
-- code.repository
-- code.file
+depends-on: [code.file, code.service]
 terms:
 - '**/*.ts'
 - '**/*.tsx'

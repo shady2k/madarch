@@ -1,4 +1,5 @@
 id: terraform.resource
+depends-on: [terraform-provider]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: One infrastructure object Terraform manages, of a provider's resource type.

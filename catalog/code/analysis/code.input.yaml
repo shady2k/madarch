@@ -1,4 +1,5 @@
 id: practice.code-input
+depends-on: [code.file]
 purpose: structure
 audience: [developer, architect]
 definition: A value that enters the code from outside, such as a query parameter.

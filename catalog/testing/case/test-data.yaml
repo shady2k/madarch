@@ -1,4 +1,5 @@
 id: istqb.test-data
+depends-on: [test-condition]
 purpose: quality
 audience: [tester, developer]
 definition: The data a test needs to run, kept apart from the test code.

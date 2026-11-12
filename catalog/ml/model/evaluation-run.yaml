@@ -1,4 +1,5 @@
 id: practice.evaluation-run
+depends-on: [ml-model]
 purpose: quality
 audience: [developer, tester, product-lead]
 definition: One evaluation of a model against a dataset and the metric it was judged by.

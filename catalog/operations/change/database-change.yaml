@@ -1,4 +1,5 @@
 id: practice.database-change
+depends-on: [code.database]
 purpose: operations
 audience: [operations, platform-devops]
 definition: A change to a database's schema or its data, with the way back if it fails.

@@ -1,4 +1,5 @@
 id: sre.error-budget-policy
+depends-on: [slo]
 purpose: operations
 audience: [operations, platform-devops]
 definition: The rule that says what the team does as the error budget is spent.

@@ -1,4 +1,5 @@
 id: oscal.system-security-plan
+depends-on: [profile, software-system]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: The plan that binds a system to a profile, its controls and how they are implemented.

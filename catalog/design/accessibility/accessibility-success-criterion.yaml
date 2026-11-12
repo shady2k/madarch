@@ -1,4 +1,5 @@
 id: wcag.success-criterion
+depends-on: []
 purpose: quality
 audience: [designer, tester, developer]
 definition: A numbered criterion of WCAG that a screen or a component is judged against, at a level A, AA or AAA.

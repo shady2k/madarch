@@ -1,4 +1,5 @@
 id: practice.logger
+depends-on: [code.file]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: Where a service sets up its logging.

@@ -1,4 +1,5 @@
 id: otel.cicd-pipeline
+depends-on: [code.file]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: A continuous integration workflow file and the triggers it runs on.

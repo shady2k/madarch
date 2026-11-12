@@ -1,4 +1,5 @@
 id: practice.known-issue
+depends-on: [product]
 purpose: quality
 audience: [operations, product, developer]
 definition: A defect or a limitation the people who use the product are told about.

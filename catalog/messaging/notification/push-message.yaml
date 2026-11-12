@@ -1,4 +1,5 @@
 id: practice.push-message
+depends-on: [code.service]
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: A notification a service pushes to a device or a browser.

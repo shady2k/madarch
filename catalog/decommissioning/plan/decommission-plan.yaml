@@ -1,4 +1,5 @@
 id: practice.decommission-plan
+depends-on: [software-system]
 purpose: operations
 audience: [operations, platform-devops, product-lead]
 definition: The plan that says how a system is taken out of service without losing what it holds.

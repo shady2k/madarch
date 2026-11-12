@@ -52,8 +52,7 @@ fields:
   - git
 key:
 - hash
-depends-on:
-- code.repository
+depends-on: [code.file]
 origin: history
 history: commit
 details:

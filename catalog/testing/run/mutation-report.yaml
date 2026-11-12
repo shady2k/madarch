@@ -1,4 +1,5 @@
 id: practice.mutation-report
+depends-on: [mutant, test-result]
 purpose: quality
 audience: [tester, developer]
 definition: The record of which mutants a test suite killed and which survived.

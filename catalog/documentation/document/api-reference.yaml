@@ -1,4 +1,5 @@
 id: practice.api-reference
+depends-on: [code.contract]
 purpose: structure
 audience: [developer, analyst, architect, tester]
 definition: The generated description of an interface's operations and their payloads.

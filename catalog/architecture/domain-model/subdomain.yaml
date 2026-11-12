@@ -1,4 +1,5 @@
 id: ddd.subdomain
+depends-on: [domain]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A part of the business the model is divided into, classified as core, supporting or generic.

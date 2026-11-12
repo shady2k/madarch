@@ -1,4 +1,5 @@
 id: practice.usability-finding
+depends-on: [usability-test]
 purpose: quality
 audience: [designer, tester, product, analyst]
 definition: A problem a usability test found, with the session that showed it.

@@ -1,4 +1,5 @@
 id: practice.requirement-change
+depends-on: [change-request, doc.requirement]
 purpose: understand
 audience: [product, analyst, tester, architect, product-lead]
 definition: A change to a stated requirement, with what it replaces and why.

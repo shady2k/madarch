@@ -1,4 +1,5 @@
 id: protobuf.rpc
+depends-on: [code.grpc-service]
 purpose: structure
 audience: [developer, architect, analyst]
 definition: One remote call of a Protocol Buffers service, with its request and response messages.

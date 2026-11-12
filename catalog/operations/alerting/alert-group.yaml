@@ -1,4 +1,5 @@
 id: alertmanager.alert-group
+depends-on: [alert-route]
 purpose: operations
 audience: [operations, platform-devops]
 definition: Alerts that are batched together before they are sent, by the labels they share.

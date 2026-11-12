@@ -1,4 +1,5 @@
 id: istqb.test-oracle
+depends-on: [test-basis]
 purpose: quality
 audience: [tester, developer]
 definition: The source a test takes its expected result from, such as a golden file or a specification.

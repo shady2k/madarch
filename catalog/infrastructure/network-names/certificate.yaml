@@ -1,4 +1,5 @@
 id: x509.certificate
+depends-on: [key-material]
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
 definition: A signed statement that binds a public key to a name, which a service presents to be trusted.

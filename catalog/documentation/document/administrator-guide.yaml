@@ -1,4 +1,5 @@
 id: practice.admin-guide
+depends-on: [deployment-environment]
 purpose: operations
 audience: [operations, platform-devops]
 definition: The setup and the operations of the product, written for the person who runs it.

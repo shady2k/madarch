@@ -29,8 +29,7 @@ fields:
 key:
 - repository_node
 - path_id
-depends-on:
-- code.repository
+depends-on: [code.repository]
 details:
 - path
 labels:

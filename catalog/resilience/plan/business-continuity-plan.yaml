@@ -1,4 +1,5 @@
 id: nist800-34.business-continuity-plan
+depends-on: [business-impact-analysis]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: The plan that keeps the business running while the systems are recovered.

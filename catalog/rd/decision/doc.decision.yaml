@@ -1,4 +1,5 @@
 id: practice.decision
+depends-on: [decision-driver]
 purpose: history
 audience: [product, analyst, architect, developer]
 definition: 'An architecture decision record: what was decided, why, and what follows from it.'

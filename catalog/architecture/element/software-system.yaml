@@ -1,4 +1,5 @@
 id: c4.software-system
+depends-on: [product]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: A system that delivers value to its users, described from outside, as C4 defines it.

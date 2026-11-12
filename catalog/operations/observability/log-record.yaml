@@ -1,4 +1,5 @@
 id: otel.log-record
+depends-on: [telemetry-resource]
 purpose: operations
 audience: [developer, operations, platform-devops]
 definition: One record of what a service did, with its time, its severity and its attributes.

@@ -1,4 +1,5 @@
 id: practice.sms-message
+depends-on: [code.service]
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
 definition: A short message a service sends over SMPP, with its sender and its parts.

@@ -1,4 +1,5 @@
 id: practice.penetration-test
+depends-on: [product]
 purpose: quality
 audience: [security-engineer, tester, developer]
 definition: An authorised attempt to break the product, with what it reached and what it found.

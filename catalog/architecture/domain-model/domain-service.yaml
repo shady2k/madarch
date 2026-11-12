@@ -1,4 +1,5 @@
 id: ddd.domain-service
+depends-on: [bounded-context]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: An operation of the domain that belongs to no entity or value object.

@@ -1,4 +1,5 @@
 id: practice.network-zone
+depends-on: [deployment-environment]
 purpose: structure
 audience: [operations, platform-devops, architect]
 definition: A part of the network with one level of trust, which traffic crosses at a controlled point.

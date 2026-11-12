@@ -1,4 +1,5 @@
 id: practice.product
+depends-on: []
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: What the product is, who it serves and how it is built, as its home page states it.

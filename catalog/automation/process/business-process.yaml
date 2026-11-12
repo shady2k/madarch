@@ -1,4 +1,5 @@
 id: practice.business-process
+depends-on: [goal]
 purpose: operations
 audience: [analyst, platform-devops, operations]
 definition: A sequence of steps the organisation follows to reach an outcome.

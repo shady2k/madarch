@@ -1,4 +1,5 @@
 id: gdpr.recipient
+depends-on: [personal-data-category]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: A party personal data is shared with, and the ground it is shared on.

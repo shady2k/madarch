@@ -1,4 +1,5 @@
 id: kubernetes.node
+depends-on: [kubernetes-cluster]
 purpose: structure
 audience: [operations, platform-devops, architect]
 definition: One machine of a Kubernetes cluster that runs pods.

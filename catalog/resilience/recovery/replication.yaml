@@ -1,4 +1,5 @@
 id: nist800-34.replication
+depends-on: [data-entity, deployment-environment]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: The continuous copying of data or of a service to a second place, with its lag.

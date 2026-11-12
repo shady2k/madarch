@@ -1,4 +1,5 @@
 id: practice.deployment
+depends-on: [deployment-environment, release]
 purpose: operations
 audience: [developer, platform-devops, operations]
 definition: The act of putting one version of the product into one environment.

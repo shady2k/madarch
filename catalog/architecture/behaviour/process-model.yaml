@@ -1,4 +1,5 @@
 id: bpmn.process
+depends-on: [business-process]
 purpose: structure
 audience: [architect, developer, analyst]
 definition: 'A business process drawn as BPMN: the tasks, the events and the gateways between them.'

@@ -1,4 +1,5 @@
 id: scrum.product-goal
+depends-on: [vision]
 purpose: understand
 audience: [product, product-lead, analyst]
 definition: 'The commitment the product backlog is ordered against: the single objective the product works towards now.'

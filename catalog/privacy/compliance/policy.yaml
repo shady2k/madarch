@@ -1,4 +1,5 @@
 id: oscal.policy
+depends-on: [organization]
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
 definition: An organisational rule that says what must be done, and who may deviate from it.

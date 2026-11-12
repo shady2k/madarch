@@ -1,4 +1,5 @@
 id: kubernetes.service
+depends-on: [code.service, k8s-namespace]
 purpose: operations
 audience: [operations, platform-devops, architect]
 definition: A Kubernetes Service that routes traffic to the pods it selects.

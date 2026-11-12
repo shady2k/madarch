@@ -1,4 +1,5 @@
 id: protobuf.service
+depends-on: [code.contract]
 purpose: structure
 audience: [developer, architect, analyst]
 definition: A service declared in a Protocol Buffers file, with the remote calls it offers.

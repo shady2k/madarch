@@ -90,9 +90,7 @@ fields:
 key:
 - repository_node
 - path_id
-depends-on:
-- code.repository
-- code.directory
+depends-on: [code.repository]
 history: path
 views:
 - state

@@ -1,4 +1,5 @@
 id: practice.package-manifest
+depends-on: [code.package]
 purpose: structure
 audience: [developer, architect, platform-devops, security-engineer]
 definition: A file that declares a package and its dependencies.

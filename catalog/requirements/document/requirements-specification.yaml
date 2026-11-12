@@ -1,4 +1,5 @@
 id: iso29148.information-item
+depends-on: [doc.requirement]
 purpose: understand
 audience: [product, analyst, tester, architect]
 definition: A document that states the requirements in the form ISO/IEC/IEEE 29148 prescribes.

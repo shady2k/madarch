@@ -1,4 +1,5 @@
 id: practice.chaos-experiment
+depends-on: [observed-deployment, sli]
 purpose: quality
 audience: [tester, developer]
 definition: A controlled fault injected into a running system to see whether it keeps its promises.

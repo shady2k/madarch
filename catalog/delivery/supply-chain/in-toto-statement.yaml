@@ -1,4 +1,5 @@
 id: in-toto.statement
+depends-on: [build-artifact]
 purpose: quality
 audience: [developer, platform-devops, operations]
 definition: 'The statement inside an attestation: its subject, its predicate type and its predicate.'

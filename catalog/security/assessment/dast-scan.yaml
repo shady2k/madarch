@@ -1,4 +1,5 @@
 id: practice.dast-scan
+depends-on: [deployment]
 purpose: quality
 audience: [security-engineer, tester, developer]
 definition: A tool run that attacks a running service the way an outsider could.

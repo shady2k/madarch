@@ -1,4 +1,5 @@
 id: practice.supply-chain-risk
+depends-on: [supplier]
 purpose: quality
 audience: [product-lead, operations, security-engineer]
 definition: A risk that comes from a supplier or from the chain of suppliers behind it.

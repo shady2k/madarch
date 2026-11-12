@@ -1,4 +1,5 @@
 id: practice.review-checklist
+depends-on: [definition-of-done]
 purpose: quality
 audience: [developer, tester]
 definition: The list of what a reviewer is expected to check before approving a change.

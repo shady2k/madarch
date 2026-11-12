@@ -1,4 +1,5 @@
 id: practice.data-check
+depends-on: [dataset]
 purpose: quality
 audience: [analyst, tester, developer]
 definition: A rule a dataset is checked against, such as referential integrity or a value range.

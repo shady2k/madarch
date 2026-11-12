@@ -1,4 +1,5 @@
 id: arc42.quality-scenario
+depends-on: [goal, quality-characteristic]
 purpose: quality
 audience: [product, analyst, tester, architect]
 definition: A concrete, measurable situation that states a quality requirement so a test can judge it.

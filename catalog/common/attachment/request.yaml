@@ -1,4 +1,5 @@
 id: practice.request
+depends-on: []
 purpose: understand
 audience: [product-lead, analyst, developer]
 definition: One person's utterance kept verbatim, which may change any entity; many requests belong to a piece of work, the

@@ -1,4 +1,5 @@
 id: alertmanager.route
+depends-on: [alert-notification-target]
 purpose: operations
 audience: [operations, platform-devops]
 definition: The rule that decides which receiver an alert goes to, by its labels.

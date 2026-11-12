@@ -1,4 +1,5 @@
 id: dtcg.token-group
+depends-on: [design-token]
 purpose: structure
 audience: [designer, developer]
 definition: A group of design tokens, which may hold further groups.

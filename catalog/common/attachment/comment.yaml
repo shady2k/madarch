@@ -1,4 +1,5 @@
 id: practice.comment
+depends-on: []
 purpose: history
 audience: [product-lead, analyst, developer]
 definition: A person's or an agent's remark attached to any entity, kept with its author and time.
