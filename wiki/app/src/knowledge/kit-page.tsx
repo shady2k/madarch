@@ -12,7 +12,7 @@ import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet.js';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuItem } from '@/components/ui/dropdown-menu.js';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip.js';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table.js';
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogPreview } from '@/components/ui/dialog.js';
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogDescription, DialogFooter, DialogClose, DialogPreview } from '@/components/ui/dialog.js';
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb.js';
 import { Progress } from '@/components/ui/progress.js';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group.js';
@@ -61,8 +61,8 @@ export function KitPage() {
         <Skeleton className="h-6 w-40" /><Skeleton className="h-10 w-64" />
       </KitSection>
       <KitSection title="Dialog" description={state('overlayHint')}>
-        <KitState label={state('open')}><DialogPreview title={state('notice')} description={state('description')}><Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert><Button size="default" disabled>{state('disabled')}</Button></DialogPreview></KitState>
-        <Dialog><DialogTrigger asChild><Button variant="default" size="default">{state('open')}</Button></DialogTrigger><DialogContent closeLabel={state('close')}><DialogHeader><DialogTitle>{state('notice')}</DialogTitle><DialogDescription>{state('description')}</DialogDescription></DialogHeader><Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert><DialogFooter><DialogClose asChild><Button size="default">{state('close')}</Button></DialogClose><Button size="default" disabled>{state('disabled')}</Button></DialogFooter></DialogContent></Dialog>
+        <KitState label={state('open')}><DialogPreview title={state('notice')} description={state('description')} footer={<Button size="default" disabled>{state('disabled')}</Button>}><Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert></DialogPreview></KitState>
+        <Dialog><DialogTrigger asChild><Button variant="default" size="default">{state('open')}</Button></DialogTrigger><DialogContent closeLabel={state('close')}><DialogHeader><DialogTitle>{state('notice')}</DialogTitle><DialogDescription>{state('description')}</DialogDescription></DialogHeader><DialogBody><Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert></DialogBody><DialogFooter><DialogClose asChild><Button size="default">{state('close')}</Button></DialogClose><Button size="default" disabled>{state('disabled')}</Button></DialogFooter></DialogContent></Dialog>
         <Dialog><DialogTrigger asChild><Button size="default" disabled>{state('disabled')}</Button></DialogTrigger></Dialog>
       </KitSection>
       <KitSection title="Sheet" description={state('overlayHint')}>

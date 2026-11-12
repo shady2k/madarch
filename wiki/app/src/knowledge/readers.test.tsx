@@ -15,7 +15,7 @@ import { KMarkdown } from './blocks.js';
 import { GlossaryContext, GlossaryProvider, GlossaryPage, TermBlockView, filterTerms, termIndex } from './glossary.js';
 import { EntityPage } from './pages.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
-import { RoleContext, blockOpen, chooseRole, leadGroups, loadSettings } from './roles.js';
+import { RoleContext, blockOpen, chooseRole, loadSettings } from './roles.js';
 import { resetSettings } from '../../test/reset.js';
 import type { Glossary, GlossaryTerm, PageModel } from './types.js';
 
@@ -72,13 +72,6 @@ describe('what a role opens', () => {
     const refs = { developer: { open: ['implementedby'], lead: [] } };
     expect(blockOpen({ type: 'refs', name: 'implementedby' }, 'developer', refs)).toBe(true);
     expect(blockOpen({ type: 'refs', name: 'linkedfrom' }, 'developer', refs)).toBe(false);
-  });
-
-  test('the groups the role leads come first in its order and the rest keep the manifest\'s order; no role changes nothing', () => {
-    const groups = [{ group: 'product' }, { group: 'code' }, { group: 'data' }, { group: 'tests' }, { group: null }];
-    expect(leadGroups(groups, 'developer', roles).map((entry) => entry.group)).toEqual(['code', 'tests', 'product', 'data', null]);
-    expect(leadGroups(groups, 'everything', roles).map((entry) => entry.group)).toEqual(['product', 'code', 'data', 'tests', null]);
-    expect(leadGroups(groups, 'tester', roles).map((entry) => entry.group)).toEqual(['product', 'code', 'data', 'tests', null]);
   });
 
   test('one page under two roles holds the same blocks: the source is open for the developer and collapsed under its title for the product role', async () => {

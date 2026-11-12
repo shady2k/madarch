@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 /**
  * UI-kit boundary for non-test wiki/app/src TSX outside components/ui.
+ * Dialog surfaces inside the kit are also checked: only their body may scroll.
+ * Sidebar entries must declare the icon rendered by the shared navigation kit.
  *
  * bun run check:ui                         compare findings with the frozen debt
  * bun scripts/check-ui-architecture.ts --prune

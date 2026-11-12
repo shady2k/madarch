@@ -4,6 +4,33 @@ const file = 'wiki/app/src/knowledge/fixture.tsx';
 const rules = (source: string) => uiViolations(file, source).map(entry => entry.rule);
 
 describe('UI kit architecture', () => {
+  test('whole-dialog scrolling is refused with its source line, including kit surfaces', () => {
+    for (const name of ['DialogContent', 'DialogPreview', 'SheetContent', 'DialogPrimitive.Content']) {
+      for (const file of ['wiki/app/src/knowledge/fixture.tsx', 'wiki/app/src/components/ui/dialog.tsx']) {
+        const found = uiViolations(file, `const view = (
+<${name} className="flex overflow-y-auto" />);`);
+        expect(found).toContainEqual(expect.objectContaining({ rule: 'dialog-whole-scroll', file, line: 2 }));
+      }
+    }
+    expect(rules('import * as Modal from "@/components/ui/dialog.js"; const view = <Modal.DialogContent className="overflow-auto" />')).toContain('dialog-whole-scroll');
+    expect(rules('import { DialogContent as Modal } from "@/components/ui/dialog.js"; const view = <Modal className={`overflow-y-auto ${extra}`} />')).toContain('dialog-whole-scroll');
+    expect(rules('const surface = "overflow-y-auto"; const view = <DialogContent className={cn(surface)} />')).toContain('dialog-whole-scroll');
+    expect(rules('<DialogContent><DialogHeader /><DialogBody className="overflow-y-auto" /><DialogFooter /></DialogContent>')).toEqual([]);
+  });
+  test('sidebar icons reject empty AST literals independent of whitespace', () => {
+    for (const value of [' null ', ' undefined ', ' false ', ' true ']) {
+      expect(rules(`<NavigationLink icon={${value}} />`)).toContain('sidebar-missing-icon');
+    }
+  });
+  test('every sidebar entry requires its kit-owned icon', () => {
+    for (const name of ['NavigationLink', 'NavigationGroupTrigger', 'NavigationSubheading']) {
+      expect(rules(`<${name}>Label</${name}>`)).toContain('sidebar-missing-icon');
+      expect(rules(`import * as Nav from "@/components/ui/navigation.js"; const view = <Nav.${name} />`)).toContain('sidebar-missing-icon');
+      expect(rules(`<${name} icon={ null }>Label</${name}>`)).toContain('sidebar-missing-icon');
+      expect(rules(`<${name} icon={null}>Label</${name}>`)).toContain('sidebar-missing-icon');
+      expect(rules(`<${name} icon={HomeIcon}>Label</${name}>`)).toEqual([]);
+    }
+  });
   test('every centralized native UI tag is refused', () => {
     for (const tag of RAW_UI_ELEMENTS) expect(rules(`const node = <${tag} />`)).toContain('raw-ui-element');
   });
