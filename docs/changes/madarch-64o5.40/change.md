@@ -151,3 +151,23 @@ The parent reports a completed internal-native before run of 10.444655832 second
 Actual evidence: `/tmp/m28-before-valid/before.json`.
 The after measurement and comparable before/after analysis remain pending.
 This baseline is not a whole-suite-green, migration-completion or approval claim.
+
+
+## Partial validation reported by coordinator
+
+The fifth root check completed successfully: `/tmp/m28-check-fifth.log`, all six
+checks exit 0. The existing 18 architecture baseline findings are unchanged.
+Additional focused results reported by the coordinator are pure tests 24 passes /
+69 assertions and chunk tests 5 passes / 17 assertions. These are partial results,
+not acceptance or a whole-suite-green claim.
+
+Whole validation remains blocked by glossary publication exceeding the unchanged
+8 MiB cap: the measured canonical payload is 13.58 MB. The cap must not be raised
+and facts, fields, evidence, identities and assertions must not be removed to fit.
+The required design direction is ordinary plugin output partitioning under the
+same generic publication contract, not a glossary/native special path. Partition
+boundaries must preserve selected kind/field scope, dependency success gating,
+producer-scoped atomic replacement/retraction and retained run/version evidence.
+A transport partition is not independent successful completion of a partial
+invocation. Runtime partition implementation and its validation are pending;
+this record does not claim the oversized workload is repaired.
