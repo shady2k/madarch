@@ -4,7 +4,8 @@
  * one needed.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { prepareTestProduct } from './prepared-server.js';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,9 +25,11 @@ beforeAll(() => {
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: PRODUCT, env: GIT_ENV });
   execFileSync('git', ['add', '-A'], { cwd: PRODUCT, env: GIT_ENV });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'one'], { cwd: PRODUCT, env: GIT_ENV });
-  // A git that is older than the fill reads, and answers nothing else.
+  // Contract pinning still reads real commits; only the version probe reports the unsupported git.
   mkdirSync(FAKE, { recursive: true });
-  writeFileSync(join(FAKE, 'git'), '#!/bin/sh\necho "git version 2.39.5"\nexit 0\n');
+  const realGit = Bun.which('git');
+  if (realGit === null) throw new Error('the git-version fixture requires git');
+  writeFileSync(join(FAKE, 'git'), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version 2.39.5"; exit 0; fi\nexec ${JSON.stringify(realGit)} "$@"\n`);
   chmodSync(join(FAKE, 'git'), 0o755);
 }, 120_000);
 
@@ -45,14 +48,16 @@ describe('the git version a fill reads', () => {
     expect(gitVersionRefusal('not git at all')).toContain('is no git this fill can read');
   }, 60_000);
 
-  test('a fill on an older git refuses before it publishes, and names both versions', () => {
-    const run = spawnSync(process.execPath, [join(PROJECT, 'scripts', 'madarch.ts'), 'fill-stages', '--product', PRODUCT, '--home', HOME], {
-      cwd: PROJECT,
-      env: { ...process.env, PATH: FAKE },
-      encoding: 'utf8',
-    });
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain('git 2.40 or newer');
-    expect(run.stderr).toContain('2.39.5');
+  test('a fill on an older git refuses before it publishes, and names both versions', async () => {
+    const closePreparation = await prepareTestProduct(PRODUCT, HOME);
+    try {
+      const run = Bun.spawn([process.execPath, join(PROJECT, 'scripts', 'madarch.ts'), 'fill-stages', '--product', PRODUCT, '--home', HOME], {
+        cwd: PROJECT, env: { ...process.env, PATH: FAKE }, stdout: 'pipe', stderr: 'pipe',
+      });
+      const [status, stderr] = await Promise.all([run.exited, new Response(run.stderr).text(), new Response(run.stdout).text()]);
+      expect(status).toBe(1);
+      expect(stderr).toContain('git 2.40 or newer');
+      expect(stderr).toContain('2.39.5');
+    } finally { await closePreparation(); }
   }, 300_000);
 });

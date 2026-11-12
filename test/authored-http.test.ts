@@ -2,7 +2,8 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { startPreparedServer as startServer, retainTestStorePreparationOwner } from './prepared-server.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf } from '../src/product/store.js';
 import { authoredEnv, authoredFixture } from './authored-fixture.js';
@@ -12,9 +13,11 @@ let server: StartedServer;
 let base: string;
 let home: string;
 let folder: string;
+let closePreparation: (() => Promise<void>) | undefined;
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'authored-http-'));
   home = join(work, 'products');
+  closePreparation = await retainTestStorePreparationOwner();
   folder = await authoredFixture(home);
   await authoredFixture(home, 'empty', false);
   const app = join(work, 'app');
@@ -22,7 +25,7 @@ beforeAll(async () => {
   server = await startServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: () => {} });
   base = `${server.url}/products/authored/api/authored?kind=note`;
 }, 60000);
-afterAll(async () => { await server?.stop(); if (work) rmSync(work, { recursive: true, force: true }); });
+afterAll(async () => { await server?.stop(); await closePreparation?.(); if (work) rmSync(work, { recursive: true, force: true }); });
 const send = (method: string, body: unknown, uid = '') => fetch(base + (uid ? `&uid=${encodeURIComponent(uid)}` : ''), { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 test('HTTP authors a kind from its contract, errors at the field, refuses cross-site and keeps history on delete', async () => {

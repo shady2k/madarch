@@ -12,13 +12,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
-import { askFillRun, openFillRunQueue } from '../src/fill/run-jobs.js';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { productsHome } from '../src/product/home.js';
-import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
+import { knowledgeRootOf } from '../src/product/store.js';
 
 /** How long the child and the store's server are given after the server is killed: the rule the walk asked for. */
 const GONE_WITHIN_MS = 2_000;
@@ -232,41 +229,21 @@ test('a killed server takes its idle fill role and the store\'s PostgreSQL serve
   expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the server was killed`).toBe(true);
 }, 180_000);
 
-test('a fill role asked to stop with SIGTERM gives its stores up, and their PostgreSQL servers stop with it', async () => {
-  // `madarch serve` stops its role with SIGTERM, and the role is the only process using the store here, so what stops the
-  // store's PostgreSQL server is the role's own leaving (what `test/knowledge-server.test.ts` left behind before it: three
-  // servers a run).
+test('a server asked to stop with SIGTERM gives its fill role and stores up, and their PostgreSQL servers stop with it', async () => {
   const product = productOf(products, 'walk-term');
-  const root = knowledgeRootOf(products);
-  const owner = await createDatabaseOwner({ store: join(productStoreFolder(product, root), 'graph'), btreeGist: true });
-  let pressed: Awaited<ReturnType<typeof openFillRunQueue>> | undefined;
-  try {
-    // A pressed fill waits in the store's queue: the role claims it as soon as it opens the store, and its own owner is
-    // the one that keeps the store up.
-    await prepareStore(owner);
-    pressed = await openFillRunQueue(owner);
-    await askFillRun(pressed, { product, store: productStoreFolder(product, root), runId: 'signalled-run' });
-  } finally {
-    // The queue before the owner it runs on: pg-boss's heartbeat asks its owner for a statement every 30 s, and one asked
-    // after the owner closed throws into whatever the process does then — another file's case, in a `bun test` run
-    // (madarch-8bdc.13's `the database owner "…" is closed`).
-    await pressed?.stop().catch(() => undefined);
-    await owner.close();
-  }
-  const role = Bun.spawn(['bun', CLI, '--role', 'fill', '--home', products], {
-    stdin: 'ignore', stdout: 'ignore', stderr: 'ignore',
-    env: { ...process.env, MADARCH_HOME: home, MADARCH_KNOWLEDGE_ROOT: root },
-  });
-  servers.push({ kill: () => { try { role.kill('SIGKILL'); } catch { /* gone */ } } });
-  roles.add(role.pid);
-  const deadline = Date.now() + 60_000;
+  const running = await serve(product);
+  const deadline = Date.now() + 30_000;
+  let child = running.child();
+  while (child === undefined && Date.now() < deadline) { await Bun.sleep(20); child = running.child(); }
+  expect(child).toBeDefined();
   while (postmasters().length === 0 && Date.now() < deadline) await Bun.sleep(20);
   expect(postmasters().length).toBeGreaterThan(0);
-  try { process.kill(role.pid, 'SIGTERM'); } catch { /* gone */ }
-  const gone = await awaitGone(role.pid, GONE_WITHIN_MS);
-  console.log(`role signalled with SIGTERM ${String(role.pid)}: gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
-  expect(gone.child, `the fill role ${String(role.pid)} still ran ${String(gone.waitedMs)} ms after SIGTERM`).toBe(true);
-  expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after the role was stopped`).toBe(true);
+  // The command owns preparation now; its graceful stop ends both its API/fill children and its store leases.
+  try { process.kill(running.pid, 'SIGTERM'); } catch { /* gone */ }
+  const gone = await awaitGone(child!.pid, GONE_WITHIN_MS);
+  console.log(`server signalled with SIGTERM: fill role ${String(child!.pid)} gone ${gone.child ? 'yes' : 'NO'}, store's PostgreSQL server gone ${gone.postgres ? 'yes' : 'NO'} after ${String(gone.waitedMs)} ms`);
+  expect(gone.child, `the fill role ${String(child!.pid)} still ran ${String(gone.waitedMs)} ms after its server received SIGTERM`).toBe(true);
+  expect(gone.postgres, `the store's PostgreSQL server still ran ${String(gone.waitedMs)} ms after its server received SIGTERM`).toBe(true);
 }, 180_000);
 
 test('a killed server takes a fill role running a fill, and the store\'s PostgreSQL server, with it within two seconds', async () => {

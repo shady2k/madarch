@@ -6,6 +6,7 @@ import { createDraft } from '../src/product/draft.js';
 import { fillInProcess } from './fill-inline.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { prepareTestProduct } from './prepared-server.js';
 
 export const authoredEnv = gitEnv(SAMPLE_IDENTITY);
 export async function authoredFixture(home: string, name = 'authored', fill = true): Promise<string> {
@@ -21,6 +22,8 @@ export async function authoredFixture(home: string, name = 'authored', fill = tr
   }));
   execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: authoredEnv });
   execFileSync('git', ['commit', '-qm', 'Declare fixture authored kind'], { cwd: draft.folder, env: authoredEnv });
-  if (fill) await fillInProcess(draft.folder, home);
+  const closePreparation = await prepareTestProduct(draft.folder, home);
+  try { if (fill) await fillInProcess(draft.folder, home); }
+  finally { await closePreparation(); }
   return draft.folder;
 }

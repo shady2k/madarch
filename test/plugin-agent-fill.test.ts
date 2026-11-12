@@ -9,6 +9,8 @@ import type { PluginAgentReport } from '../src/plugin/agent.js';
 import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { runFill } from '../src/fill/run.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
@@ -106,10 +108,10 @@ plugins:
 describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fill', () => {
   test('a pressed fill runs ACP over two graph files, denies outside reads and writes, and publishes evidence', async () => {
     const f = fixture(true);
-    const owner = await createTestDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (session) => sessions.push(session),
@@ -150,9 +152,9 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     expect(declarations.manifest.findings).toEqual([]);
     execFileSync('git', ['-C', f.product, 'add', '-A']);
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
-    const owner = await createTestDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
       } });
@@ -167,9 +169,9 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
 
   test('a deterministic-only plugin still fills without configuring or starting any agent', async () => {
     const f = fixture(false);
-    const owner = await createTestDatabaseOwner({ btreeGist: true });
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'] });
+      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [f.closure], steps: ['repository-tree', 'plugin-turns'] });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');

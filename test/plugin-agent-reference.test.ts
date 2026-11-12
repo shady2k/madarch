@@ -3,7 +3,6 @@ import type { AcpConnection, AcpSession } from '../src/fill/acp.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
 import { canonicalKey, validateUnitResult } from '../src/plugin/results.js';
 import type { PluginKeyValues } from '../src/plugin/protocol.js';
-import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -19,9 +18,8 @@ test('agent natural-key references survive validation and real graph publication
     adapter: { id: 'fixture', command: 'unused' },
     connect: async () => ({ initialize: async () => ({}), close: async () => {}, newSession: async () => ({ sessionId: 'fixture', model: null, models: null, configOptions: [], usage: () => ({ reported: false, turns: 1, reports: 0 }), prompt: async () => ({ text: JSON.stringify(answer), stopReason: 'end_turn', updates: [] }) } as unknown as AcpSession) } as unknown as AcpConnection),
   }, { files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'a.md' } }], value: async () => 'Source' }, outputs);
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
-    await createOneGraphSchema(owner, contract);
     const result = await bridge.run('unit', {});
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [
       { kind: 'repository', key: { name: 'repo' }, producer: 'fixture', producerVersion: '1' },

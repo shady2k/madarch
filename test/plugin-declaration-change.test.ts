@@ -1,5 +1,4 @@
-import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { prepareStore } from '../src/adapters/prepare-store.js';
+import { requestStorePreparation } from '../src/product/store-preparation.js';
 /**
  * A kind's declaration is part of what its turn stands on (decision 0035, the Consequences: a changed declaration of a
  * kind, or a changed plugin closure, invalidates that kind's turn and its dependants, so the next fill reruns them and the
@@ -24,6 +23,7 @@ import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { gitEnv } from './git-env.js';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
+import { retainTestStorePreparationOwner, activateTestProduct } from './prepared-server.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -44,6 +44,7 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
 })();
 
 let work: string;
+let closePreparation: (() => Promise<void>) | undefined;
 const opened: DatabaseOwner[] = [];
 
 /** One draft product with a code repository and its glossary documents; answers its folder and its store root. */
@@ -75,10 +76,10 @@ function commit(folder: string, message: string): void {
 
 /** One fill of the product through the one runner, with its own owner on the product's store. */
 async function fill(folder: string, storeRoot: string): Promise<FillRunAnswer & { ok: true }> {
-  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, storeRoot)), btreeGist: true });
+  await activateTestProduct(folder, join(storeRoot, '..'), storeRoot);
+  const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, storeRoot)), connectOnly: true });
   opened.push(owner);
-  await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
-  const answer = await runFill({ product: folder, database: owner, home: storeRoot, store: storeRoot, workers: 4, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
+  const answer = await runFill({ product: folder, database: owner, home: storeRoot, store: storeRoot, workers: 4, prepareContract: async (contract) => { await requestStorePreparation(storeDatabasePath(productStoreFolder(folder, storeRoot)), contract); } });
   if (!answer.ok) throw new Error(`the fill was refused: ${answer.code}: ${answer.reason}`);
   return answer;
 }
@@ -94,10 +95,14 @@ async function terms(folder: string, storeRoot: string): Promise<string[]> {
 }
 
 describe.skipIf(sandboxProblem !== undefined)('a kind declaration that changes invalidates its turn', () => {
-  beforeAll(() => { work = mkdtempSync(join(tmpdir(), 'madarch-plugin-declaration-')); });
+  beforeAll(async () => {
+    work = mkdtempSync(join(tmpdir(), 'madarch-plugin-declaration-'));
+    closePreparation = await retainTestStorePreparationOwner();
+  });
 
   afterAll(async () => {
     for (const owner of opened) await owner.close().catch(() => undefined);
+    await closePreparation?.();
     rmSync(work, { recursive: true, force: true });
   });
 
