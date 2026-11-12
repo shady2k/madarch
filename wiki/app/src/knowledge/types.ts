@@ -228,7 +228,7 @@ export type CatalogKindView = {
   sources?: readonly string[];
   /** The summary has standards available from the single-kind detail request. */
   sourcesAvailable?: boolean;
-  fields?: readonly { name: string; labels?: Record<string, string>; declaration?: { file: string; line: number }; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
+  fields?: readonly { name: string; labels?: Record<string, string>; meaning?: string; reference?: string; declaration?: { file: string; line: number } }[];
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   pluginFolders?: readonly string[];
   kind: string;

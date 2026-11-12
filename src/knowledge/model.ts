@@ -8,7 +8,7 @@ type GuidePageData = Record<string, unknown>;
  * app holds no knowledge of any kind and draws only these shapes.
  */
 import type { RefreshPlan } from '../loop/plan.js';
-import type { FieldDecl, Finding } from '../product/manifest/kinds.js';
+import type { Finding } from '../product/manifest/kinds.js';
 import type { Resolution } from './resolve.js';
 import type { DiagramsBlockShape, RelationsBlockShape } from './views.js';
 import type { GraphFileFacts, GraphFolderFacts, GraphRepositoryFacts } from './graph-read.js';
@@ -474,8 +474,8 @@ export interface CatalogKindView {
   descriptions?: Record<string, string>;
   /** The published manifest location of this kind. */
   declaration?: { file: string; line: number };
-  /** Manifest fields with reader-facing labels, excluding engine opinion columns. */
-  fields?: readonly (FieldDecl & { labels?: Readonly<Record<string, string>>; declaration?: { file: string; line: number } })[];
+  /** The published page properties, in details order, with meanings only where a producer declares them. */
+  fields?: readonly { name: string; labels?: Readonly<Record<string, string>>; meaning?: string; reference?: string; declaration?: { file: string; line: number } }[];
   /** Both directions of declared relations; a catalogue constraint may leave the other kind unspecified. */
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   /** The standards or documents the kind declaration cites. */

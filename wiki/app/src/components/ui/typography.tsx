@@ -44,7 +44,7 @@ export function TextLink({ className, ...props }: AnchorHTMLAttributes<HTMLAncho
 const stackLayouts = {
   fill: 'grid min-w-0 gap-6 lg:grid-cols-[minmax(18rem,1fr)_minmax(0,2fr)]',
   graph: 'max-h-[32rem] overflow-auto',
-  catalogue: 'grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_200px]',
+  catalogue: 'grid min-w-0 items-start gap-6 wide:grid-cols-[minmax(0,1fr)_200px]',
   reading: 'max-w-[var(--measure)]',
   navigation: 'flex min-h-0 h-full w-full flex-col px-[14px] wide:px-[18px]',
   shell: 'shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body',
@@ -60,5 +60,5 @@ export function SmallTitle(props: HTMLAttributes<HTMLHeadingElement>) { return <
 export function Form({ className, ...props }: FormHTMLAttributes<HTMLFormElement>) { return <form className={cn('my-4 max-w-2xl space-y-4', className)} {...props} />; }
 export function FieldLabel(props: LabelHTMLAttributes<HTMLLabelElement>) { return <label {...props} />; }
 
-export function ContentsSidebar({ className, ...props }: HTMLAttributes<HTMLElement>) { return <aside className={cn('order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-10rem)] md:overflow-y-auto', className)} {...props} />; }
+export function ContentsSidebar({ className, ...props }: HTMLAttributes<HTMLElement>) { return <aside className={cn('hidden wide:order-last wide:block wide:sticky wide:top-4 wide:max-h-[calc(100dvh-10rem)] wide:overflow-y-auto', className)} {...props} />; }
 export function ClippedLabel({ className, ...props }: HTMLAttributes<HTMLSpanElement>) { return <span className={cn('min-w-0 max-w-[12rem] truncate', className)} {...props} />; }

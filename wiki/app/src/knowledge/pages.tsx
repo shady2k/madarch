@@ -2,13 +2,13 @@ import { InlineCode } from '@/components/ui/inline-content.js';
 import { Breadcrumb } from '@/components/ui/breadcrumb.js';
 import { Blockquote } from '@/components/ui/reading-content.js';
 import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
-import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, ClippedLabel, ContentsSidebar, Stack, Text, PageArticle, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
+import { PageSection, PageHeader, PageTitle, SectionTitle, Paragraph, ListItem, Metadata, InlineGroup, CodeFrame, FileTitle, ClippedLabel, Stack, Text, PageArticle, SmallTitle, PlainList, DefinitionList, DefinitionTerm, DefinitionValue } from '@/components/ui/typography.js';
 import { Operations } from './operations.js';
 import { AuthoredKindPage, AuthoredPage } from './authored.js';
 import { KindGraph } from './kind-graph.js';
 import { KindDetails } from './kind-details.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs.js';
-import { TableOfContents } from '@/components/ui/table-of-contents.js';
+import { ResponsiveContents } from '@/components/ui/table-of-contents.js';
 import { FilterResults } from '@/components/ui/filter-bar.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
@@ -210,9 +210,9 @@ function RenderedKindPage({ kind, version }: { kind: string; version: number }):
         <PageTitle>{kindName(kind, 'many')}</PageTitle>
 
       </PageHeader>
+      <KindDetails kind={kind} version={version} />
       {listing?.agentUsage !== undefined && <Paragraph className="text-small text-muted" data-testid="kind-agent-usage">{t('knowledge.kindAgentModel', { model: listing.agentUsage.model ?? t('knowledge.kindNotReported') })} · {listing.agentUsage.tokens === undefined ? t('knowledge.kindTokensNotReported') : t('knowledge.kindAgentTokens', { count: listing.agentUsage.tokens })}</Paragraph>}
       <KindUsage kind={kind} version={version} />
-      <KindDetails kind={kind} version={version} />
       <KindMap kind={kind} version={version} />
       <SectionTitle>{t('knowledge.kindDetails.records')}</SectionTitle>
       <FilterResults>
@@ -548,16 +548,6 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const { data, error } = useRead<CatalogView>('catalogue', version, getCatalog);
   const [filter, setFilter] = useState('');
   const [view, setView] = useState('table');
-  const [jumpTo, setJumpTo] = useState<string | null>(null);
-  useEffect(() => {
-    if (jumpTo === null || view !== 'table') return;
-    // Radix mounts the newly selected panel after the view change.
-    const frame = requestAnimationFrame(() => {
-      document.getElementById(jumpTo)?.scrollIntoView?.({ block: 'start' });
-      setJumpTo(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [jumpTo, view]);
   if (error !== null && data === null) {
     return <Alert data-testid="catalogue-error"><AlertTitle>{t('knowledge.catalogue')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   }
@@ -585,12 +575,9 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
   const nameOf = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
   const sectionId = (key: string): string => `catalogue-section-${encodeURIComponent(key)}`;
   const kindId = (kind: string): string => `catalogue-kind-${encodeURIComponent(kind)}`;
-  const kindContents = (kinds: CatalogKindView[]) => kinds.map((kind) => ({ id: kindId(kind.kind), label: nameOf(kind) }));
   const contents = sections.map((section) => ({
     id: sectionId(section.key), label: section.name,
-    children: [...kindContents(section.kinds), ...section.subgroups.map((subgroup) => ({
-      id: sectionId(subgroup.key), label: subgroup.name, children: kindContents(subgroup.kinds),
-    }))],
+    children: section.subgroups.map((subgroup) => ({ id: sectionId(subgroup.key), label: subgroup.name })),
   }));
   const producerWords = (kind: CatalogKindView): string => {
     if ((kind.plugins ?? []).length > 0) return t('knowledge.catalogueByPlugin', { plugins: (kind.plugins ?? []).join(', ') });
@@ -644,7 +631,7 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         <Paragraph className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueKinds', { count: all.length })}, {t('knowledge.catalogueEntities', { count: records })}</Paragraph>
       </PageHeader>
       <Input type="search" className="mb-4" aria-label={t('knowledge.catalogueViews.filter')} placeholder={t('knowledge.catalogueViews.filter')} value={filter} onChange={(event) => setFilter(event.target.value)} />
-      <Stack layout="catalogue">
+      <Stack layout={view === 'table' ? 'catalogue' : undefined} data-testid="catalogue-layout">
       <Stack className="min-w-0">
       <Tabs value={view} onValueChange={setView}>
         <TabsList aria-label={t('knowledge.catalogueViews.label')}>
@@ -665,12 +652,10 @@ export function CataloguePage({ version }: { version: number }): ReactElement {
         </PageSection>
       ))}
         </TabsContent>
-        <TabsContent value="graph"><KindGraph catalog={{ ...data, kinds: all }} /></TabsContent>
+        <TabsContent value="graph"><KindGraph catalog={data} /></TabsContent>
       </Tabs>
       </Stack>
-      <ContentsSidebar data-testid="catalogue-contents">
-        <TableOfContents title={t('knowledge.catalogueViews.contents')} items={contents} onNavigate={(id) => { setView('table'); setJumpTo(id); }} />
-      </ContentsSidebar>
+      {view === 'table' && <ResponsiveContents title={t('knowledge.catalogueViews.contents')} items={contents} />}
       </Stack>
     </PageSection>
   );

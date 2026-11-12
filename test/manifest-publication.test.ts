@@ -197,6 +197,7 @@ kinds:
     source: document
     template: templates/term.md
     terms: ["docs/*.md"]
+    details: [summary]
     fields:
       - { name: summary, type: text, producers: [reader] }
 `);
@@ -220,7 +221,7 @@ kinds:
     expect(await result.response.json()).toMatchObject({
       kind: 'term', count: 0, state: 'never',
       declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 4 },
-      fields: [{ name: 'summary', labels: { en: 'Summary', ru: 'Описание' }, declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 9 } }],
+      fields: [{ name: 'summary', labels: { en: 'Summary', ru: 'Описание' }, declaration: { file: join(folder, 'madarch', 'kinds.yaml'), line: 2 } }],
     });
     const unknown = await part.catalog(new Request('http://localhost/api/catalog?kind=absent'));
     expect(unknown.response.status).toBe(404);
