@@ -39,9 +39,9 @@ test('relation properties are batched without mixing edges, producers, contexts 
     await owner.transaction('write', async (tx) => {
       await tx.query("INSERT INTO context (parent, ref) VALUES (1, 'review')");
       // Closing and replacing the first producer's value must not leak the old value into agreement.
-      await publishEdgeOpinion(tx, GIT_KINDS.touched, edges.rows[0]!.id, { producer: 'git', producerVersion: '1', values: { change: 'modified', added: 9, removed: 2 } });
-      await publishEdgeOpinion(tx, GIT_KINDS.touched, edges.rows[1]!.id, { producer: 'review', producerVersion: '1', values: { change: 'modified', added: 7, removed: 0 } });
-      await publishEdgeOpinion(tx, GIT_KINDS.touched, edges.rows[2]!.id, { producer: 'other-context', producerVersion: '1', values: { change: 'deleted', added: 99, removed: 99 } }, 2);
+      await publishEdgeOpinion(tx, repositoryContract, GIT_KINDS.touched, edges.rows[0]!.id, { producer: 'git', producerVersion: '1', values: { change: 'modified', added: 9, removed: 2 } });
+      await publishEdgeOpinion(tx, repositoryContract, GIT_KINDS.touched, edges.rows[1]!.id, { producer: 'review', producerVersion: '1', values: { change: 'modified', added: 7, removed: 0 } });
+      await publishEdgeOpinion(tx, repositoryContract, GIT_KINDS.touched, edges.rows[2]!.id, { producer: 'other-context', producerVersion: '1', values: { change: 'deleted', added: 99, removed: 99 } }, 2);
     });
     const reads: string[] = [];
     await owner.transaction('snapshot', async (tx) => {

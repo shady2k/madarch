@@ -62,7 +62,7 @@ async function fillRepository(folder = repository, name = 'fixture') {
   if (owner === undefined) throw new Error('the store was not opened');
   const fixture = folder === repository ? product : join(root, `product-${name}`);
   if (folder !== repository && !existsSync(fixture)) makeProduct(fixture, folder, name);
-  const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: contract => prepareStore(owner!, { contract }) });
+  const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: async contract => { await prepareStore(owner!, { contract }); } });
   if (!result.ok) throw new Error(`fill refused: ${result.reason}`);
   expect(result.state).toBe('succeeded');
   return result;
