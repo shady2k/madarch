@@ -108,7 +108,12 @@ test('a failed second partition retains the entire prior output and blocks depen
     expect((await run('prior')).state).toBe('succeeded');
     const before = await rows();
     f.change('fail-second', 'replacement');
-    expect((await run('failed', 'Summary')).state).not.toBe('succeeded');
+    const failed = await run('failed', 'Summary');
+    expect(failed.state).not.toBe('succeeded');
+    expect(failed.units.some(unit => unit.unitId.startsWith('plugin-turns/partitions:Items#') && unit.attempts > 0 && unit.state === 'failed')).toBe(true);
+    const failures = await owner.transaction('snapshot', async tx => await tx.query<{ summary: string }>(
+      "SELECT summary FROM fill_event WHERE run_id=$1 AND kind='unit-failed'", ['failed']));
+    expect(failures.rows.some(event => event.summary.includes('second partition refused'))).toBe(true);
     expect(await rows()).toEqual(before);
     expect(await rows('Summary')).toEqual([]);
     const outcomes = await readProducerOutcomes(owner, { runId: 'failed' });
@@ -147,7 +152,12 @@ test('a partition cannot publish a key outside its exact selected keys', async (
     expect((await run('before-outside')).state).toBe('succeeded');
     const before = await rows();
     f.change('outside', 'outside');
-    expect((await run('outside')).state).not.toBe('succeeded');
+    const failed = await run('outside');
+    expect(failed.state).not.toBe('succeeded');
+    expect(failed.units.some(unit => unit.unitId.startsWith('plugin-turns/partitions:Items#') && unit.attempts > 0 && unit.state === 'failed')).toBe(true);
+    const failures = await owner.transaction('snapshot', async tx => await tx.query<{ summary: string }>(
+      "SELECT summary FROM fill_event WHERE run_id=$1 AND kind='unit-failed'", ['outside']));
+    expect(failures.rows.some(event => event.summary.includes('output outside selected partition keys'))).toBe(true);
     expect(await rows()).toEqual(before);
     expect((await rows()).some(row => row.id === 'forbidden')).toBe(false);
   } finally { await owner.close(); }
