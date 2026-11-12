@@ -120,11 +120,17 @@ describe('madarch init', () => {
     const catalog = manifest.manifest.catalog;
     if (catalog === undefined) throw new Error('init did not declare its fixture catalogue');
     expect(catalog.findings).toEqual([]);
-    // The navigation includes catalogue-only kinds, not just kinds with a page template.
-    const expectedKinds = [...catalog.kinds.keys()].sort(byCodePoint);
+    // The listener may answer before background publication. Pending status must not invent catalogue rows.
     const actualKinds = status.body.kinds as { kind: string; count: number }[];
-    expect(actualKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
-    expect(actualKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
+    if (status.body.publication === 'pending') {
+      expect(actualKinds).toEqual([]);
+    } else {
+      expect(status.body.publication).toBe('done');
+      // Published navigation includes catalogue-only kinds, not just kinds with a page template.
+      const expectedKinds = [...catalog.kinds.keys()].sort(byCodePoint);
+      expect(actualKinds.map((kind) => kind.kind).sort(byCodePoint)).toEqual(expectedKinds);
+      expect(actualKinds.map((kind) => kind.count)).toEqual(expectedKinds.map(() => 0));
+    }
     const agents = await get('api/agents');
     // The wiki offers every adapter, and the one the fixture installs on the PATH is installed. Whether another
     // adapter is installed is the machine's own state (a developer's box may hold one), never this case's.
