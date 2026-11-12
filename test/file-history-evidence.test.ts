@@ -10,7 +10,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 // Path evidence must not walk unrelated structure, but import notes still need complete endpoint membership.
 test('path history keeps rename and import membership evidence without loading unrelated structure', async () => {
   const contract: GraphContract = { ...GIT_CONTRACT, edge: [...GIT_CONTRACT.edge, {
-    name: 'imports', table: generatedTableName('imports', 'edge'), from: ['directory'], to: ['directory'], repeats: false, fields: [],
+    name: 'imports', capability: 'fixture', table: generatedTableName('imports', 'edge'), from: ['directory'], to: ['directory'], repeats: false, fields: [],
   }] };
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
