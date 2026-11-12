@@ -487,7 +487,9 @@ export class KnowledgeProduct {
     const seq = this.reader?.seq ?? 0;
     const held = this.manifestMemo;
     if (held !== undefined && held.seq === seq && held.folder === folder) return held.read;
-    const manifest = snapshot === undefined
+    const manifest = snapshot === undefined && !existsSync(storeDatabasePath(this.storeFolder()))
+      ? undefined
+      : snapshot === undefined
       ? await (await this.open()).run(async (tx) => await readPublishedManifest(tx))
       : await readPublishedManifest(snapshot.transaction);
     const read: ReturnType<typeof readKindsFrom> = manifest === undefined

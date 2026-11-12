@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { snapshotFiles } from '../src/knowledge/product-files.js';
+import { snapshotFiles } from '../src/plugin/product-files.js';
 
 test('snapshot files batch only new blobs in code point order and hold every result', async () => {
   const calls: (readonly string[])[] = [];

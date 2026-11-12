@@ -1,3 +1,4 @@
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { expect, test } from 'bun:test';
 import { createRecordSchema, publishHistory, publishTree } from '../src/graph/records.js';
 import { GIT_CONTRACT, GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
@@ -7,7 +8,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 
 // A whole-graph verdict reads every touched edge. Its cost must be one properties read, not one per changed file.
 test('relation properties are batched without mixing edges, producers, contexts or closed opinions', async () => {
-  const owner = await createTestDatabaseOwner();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(GIT_CONTRACT) });
   try {
     await createRecordSchema(owner);
     const hash = 'a'.repeat(40);

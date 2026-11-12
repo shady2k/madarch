@@ -19,6 +19,8 @@ import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
+import { withStorePreparationOwner, requestStorePreparation } from '../src/product/store-preparation.js';
+import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { graphVerdictFile } from '../src/knowledge/graph-verdict-store.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
@@ -100,8 +102,11 @@ test('a standalone fill does not start validation, while an explicit request sti
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot, graphJev: {
       async judge(items) { judgeCalls += 1; return items.map((item) => ({ id: item.id, verdict: 'unsure', reason: 'fixture' })); },
     } });
-    expect(await product.startFill({ targets: { kinds: ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author'] } })).toMatchObject({ started: true });
-    await product.settled();
+    await withStorePreparationOwner(async () => {
+      await requestStorePreparation(storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), await readPinnedGraphContract(draft.folder));
+      expect(await product!.startFill({ targets: { kinds: ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author'] } })).toMatchObject({ started: true });
+      await product!.settled();
+    });
     expect(product.fillState()).toMatchObject({ state: 'done' });
     const file = graphVerdictFile(productStoreFolder(draft.folder, storeRoot));
     expect(judgeCalls).toBe(0);

@@ -6,7 +6,7 @@ import { ensureVertex, journalFor, journalOn, publishOpinion, publishOpinions, w
 
 // The batch and individual calls see the same declarations, inputs and transaction boundaries.
 test('bulk file opinions retain singleton state, journal order, replacements and rollback', async () => {
-  const owners = await Promise.all([createTestDatabaseOwner(), createTestDatabaseOwner()]);
+  const owners = await Promise.all([createTestDatabaseOwner({ graphContract: GIT_CONTRACT }), createTestDatabaseOwner({ graphContract: GIT_CONTRACT })]);
   try {
     const snapshots: unknown[] = [];
     for (const [mode, owner] of owners.entries()) {
