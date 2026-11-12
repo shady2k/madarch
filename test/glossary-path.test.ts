@@ -10,7 +10,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseDocument } from 'yaml';
+import { parseDocument, isSeq, isMap } from 'yaml';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { storeDatabasePath } from '../src/product/store.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { REQUEST_LOG_BYTES, REQUEST_LOG_REQUESTS } from '../src/plugin/host.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -68,6 +73,14 @@ async function refill(): Promise<void> {
   await product.settled();
   const state = product.fillState();
   if (state.state !== 'done') throw new Error(`the fill did not finish: ${JSON.stringify(state)}`);
+  const kinds = readKinds(folder);
+  const term = kinds.present ? kinds.manifest.kinds.get('doc.term') : undefined;
+  if (term !== undefined) {
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
+    try {
+      await publishFixtureTemplate(owner, folder, term.template, [{ type: 'block', name: 'term', params: { title: 'Definition', field: 'definition', synonyms: 'synonyms', code: 'code', usages: 'usages' }, line: 1 }]);
+    } finally { await owner.close(); }
+  }
 }
 
 /** The term block of a term's page. */
@@ -150,10 +163,17 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     expect(plugin).toHaveLength(1);
     expect(plugin[0]?.change.vertices.map((one) => one.entity)).toEqual(['doc.term', 'doc.term']);
     expect(plugin[0]?.change.opinions.every((one) => one.state === 'opened')).toBe(true);
-    // Every request the plugin made is recorded where the host received it — its introduction too — with what came of
-    // it and the size of its answer, never an argument or a text.
+    // The bounded journal records requests at the host — its introduction too — with their outcomes and answer
+    // sizes, never arguments or text. A source scan exceeding the bound ends with an explicit marker.
     expect(plugin[0]?.change.reads?.slice(0, 3).map((one) => one.method)).toEqual(['introduce', 'graph.files', 'graph.files']);
-    expect(plugin[0]?.change.reads?.every((one) => one.outcome === 'answered')).toBe(true);
+    const reads = plugin[0]?.change.reads ?? [];
+    const requests = reads.filter((one) => one.method !== 'truncated');
+    expect(requests.every((one) => one.outcome === 'answered')).toBe(true);
+    // The seeded product has more source files than one debug journal keeps; truncation is explicit, not a refusal.
+    expect(reads.filter((one) => one.method === 'truncated')).toEqual([
+      { method: 'truncated', outcome: 'truncated', size: REQUEST_LOG_REQUESTS, cause: `after ${String(REQUEST_LOG_REQUESTS)} requests or ${String(REQUEST_LOG_BYTES)} bytes` },
+    ]);
+    expect(requests).toHaveLength(REQUEST_LOG_REQUESTS);
     expect(plugin[0]?.change.reads?.slice(1, 3).every((one) => one.size > 0)).toBe(true);
   }, 300_000);
 
@@ -200,6 +220,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     const file = join(folder, 'madarch', 'kinds.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.deleteIn(['kinds', 'doc.term']);
+    const plugins = manifest.get('plugins');
+    if (!isSeq(plugins)) throw new Error('the fixture plugin declarations are absent');
+    plugins.items = plugins.items.filter((plugin) => !isMap(plugin) || plugin.get('id') !== 'glossary');
     writeFileSync(file, manifest.toString());
     commit('Take the term kind out');
     await refill();

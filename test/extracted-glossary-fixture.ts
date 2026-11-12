@@ -17,6 +17,7 @@ export function useExtractedGlossary(folder: string): void {
     { name: 'definition', type: 'text', binding: 'glossary@1.definition' },
     { name: 'synonyms', type: 'json', nullable: true, binding: 'glossary@1.synonyms' },
     { name: 'code', type: 'json', nullable: true, binding: 'glossary@1.code' },
+    { name: 'usages', type: 'json', binding: 'glossary@1.usages' },
   ]);
   writeFileSync(path, manifest.toString());
 }
