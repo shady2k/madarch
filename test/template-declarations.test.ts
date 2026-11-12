@@ -5,6 +5,7 @@ import { snapshotFiles, type ProductFileRead } from '../src/plugin/product-files
 import { templatePartsOf, templatePartsFor } from '../src/knowledge/template.js';
 import { TEMPLATES, STARTER_FILES } from '../src/knowledge/seed.js';
 import { readKindsFrom } from '../src/product/manifest/kinds.js';
+import { planManifestFill } from '../src/plugin/fill-declarations.js';
 
 function compile(texts: Record<string, string>, paths = ['templates/page.liquid']) {
   const files: ProductFileRead = { has: (path) => path in texts, text: (path) => texts[path], size: (path) => texts[path]?.length ?? null };
@@ -60,7 +61,15 @@ describe('template declarations', () => {
     const kind = read.manifest.kinds.get('template')!;
     expect(kind.fields!.map((field) => field.producers)).toEqual([['manifest'], ['manifest']]);
     const agent = [...read.manifest.plugins!.values()].find((plugin) => plugin.contract?.agent?.catalogue === true)!;
-    expect(agent.outputs).not.toContain('template');
+    const plan = planManifestFill(read.manifest, '/neutral-product', ['template'], false);
+    expect(plan.requiresAgent).toBe(false);
+    expect(plan.order).toEqual(['manifest']);
+    expect(plan.outputs.has(agent.id)).toBe(false);
+    expect(plan.unproducedKinds).toEqual([]);
+    for (const field of kind.fields!) {
+      expect(plan.producers('template', field.name)).toEqual(['manifest']);
+      expect(plan.lastProducer('template', field.name)).toBe('manifest');
+    }
     expect(read.manifest.findings).toEqual([]);
   });
 
