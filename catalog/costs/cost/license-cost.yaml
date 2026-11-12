@@ -1,0 +1,25 @@
+id: focus.license-cost
+definition: What the product pays for the licences its components need.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Licence cost
+    many: Licence costs
+  ru:
+    one: Стоимость лицензий
+    many: Стоимости лицензий
+description:
+  en: What the product pays for the licences its components need.
+  ru: Плата продукта за лицензии, нужные его компонентам.

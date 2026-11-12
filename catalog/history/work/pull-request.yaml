@@ -1,0 +1,25 @@
+id: otel.vcs-change-request
+definition: A proposed change to a repository, with the commits it holds and the review it got.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Pull request
+    many: Pull requests
+  ru:
+    one: Запрос на слияние
+    many: Запросы на слияние
+description:
+  en: A proposed change to a repository, with the commits it holds and the review it got.
+  ru: Предложенное изменение репозитория с его коммитами и полученным обзором.

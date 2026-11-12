@@ -1,12 +1,8 @@
-/**
- * The templates `madarch new` offers (decision 0035, item 1: the choice is offered as templates — everything, only
- * the tracker, others — with fine-grained inclusion later). This is starter content, not engine behaviour: the menu
- * lists whatever is declared here, in this order, and neither the engine nor the command names a template or a kind
- * (the architecture rule `starter-data-when-copying` and "the engine holds no product data").
- *
- * A template names the kinds its manifest declares. `madarch` narrows the starter catalogue to those kinds and writes
- * the templates, plugins and workflows they use, and nothing they do not: `src/knowledge/seed.ts` owns that writing.
- */
+/** Starter template menu and selection, read from the repository's bundled catalog/templates/*.yaml files. */
+import { parseCatalogYaml } from '../product/manifest/kinds.js';
+import { CATALOG_FILES } from './catalog-assets.js';
+import { byCodePoint } from '../model/order.js';
+
 export interface StarterTemplateText {
   readonly en: string;
   readonly ru: string;
@@ -23,30 +19,27 @@ export interface StarterTemplate {
   readonly kinds: 'all' | 'none' | readonly string[];
 }
 
-/** The templates the command offers, in the order it shows them. */
-export const STARTER_TEMPLATES: readonly StarterTemplate[] = [
-  {
-    id: 'everything',
-    title: { en: 'Everything', ru: 'Всё' },
-    description: {
-      en: 'The whole starter catalogue: code, history, documents, the work loop and the data model, with the plugins that read them.',
-      ru: 'Весь стартовый каталог: код, история, документы, рабочий цикл и модель данных, с плагинами, которые их читают.',
-    },
-    kinds: 'all',
-  },
-  {
-    id: 'none',
-    title: { en: 'Nothing', ru: 'Ничего' },
-    description: {
-      en: 'Start from scratch: no manifest; write your own, following the guide.',
-      ru: 'Начать с нуля: манифеста нет; напишите свой по руководству.',
-    },
-    kinds: 'none',
-  },
-];
+/** Templates are repository data, embedded together with the catalogue for offline creation. */
+const declaredTemplates = Object.entries(CATALOG_FILES)
+  .filter(([path]) => /^templates\/[^/]+\.yaml$/.test(path))
+  .map(([path, text]) => {
+    const value: unknown = parseCatalogYaml(text);
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`catalog/${path}:1: a starter template is a mapping`);
+    const data = value as Record<string, unknown>;
+    const id = path.slice('templates/'.length, -'.yaml'.length);
+    for (const field of ['title', 'description']) {
+      const words = data[field] as Record<string, unknown> | undefined;
+      if (words === undefined || typeof words.en !== 'string' || typeof words.ru !== 'string') throw new Error(`catalog/${path}:1: ${field} names the template in en and ru`);
+    }
+    if (data.id !== id || typeof data.order !== 'number' || (data.kinds !== 'all' && data.kinds !== 'none' && (!Array.isArray(data.kinds) || !data.kinds.every((kind) => typeof kind === 'string')))) throw new Error(`catalog/${path}:1: a template declares its file's id, order and kinds (all, none, or kind names/folders)`);
+    return { template: { id, title: data.title, description: data.description, kinds: data.kinds } as StarterTemplate, order: data.order, default: data.default === true };
+  })
+  .sort((a, b) => a.order - b.order || byCodePoint(a.template.id, b.template.id));
 
-/** The template the command takes when a person chose none and the command has no terminal to ask: the whole set. */
-export const DEFAULT_STARTER_TEMPLATE = 'everything';
+export const STARTER_TEMPLATES: readonly StarterTemplate[] = declaredTemplates.map((entry) => entry.template);
+const defaults = declaredTemplates.filter((entry) => entry.default);
+if (defaults.length !== 1) throw new Error('catalog/templates:1: exactly one starter template must declare default: true');
+export const DEFAULT_STARTER_TEMPLATE = defaults[0]!.template.id;
 
 /** The template with this id, or undefined when none is declared; `templates` defaults to the declared data. */
 export function starterTemplateOf(id: string, templates: readonly StarterTemplate[] = STARTER_TEMPLATES): StarterTemplate | undefined {

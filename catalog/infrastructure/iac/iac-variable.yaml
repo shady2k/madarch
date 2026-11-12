@@ -1,0 +1,25 @@
+id: terraform.variable
+definition: A named value an infrastructure definition takes from its surroundings.
+sources:
+- https://developer.hashicorp.com/terraform/language/values/variables
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - configures
+  in:
+  - configures
+template-policy: none
+labels:
+  en:
+    one: IaC variable
+    many: IaC variables
+  ru:
+    one: Переменная IaC
+    many: Переменные IaC
+description:
+  en: A named value an infrastructure definition takes from its surroundings.
+  ru: Именованное значение, которое определение инфраструктуры берёт из окружения.

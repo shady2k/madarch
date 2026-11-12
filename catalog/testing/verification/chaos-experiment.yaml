@@ -1,0 +1,25 @@
+id: practice.chaos-experiment
+definition: A controlled fault injected into a running system to see whether it keeps its promises.
+sources:
+- https://principlesofchaos.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Chaos experiment
+    many: Chaos experiments
+  ru:
+    one: Эксперимент с отказами
+    many: Эксперименты с отказами
+description:
+  en: A controlled fault injected into a running system to see whether it keeps its promises.
+  ru: Управляемый сбой, внесённый в работающую систему, чтобы увидеть, держит ли она обещания.

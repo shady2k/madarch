@@ -1,0 +1,25 @@
+id: practice.dast-scan
+definition: A tool run that attacks a running service the way an outsider could.
+sources:
+- https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - foundBy
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: DAST scan
+    many: DAST scans
+  ru:
+    one: Сканирование DAST
+    many: Сканирования DAST
+description:
+  en: A tool run that attacks a running service the way an outsider could.
+  ru: Запуск инструмента, который атакует работающий сервис так, как мог бы посторонний.

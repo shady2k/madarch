@@ -1,0 +1,25 @@
+id: practice.observation
+definition: A record of how a person works with the product, made where the work happens.
+sources:
+- https://www.nngroup.com/articles/contextual-inquiry/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Observation
+    many: Observations
+  ru:
+    one: Наблюдение
+    many: Наблюдения
+description:
+  en: A record of how a person works with the product, made where the work happens.
+  ru: Запись того, как человек работает с продуктом, сделанная там, где идёт работа.

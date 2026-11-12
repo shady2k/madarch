@@ -1,0 +1,35 @@
+id: practice.file-facet
+definition: What the code reader found out about one file, such as its role and its language.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: member
+template: templates/item-plain.liquid
+source: graph
+member:
+  relation: code.facet-of
+  direction: out
+  parentKind: code.file
+details:
+- language
+- role
+- authors
+- commitCount
+- parsed
+labels:
+  en:
+    one: File facet
+    many: File facets
+  ru:
+    one: Срез файла
+    many: Срезы файлов
+description:
+  en: 'What the code reader found out about a file: its role and language.'
+  ru: 'Что читатель кода выяснил о файле: его роль и язык.'

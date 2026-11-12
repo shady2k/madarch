@@ -1,0 +1,25 @@
+id: practice.llm-usage
+definition: The tokens and the money one model use cost, with the model and the purpose it served.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Model use
+    many: Model uses
+  ru:
+    one: Использование модели
+    many: Использования модели
+description:
+  en: The tokens and the money one model use cost, with the model and the purpose it served.
+  ru: Токены и деньги, которые стоило одно использование модели, с моделью и целью.

@@ -1,0 +1,26 @@
+id: practice.evaluation-run
+definition: One evaluation of a model against a dataset and the metric it was judged by.
+sources:
+- https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd
+- https://mlflow.org/docs/latest/index.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Evaluation run
+    many: Evaluation runs
+  ru:
+    one: Запуск оценки
+    many: Запуски оценки
+description:
+  en: One evaluation of a model against a dataset and the metric it was judged by.
+  ru: Одна оценка модели на наборе данных и метрика, по которой её судили.

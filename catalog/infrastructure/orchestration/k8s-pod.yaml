@@ -1,0 +1,26 @@
+id: kubernetes.pod
+definition: 'The smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - hasHost
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Pod
+    many: Pods
+  ru:
+    one: Под
+    many: Поды
+description:
+  en: 'The smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'
+  ru: 'Наименьшая развёртываемая единица Kubernetes: один или несколько контейнеров с общей сетью и хранилищем.'

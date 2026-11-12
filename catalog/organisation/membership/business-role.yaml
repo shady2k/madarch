@@ -1,0 +1,25 @@
+id: org.role
+definition: A part a person plays in the organisation, such as product owner or developer.
+sources:
+- https://www.w3.org/TR/vocab-org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Business role
+    many: Business roles
+  ru:
+    one: Бизнес-роль
+    many: Бизнес-роли
+description:
+  en: A part a person plays in the organisation, such as product owner or developer.
+  ru: 'Роль, которую человек играет в организации: владелец продукта или разработчик.'

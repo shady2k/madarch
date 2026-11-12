@@ -1,3 +1,4 @@
+import { starterManifestText } from './catalog-folder-fixture.js';
 /**
  * The catalog's reader (decision 0033, items 8 to 10): `src/knowledge/catalog.ts` reads the schema a product's
  * manifest declares about its entity catalog and each kind's row, and refuses a schema it cannot read, a row that
@@ -15,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { GROUP_SHORT_LABEL_LIMIT, parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
-import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/catalog-starter.js';
 
 const made: string[] = [];
 afterAll(() => {
@@ -241,9 +242,9 @@ describe('a catalog is read as its manifest declares it', () => {
   });
 
   test('the starter set reads clean: every area of the life cycle, two levels, and a row for every kind', () => {
-    const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/kinds.yaml', TEMPLATES);
     const starter = product();
-    const seeded = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', starter);
+    const seeded = parseKinds(starterManifestText(), 'madarch/kinds.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
     expect(read.catalog!.kinds.size).toBe(519);
@@ -310,7 +311,7 @@ describe('every field of a catalog row is required, and a wrong one is refused n
 
 describe('the navigation names every group by a short label', () => {
   test('the starter set gives every area and subgroup a short label that fits the sidebar, in both languages', () => {
-    const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/kinds.yaml', TEMPLATES);
     expect(read.findings).toEqual([]);
     for (const group of read.groups.values()) {
       expect([group.name, group.short?.en !== undefined && group.short?.ru !== undefined]).toEqual([group.name, true]);
@@ -347,17 +348,16 @@ describe('one defect in the manifest is one problem', () => {
   }
   /** The starter manifest with one string replaced (the plant), so the plant is what the manifest differs by. */
   function withPlant(old: string, written: string): string {
-    const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
+    const base = starterManifestText();
     if (!base.includes(old)) throw new Error(`the starter manifest holds no ${JSON.stringify(old)}`);
     return base.replace(old, written);
   }
   /** A catalogue-only kind appended to the `kinds:` section, for the plants that add one. */
   function appendedKind(name: string, id: string, group: string, extra: string[] = []): string {
-    const base = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
+    const base = starterManifestText();
     // A kind belongs under `kinds:`, whose section ends where `edges:` begins; the rest of the manifest stays whole.
-    const edgeSection = base.indexOf('\nedges:\n');
-    const head = edgeSection === -1 ? base : base.slice(0, edgeSection);
-    const tail = edgeSection === -1 ? '' : base.slice(edgeSection);
+    const head = base;
+    const tail = '';
     return `${head}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}${tail}`;
   }
   const cases: [string, string, string][] = [
@@ -368,8 +368,8 @@ describe('one defect in the manifest is one problem', () => {
     ['a subgroup over its bound', appendedKind('probe.overflow', 'practice.probe-overflow', 'infrastructure.orchestration'), 'subgroup "infrastructure.orchestration": 13 kinds'],
     ['two kinds of one concept id', appendedKind('probe.duplicate', 'c4.container', 'code.schema'), 'kind "probe.duplicate": the concept id "c4.container" is the id of kind "code.service"'],
     ['a value the catalog marks as an attribute declared as a kind', appendedKind('probe.attribute', 'version', 'code.schema'), 'kind "probe.attribute": "version" is a value the catalog marks as an attribute'],
-    ['an origin mark the catalog does not declare', withPlant('    acquisition: ["extractor operations"]\n', '    acquisition: ["telepathy"]\n'), 'kind "code.service": "acquisition" holds "telepathy"'],
-    ['a source that is not an address', withPlant('    sources: ["https://c4model.com/abstractions"]\n', '    sources: ["nowhere"]\n'), 'kind "code.service": "sources" holds "nowhere"'],
+    ['an origin mark the catalog does not declare', withPlant('    acquisition:\n    - extractor operations\n', '    acquisition: ["telepathy"]\n'), 'kind "code.service": "acquisition" holds "telepathy"'],
+    ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "code.service": "sources" holds "nowhere"'],
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
     ['a role leading a group nobody declares', withPlant('lead: [strategy, discovery, requirements, rd]', 'lead: [nowhere, discovery, requirements, rd]'), 'role "product": "nowhere" is not a group of "groups"'],
     ['a role opening a block outside the library', withPlant('open: [stated, implementedby, linkedfrom, related, properties] }\n  analyst', 'open: [nothing] }\n  analyst'), 'role "product": "nothing" is not a block of the library'],
@@ -383,13 +383,13 @@ describe('one defect in the manifest is one problem', () => {
   }
 
   test('the starter set itself holds no problem at all', () => {
-    expect(planted(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content)).toEqual([]);
+    expect(planted(starterManifestText())).toEqual([]);
   });
 });
 
 describe('the areas a person sees open at once', () => {
   test('the product\'s own knowledge opens before code, and every kind the old product group held is in an open area', () => {
-    const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/kinds.yaml', TEMPLATES);
     expect(read.findings).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     // The areas the wiki opens by itself: strategy, requirements, research and documentation — the product's knowledge.

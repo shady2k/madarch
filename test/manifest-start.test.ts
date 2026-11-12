@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 
 const roots: string[] = [];
@@ -25,9 +26,9 @@ test('madarch start refuses invalid manifests before its wiki listens, printing 
   const product = join(home, 'sample'); mkdirSync(product, { recursive: true });
   writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: sample\nname: sample\n');
   seedStarterSet(product);
-  const kinds = join(product, 'madarch', 'kinds.yaml');
+  const kinds = join(product, 'madarch', 'catalog.yaml');
   const workflows = join(product, 'madarch', 'workflows.yaml');
-  writeFileSync(kinds, 'kinds: [\n');
+  writeFileSync(kinds, 'groups: [\n');
   writeFileSync(workflows, 'workflows: [\n');
   const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.test', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.test' };
   for (const args of [['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'fixture']]) {
@@ -55,8 +56,8 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
   const home = join(root, 'products');
   const product = join(home, 'sample'); mkdirSync(join(product, 'madarch'), { recursive: true });
   writeFileSync(join(product, 'workspace.yaml'), 'schemaVersion: 1\nid: sample\nname: sample\n');
-  const kinds = join(product, 'madarch', 'kinds.yaml');
-  writeFileSync(kinds, 'kinds: {}\n');
+  const kinds = join(product, 'madarch', 'catalog.yaml');
+  writeFileSync(kinds, '{}\n');
   const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.test', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.test' };
   for (const args of [['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'fixture']]) {
     expect(Bun.spawnSync(['git', ...args], { cwd: product, env: gitEnv }).exitCode).toBe(0);
@@ -90,10 +91,10 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     // Prime the reader cache before the valid edit; the manifest journal must invalidate it.
     expect((await (await fetch(`${base}/catalog`)).json()).kinds).toEqual([]);
     mkdirSync(join(product, 'templates')); writeFileSync(join(product, 'templates', 'term.md'), '# Term');
-    writeFileSync(kinds, 'kinds:\n  term:\n    source: document\n    template: templates/term.md\n    terms: ["docs/*.md"]\n');
+    writeFolderManifest(product, 'kinds:\n  term:\n    source: document\n    template: templates/term.md\n    terms: ["docs/*.md"]\n');
     await until(async () => (await (await fetch(`${base}/catalog`)).json()).kinds.some((one: { kind: string }) => one.kind === 'term'));
     expect(await (await fetch(`${base}/status`)).json()).toMatchObject({ manifest: 'not-filled', filled: false });
-    writeFileSync(kinds, 'kinds: [\n');
+    writeFileSync(kinds, 'groups: [\n');
     await until(async () => diagnostics.includes(`${kinds}:`));
     expect((await (await fetch(`${base}/catalog`)).json()).kinds.map((one: { kind: string }) => one.kind)).toEqual(['term']);
     expect(diagnostics).toContain(`${kinds}:`);

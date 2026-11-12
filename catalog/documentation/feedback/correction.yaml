@@ -1,0 +1,58 @@
+id: practice.correction
+definition: A person's statement that something the wiki says is wrong, with the ground it rests on.
+sources:
+- https://arc42.org/overview
+acquisition:
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: page
+template: templates/correction.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+import-folder: docs/corrections
+nav: loop
+details:
+- statement
+- correction_reason
+- status
+- about
+- by
+- at
+- resolved_by
+- resolved_at
+- file
+labels:
+  en:
+    one: Correction
+    many: Corrections
+  ru:
+    one: Поправка
+    many: Поправки
+description:
+  en: A person's note that a statement is wrong, and why; the agent takes it into account at the next refresh.
+  ru: Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.

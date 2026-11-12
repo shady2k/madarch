@@ -7,8 +7,8 @@ import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
 import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { KINDS_FILE, readKindsFrom, type Finding, type KindsManifest } from '../product/manifest/kinds.js';
-import { workingTreeFiles, type ProductFileRead } from '../plugin/product-files.js';
+import { KINDS_FILE, readKindsFrom, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
+import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
 
@@ -37,7 +37,7 @@ function decode(value: unknown): unknown {
 }
 
 /** Uses the same kinds/workflows checks as a fill; every finding retains its full path and line. */
-export function validateProductManifests(productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder), commit?: string): ManifestValidation {
+export function validateProductManifests(productFolder: string, files: KindsFileSource = workingTreeFiles(productFolder), commit?: string): ManifestValidation {
   const folder = resolve(productFolder);
   const read = readKindsFrom(files, folder);
   const workflow = readWorkflowsFrom(files, folder);
@@ -60,12 +60,13 @@ export function validateProductManifests(productFolder: string, files: ProductFi
   };
   add('catalogue', 'product', manifest, KINDS_FILE, 1);
   for (const [name, kind] of manifest.kinds) {
-    add('kind', name, { ...kind, ...(manifest.catalog?.kinds.get(name) === undefined ? {} : { catalog: manifest.catalog.kinds.get(name) }) }, KINDS_FILE, kind.line);
-    for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, KINDS_FILE, field.line ?? kind.line);
-    for (const [index, relation] of (kind.relations ?? []).entries()) add('relation', JSON.stringify([name, index]), { from: name, ...relation }, KINDS_FILE, relation.line);
-    for (const dependency of kind.dependsOn ?? []) add('dependency', JSON.stringify(['kind', name, dependency]), { from: dependency, to: name, via: 'depends-on' }, KINDS_FILE, kind.line);
+    const path = manifest.kindFiles?.get(name) ?? KINDS_FILE;
+    add('kind', name, { ...kind, ...(manifest.catalog?.kinds.get(name) === undefined ? {} : { catalog: manifest.catalog.kinds.get(name) }) }, path, kind.line);
+    for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, path, field.line ?? kind.line);
+    for (const [index, relation] of (kind.relations ?? []).entries()) add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
+    for (const dependency of kind.dependsOn ?? []) add('dependency', JSON.stringify(['kind', name, dependency]), { from: dependency, to: name, via: 'depends-on' }, path, kind.line);
   }
-  for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind }, KINDS_FILE, kind.line);
+  for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind }, manifest.kindFiles?.get(name) ?? KINDS_FILE, kind.line);
   for (const [name, edge] of manifest.edges ?? []) add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);
   for (const [name, entry] of manifest.workflows?.workflows ?? []) {
     add('workflow', name, entry, WORKFLOWS_FILE, entry.line);

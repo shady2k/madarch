@@ -1,0 +1,25 @@
+id: practice.research-question
+definition: The question a piece of user research is meant to answer.
+sources:
+- https://www.nngroup.com/articles/ux-research-cheat-sheet/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Research question
+    many: Research questions
+  ru:
+    one: Вопрос исследования
+    many: Вопросы исследования
+description:
+  en: The question a piece of user research is meant to answer.
+  ru: Вопрос, на который должно ответить исследование пользователей.

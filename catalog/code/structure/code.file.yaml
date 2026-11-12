@@ -1,0 +1,76 @@
+id: spdx.file
+definition: A file of a code repository.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/File/
+acquisition:
+- extractor files
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: page
+template: templates/file.liquid
+source: graph
+capability: git
+fields:
+- name: state_machines
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
+      use [] when none exist and preserve source positions.'
+- name: repository_node
+  type: bigint
+  producers:
+  - git
+  reference: code.repository
+- name: path_id
+  type: bigint
+  producers:
+  - git
+- name: mode
+  type: text
+  nullable: true
+  producers:
+  - git
+- name: blob_id
+  type: bigint
+  nullable: true
+  producers:
+  - git
+- name: content
+  type: text
+  nullable: true
+  producers:
+  - git
+key:
+- repository_node
+- path_id
+depends-on:
+- code.repository
+- code.directory
+history: path
+views:
+- state
+details:
+- mode
+- blob
+- bytes
+- lines
+- form
+- language
+- candidates
+- commitCount
+- authors
+labels:
+  en:
+    one: File
+    many: Files
+  ru:
+    one: Файл
+    many: Файлы
+description:
+  en: A file of a code repository.
+  ru: Файл репозитория кода.

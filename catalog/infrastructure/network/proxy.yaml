@@ -1,0 +1,25 @@
+id: practice.proxy
+definition: A component that forwards traffic and may change, cache or refuse it on the way.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9110.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Proxy
+    many: Proxies
+  ru:
+    one: Прокси
+    many: Прокси
+description:
+  en: A component that forwards traffic and may change, cache or refuse it on the way.
+  ru: Компонент, который пересылает трафик и может изменить, закэшировать или отклонить его по пути.

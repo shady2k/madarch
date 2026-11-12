@@ -1,0 +1,25 @@
+id: practice.load-test
+definition: A performance test at the load the product is expected to meet.
+sources:
+- https://glossary.istqb.org/en_US/term/load-testing
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Load test
+    many: Load tests
+  ru:
+    one: Нагрузочный тест
+    many: Нагрузочные тесты
+description:
+  en: A performance test at the load the product is expected to meet.
+  ru: Тест производительности при нагрузке, которую продукт должен выдерживать.

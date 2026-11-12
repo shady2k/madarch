@@ -1,0 +1,25 @@
+id: practice.user-role
+definition: The part a person plays when using the product, with the permissions and duties it carries.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: User role
+    many: User roles
+  ru:
+    one: Роль пользователя
+    many: Роли пользователя
+description:
+  en: The part a person plays when using the product, with the permissions and duties it carries.
+  ru: Роль, которую человек играет при использовании продукта, с её правами и обязанностями.

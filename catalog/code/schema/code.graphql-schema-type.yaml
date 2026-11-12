@@ -1,0 +1,25 @@
+id: graphql.schema-type
+definition: A type of a GraphQL schema, with its fields.
+sources:
+- https://spec.graphql.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: GraphQL type
+    many: GraphQL types
+  ru:
+    one: Тип GraphQL
+    many: Типы GraphQL
+description:
+  en: A type of a GraphQL schema, with its fields.
+  ru: Тип схемы GraphQL с его полями.

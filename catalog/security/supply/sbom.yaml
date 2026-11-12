@@ -1,0 +1,26 @@
+id: cyclonedx.bom
+definition: The list of the components a product is built from, with the versions and the relations between them.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+- https://spdx.github.io/spdx-spec/v3.0.1/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: SBOM
+    many: SBOMs
+  ru:
+    one: SBOM
+    many: SBOM
+description:
+  en: The list of the components a product is built from, with the versions and the relations between them.
+  ru: Список компонентов, из которых собран продукт, с версиями и связями между ними.

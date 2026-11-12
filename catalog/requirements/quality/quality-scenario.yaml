@@ -1,0 +1,26 @@
+id: arc42.quality-scenario
+definition: A concrete, measurable situation that states a quality requirement so a test can judge it.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  - verifies
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Quality scenario
+    many: Quality scenarios
+  ru:
+    one: Сценарий качества
+    many: Сценарии качества
+description:
+  en: A concrete, measurable situation that states a quality requirement so a test can judge it.
+  ru: Конкретная измеримая ситуация, которая выражает требование качества так, что его может судить тест.

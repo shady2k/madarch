@@ -1,0 +1,25 @@
+id: archimate.outcome
+definition: 'A result that follows from a goal: what is different once the goal is reached.'
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - realises
+  in:
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Outcome
+    many: Outcomes
+  ru:
+    one: Результат
+    many: Результаты
+description:
+  en: 'A result that follows from a goal: what is different once the goal is reached.'
+  ru: 'То, что следует из цели: что стало иначе, когда цель достигнута.'

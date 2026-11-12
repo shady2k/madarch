@@ -1,0 +1,25 @@
+id: kubernetes.job
+definition: A Kubernetes workload that runs to completion once.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Kubernetes job
+    many: Kubernetes jobs
+  ru:
+    one: Задача Kubernetes
+    many: Задачи Kubernetes
+description:
+  en: A Kubernetes workload that runs to completion once.
+  ru: Рабочая нагрузка Kubernetes, которая выполняется до завершения один раз.

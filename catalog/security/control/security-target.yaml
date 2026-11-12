@@ -1,0 +1,27 @@
+id: iso15408.security-target
+definition: The document that states the security problem of a product and the measures that answer it, as ISO/IEC 15408 defines
+  it.
+sources:
+- https://www.iso.org/standard/72891.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Security target
+    many: Security targets
+  ru:
+    one: Цель безопасности
+    many: Цели безопасности
+description:
+  en: The document that states the security problem of a product and the measures that answer it, as ISO/IEC 15408 defines
+    it.
+  ru: Документ, который излагает проблему безопасности продукта и отвечающие ей меры, как определяет ISO/IEC 15408.

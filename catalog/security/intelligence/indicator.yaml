@@ -1,0 +1,25 @@
+id: stix.indicator
+definition: An observable pattern, such as an address or a file hash, that suggests an attack.
+sources:
+- https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Indicator
+    many: Indicators
+  ru:
+    one: Индикатор
+    many: Индикаторы
+description:
+  en: An observable pattern, such as an address or a file hash, that suggests an attack.
+  ru: Наблюдаемый образец, например адрес или хеш файла, который указывает на атаку.

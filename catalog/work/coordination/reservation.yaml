@@ -1,0 +1,27 @@
+id: practice.reservation
+definition: A responsible person's hold over a subtree of work, so no one else changes it until the hold is released.
+sources:
+- https://svnbook.red-bean.com/en/1.8/svn.advanced.locking.html
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  - assigns
+  in:
+  - assigns
+template-policy: none
+labels:
+  en:
+    one: Reservation
+    many: Reservations
+  ru:
+    one: Резервирование
+    many: Резервирования
+description:
+  en: A responsible person's hold over a subtree of work until it is released.
+  ru: Удержание ответственным человеком поддерева работы до его снятия.

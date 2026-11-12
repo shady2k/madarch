@@ -1,0 +1,25 @@
+id: gdpr.personal-data
+definition: Information about an identified or identifiable person, as the GDPR defines it.
+sources:
+- https://gdpr-info.eu/art-4-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Personal data
+    many: Personal data
+  ru:
+    one: Персональные данные
+    many: Персональные данные
+description:
+  en: Information about an identified or identifiable person, as the GDPR defines it.
+  ru: Информация об определённом или определимом человеке, как её определяет GDPR.

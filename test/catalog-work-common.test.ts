@@ -5,7 +5,10 @@
  * kinds the tracker replaces are merged, never added a second time.
  */
 import { describe, expect, test } from 'bun:test';
-import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_GROUPS, CATALOG_KINDS } from '../src/knowledge/catalog-starter.js';
+import { readFileSync } from 'node:fs';
+import { parse as parseCatalogYaml } from 'yaml';
+const CATALOG_RELATIONS = parseCatalogYaml(readFileSync(new URL('../catalog/catalog.yaml', import.meta.url), 'utf8')).catalog.relations as Record<string, string | null>;
 
 const rows = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind]));
 const groups = new Map(CATALOG_GROUPS.map((group) => [group.name, group]));

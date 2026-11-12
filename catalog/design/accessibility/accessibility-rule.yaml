@@ -1,0 +1,25 @@
+id: act.rule
+definition: A W3C ACT rule that checks one success criterion in a way tools can repeat.
+sources:
+- https://www.w3.org/TR/act-rules-format/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Accessibility rule
+    many: Accessibility rules
+  ru:
+    one: Правило доступности
+    many: Правила доступности
+description:
+  en: A W3C ACT rule that checks one success criterion in a way tools can repeat.
+  ru: Правило W3C ACT, которое проверяет один критерий успеха так, что инструменты могут его повторить.

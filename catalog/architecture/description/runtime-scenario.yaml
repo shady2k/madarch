@@ -1,0 +1,25 @@
+id: arc42.runtime-scenario
+definition: 'arc42''s view of one runtime situation: the participants and the steps between them.'
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Runtime scenario
+    many: Runtime scenarios
+  ru:
+    one: Сценарий выполнения
+    many: Сценарии выполнения
+description:
+  en: 'arc42''s view of one runtime situation: the participants and the steps between them.'
+  ru: 'Представление arc42 одной ситуации выполнения: участники и шаги между ними.'

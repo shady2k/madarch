@@ -1,0 +1,25 @@
+id: in-toto.attestation
+definition: A signed statement about an artifact, such as its provenance or a scan result, in an in-toto envelope.
+sources:
+- https://github.com/in-toto/attestation/blob/main/spec/README.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Attestation
+    many: Attestations
+  ru:
+    one: Аттестация
+    many: Аттестации
+description:
+  en: A signed statement about an artifact, such as its provenance or a scan result, in an in-toto envelope.
+  ru: Подписанное утверждение об артефакте, например о происхождении или результате проверки, в конверте in-toto.

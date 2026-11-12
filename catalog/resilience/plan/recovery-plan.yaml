@@ -1,0 +1,25 @@
+id: nist800-34.recovery-plan
+definition: The ordered steps that restore one system, with the evidence that each step worked.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Recovery plan
+    many: Recovery plans
+  ru:
+    one: План восстановления
+    many: Планы восстановления
+description:
+  en: The ordered steps that restore one system, with the evidence that each step worked.
+  ru: Упорядоченные шаги, которые восстанавливают одну систему, с доказательством, что каждый сработал.

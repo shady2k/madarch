@@ -1,0 +1,25 @@
+id: practice.job-schedule
+definition: When and how often a scheduled job runs, with the limits it runs under.
+sources:
+- https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Job schedule
+    many: Job schedules
+  ru:
+    one: Расписание задачи
+    many: Расписания задачи
+description:
+  en: When and how often a scheduled job runs, with the limits it runs under.
+  ru: Когда и как часто выполняется задача по расписанию и в каких пределах.

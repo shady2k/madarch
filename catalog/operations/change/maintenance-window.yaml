@@ -1,0 +1,25 @@
+id: practice.maintenance-window
+definition: A period in which the service may be unavailable while work is done on it.
+sources:
+- https://www.rfc-editor.org/rfc/rfc8594.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Maintenance window
+    many: Maintenance windows
+  ru:
+    one: Окно обслуживания
+    many: Окна обслуживания
+description:
+  en: A period in which the service may be unavailable while work is done on it.
+  ru: Период, в который сервис может быть недоступен, пока с ним работают.

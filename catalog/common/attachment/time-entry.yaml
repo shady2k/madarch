@@ -1,0 +1,29 @@
+id: practice.time-entry
+definition: A record of time spent on an entity, with its type (work time, waiting or an agent's run), its duration and the
+  person or agent that spent it.
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/log-time-on-an-issue/
+- https://support.atlassian.com/jira-service-management-cloud/docs/create-an-sla/
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - appliesTo
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Time entry
+    many: Time entries
+  ru:
+    one: Запись времени
+    many: Записи времени
+description:
+  en: Time spent on an entity, with its type, duration and who spent it.
+  ru: Время, потраченное на сущность, с его типом, длительностью и тем, кто его потратил.

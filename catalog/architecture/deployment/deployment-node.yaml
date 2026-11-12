@@ -1,0 +1,25 @@
+id: c4.deployment-node
+definition: A place a container instance runs on, such as a server, a cluster or a virtual machine.
+sources:
+- https://c4model.com/diagrams/deployment
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasHost
+  in:
+  - hasHost
+template-policy: none
+labels:
+  en:
+    one: Deployment node
+    many: Deployment nodes
+  ru:
+    one: Узел развёртывания
+    many: Узлы развёртывания
+description:
+  en: A place a container instance runs on, such as a server, a cluster or a virtual machine.
+  ru: 'Место, где работает экземпляр контейнера: сервер, кластер или виртуальная машина.'

@@ -1,0 +1,25 @@
+id: practice.ai-impact-assessment
+definition: The study of how an AI system affects the people it is used on, and the measures that answer it.
+sources:
+- https://www.nist.gov/itl/ai-risk-management-framework
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: AI impact assessment
+    many: AI impact assessments
+  ru:
+    one: Оценка воздействия ИИ
+    many: Оценки воздействия ИИ
+description:
+  en: The study of how an AI system affects the people it is used on, and the measures that answer it.
+  ru: Исследование того, как система ИИ влияет на людей, и меры, которые на это отвечают.

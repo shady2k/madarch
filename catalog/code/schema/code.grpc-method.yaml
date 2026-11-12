@@ -1,0 +1,25 @@
+id: protobuf.rpc
+definition: One remote call of a Protocol Buffers service, with its request and response messages.
+sources:
+- https://protobuf.dev/reference/protobuf/proto3-spec/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: gRPC method
+    many: gRPC methods
+  ru:
+    one: Метод gRPC
+    many: Методы gRPC
+description:
+  en: One remote call of a Protocol Buffers service, with its request and response messages.
+  ru: Один удалённый вызов службы Protocol Buffers с сообщениями запроса и ответа.

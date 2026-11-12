@@ -1,0 +1,28 @@
+id: sre.sla
+definition: An agreement that states the service level and what happens when it is missed, whether with a user or with another
+  service; the SLA is the one kind a supplier agreement names.
+sources:
+- https://sre.google/sre-book/service-level-objectives/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: SLA
+    many: SLAs
+  ru:
+    one: SLA
+    many: SLA
+description:
+  en: An agreement that states the service level and what happens when it is missed, whether with a user or with another service;
+    the SLA is the one kind a supplier agreement names.
+  ru: Соглашение, которое задаёт уровень сервиса и последствия его нарушения с пользователем или другим сервисом; SLA — единственный
+    вид, который называет соглашение с поставщиком.

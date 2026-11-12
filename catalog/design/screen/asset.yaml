@@ -1,0 +1,25 @@
+id: practice.asset
+definition: A file a screen shows, such as an image, an icon or a font.
+sources:
+- https://www.w3.org/Graphics/SVG/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - uses
+template-policy: none
+labels:
+  en:
+    one: Media asset
+    many: Media assets
+  ru:
+    one: Медиафайл
+    many: Медиафайлы
+description:
+  en: A file a screen shows, such as an image, an icon or a font.
+  ru: 'Файл, который показывает экран: изображение, значок или шрифт.'

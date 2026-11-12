@@ -1,0 +1,25 @@
+id: sre.slo
+definition: A target value or range for an SLI over a period, which the service is held to.
+sources:
+- https://sre.google/sre-book/service-level-objectives/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: SLO
+    many: SLOs
+  ru:
+    one: SLO
+    many: SLO
+description:
+  en: A target value or range for an SLI over a period, which the service is held to.
+  ru: Целевое значение или диапазон SLI за период, которых сервис обязан держаться.

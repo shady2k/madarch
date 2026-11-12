@@ -1,0 +1,40 @@
+id: kubernetes.probe
+definition: One configured readiness, liveness or startup probe.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - monitors
+  in:
+  - monitors
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- probeType
+- container
+- path
+- port
+- resolvedPort
+- scheme
+- host
+- initialDelaySeconds
+- periodSeconds
+- timeoutSeconds
+- successThreshold
+- failureThreshold
+- terminationGracePeriodSeconds
+- transport
+labels:
+  en:
+    one: Probe
+    many: Probes
+  ru:
+    one: Проба
+    many: Пробы
+description:
+  en: One configured readiness, liveness or startup probe.
+  ru: Настроенная проба готовности, работоспособности или запуска.

@@ -1,0 +1,25 @@
+id: scrum.backlog-item
+definition: 'One item of the product backlog: a need, a change or a defect, ordered by the product owner.'
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Backlog item
+    many: Backlog items
+  ru:
+    one: Элемент журнала
+    many: Элементы журнала
+description:
+  en: 'One item of the product backlog: a need, a change or a defect, ordered by the product owner.'
+  ru: 'Один элемент журнала продукта: потребность, изменение или дефект, упорядоченный владельцем продукта.'

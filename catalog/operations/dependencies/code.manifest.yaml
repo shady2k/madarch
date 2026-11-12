@@ -1,0 +1,32 @@
+id: practice.package-manifest
+definition: A file that declares a package and its dependencies.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - hasDependencyManifest
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- ecosystem
+- name
+- version
+- module
+- goVersion
+- private
+labels:
+  en:
+    one: Manifest
+    many: Manifests
+  ru:
+    one: Манифест
+    many: Манифесты
+description:
+  en: A package.json or go.mod file that declares dependencies.
+  ru: Файл package.json или go.mod, который объявляет зависимости.

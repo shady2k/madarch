@@ -16,5 +16,5 @@ export function fixtureManifest(declarations: Readonly<Record<string, Partial<Ki
     line: 1,
     ...decl,
   }]));
-  return { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds, groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
+  return { file: 'madarch/catalog.yaml', roles: new Map(), properties: new Map(), kinds, groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
 }

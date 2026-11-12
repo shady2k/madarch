@@ -1,0 +1,25 @@
+id: practice.ab-test
+definition: An experiment that gives different people different variants and compares the outcome.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: A/B test
+    many: A/B tests
+  ru:
+    one: A/B-тест
+    many: A/B-тесты
+description:
+  en: An experiment that gives different people different variants and compares the outcome.
+  ru: Эксперимент, который даёт разным людям разные варианты и сравнивает результат.

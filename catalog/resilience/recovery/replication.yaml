@@ -1,0 +1,25 @@
+id: nist800-34.replication
+definition: The continuous copying of data or of a service to a second place, with its lag.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - replicates
+  in:
+  - replicates
+template-policy: none
+labels:
+  en:
+    one: Replication
+    many: Replications
+  ru:
+    one: Репликация
+    many: Репликации
+description:
+  en: The continuous copying of data or of a service to a second place, with its lag.
+  ru: Непрерывное копирование данных или сервиса во второе место с его задержкой.

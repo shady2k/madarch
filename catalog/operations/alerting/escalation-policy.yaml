@@ -1,0 +1,25 @@
+id: practice.escalation-policy
+definition: The order in which people are told about an unanswered alert, and after how long.
+sources:
+- https://sre.google/workbook/on-call/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Escalation policy
+    many: Escalation policies
+  ru:
+    one: Политика эскалации
+    many: Политики эскалации
+description:
+  en: The order in which people are told about an unanswered alert, and after how long.
+  ru: Порядок, в котором людей извещают о неотвеченном оповещении, и через какое время.

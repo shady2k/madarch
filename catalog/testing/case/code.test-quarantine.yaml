@@ -1,0 +1,72 @@
+id: practice.test-quarantine
+definition: A test temporarily excluded from the default suite, with its repair task, slow/flaky/broken reason, introducing
+  commit and latest quarantine CI result when known.
+sources:
+- https://docs.gitlab.com/development/testing_guide/quarantining_tests/
+- https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html
+acquisition:
+- extractor test-quarantine
+status: implemented
+relation-constraints:
+  out:
+  - quarantines
+  - fixedBy
+  in: []
+template-policy: page
+template: templates/test-quarantine.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  binding: test-quarantine@1.repository
+- name: path
+  type: text
+  binding: test-quarantine@1.path
+- name: name
+  type: text
+  binding: test-quarantine@1.name
+- name: test
+  type: json
+  binding: test-quarantine@1.test
+  reference: code.test-case
+- name: task
+  type: text
+  binding: test-quarantine@1.task
+  reference: task
+- name: quarantine_reason
+  type: text
+  binding: test-quarantine@1.quarantine_reason
+- name: since
+  type: text
+  binding: test-quarantine@1.since
+  reference: code.commit
+- name: latest_result
+  type: json
+  nullable: true
+  binding: test-quarantine@1.latest_result
+key:
+- repository
+- path
+- name
+depends-on:
+- code.file
+- code.test-case
+- code.commit
+- task
+origin: code
+details:
+- test
+- task
+- quarantine_reason
+- since
+- latest_result
+labels:
+  en:
+    one: Test quarantine
+    many: Test quarantines
+  ru:
+    one: Карантин теста
+    many: Тесты в карантине
+description:
+  en: A quarantined test, its repair task, reason and introducing commit; the latest quarantine CI result when known.
+  ru: Тест в карантине, задача исправления, причина и коммит введения; последний результат CI карантина, если он известен.

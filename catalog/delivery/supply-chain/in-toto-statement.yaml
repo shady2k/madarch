@@ -1,0 +1,25 @@
+id: in-toto.statement
+definition: 'The statement inside an attestation: its subject, its predicate type and its predicate.'
+sources:
+- https://github.com/in-toto/attestation/blob/main/spec/README.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: in-toto statement
+    many: in-toto statements
+  ru:
+    one: Утверждение in-toto
+    many: Утверждения in-toto
+description:
+  en: 'The statement inside an attestation: its subject, its predicate type and its predicate.'
+  ru: 'Утверждение внутри аттестации: её предмет, тип предиката и предикат.'

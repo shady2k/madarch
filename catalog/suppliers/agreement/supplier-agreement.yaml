@@ -1,0 +1,25 @@
+id: practice.supplier-agreement
+definition: The terms a supplier and the product agreed, including the security and the reporting they require.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/161/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Supplier agreement
+    many: Supplier agreements
+  ru:
+    one: Соглашение с поставщиком
+    many: Соглашения с поставщиками
+description:
+  en: The terms a supplier and the product agreed, including the security and the reporting they require.
+  ru: Условия, согласованные поставщиком и продуктом, включая требуемую безопасность и отчётность.

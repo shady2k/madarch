@@ -1,0 +1,28 @@
+id: backstage.component
+definition: A part of a system that is implemented by code and exposes or consumes interfaces.
+sources:
+- https://c4model.com/abstractions
+- https://backstage.io/docs/features/software-catalog/system-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - providesApi
+  - consumesApi
+  - dependsOn
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Component
+    many: Components
+  ru:
+    one: Компонент
+    many: Компоненты
+description:
+  en: A part of a system that is implemented by code and exposes or consumes interfaces.
+  ru: Часть системы, реализованная кодом и предоставляющая или потребляющая интерфейсы.

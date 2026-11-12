@@ -1,0 +1,25 @@
+id: practice.object-store
+definition: A store that keeps objects under keys, with the buckets it holds.
+sources:
+- https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Object store
+    many: Object stores
+  ru:
+    one: Объектное хранилище
+    many: Объектные хранилища
+description:
+  en: A store that keeps objects under keys, with the buckets it holds.
+  ru: Хранилище, которое держит объекты под ключами, с его бакетами.

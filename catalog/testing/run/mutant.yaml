@@ -1,0 +1,25 @@
+id: practice.mutant
+definition: A copy of the code with one deliberate change, which a test is meant to catch.
+sources:
+- https://stryker-mutator.io/docs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Mutant
+    many: Mutants
+  ru:
+    one: Мутант
+    many: Мутанты
+description:
+  en: A copy of the code with one deliberate change, which a test is meant to catch.
+  ru: Копия кода с одним намеренным изменением, которое тест должен поймать.

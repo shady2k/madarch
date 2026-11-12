@@ -1,0 +1,25 @@
+id: archimate.driver
+definition: An external or internal condition that motivates the organisation to change.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - threatens
+  in:
+  - threatens
+template-policy: none
+labels:
+  en:
+    one: Driver
+    many: Drivers
+  ru:
+    one: Движущая сила
+    many: Движущие силы
+description:
+  en: An external or internal condition that motivates the organisation to change.
+  ru: Внешнее или внутреннее условие, которое побуждает организацию меняться.

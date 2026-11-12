@@ -1,0 +1,25 @@
+id: istqb.test-condition
+definition: A testable aspect of the product that is meant to be tested.
+sources:
+- https://glossary.istqb.org/en_US/term/test-condition
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - derivesFrom
+  in:
+  - hasTest
+template-policy: none
+labels:
+  en:
+    one: Test condition
+    many: Test conditions
+  ru:
+    one: Условие тестирования
+    many: Условия тестирования
+description:
+  en: A testable aspect of the product that is meant to be tested.
+  ru: Проверяемый аспект продукта, который собираются проверить.

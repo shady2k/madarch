@@ -1,0 +1,25 @@
+id: terraform.resource
+definition: One infrastructure object Terraform manages, of a provider's resource type.
+sources:
+- https://developer.hashicorp.com/terraform/language/resources
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Terraform resource
+    many: Terraform resources
+  ru:
+    one: Ресурс Terraform
+    many: Ресурсы Terraform
+description:
+  en: One infrastructure object Terraform manages, of a provider's resource type.
+  ru: Один объект инфраструктуры, которым управляет Terraform, типа ресурса провайдера.

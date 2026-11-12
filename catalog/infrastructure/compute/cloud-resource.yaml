@@ -1,0 +1,25 @@
+id: practice.cloud-resource
+definition: A resource a cloud provider offers and the product uses, named by its provider type.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/resource/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Cloud resource
+    many: Cloud resources
+  ru:
+    one: Облачный ресурс
+    many: Облачные ресурсы
+description:
+  en: A resource a cloud provider offers and the product uses, named by its provider type.
+  ru: Ресурс, который предлагает облачный провайдер и использует продукт, названный типом провайдера.

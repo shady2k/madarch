@@ -105,14 +105,14 @@ describe('madarch init', () => {
     expect(initOutput).toContain('30 turns and 10 minutes');
     expect(initOutput).toContain('madarch stop');
     expect(initOutput).not.toMatch(/\bbun\b|\bnode\b|scripts\//);
-    expect(existsSync(join(home, 'training-shop', 'madarch', 'kinds.yaml'))).toBe(true);
+    expect(existsSync(join(home, 'training-shop', 'madarch', 'catalog.yaml'))).toBe(true);
   });
 
   test('the wiki it opens is empty, offers the agents and has run none', async () => {
     const status = await get('api/status');
     // Startup publishes every validated kind; no entity has been filled or authored yet.
     expect(status.status, JSON.stringify(status.body)).toBe(200);
-    expect(status.body).toMatchObject({ manifest: 'not-filled', manifestFile: join(home, 'training-shop', 'madarch', 'kinds.yaml'), filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
+    expect(status.body).toMatchObject({ manifest: 'not-filled', manifestFile: join(home, 'training-shop', 'madarch', 'catalog.yaml'), filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
     const manifest = readKinds(join(home, 'training-shop'));
     if (!manifest.present) throw new Error('init did not declare its fixture kinds');
     expect(manifest.manifest.findings).toEqual([]);

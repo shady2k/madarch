@@ -1,0 +1,25 @@
+id: nist800-34.business-impact-analysis
+definition: The study of what the loss of a process or a system would cost, and how soon it must be back.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Business impact analysis
+    many: Business impact analyses
+  ru:
+    one: Анализ влияния на бизнес
+    many: Анализы влияния на бизнес
+description:
+  en: The study of what the loss of a process or a system would cost, and how soon it must be back.
+  ru: Исследование того, во что обойдётся потеря процесса или системы и как скоро их нужно вернуть.

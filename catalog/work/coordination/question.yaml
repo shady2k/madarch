@@ -1,0 +1,65 @@
+id: practice.question
+definition: The agent's clarification to the responsible person about an entity; while it is open the entity is blocked, and
+  "awaiting clarification" is not a status of its own.
+sources:
+- https://arc42.org/overview
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - constrains
+  - evidences
+  in:
+  - evidences
+template-policy: page
+template: templates/question.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+import-folder: docs/questions
+nav: loop
+details:
+- question
+- why
+- sides
+- answer
+- type
+- status
+- about
+- asked_in
+- asked_at
+- resolved_by
+- resolved_at
+- written_at
+- file
+labels:
+  en:
+    one: Question
+    many: Questions
+  ru:
+    one: Вопрос
+    many: Вопросы
+description:
+  en: Something the agent could not settle from the code and the documents; a person answers it.
+  ru: То, что агент не смог решить по коду и документам; отвечает человек.

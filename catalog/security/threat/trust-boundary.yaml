@@ -1,0 +1,25 @@
+id: practice.trust-boundary
+definition: A line across which the level of trust changes, which data flows cross.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: Trust boundary
+    many: Trust boundaries
+  ru:
+    one: Граница доверия
+    many: Границы доверия
+description:
+  en: A line across which the level of trust changes, which data flows cross.
+  ru: Линия, через которую меняется уровень доверия и которую пересекают данные.

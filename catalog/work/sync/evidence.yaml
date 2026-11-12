@@ -1,0 +1,28 @@
+id: practice.evidence
+definition: What acceptance checked and where it is seen, kept with the check that produced it.
+sources:
+- https://glossary.istqb.org/en_US/term/test-evidence
+- https://glossary.istqb.org/en_US/term/acceptance-testing
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  - verifies
+  in:
+  - evidences
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Evidence
+    many: Evidence
+  ru:
+    one: Доказательство
+    many: Доказательства
+description:
+  en: What acceptance checked and where it is seen, kept with the check that produced it.
+  ru: Что проверила приёмка и где это видно, вместе с проверкой, которая это дала.

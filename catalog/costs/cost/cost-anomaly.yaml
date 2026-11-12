@@ -1,0 +1,25 @@
+id: focus.anomaly
+definition: A cost that departed from what was expected, with the resource that caused it.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Cost anomaly
+    many: Cost anomalies
+  ru:
+    one: Аномалия затрат
+    many: Аномалии затрат
+description:
+  en: A cost that departed from what was expected, with the resource that caused it.
+  ru: Затрата, отклонившаяся от ожидаемой, и ресурс, который её вызвал.

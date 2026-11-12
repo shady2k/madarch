@@ -1,0 +1,25 @@
+id: ddd.domain-event
+definition: Something that happened in the domain that other parts of the model react to.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - triggers
+template-policy: none
+labels:
+  en:
+    one: Domain event
+    many: Domain events
+  ru:
+    one: Событие предметной области
+    many: События предметной области
+description:
+  en: Something that happened in the domain that other parts of the model react to.
+  ru: То, что произошло в предметной области и на что реагируют другие части модели.

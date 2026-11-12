@@ -1,0 +1,25 @@
+id: prov.entity
+definition: A piece of data whose origin is recorded, as PROV-O defines an entity.
+sources:
+- https://www.w3.org/TR/prov-o/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Provenance entity
+    many: Provenance entities
+  ru:
+    one: Объект происхождения
+    many: Объекты происхождения
+description:
+  en: A piece of data whose origin is recorded, as PROV-O defines an entity.
+  ru: Часть данных, чьё происхождение записано, как сущность в PROV-O.

@@ -1,0 +1,25 @@
+id: kubernetes.ingress
+definition: A Kubernetes rule that routes traffic from outside the cluster to a service.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Ingress
+    many: Ingresses
+  ru:
+    one: Ingress
+    many: Ingress
+description:
+  en: A Kubernetes rule that routes traffic from outside the cluster to a service.
+  ru: Правило Kubernetes, которое направляет трафик извне кластера в сервис.

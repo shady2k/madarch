@@ -1,0 +1,25 @@
+id: focus.cloud-cost
+definition: The cost a cloud provider charges for the resources the product uses.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Cloud cost
+    many: Cloud costs
+  ru:
+    one: Облачная стоимость
+    many: Облачные стоимости
+description:
+  en: The cost a cloud provider charges for the resources the product uses.
+  ru: Плата облачного провайдера за ресурсы, которые использует продукт.

@@ -1,0 +1,29 @@
+id: practice.external-reference
+definition: 'A record of the same thing in another system: the system, its number there and the link, which any entity may
+  carry.'
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/link-issues/
+- https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  - evidences
+  in:
+  - documents
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: External reference
+    many: External references
+  ru:
+    one: Внешняя ссылка
+    many: Внешние ссылки
+description:
+  en: The system, number and link of the same thing in another system.
+  ru: Система, номер и ссылка на ту же сущность в другой системе.

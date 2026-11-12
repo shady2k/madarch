@@ -1,0 +1,25 @@
+id: otel.log-record
+definition: One record of what a service did, with its time, its severity and its attributes.
+sources:
+- https://opentelemetry.io/docs/concepts/signals/logs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Log record
+    many: Log records
+  ru:
+    one: Запись журнала
+    many: Записи журнала
+description:
+  en: One record of what a service did, with its time, its severity and its attributes.
+  ru: Одна запись того, что сделал сервис, с временем, уровнем и атрибутами.

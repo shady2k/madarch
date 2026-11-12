@@ -1,0 +1,25 @@
+id: dtcg.token-set
+definition: A named set of design tokens that a theme or a context selects.
+sources:
+- https://www.designtokens.org/TR/2025.10/resolver/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Token set
+    many: Token sets
+  ru:
+    one: Набор токенов
+    many: Наборы токенов
+description:
+  en: A named set of design tokens that a theme or a context selects.
+  ru: Именованный набор токенов дизайна, который выбирает тема или контекст.

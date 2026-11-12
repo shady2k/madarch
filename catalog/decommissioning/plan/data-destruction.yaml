@@ -1,0 +1,25 @@
+id: nist800-88.destruction
+definition: The method by which data is made unrecoverable when its medium is retired.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/88/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Data destruction
+    many: Data destructions
+  ru:
+    one: Уничтожение данных
+    many: Уничтожения данных
+description:
+  en: The method by which data is made unrecoverable when its medium is retired.
+  ru: Способ сделать данные невосстановимыми при выводе их носителя из эксплуатации.

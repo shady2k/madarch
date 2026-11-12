@@ -1,0 +1,25 @@
+id: dtcg.token-group
+definition: A group of design tokens, which may hold further groups.
+sources:
+- https://www.designtokens.org/TR/2025.10/format/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Token group
+    many: Token groups
+  ru:
+    one: Группа токенов
+    many: Группы токенов
+description:
+  en: A group of design tokens, which may hold further groups.
+  ru: Группа токенов дизайна, которая может содержать другие группы.
