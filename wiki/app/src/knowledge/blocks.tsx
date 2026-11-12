@@ -1,3 +1,7 @@
+import { Stack, Text, PageSection, Paragraph, SectionTitle, SmallTitle, PlainList, ListItem, DefinitionList, DefinitionTerm, DefinitionValue, FieldLabel, TextLink, Preformatted } from '@/components/ui/typography.js';
+import { SyntaxToken } from '@/components/ui/syntax-token.js';
+import { InlineCode } from '@/components/ui/inline-content.js';
+import { Disclosure, DisclosureSummary } from '@/components/ui/disclosure.js';
 /**
  * The block library as the app draws it (decision 0029): every block arrives
  * read from the graph or the Markdown, and these components lay it out with the
@@ -45,7 +49,7 @@ import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkVie
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title, testId }: { href: string; children: ReactNode; className?: string; title?: string; testId?: string }): ReactElement {
   const target = historyAddress(href);
-  return <a href={appPath(target)} className={className} title={title} data-testid={testId} {...linkHandlers(target)}>{children}</a>;
+  return <TextLink href={appPath(target)} className={className} title={title} data-testid={testId} {...linkHandlers(target)}>{children}</TextLink>;
 }
 
 /** `path:line` as a link that opens the source at that line. */
@@ -55,7 +59,7 @@ export function CodePlace({ location }: { location: CodeLocation }): ReactElemen
     <>
       <KLink href={location.href} className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-small text-secondary" title={`${location.repo === null ? '' : `${location.repo}: `}${location.path}`}>
         <FileCode2Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
-        <span className="truncate" data-testid="code-place">{location.path}:{lines}</span>
+        <Text className="truncate" data-testid="code-place">{location.path}:{lines}</Text>
       </KLink>
       <WebPlace location={location} />
     </>
@@ -67,10 +71,10 @@ function WebPlace({ location }: { location: CodeLocation }): ReactElement | null
   const { t } = useTranslation();
   if (location.web === undefined) return null;
   return (
-    <a href={location.web.url} target="_blank" rel="noreferrer noopener" className="ml-2 inline-flex items-center gap-1 text-small text-secondary" data-testid="web-place">
+    <TextLink href={location.web.url} target="_blank" rel="noreferrer noopener" className="ml-2 inline-flex items-center gap-1 text-small text-secondary" data-testid="web-place">
       <ExternalLinkIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
       {t('knowledge.openOnHost', { host: location.web.host })}
-    </a>
+    </TextLink>
   );
 }
 
@@ -78,10 +82,10 @@ function WebPlace({ location }: { location: CodeLocation }): ReactElement | null
 export function EntityName({ entity }: { entity: EntityRef }): ReactElement {
   const { t } = useTranslation();
   if (entity.broken !== undefined) {
-    return <span className="ref-broken" data-testid="ref-broken" title={entity.broken}>{entity.label}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
+    return <Text className="ref-broken" data-testid="ref-broken" title={entity.broken}>{entity.label}<Text className="ref-broken-mark">{t('knowledge.broken')}</Text></Text>;
   }
   if (entity.href !== null) return <KLink href={entity.href}>{entity.label}</KLink>;
-  return <span>{entity.label}</span>;
+  return <Text>{entity.label}</Text>;
 }
 
 // ---- Markdown with grounds ----------------------------------------------------------------------
@@ -122,9 +126,9 @@ export function scrollToAnchor(anchor: string, lines?: Readonly<Record<string, n
 export function PlannedBadge({ mark, ground = false }: { mark: PlannedMarkView; ground?: boolean }): ReactElement {
   const { t } = useTranslation();
   return (
-    <span className="planned-badge" data-testid="planned-badge" data-how={mark.how} data-task={mark.task.id} title={t('loop.plannedTitle', { title: mark.task.title })}>
+    <Text className="planned-badge" data-testid="planned-badge" data-how={mark.how} data-task={mark.task.id} title={t('loop.plannedTitle', { title: mark.task.title })}>
       <KLink href={addressOfTask(mark.task.id)} className="planned-badge-link">{ground ? t('loop.basisWillChange') : t('loop.plannedChange')}</KLink>
-    </span>
+    </Text>
   );
 }
 
@@ -189,34 +193,34 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
   }, [pageAddress]);
   const components: Components = {
     a: ({ href, children, className, title }) => {
-      if (href === undefined) return <span>{children}</span>;
+      if (href === undefined) return <Text>{children}</Text>;
       if (href.startsWith('madarch:')) {
         const resolution = resolutions[href];
         if (resolution?.state === 'broken' && pending.has(href.slice('madarch:'.length))) {
-          return <span className="ref-pending" data-testid="ref-pending" title={t('knowledge.writer.pendingTitle')}>{children}<span className="ref-broken-mark">{t('knowledge.writer.pending')}</span></span>;
+          return <Text className="ref-pending" data-testid="ref-pending" title={t('knowledge.writer.pendingTitle')}>{children}<Text className="ref-broken-mark">{t('knowledge.writer.pending')}</Text></Text>;
         }
         if (resolution === undefined || resolution.state === 'broken') {
-          return <span className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? brokenWords(resolution, t) : t('knowledge.unresolved')}>{children}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
+          return <Text className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? brokenWords(resolution, t) : t('knowledge.unresolved')}>{children}<Text className="ref-broken-mark">{t('knowledge.broken')}</Text></Text>;
         }
         // A reference to code also opens the source at its line: the page link and the place stand together; a statement read plainly names the entity and nothing else.
-        const place = resolution.location === undefined || (statements !== undefined && !statements.showGrounds) ? null : <span className="ground-place ml-1.5"><CodePlace location={resolution.location} /></span>;
-        if (resolution.href === null) return <><span data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindName(resolution.kind, 'one') })}>{children}</span>{place}</>;
+        const place = resolution.location === undefined || (statements !== undefined && !statements.showGrounds) ? null : <Text className="ground-place ml-1.5"><CodePlace location={resolution.location} /></Text>;
+        if (resolution.href === null) return <><Text data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindName(resolution.kind, 'one') })}>{children}</Text>{place}</>;
         return <><KLink href={resolution.href} title={resolution.note}>{children}</KLink>{place}</>;
       }
       if (isWikiAddress(href)) return <KLink href={href} {...(className === undefined ? {} : { className })} {...(title === undefined ? {} : { title })}>{children}</KLink>;
       if (inDocument !== undefined) {
         // In a document: a link to another Markdown document of the same repository is a page of the wiki, a link to a
         // section of this one scrolls to it, and a link to another site opens it in a tab of its own.
-        if (/^https?:\/\//i.test(href)) return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
+        if (/^https?:\/\//i.test(href)) return <TextLink href={href} target="_blank" rel="noreferrer noopener">{children}</TextLink>;
         if (href.startsWith('#')) {
           let anchor = href.slice(1);
           try { anchor = decodeURIComponent(anchor); } catch { /* the text as written names the section */ }
-          return <a href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); syncFrontTabAddress(); scrollToAnchor(anchor, inDocument.anchors); }}>{children}</a>;
+          return <TextLink href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); syncFrontTabAddress(); scrollToAnchor(anchor, inDocument.anchors); }}>{children}</TextLink>;
         }
         const target = relativeDocument(inDocument, href);
         if (target !== null) return <KLink href={addressOfDocument(inDocument.repo, target.path, target.anchor)}>{children}</KLink>;
       }
-      return <span className="plain-link">{children}</span>;
+      return <Text className="plain-link">{children}</Text>;
     },
     ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => {
       const line = node?.position?.start.line;
@@ -229,7 +233,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
       const fence = mermaidFence(node);
       const line = node?.position?.start.line;
       if (fence !== null) return <MermaidFence source={fence.source} line={fence.line} path={inDocument?.path ?? sourcePath ?? null} />;
-      return <pre {...(inDocument === undefined || line === undefined ? {} : { 'data-line': line })}>{children}</pre>;
+      return <Preformatted {...(inDocument === undefined || line === undefined ? {} : { 'data-line': line })}>{children}</Preformatted>;
     },
     table: ({ children }) => <Table>{children}</Table>,
     thead: ({ children }) => <TableHeader>{children}</TableHeader>,
@@ -240,7 +244,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
     ...(statements === undefined ? {} : {
       span: ({ node: _node, className, children, ...rest }) => {
         const sentence = (rest as Record<string, unknown>)['data-statement'];
-        if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <span className={className}>{children}</span>;
+        if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <Text className={className}>{children}</Text>;
         const grounded = (rest as Record<string, unknown>)['data-grounded'] === 'true';
         const turn = Number((rest as Record<string, unknown>)['data-turn'] ?? 0);
         const mark = planned.statements[sentenceKey(sentence)];
@@ -252,7 +256,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
         // A click that only dismisses a selection finds it already gone (the press collapsed it): the press says it was there.
         const open = (): void => openInNewTab(addressOfStatement(statements.pageId, sentence, Number.isInteger(turn) ? turn : 0));
         return (
-          <span
+          <Text
             className={className}
             role="button"
             tabIndex={0}
@@ -291,8 +295,8 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
           >
             {children}
             {mark !== undefined && <PlannedBadge mark={mark} ground={mark.how === 'impact'} />}
-            {!grounded && <span className="statement-mark" data-testid="statement-ungrounded">{t('knowledge.statementUngrounded')}</span>}
-          </span>
+            {!grounded && <Text className="statement-mark" data-testid="statement-ungrounded">{t('knowledge.statementUngrounded')}</Text>}
+          </Text>
         );
       },
     } satisfies Components),
@@ -300,9 +304,9 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
   const terms = index.pattern !== null ? [remarkTerms(index, exceptTerm) as unknown as (tree: unknown) => void] : [];
   const plugins = statements === undefined ? [remarkGfm, ...terms] : [remarkGfm, ...terms, () => remarkStatements({ showGrounds: statements.showGrounds }) as unknown as (tree: unknown) => void];
   return (
-    <div className="reading">
+    <Stack className="reading">
       <ReactMarkdown remarkPlugins={plugins as never} components={components} urlTransform={keepUrl}>{text}</ReactMarkdown>
-    </div>
+    </Stack>
   );
 }
 
@@ -312,34 +316,34 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
   // Statements are the agent's sentences with their grounds: a page of the product has them, a document entity's text has none.
   const read = pageId !== undefined && block.statements > 0;
   return (
-    <section data-block="body">
+    <PageSection data-block="body">
       {read && (
-        <label className="mb-3 flex w-fit cursor-pointer items-center gap-2 text-small text-secondary" data-testid="grounds-switch">
+        <FieldLabel className="mb-3 flex w-fit cursor-pointer items-center gap-2 text-small text-secondary" data-testid="grounds-switch">
           <Switch checked={showGrounds} onCheckedChange={setShowGrounds} />
           {t('knowledge.showGrounds')}
-        </label>
+        </FieldLabel>
       )}
       {block.ungrounded.length > 0 && (
         <Alert variant="problem" className="mb-4" data-testid="ungrounded">
           <AlertTitle>{t('knowledge.ungrounded', { count: block.ungrounded.length, total: block.statements })}</AlertTitle>
           <AlertDescription>
-            <p>{t('knowledge.ungroundedHint')}</p>
-            <details>
-              <summary className="cursor-pointer text-secondary">{t('knowledge.ungroundedList')}</summary>
-              <ul className="!my-2">
-                {block.ungrounded.map((statement) => <li key={`${statement.line}:${statement.text}`}>{statement.text} <span className="text-muted">({block.file}:{statement.line})</span></li>)}
-              </ul>
-            </details>
+            <Paragraph>{t('knowledge.ungroundedHint')}</Paragraph>
+            <Disclosure>
+              <DisclosureSummary className="cursor-pointer text-secondary">{t('knowledge.ungroundedList')}</DisclosureSummary>
+              <PlainList className="!my-2">
+                {block.ungrounded.map((statement) => <ListItem key={`${statement.line}:${statement.text}`}>{statement.text} <Text className="text-muted">({block.file}:{statement.line})</Text></ListItem>)}
+              </PlainList>
+            </Disclosure>
           </AlertDescription>
         </Alert>
       )}
       <KMarkdown text={block.markdown} resolutions={resolutions} sourcePath={block.file} {...(read ? { statements: { pageId: pageId!, showGrounds } } : {})} />
-      {block.localized !== undefined && <details className="mt-5 border-t border-line pt-4" data-testid="localized-source">
-        <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
+      {block.localized !== undefined && <Disclosure className="mt-5 border-t border-line pt-4" data-testid="localized-source">
+        <DisclosureSummary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</DisclosureSummary>
         <KMarkdown text={block.localized.original} resolutions={resolutions} sourcePath={block.localized.sourceDocument} />
-        <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</p>
-      </details>}
-    </section>
+        <Paragraph className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</Paragraph>
+      </Disclosure>}
+    </PageSection>
   );
 }
 
@@ -361,11 +365,11 @@ function RelationGroupTable({ group }: { group: RelatedGroup }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   return (
-    <div data-relation={group.relation} data-direction={group.direction}>
-      <div className="mb-1.5 flex items-center gap-2 text-small text-muted">
-        <span>{groupLabel(group, t)}</span>
+    <Stack data-relation={group.relation} data-direction={group.direction}>
+      <Stack className="mb-1.5 flex items-center gap-2 text-small text-muted">
+        <Text>{groupLabel(group, t)}</Text>
         <Badge>{group.total}</Badge>
-      </div>
+      </Stack>
       <Table>
         <TableHeader>
           <TableRow>
@@ -378,29 +382,29 @@ function RelationGroupTable({ group }: { group: RelatedGroup }): ReactElement {
           {group.rows.map((row) => (
             <TableRow key={row.entity.id} data-entity={row.entity.id}>
               <TableCell className="break-words">
-                <EntityName entity={row.entity} />{row.count > 1 && <span className="ml-1.5 text-muted">×{row.count}</span>}
-                {row.sources !== undefined && row.sources.length > 0 && <span className="ml-1.5 text-small text-muted" data-testid="relation-source">{t('knowledge.relationSource', { sources: row.sources.join(', ') })}</span>}
+                <EntityName entity={row.entity} />{row.count > 1 && <Text className="ml-1.5 text-muted">×{row.count}</Text>}
+                {row.sources !== undefined && row.sources.length > 0 && <Text className="ml-1.5 text-small text-muted" data-testid="relation-source">{t('knowledge.relationSource', { sources: row.sources.join(', ') })}</Text>}
               </TableCell>
               <TableCell><Badge>{kindName(row.entity.kind, 'one')}</Badge></TableCell>
-              <TableCell>{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+              <TableCell>{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <Text className="text-muted">–</Text>}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-      {group.total > group.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="related-cut">{t('knowledge.showing', { shown: group.rows.length, total: group.total })}</p>}
-    </div>
+      {group.total > group.rows.length && <Paragraph className="mt-1.5 text-small text-muted" data-testid="related-cut">{t('knowledge.showing', { shown: group.rows.length, total: group.total })}</Paragraph>}
+    </Stack>
   );
 }
 
 function Related({ block }: { block: Extract<Block, { type: 'related' }> }): ReactElement | null {
   if (block.groups.length === 0) return null;
   return (
-    <section data-block="related" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      <div className="flex flex-col gap-4">
+    <PageSection data-block="related" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
+      <Stack className="flex flex-col gap-4">
         {block.groups.map((group) => <RelationGroupTable key={`${group.relation}:${group.direction}`} group={group} />)}
-      </div>
-    </section>
+      </Stack>
+    </PageSection>
   );
 }
 
@@ -412,32 +416,32 @@ function Related({ block }: { block: Extract<Block, { type: 'related' }> }): Rea
 function Relations({ block }: { block: Extract<Block, { type: 'relations' }> }): ReactElement {
   const { t } = useTranslation();
   return (
-    <section data-block="relations" data-testid="relations-block" aria-label={block.title}>
-      <h2>{block.title}</h2>
+    <PageSection data-block="relations" data-testid="relations-block" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
       {block.views.length === 0 ? (
-        <p className="text-small text-muted" data-testid="relations-empty">{block.empty ?? t('knowledge.relationsEmpty')}</p>
+        <Paragraph className="text-small text-muted" data-testid="relations-empty">{block.empty ?? t('knowledge.relationsEmpty')}</Paragraph>
       ) : (
         <>
           <DiagramsView block={{ type: 'diagrams', title: '', renderer: block.renderer, views: block.views }} />
-          <div className="mt-5 flex flex-col gap-4" data-testid="relations-lists">
+          <Stack className="mt-5 flex flex-col gap-4" data-testid="relations-lists">
             {block.groups.map((group) => <RelationGroupTable key={`${group.relation}:${group.direction}`} group={group} />)}
-          </div>
+          </Stack>
           {block.linksHere.length > 0 && (
-            <div className="mt-6" data-testid="links-here">
-              <h3 className="mb-1.5 text-small font-medium text-secondary">{t('knowledge.linksHere')}</h3>
-              <ul className="dg-elements">
+            <Stack className="mt-6" data-testid="links-here">
+              <SmallTitle className="mb-1.5 text-small font-medium text-secondary">{t('knowledge.linksHere')}</SmallTitle>
+              <PlainList className="dg-elements">
                 {block.linksHere.map((row) => (
-                  <li key={row.entity.id} data-entity={row.entity.id}>
+                  <ListItem key={row.entity.id} data-entity={row.entity.id}>
                     <EntityName entity={row.entity} />
-                    <span className="ml-1.5 text-small text-muted">{row.relations.map(relationName).join(', ')}</span>
-                  </li>
+                    <Text className="ml-1.5 text-small text-muted">{row.relations.map(relationName).join(', ')}</Text>
+                  </ListItem>
                 ))}
-              </ul>
-            </div>
+              </PlainList>
+            </Stack>
           )}
         </>
       )}
-    </section>
+    </PageSection>
   );
 }
 
@@ -445,16 +449,16 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
   const { t } = useTranslation();
   if (block.rows.length === 0) {
     return (
-      <section data-block={block.type} aria-label={block.title}>
-        <h2>{block.title}</h2>
-        <p className="text-small text-muted" data-testid={`${block.type}-empty`}>{block.emptyNote ?? t('knowledge.none')}</p>
-      </section>
+      <PageSection data-block={block.type} aria-label={block.title}>
+        <SectionTitle>{block.title}</SectionTitle>
+        <Paragraph className="text-small text-muted" data-testid={`${block.type}-empty`}>{block.emptyNote ?? t('knowledge.none')}</Paragraph>
+      </PageSection>
     );
   }
   const rows: CallRow[] = block.rows;
   return (
-    <section data-block={block.type} aria-label={block.title}>
-      <h2>{block.title}</h2>
+    <PageSection data-block={block.type} aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
       <Table>
         <TableHeader>
           <TableRow>
@@ -468,15 +472,15 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
             <TableRow key={row.entity.id} data-entity={row.entity.id}>
               <TableCell className="break-words"><EntityName entity={row.entity} /></TableCell>
               <TableCell>
-                {block.type === 'callers' ? (row.site !== undefined ? <CodePlace location={row.site} /> : <span className="text-muted">–</span>) : (row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>)}
+                {block.type === 'callers' ? (row.site !== undefined ? <CodePlace location={row.site} /> : <Text className="text-muted">–</Text>) : (row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <Text className="text-muted">–</Text>)}
               </TableCell>
               <TableCell>{row.sites}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-      {block.total > rows.length && <p className="mt-1.5 text-small text-muted" data-testid="calls-cut">{t('knowledge.showing', { shown: rows.length, total: block.total })}</p>}
-    </section>
+      {block.total > rows.length && <Paragraph className="mt-1.5 text-small text-muted" data-testid="calls-cut">{t('knowledge.showing', { shown: rows.length, total: block.total })}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -495,24 +499,24 @@ export function CodeLines({ text, language, firstLine, focus, marked, wrap = fal
   }, [key, text, language]);
   const shown = colored !== null && colored.key === key && colored.lines.length === lines.length ? colored.lines : null;
   return (
-    <pre className={`source-code${wrap ? ' source-code-wrap' : ''}`} data-testid="source-code" data-language={language} data-colored={shown !== null ? 'true' : 'false'} data-wrap={wrap ? 'true' : 'false'}>
-      <code>
+    <Preformatted className={`source-code${wrap ? ' source-code-wrap' : ''}`} data-testid="source-code" data-language={language} data-colored={shown !== null ? 'true' : 'false'} data-wrap={wrap ? 'true' : 'false'}>
+      <InlineCode>
         {lines.map((tokens, index) => {
           const number = firstLine + index;
           return (
-            <span key={number} id={`L${number}`} className={'source-line' + (focus === number ? ' source-line-focus' : '') + (marked !== undefined && marked.start > 0 && number >= marked.start && number <= marked.end ? ' source-line-marked' : '')} data-line={number}>
-              <span className="source-number" aria-hidden="true">{number}</span>
-              <span className="source-text">
+            <Text key={number} id={`L${number}`} className={'source-line' + (focus === number ? ' source-line-focus' : '') + (marked !== undefined && marked.start > 0 && number >= marked.start && number <= marked.end ? ' source-line-marked' : '')} data-line={number}>
+              <Text className="source-number" aria-hidden="true">{number}</Text>
+              <Text className="source-text">
                 {shown !== null
-                  ? shown[index]!.map((token, position) => <span key={position} className="shiki-token" style={{ ...token.style, ...(token.fontStyle & 1 ? { fontStyle: 'italic' } : {}), ...(token.fontStyle & 2 ? { fontWeight: 600 } : {}) }}>{token.text}</span>)
-                  : tokens.map((token, position) => <span key={position} className={token.kind === 'plain' ? undefined : `tok-${token.kind}`}>{token.text}</span>)}
+                  ? shown[index]!.map((token, position) => <SyntaxToken key={position} colors={token.style} fontStyle={token.fontStyle}>{token.text}</SyntaxToken>)
+                  : tokens.map((token, position) => <Text key={position} className={token.kind === 'plain' ? undefined : `tok-${token.kind}`}>{token.text}</Text>)}
                 {'\n'}
-              </span>
-            </span>
+              </Text>
+            </Text>
           );
         })}
-      </code>
-    </pre>
+      </InlineCode>
+    </Preformatted>
   );
 }
 
@@ -521,8 +525,8 @@ function Source({ block }: { block: Extract<Block, { type: 'source' }> }): React
   const total = block.location.lineEnd - block.location.lineStart + 1;
   const shown = block.text === '' ? 0 : block.text.split('\n').length;
   return (
-    <section data-block="source" aria-label={block.title}>
-      <h2>{block.title}</h2>
+    <PageSection data-block="source" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
       <Card className="overflow-hidden">
         <CardHeader className="flex-row items-center justify-between gap-3 pb-3">
           <CardTitle className="min-w-0 flex-1 text-small"><CodePlace location={block.location} /></CardTitle>
@@ -531,13 +535,13 @@ function Source({ block }: { block: Extract<Block, { type: 'source' }> }): React
         <CardContent className="px-0 pb-0 pt-0">
           <CodeLines text={block.text} language={block.language} firstLine={block.location.lineStart} />
           {block.truncated && (
-            <p className="m-0 border-t border-line px-4 py-2 text-small text-muted" data-testid="source-cut">
+            <Paragraph className="m-0 border-t border-line px-4 py-2 text-small text-muted" data-testid="source-cut">
               {t('knowledge.showing', { shown, total })} <KLink href={block.location.href}>{t('knowledge.openSource')}</KLink>
-            </p>
+            </Paragraph>
           )}
         </CardContent>
       </Card>
-    </section>
+    </PageSection>
   );
 }
 
@@ -554,8 +558,8 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
   const { t, i18n } = useTranslation();
   if (block.rows.length === 0) return null;
   return (
-    <section data-block="properties" aria-label={block.title}>
-      <h2>{block.title}</h2>
+    <PageSection data-block="properties" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
       <Table>
         <TableHeader>
           <TableRow><TableHead>{t('knowledge.colProperty')}</TableHead><TableHead>{t('knowledge.colValue')}</TableHead></TableRow>
@@ -564,12 +568,12 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
           {block.rows.map((row) => (
             <TableRow key={row.name}>
               <TableCell className="whitespace-nowrap align-top font-mono text-small text-secondary">{row.label ?? (row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`))}</TableCell>
-              <TableCell className="break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <code>{row.value}</code> : row.value}</TableCell>
+              <TableCell className="break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.valueKind === 'code' ? <InlineCode>{row.value}</InlineCode> : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-    </section>
+    </PageSection>
   );
 }
 
@@ -577,18 +581,18 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
 function MemberRefs({ refs, testId }: { refs: EntityRef[]; testId: 'member-readers' | 'member-writers' }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  if (refs.length === 0) return <span className="text-muted">—</span>;
+  if (refs.length === 0) return <Text className="text-muted">—</Text>;
   const short = 3;
   const shown = open ? refs : refs.slice(0, short);
   return (
-    <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small" data-testid={testId}>
-      {shown.map((entity, at) => <span key={entity.id}>{at > 0 && <span className="text-muted">, </span>}<EntityName entity={entity} /></span>)}
+    <Stack className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small" data-testid={testId}>
+      {shown.map((entity, at) => <Text key={entity.id}>{at > 0 && <Text className="text-muted">, </Text>}<EntityName entity={entity} /></Text>)}
       {refs.length > short && (
         <Button type="button" variant="link" size="content" data-testid="member-more" onClick={() => setOpen(!open)}>
           {open ? t('knowledge.memberLess') : t('knowledge.memberMore', { count: refs.length - short })}
         </Button>
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -610,16 +614,16 @@ function Members({ block }: { block: Extract<Block, { type: 'members' }> }): Rea
   const hasReaders = block.rows.some((row) => row.readers.length > 0);
   const hasWriters = block.rows.some((row) => row.writers.length > 0);
   return (
-    <section data-block="members" aria-label={block.title}>
-      <h2>{block.title}</h2>
+    <PageSection data-block="members" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
       {shared.length > 0 && (
-        <p className="mb-2 flex flex-wrap gap-x-2 gap-y-0.5 text-small text-muted" data-testid="member-shared">
+        <Paragraph className="mb-2 flex flex-wrap gap-x-2 gap-y-0.5 text-small text-muted" data-testid="member-shared">
           {shared.map((value, at) => (
-            <span key={value.name}>{at > 0 && <span aria-hidden="true" className="mr-2">·</span>}{value.label ?? value.name}: <span className="text-ink">{value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</span></span>
+            <Text key={value.name}>{at > 0 && <Text aria-hidden="true" className="mr-2">·</Text>}{value.label ?? value.name}: <Text className="text-ink">{value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <InlineCode>{value.value}</InlineCode> : value.value}</Text></Text>
           ))}
-        </p>
+        </Paragraph>
       )}
-      <Table data-testid="member-table" className="text-[13px] [&_td]:px-3 [&_td]:py-1.5 [&_th]:h-8 [&_th]:px-3">
+      <Table data-testid="member-table" density="compact">
         <TableHeader>
           <TableRow>
             <TableHead>{t('knowledge.memberName')}</TableHead>
@@ -631,10 +635,10 @@ function Members({ block }: { block: Extract<Block, { type: 'members' }> }): Rea
         <TableBody>
           {block.rows.map((row) => (
             <TableRow key={row.entity.id} id={row.anchor} data-testid="member-row" data-member={row.entity.id} className="scroll-mt-24 align-top">
-              <TableCell className="min-w-[9rem] align-top"><span className="font-[550]">{row.name ?? row.entity.label}</span></TableCell>
+              <TableCell className="min-w-36 align-top"><Text className="font-medium">{row.name ?? row.entity.label}</Text></TableCell>
               {columns.map((column) => {
                 const value = row.values.find((entry) => entry.name === column.name);
-                return <TableCell key={column.name} className="break-words align-top">{value === undefined ? <span className="text-muted">—</span> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <code>{value.value}</code> : value.value}</TableCell>;
+                return <TableCell key={column.name} className="break-words align-top">{value === undefined ? <Text className="text-muted">—</Text> : value.valueKind === 'date' ? when(value.value, i18n.language) : value.valueKind === 'code' ? <InlineCode>{value.value}</InlineCode> : value.value}</TableCell>;
               })}
               {hasReaders && <TableCell className="align-top"><MemberRefs refs={row.readers} testId="member-readers" /></TableCell>}
               {hasWriters && <TableCell className="align-top"><MemberRefs refs={row.writers} testId="member-writers" /></TableCell>}
@@ -642,8 +646,8 @@ function Members({ block }: { block: Extract<Block, { type: 'members' }> }): Rea
           ))}
         </TableBody>
       </Table>
-      {block.total > block.rows.length && <p className="mt-2 text-small text-muted" data-testid="members-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</p>}
-    </section>
+      {block.total > block.rows.length && <Paragraph className="mt-2 text-small text-muted" data-testid="members-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -651,9 +655,9 @@ function Refs({ block }: { block: Extract<Block, { type: 'refs' }> }): ReactElem
   const { t } = useTranslation();
   const kindName = useKindName();
   return (
-    <section data-block="refs" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      {block.rows.length === 0 ? <p className="text-small text-muted" data-testid="refs-empty">{t('knowledge.none')}</p> : (
+    <PageSection data-block="refs" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
+      {block.rows.length === 0 ? <Paragraph className="text-small text-muted" data-testid="refs-empty">{t('knowledge.none')}</Paragraph> : (
         <Table>
           <TableHeader>
             <TableRow><TableHead>{t('knowledge.colName')}</TableHead><TableHead>{t('knowledge.colKind')}</TableHead><TableHead>{t('knowledge.colPlace')}</TableHead></TableRow>
@@ -661,16 +665,16 @@ function Refs({ block }: { block: Extract<Block, { type: 'refs' }> }): ReactElem
           <TableBody>
             {block.rows.map((row) => (
               <TableRow key={row.entity.id} data-entity={row.entity.id}>
-                <TableCell className="break-words"><EntityName entity={row.entity} />{row.note !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</span>}</TableCell>
+                <TableCell className="break-words"><EntityName entity={row.entity} />{row.note !== undefined && <Text className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</Text>}</TableCell>
                 <TableCell><Badge>{row.entity.kind === 'document' ? t('knowledge.documentBadge') : kindName(row.entity.kind, 'one')}</Badge></TableCell>
-                <TableCell>{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+                <TableCell>{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <Text className="text-muted">–</Text>}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
-      {block.total > block.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="refs-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</p>}
-    </section>
+      {block.total > block.rows.length && <Paragraph className="mt-1.5 text-small text-muted" data-testid="refs-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -679,14 +683,14 @@ function Stated({ block }: { block: Extract<Block, { type: 'stated' }> }): React
   const place = block.place;
   const lines = place.lineEnd > place.lineStart ? `${place.lineStart}–${place.lineEnd}` : String(place.lineStart);
   return (
-    <section data-block="stated" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      <p className="m-0 flex flex-wrap items-center gap-2">
+    <PageSection data-block="stated" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
+      <Paragraph className="m-0 flex flex-wrap items-center gap-2">
         {place.single === true ? null : <Badge>{place.repo ?? t('knowledge.productRepository')}</Badge>}
-        <KLink href={place.href} className="font-mono text-small"><span data-testid="stated-place">{place.path}:{lines}</span></KLink>
+        <KLink href={place.href} className="font-mono text-small"><Text data-testid="stated-place">{place.path}:{lines}</Text></KLink>
         {place.commit !== null && <Badge title={place.commit}>{place.commit.slice(0, 10)}</Badge>}
-      </p>
-    </section>
+      </Paragraph>
+    </PageSection>
   );
 }
 
@@ -706,16 +710,16 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
     });
     return () => stop.abort();
   }, [pageId, block.id, block.block, i18n.resolvedLanguage, opened]);
-  if (block.block === 'definition') return <details data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
-    <summary className="cursor-pointer text-secondary">{block.title}</summary>
-    {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <p role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</p>)}
-  </details>;
+  if (block.block === 'definition') return <Disclosure data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+    <DisclosureSummary className="cursor-pointer text-secondary">{block.title}</DisclosureSummary>
+    {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <Paragraph role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</Paragraph>)}
+  </Disclosure>;
   if (drawn !== null) return <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
   return (
-    <section data-block="diagram" data-diagram="deferred" aria-label={block.title}>
-      {block.title !== '' && <h2>{block.title}</h2>}
-      {failure === null ? <p className="text-small text-muted" data-testid="diagram-loading">{t('knowledge.diagram.drawing')}</p> : <p className="ref-broken" data-testid="diagram-failure">{failure}</p>}
-    </section>
+    <PageSection data-block="diagram" data-diagram="deferred" aria-label={block.title}>
+      {block.title !== '' && <SectionTitle>{block.title}</SectionTitle>}
+      {failure === null ? <Paragraph className="text-small text-muted" data-testid="diagram-loading">{t('knowledge.diagram.drawing')}</Paragraph> : <Paragraph className="ref-broken" data-testid="diagram-failure">{failure}</Paragraph>}
+    </PageSection>
   );
 }
 
@@ -748,12 +752,12 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
   /** A badge's title: the same words for a counted figure, so it agrees with the numeral it names. */
   const figureTitle = (figure: { kind: string; value: string }): string => (countedKinds.has(figure.kind) || ['change', 'renamed'].includes(figure.kind) ? figureText(figure) : t(`knowledge.historyFigure.${figure.kind}`));
   return (
-    <section data-block="history" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
-        <div key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
-          {block.sections.length > 1 && <h3 className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</h3>}
-          {section.role === 'summary' ? <p className="flex flex-wrap items-center gap-1" data-testid="history-summary">{section.rows.flatMap((row, at) => row.figures.map((figure, figureAt) => <Badge key={`${figure.kind}-${String(at)}-${String(figureAt)}`} data-figure={figure.kind} title={figureTitle(figure)}>{figureText(figure)}</Badge>))}</p> : <Table>
+    <PageSection data-block="history" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
+      {block.sections.length === 0 ? <Paragraph className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</Paragraph> : block.sections.map((section) => (
+        <Stack key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
+          {block.sections.length > 1 && <SmallTitle className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</SmallTitle>}
+          {section.role === 'summary' ? <Paragraph className="flex flex-wrap items-center gap-1" data-testid="history-summary">{section.rows.flatMap((row, at) => row.figures.map((figure, figureAt) => <Badge key={`${figure.kind}-${String(at)}-${String(figureAt)}`} data-figure={figure.kind} title={figureTitle(figure)}>{figureText(figure)}</Badge>))}</Paragraph> : <Table>
             <TableHeader>
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
@@ -765,39 +769,39 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
             <TableBody>
               {section.rows.map((row, index) => (
                 <TableRow key={row.entity?.id ?? `${section.role}-${String(index)}`} {...(row.entity === undefined ? {} : {'data-entity': row.entity.id})}>
-                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
-                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
+                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <Text className="text-muted">–</Text>}</TableCell>}
+                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <Text className="text-muted">–</Text>}</TableCell>}
                   <TableCell className="break-words">
-                    {row.entity === undefined ? row.text : <><EntityName entity={row.entity} />{row.text !== row.entity.label && <span className="block break-all text-small text-muted">{row.text}</span>}</>}
+                    {row.entity === undefined ? row.text : <><EntityName entity={row.entity} />{row.text !== row.entity.label && <Text className="block break-all text-small text-muted">{row.text}</Text>}</>}
                   </TableCell>
                   <TableCell>
-                    <span className="flex flex-wrap items-center gap-1">
+                    <Text className="flex flex-wrap items-center gap-1">
                       {row.figures.map((figure, at) => (
                         <Badge key={`${figure.kind}-${String(at)}`} data-figure={figure.kind} title={figureTitle(figure)}>
                           {figureText(figure)}
                         </Badge>
                       ))}
-                      {row.figures.length === 0 && <span className="text-muted">–</span>}
-                    </span>
+                      {row.figures.length === 0 && <Text className="text-muted">–</Text>}
+                    </Text>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>}
-          {section.total > section.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</p>}
-        </div>
+          {section.total > section.rows.length && <Paragraph className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</Paragraph>}
+        </Stack>
       ))}
       {block.notes.length > 0 && (
-        <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
-          {block.notes.map((note, index) => <li key={index}>{historyNoteText(note, t)}</li>)}
-        </ul>
+        <PlainList className="mt-1.5 text-small text-muted" data-testid="history-notes">
+          {block.notes.map((note, index) => <ListItem key={index}>{historyNoteText(note, t)}</ListItem>)}
+        </PlainList>
       )}
       {block.more !== undefined && (
-        <p data-testid="history-more" className="mt-1.5 text-small">
+        <Paragraph data-testid="history-more" className="mt-1.5 text-small">
           <KLink href={block.more.href}>{block.more.label} →</KLink>
-        </p>
+        </Paragraph>
       )}
-    </section>
+    </PageSection>
   );
 }
 
@@ -809,7 +813,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
 const ContractView = lazy(() => import('./contract-view.js'));
 function Definition({block}: {block: Extract<Block, {type: 'definition'}>}): ReactElement {
   const {t} = useTranslation();
-  return <Suspense fallback={<p role="status">{t('knowledge.contractLoading')}</p>}><ContractView block={block} /></Suspense>;
+  return <Suspense fallback={<Paragraph role="status">{t('knowledge.contractLoading')}</Paragraph>}><ContractView block={block} /></Suspense>;
 }
 
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
@@ -818,8 +822,8 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
     <Alert variant="problem" className="my-4" data-testid="block-problem">
       <AlertTitle>{t('knowledge.blockProblem', { block: block.block })}</AlertTitle>
       <AlertDescription>
-        {block.block === 'definition' && block.diagnostic !== undefined ? <ContractDiagnosticView diagnostic={block.diagnostic} /> : <p>{block.message}</p>}
-        <p className="font-mono text-small text-muted">{block.file}:{block.line}</p>
+        {block.block === 'definition' && block.diagnostic !== undefined ? <ContractDiagnosticView diagnostic={block.diagnostic} /> : <Paragraph>{block.message}</Paragraph>}
+        <Paragraph className="font-mono text-small text-muted">{block.file}:{block.line}</Paragraph>
       </AlertDescription>
     </Alert>
   );
@@ -829,47 +833,47 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
 /** One section of the product overview (madarch-47vw.5): its words, its diagram, its rows or links, or what brings it. */
 function Overview({ block }: { block: Extract<Block, { type: 'overview' }> }): ReactElement {
   return (
-    <section data-block="overview" data-overview={block.section} className="mb-6" aria-label={block.title}>
-      <h2>{block.title}</h2>
+    <PageSection data-block="overview" data-overview={block.section} className="mb-6" aria-label={block.title}>
+      <SectionTitle>{block.title}</SectionTitle>
       {block.paragraphs?.map((paragraph, at) => (
-        <p key={at} className="break-words">
+        <Paragraph key={at} className="break-words">
           {paragraph.text}
-          {paragraph.source !== undefined && <span className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={paragraph.source.href}>{paragraph.source.label}</KLink></span>}
-        </p>
+          {paragraph.source !== undefined && <Text className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={paragraph.source.href}>{paragraph.source.label}</KLink></Text>}
+        </Paragraph>
       ))}
       {block.diagrams !== undefined && <DiagramsView block={block.diagrams} />}
       {block.rows !== undefined && block.rows.length > 0 && (
-        <dl className="m-0 grid gap-2 text-small" data-testid="overview-rows">
+        <DefinitionList className="m-0 grid gap-2 text-small" data-testid="overview-rows">
           {block.rows.map((row, at) => (
-            <div key={`${row.label}-${String(at)}`} className="grid grid-cols-[minmax(8rem,14rem)_1fr] gap-x-4">
-              <dt className="break-words font-medium text-ink">{row.href === undefined ? row.label : <KLink href={row.href}>{row.label}</KLink>}</dt>
-              <dd className="m-0 break-words text-secondary">
+            <Stack key={`${row.label}-${String(at)}`} className="grid grid-cols-2 gap-x-4">
+              <DefinitionTerm className="break-words font-medium text-ink">{row.href === undefined ? row.label : <KLink href={row.href}>{row.label}</KLink>}</DefinitionTerm>
+              <DefinitionValue className="m-0 break-words text-secondary">
                 {row.value}
-                {row.note !== undefined && <span className="ml-2 text-muted">{row.note}</span>}
-                {row.source !== undefined && <span className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={row.source.href}>{row.source.label}</KLink></span>}
-              </dd>
-            </div>
+                {row.note !== undefined && <Text className="ml-2 text-muted">{row.note}</Text>}
+                {row.source !== undefined && <Text className="ml-2 whitespace-nowrap text-small text-muted">· <KLink href={row.source.href}>{row.source.label}</KLink></Text>}
+              </DefinitionValue>
+            </Stack>
           ))}
-        </dl>
+        </DefinitionList>
       )}
       {block.links !== undefined && block.links.length > 0 && (
-        <ul className="m-0 list-none p-0 text-small" data-testid="overview-links">
-          {block.links.map((link) => <li key={`${link.label}-${link.href ?? ''}`} className="py-0.5"><KLink href={link.href ?? '#'}>{link.label}</KLink>{link.value !== undefined && <span className="ml-2 text-muted">{link.value}</span>}</li>)}
-        </ul>
+        <PlainList className="m-0 list-none p-0 text-small" data-testid="overview-links">
+          {block.links.map((link) => <ListItem key={`${link.label}-${link.href ?? ''}`} className="py-0.5"><KLink href={link.href ?? '#'}>{link.label}</KLink>{link.value !== undefined && <Text className="ml-2 text-muted">{link.value}</Text>}</ListItem>)}
+        </PlainList>
       )}
       {block.absent !== undefined && (
-        <p className="m-0 text-small text-muted" data-testid="overview-absent">
+        <Paragraph className="m-0 text-small text-muted" data-testid="overview-absent">
           {block.absent.message} <KLink href={block.absent.href}>{block.absent.label}</KLink>
-        </p>
+        </Paragraph>
       )}
-    </section>
+    </PageSection>
   );
 }
 
 /** One block of a page. */
 export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
   switch (block.type) {
-    case 'guide': return <section data-block="guide" data-walk-status={block.data.walk.status}><KMarkdown text={block.data.markdown} resolutions={resolutions} /></section>;
+    case 'guide': return <PageSection data-block="guide" data-walk-status={block.data.walk.status}><KMarkdown text={block.data.markdown} resolutions={resolutions} /></PageSection>;
     case 'markdown': return <KMarkdown text={block.markdown} resolutions={resolutions} />;
     case 'term': return <TermBlockView block={block} pageId={pageId ?? ''} resolutions={resolutions} />;
     case 'body': return <Body block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
@@ -919,15 +923,15 @@ export function Findings({ findings, scope = 'page' }: { findings: readonly { fi
     <Alert variant="problem" className={scope === 'manifest' ? 'mb-8' : 'mt-8'} data-testid={scope === 'manifest' ? 'manifest-findings' : 'findings'}>
       <AlertTitle>{t('knowledge.findings', { count: visible.length })}</AlertTitle>
       <AlertDescription>
-        <p data-testid="findings-help">{scope === 'manifest' ? t('knowledge.manifestFindingsHelp') : t('knowledge.findingsHelp')}</p>
-        {scope === 'manifest' && <p className="mt-1"><KLink href={WIKI_PROBLEMS}>{t('errors.problems')}</KLink></p>}
+        <Paragraph data-testid="findings-help">{scope === 'manifest' ? t('knowledge.manifestFindingsHelp') : t('knowledge.findingsHelp')}</Paragraph>
+        {scope === 'manifest' && <Paragraph className="mt-1"><KLink href={WIKI_PROBLEMS}>{t('errors.problems')}</KLink></Paragraph>}
         <Button type="button" variant="link" size="content" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
           {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
         </Button>
         {open && (
-          <ul className="!my-2">
-            {visible.map((finding, index) => <li key={`${finding.file}:${finding.line}:${index}`}><span className="font-mono text-small">{finding.file}:{finding.line}</span> {scope === 'manifest' ? words(finding.message) : finding.message}</li>)}
-          </ul>
+          <PlainList className="!my-2">
+            {visible.map((finding, index) => <ListItem key={`${finding.file}:${finding.line}:${index}`}><Text className="font-mono text-small">{finding.file}:{finding.line}</Text> {scope === 'manifest' ? words(finding.message) : finding.message}</ListItem>)}
+          </PlainList>
         )}
       </AlertDescription>
     </Alert>
