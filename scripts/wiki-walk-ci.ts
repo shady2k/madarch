@@ -19,10 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ensureDaemon, stopDaemon } from '../src/product/daemon.js';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { publishFixtureTemplate } from '../test/structured-template-fixture.js';
-import type { TemplatePart } from '../src/knowledge/template.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
 import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 import { FINDING_CLASSES, compareToBaseline, formatBaseline, formatReport, parseBaseline, walkWiki } from './wiki-walk.js';
@@ -103,32 +100,11 @@ try {
     if (Date.now() > fillDeadline) throw new Error(`${endpoint}/api/status: the fill did not finish in ${FILL_MS / 1000} s (state ${state.fill.state})`);
     await Bun.sleep(500);
   }
-  // Native inventory publishes facts, not agent-authored layouts. These explicit
-  // fixture opinions exercise the native pages without interpreting Liquid or
-  // preparing a second store: connect only after the daemon's fill succeeded.
-  const owner = await createDatabaseOwner({
-    store: storeDatabasePath(productStoreFolder(shop, knowledgeRootOf(home))),
-    connectOnly: true,
-  });
-  const block = (name: Extract<TemplatePart, { type: 'block' }>['name'], params: Record<string, string> = {}): TemplatePart => ({ type: 'block', name, params, line: 1 });
-  const details = block('properties', { title: 'Details', 'title-ru': 'Сведения' });
-  const relations = block('relations', { title: 'Relations', 'title-ru': 'Связи' });
-  const source = block('source', { title: 'Source', 'title-ru': 'Исходный текст' });
-  const layouts: Record<string, readonly TemplatePart[]> = {
-    file: [block('file-page')],
-    repository: [block('treemap'), block('repository'), block('files'), block('history'), block('folder'), relations],
-    commit: [details, block('history'), relations],
-    author: [details, block('history'), relations],
-    database: [details, block('children', { kind: 'code.table', relation: 'code.contains', title: 'Tables', 'title-ru': 'Таблицы' }), block('er'), relations],
-    table: [details, source, block('children', { kind: 'code.column', relation: 'code.has-column', title: 'Columns', 'title-ru': 'Столбцы', limit: '200' }), block('children', { kind: 'code.index', relation: 'code.has-index', title: 'Indexes', 'title-ru': 'Индексы' }), block('er'), relations],
-    term: [block('term', { title: 'Definition', 'title-ru': 'Определение', field: 'definition', synonyms: 'synonyms', code: 'code' })],
-    'test-quarantine': [details, source],
-    'item-plain': [details, relations],
-    item: [details, source, relations],
-  };
-  try {
-    for (const [name, parts] of Object.entries(layouts)) await publishFixtureTemplate(owner, shop, `templates/${name}.liquid`, parts);
-  } finally { await owner.close(); }
+  // The separate fixture author connects to the daemon-prepared graph and
+  // publishes explicit layouts; the walk itself holds no database connection.
+  const authored = Bun.spawn([process.execPath, resolve('test/ci-template-fixture.ts'), shop,
+    storeDatabasePath(productStoreFolder(shop, knowledgeRootOf(home)))], { stdout: 'inherit', stderr: 'inherit' });
+  if (await authored.exited !== 0) throw new Error('wiki-walk-ci: the native layout fixture author failed');
   console.log(`wiki-walk-ci: filled in ${((Date.now() - fillBegan) / 1000).toFixed(1)} s; walking ${languages?.join(', ') ?? 'the manifest languages'}`);
   const result = await walkWiki({
     endpoint,
