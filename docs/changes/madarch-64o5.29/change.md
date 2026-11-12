@@ -61,4 +61,6 @@ None.
 - Native repository-page tests no longer inject replacement repository templates after Fill. Explicit graph-unit fixtures use the declaration producer, not a second conflicting producer.
 - Final focused run: `sudo -u box env MADARCH_SKIP_PERF=1 bun test test/startup-template-publication.test.ts test/template-declarations.test.ts test/manifest-publication.test.ts test/manifest-start.test.ts` — 34 pass, 0 fail, 188 assertions. This includes CLI refusal before listening, Files-only pages, real watcher refresh, last-valid retention, legacy producer retirement and idempotence.
 - The earlier red run was 0 pass / 3 fail for the file, directory and repository pages. The same three page cases now pass without template-agent generation or the old repository-template fixture injection.
+- Related run: `sudo -u box env MADARCH_SKIP_PERF=1 bun test test/manifest-contract.test.ts test/product-manifest.test.ts test/draft-templates.test.ts test/mcp-kinds.test.ts` — 43 pass, 0 fail, 151 assertions.
+- A broader run including `test/repository-wiki.test.ts` was explicitly stopped during its 2,000-file case after its first case passed; that broader suite is not claimed as passing.
 - Final `bun run check` passed after all source/test changes. The document gate reports only missing owner approval; no approval or closure is recorded.
