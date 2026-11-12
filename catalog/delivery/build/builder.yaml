@@ -1,0 +1,27 @@
+id: slsa.builder-identity
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The identity a build platform used to run one build.
+sources:
+- https://slsa.dev/spec/v1.0/provenance
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Builder
+    many: Builders
+  ru:
+    one: Сборщик
+    many: Сборщики
+description:
+  en: The identity a build platform used to run one build.
+  ru: Идентичность, которой платформа сборки запускала одну сборку.

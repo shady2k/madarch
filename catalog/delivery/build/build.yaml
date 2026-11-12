@@ -1,0 +1,28 @@
+id: slsa.build
+purpose: history
+audience: [developer, platform-devops, operations]
+definition: One build of an artifact from a revision, with the definition it ran and the dependencies it resolved.
+sources:
+- https://slsa.dev/spec/v1.0/provenance
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasOutput
+  - usesTool
+  - generates
+  in: []
+template-policy: none
+labels:
+  en:
+    one: Build
+    many: Builds
+  ru:
+    one: Сборка
+    many: Сборки
+description:
+  en: One build of an artifact from a revision, with the definition it ran and the dependencies it resolved.
+  ru: Одна сборка артефакта из ревизии с её определением и разрешёнными зависимостями.

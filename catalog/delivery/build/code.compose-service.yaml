@@ -1,0 +1,27 @@
+id: practice.compose-service
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A service of a compose file, with its ports and its dependencies.
+sources:
+- https://docs.docker.com/compose/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+labels:
+  en:
+    one: Compose service
+    many: Compose services
+  ru:
+    one: Сервис compose
+    many: Сервисы compose
+description:
+  en: A service of a docker-compose file, with its ports and dependencies.
+  ru: Сервис файла docker-compose, его порты и зависимости.
