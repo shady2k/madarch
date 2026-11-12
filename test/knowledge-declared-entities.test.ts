@@ -132,8 +132,8 @@ describe('a manifest declares one code kind and not the other', () => {
     expect(status.kinds.find((kind) => kind.kind === 'code.file')?.count).toBeGreaterThan(0);
     expect(status.kinds.some((kind) => kind.kind === 'code.repository')).toBe(false);
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
-    expect(names.some((name) => name.startsWith('k_file_'))).toBe(true);
-    expect(names.some((name) => name.startsWith('k_repository_'))).toBe(false);
+    expect(names.some((name) => name.startsWith('k_code_file_'))).toBe(true);
+    expect(names.some((name) => name.startsWith('k_code_repository_'))).toBe(false);
     // Its pages: the declared file kind's listing and a file's page answer, and no statement names a table the manifest
     // did not make (madarch-hsqs stage C: the declared contract, not a caught 42P01).
     // A file the fill read, by its entity id; the listing itself is the tree's (`code.contains`), which this manifest
@@ -155,8 +155,8 @@ describe('a manifest declares one code kind and not the other', () => {
     expect(status.kinds.find((kind) => kind.kind === 'code.repository')?.count).toBe(1);
     expect(status.kinds.some((kind) => kind.kind === 'code.file')).toBe(false);
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
-    expect(names.some((name) => name.startsWith('k_repository_'))).toBe(true);
-    expect(names.some((name) => name.startsWith('k_file_'))).toBe(false);
+    expect(names.some((name) => name.startsWith('k_code_repository_'))).toBe(true);
+    expect(names.some((name) => name.startsWith('k_code_file_'))).toBe(false);
     // The repository page renders from the one declared kind, and nothing names a file or commit table.
     const page = await fetch(`${server!.url}/products/repos-only/api/page?id=${encodeURIComponent('code.repository:repos-only')}&full=1`, { headers: { accept: 'application/json' } });
     expect(page.status, JSON.stringify({ body: await page.text(), errors })).toBe(200);
