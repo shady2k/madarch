@@ -18,7 +18,7 @@ test('fields resolve explicit refinement rather than reverse arrival while retai
       const path = join(folder, 'plugins', name);
       mkdirSync(path, { recursive: true });
       writeFileSync(join(path, 'contract.json'), JSON.stringify({ id: name, version: '1.0.0', outputs: { vertices: [{ kind: 'note', key: ['name'], fields: ['name', 'body', 'detail'].map((name) => ({ name, type: 'text', meaning: name, example: name, required: name !== 'detail' })) }], edges: [] } }));
-      writeFileSync(join(path, 'plugin.json'), JSON.stringify({ name, version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'note', fields: index === 2 ? ['body'] : '*' }], reads: [], refines: index === 0 ? [] : [names[index - 1]] }));
+      writeFileSync(join(path, 'plugin.json'), JSON.stringify({ name, version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'note', fields: index === 2 ? ['body'] : '*', reads: [], refines: index === 0 ? [] : [names[index - 1]] }] }));
     }
     const text = [
       'kinds:', '  note:', '    template: note.md', '    source: graph', '    fields:',
