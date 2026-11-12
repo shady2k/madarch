@@ -86,6 +86,8 @@ import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
+import { answerPluginGraphQuery } from '../fill/plugin-turns.js';
+import type { OuterTransaction } from '../history-types.js';
 import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
 import type { AgentRunBudget } from '../fill/agent-meter.js';
 import type { ProductIdentity } from './manifest.js';
@@ -271,11 +273,16 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const wiring: ProductFillWiring = {
     snapshot: () => snapshotOf(identity, registry, repin()),
     configuration: (): FillStageConfigurationRead => configurationOfWorkflow(workflow, fillStageConfigurationFrom(files, folder), registry),
-    // This step's two record passes read git and publish through the record store; they ask no graph.
-    // The reader is handed to every stage's plan, and a read through it is refused by name.
-    graph: () => ({
-      query: async () => {
-        throw new Error('this fill runs the record passes and reads no graph (src/product/fill-stages.ts)');
+    // Plugin reads use the orchestrator's recorder and replay inside the publication's transaction.
+    graph: (_ref, transaction) => ({
+      query: async (text) => {
+        if (!kindsRead.present) throw new Error('src/product/fill-stages.ts:1: plugin graph reads require the product kind declarations');
+        const owner: FillDatabase = transaction === undefined ? options.database : {
+          ...options.database,
+          transaction: async (_kind, work) => await work(transaction as OuterTransaction),
+          run: async (work) => await work(transaction as OuterTransaction),
+        };
+        return await answerPluginGraphQuery({ owner, manifest: kindsRead.manifest, contract }, text);
       },
     }),
     source: (): SnapshotSource => snapshots,
