@@ -12,7 +12,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { navGroups } from './app.js';
 import { GlossaryPage } from './glossary.js';
-import { CataloguePage, Overview } from './pages.js';
+import { CataloguePage, Overview, NewHome, EmptyHome } from './pages.js';
 import { Root as AppRoot } from './root.js';
 import type { CatalogView, Glossary, GlossaryTerm, KindSummary, WikiStatus } from './types.js';
 
@@ -149,6 +149,30 @@ describe('the groups of the manifest', () => {
 });
 
 describe('the front page', () => {
+  for (const language of ['en', 'ru'] as const) for (const manifest of ['not-filled', 'no-manifest'] as const) test(`one truthful prefill card in ${language}, ${manifest}`, async () => {
+    await setWikiLanguage(language);
+    const posts: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string, options?: RequestInit) => { if (options?.method === 'POST') posts.push(url); return json({}); };
+    const page = into(createElement(manifest === 'not-filled' ? NewHome : EmptyHome, { status: status({ manifest }), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=prefill-card]') !== null, 'one prefill card');
+    expect(page.querySelectorAll('[data-testid=prefill-card]').length).toBe(1);
+    expect(page.querySelector('[data-testid=fill-card]')).toBeNull();
+    expect(page.textContent).toContain(language === 'ru' ? 'Граф пока пуст' : 'The graph is empty');
+    expect(page.textContent).not.toContain(language === 'ru' ? 'Код подключён' : 'Code connected');
+    const button = page.querySelector('[data-testid=prefill-open]')!;
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.textContent).toBe(language === 'ru' ? 'Заполнить…' : 'Fill…');
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    await until(() => window.location.pathname === '/fill', 'the fill choices');
+    expect(posts).toEqual([]);
+  });
+
+  test('connected code is stated only when the server lists a repository', async () => {
+    const page = into(createElement(NewHome, { status: status({ manifest: 'not-filled', repositories: [{ name: 'shop' }] as WikiStatus['repositories'] }), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=prefill-card]') !== null, 'prefill');
+    expect(page.textContent).toContain('Code connected');
+  });
+
   test('the product front holds no kind cards: the menu is the only list of kinds', async () => {
     const page = into(createElement(Overview, {
       status: status({ filled: true, home: 'product:shop', kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 2 })], groups: nestedGroups.slice(0, 1), writer: { state: 'idle', agent: null, units: [] } }),
@@ -174,7 +198,7 @@ describe('the menu', () => {
     };
     window.history.replaceState({}, '', '/');
     const app = into(createElement(AppRoot));
-    await until(() => app.querySelector('[data-testid=home-intro]') !== null, 'the introduction');
+    await until(() => app.querySelector('[data-testid=prefill-card]') !== null, 'the prefill card');
     expect(askedPage).toBe(false);
   });
 
@@ -204,13 +228,15 @@ describe('the menu', () => {
     const glossary = app.querySelector('[data-testid=nav-glossary]')!;
     expect(app.querySelector('[data-testid=catalogue-page] h1')!.textContent).toBe(catalogue.textContent);
     expect(catalogue.nextElementSibling).toBe(glossary);
-    expect(glossary.nextElementSibling).toBe(waiting);
+    const fill = app.querySelector('[data-testid=nav-fill]')!;
+    expect(glossary.nextElementSibling).toBe(fill);
+    expect(fill.nextElementSibling).toBe(waiting);
     const topLinks = [];
     for (let node = home; node !== waiting; node = node.nextElementSibling!) topLinks.push(node);
     expect(topLinks.map((node) => node.textContent)).toEqual(language === 'ru'
-      ? ['Главная', 'Каталог сущностей', 'Глоссарий']
-      : ['Home', 'Entity catalogue', 'Glossary']);
-    expect(topLinks.map((node) => node.getAttribute('href'))).toEqual(['/', '/catalogue', '/glossary']);
+      ? ['Главная', 'Каталог сущностей', 'Глоссарий', 'Заполнение']
+      : ['Home', 'Entity catalogue', 'Glossary', 'Fill']);
+    expect(topLinks.map((node) => node.getAttribute('href'))).toEqual(['/', '/catalogue', '/glossary', '/fill']);
     expect(glossary.querySelector('svg')).not.toBeNull();
     expect(catalogue.parentElement?.closest('[data-testid=nav-waiting]')).toBeNull();
     expect(waiting.querySelector('[data-testid=nav-catalogue]')).toBeNull();

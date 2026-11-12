@@ -303,7 +303,7 @@ describe('the blocks', () => {
     expect(first.textContent!.trimEnd()).toBe('export function charge() {');
     expect([...first.querySelectorAll('.tok-keyword, .shiki-token')].map((token) => token.textContent)).toContain('export');
     expect(container.querySelector('[data-testid=code-place]')!.closest('a')!.getAttribute('href')).toBe(place.href);
-    expect(container.querySelector('[data-testid=source-cut]')!.textContent).toContain('Open the file');
+    expect(container.querySelector('[data-testid=source-cut]')!.textContent).toContain('Source file');
   });
 
   test('a body with statements that have no grounds says how many, and lists them with their file and line', async () => {
@@ -383,16 +383,12 @@ describe('the empty home', () => {
       status: status({ findingCount: 1 }),
       refresh: () => undefined,
     }));
-    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');
-    expect(container.querySelector('[data-testid=home-intro]')!.textContent).toContain('fills itself from its repositories');
-    const guidance = container.querySelector('[data-testid=home-guidance]')!;
-    expect(guidance.textContent).toContain('start the fill');
-    expect(guidance.textContent).toContain('open the files, folders and commits');
-    expect(guidance.textContent).toContain('through MCP');
-    expect(guidance.textContent).toContain('commit by commit');
-    expect(guidance.textContent).toContain('Each stage adds a layer');
-    expect(guidance.textContent).toContain('writes pages from the graph and nothing else');
-    expect(container.textContent).not.toContain('problems');
+    await until(() => container.querySelector('[data-testid=prefill-card]') !== null, 'the prefill card');
+    expect(container.querySelectorAll('[data-testid=prefill-card]')).toHaveLength(1);
+    expect(container.textContent).toContain('Product created');
+    expect(container.textContent).toContain('The graph is empty');
+    expect(container.querySelector('[data-testid=home-guidance]')).toBeNull();
+    expect(container.querySelector('[data-testid=findings]')).toBeNull();
   });
 
   test('a person-authored document kind offers New even when its list is empty', async () => {
@@ -415,21 +411,21 @@ describe('the fill card', () => {
     const calls: string[] = [];
     stubFetch(calls);
     const container = into(createElement(FillCard, { status: status(), refresh: () => undefined }));
-    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the fill link');
-    expect(container.textContent).toContain('This wiki is empty');
-    expect(container.textContent).toContain('(training)');
-    const link = container.querySelector('[data-testid=fill-start]')!;
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe(appPath('/fill'));
+    await until(() => container.querySelector('[data-testid=prefill-open]') !== null, 'the fill choices button');
+    expect(container.textContent).toContain('The graph is empty');
+    expect(container.textContent).toContain('Code connected');
+    const button = container.querySelector('[data-testid=prefill-open]')!;
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.textContent).toBe('Fill…');
     expect(container.querySelector('input, select, [data-testid=agent-bound]')).toBeNull();
     expect(calls).toEqual([]);
   });
 
   test('a product with no repository says to connect one and offers no button that cannot work', async () => {
     const container = into(createElement(FillCard, { status: status({ repositories: [] }), refresh: () => undefined }));
-    await until(() => container.querySelector('[data-testid=fill-hint]') !== null, 'the hint');
-    expect(container.querySelector('[data-testid=fill-hint]')!.textContent).toBe('madarch repo add <name> <url>');
-    expect(container.querySelector('[data-testid=fill-start]')).toBeNull();
+    await until(() => container.querySelector('[data-testid=prefill-open]') !== null, 'the fill choices button');
+    expect(container.textContent).toContain('No code repository connected');
+    expect(container.textContent).not.toContain('Code connected');
   });
 
   test('a running fill says which phase it reads and shows a bar; a failed one shows its reason with a way to try again', async () => {
@@ -454,14 +450,14 @@ describe('the fill card', () => {
     const failed = into(createElement(FillCard, { status: status({ fill: { state: 'failed', message: 'git failed in the repository' } }), refresh: () => undefined }));
     await until(() => failed.querySelector('[data-state=failed]') !== null, 'the failure');
     expect(failed.textContent).toContain('git failed in the repository');
-    expect(failed.textContent).toContain('Start the fill again');
+    expect(failed.textContent).toContain('Fill setup');
   });
 
   test('a fill that stopped before its last commit says the graph holds part of the history and offers to continue', async () => {
     const container = into(createElement(FillCard, { status: status({ filled: true, incomplete: true }), refresh: () => undefined }));
     await until(() => container.querySelector('[data-state=incomplete]') !== null, 'the card');
     expect(container.textContent).toContain('The fill is not finished');
-    expect(container.querySelector('[data-testid=fill-start]')!.textContent).toBe('Continue the fill');
+    expect(container.querySelector('[data-testid=fill-start]')!.textContent).toBe('Fill setup');
   });
 
   test('a filled product with its home page shows no card', async () => {
@@ -480,8 +476,8 @@ describe('the agent stage', () => {
     const calls: string[] = [];
     stubFetch(calls);
     const container = into(createElement(FillCard, { status: status(), refresh: () => undefined }));
-    await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the fill link');
-    expect(container.querySelector('[data-testid=fill-start]')!.getAttribute('href')).toBe(appPath('/fill'));
+    await until(() => container.querySelector('[data-testid=prefill-open]') !== null, 'the fill choices');
+    expect(container.querySelector('[data-testid=prefill-open]')!.tagName).toBe('BUTTON');
     expect(container.querySelector('[data-testid=agent-claude-code], [data-testid=agent-codex], [data-testid=agent-bound]')).toBeNull();
     expect(calls).toEqual([]);
   });
@@ -490,12 +486,8 @@ describe('the agent stage', () => {
     const calls: string[] = [];
     stubFetch(calls);
     const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' } }), refresh: () => undefined }));
-    await until(() => container.querySelector('[data-state=offer]') !== null, 'the offer');
-    expect(container.textContent).toContain('Let an agent write the product pages');
-    const link = container.querySelector('[data-testid=fill-start]')!;
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe(appPath('/fill'));
-    expect(container.querySelector('input, select')).toBeNull();
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(container.querySelector('[data-testid=fill-card], [data-state=offer], [data-testid=prefill-card]')).toBeNull();
     expect(calls).toEqual([]);
   });
 
@@ -851,11 +843,10 @@ describe('there is one app', () => {
     await until(() => container.querySelector('[data-testid=not-filled]') !== null, 'the newcomer page');
     expect(container.querySelector('[data-testid=no-manifest]')).toBeNull();
     const page = container.querySelector('[data-testid=not-filled]')!;
-    // What happened, that nothing is read yet, and the next step: the manifest's place, and Fill offered.
-    expect(page.textContent).toContain('The product is created');
-    expect(page.textContent).toContain('madarch/kinds.yaml');
-    expect(page.querySelector('[data-testid=fill-start]')).not.toBeNull();
-    expect(page.querySelector('[data-testid=manifests-guide]')!.getAttribute('href')).toBe('https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md');
+    expect(page.textContent).toContain('Product created');
+    expect(page.textContent).toContain('The graph is empty');
+    expect(page.querySelector('[data-testid=prefill-open]')!.tagName).toBe('BUTTON');
+    expect(page.querySelector('[data-testid=manifests-guide]')).toBeNull();
     // Nothing started the fill: the page only offers it.
     expect(calls.some((url) => url.includes('/api/fill'))).toBe(false);
   });
@@ -890,8 +881,9 @@ describe('there is one app', () => {
     const container = into(createElement(AppRoot));
     await until(() => container.querySelector('[data-testid=no-manifest]') !== null, 'the no-manifest page');
     const page = container.querySelector('[data-testid=no-manifest]')!;
-    expect(page.textContent).toContain('madarch/kinds.yaml');
-    expect(page.querySelector('[data-testid=manifests-guide]')!.getAttribute('href')).toBe('https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md');
+    expect(page.textContent).toContain('Product created');
+    expect(page.textContent).toContain('The graph is empty');
+    expect(page.querySelector('[data-testid=prefill-open]')!.tagName).toBe('BUTTON');
   });
 });
 
@@ -975,7 +967,7 @@ describe('the badge and its fill menu', () => {
     const menu = container.querySelector('[data-testid=fill-menu]')!;
     const choose = menu.querySelector('[data-testid=fill-menu-choose]')!;
     expect(choose.tagName).toBe('A');
-    expect(choose.textContent).toBe('Fill…');
+    expect(choose.textContent).toBe('Fill setup');
     expect(choose.getAttribute('href')).toBe(appPath('/fill'));
     expect(menu.querySelector('input, select')).toBeNull();
     expect(menu.querySelector('[data-testid=fill-start], [data-testid=fill-side-press], [data-testid=menu-language]')).toBeNull();
