@@ -15,7 +15,10 @@ import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js'
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { productsHome } from '../src/product/home.js';
-import { knowledgeRootOf } from '../src/product/store.js';
+import { knowledgeRootOf, productStoreFolder } from '../src/product/store.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
+import { openFillRunQueue, askFillRun } from '../src/fill/run-jobs.js';
 
 /** How long the child and the store's server are given after the server is killed: the rule the walk asked for. */
 const GONE_WITHIN_MS = 2_000;
