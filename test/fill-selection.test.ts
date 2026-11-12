@@ -4,12 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { readRunUnits } from '../src/fill/state-store.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
-import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
@@ -114,42 +111,11 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(notJson.status).toBe(415);
   }, 120_000);
 
-  test('the fill page request fills exactly the selected kinds, with the kinds their dependencies add, and no agent', async () => {
+  test('a selected kind requiring the enabled general agent refuses explicit no-agent before accepting work', async () => {
     const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: null, tokenCap: null }) });
-    expect(pressed.status).toBe(202);
-    // The order the engine runs them in: the kinds doc.term needs come first.
-    expect(pressed.body.order).toEqual(['code.repository', 'code.directory', 'code.file', 'doc.term']);
-    // The fill is the product's own: wait for its end, then read what it ran.
-    for (let attempt = 0; attempt < 600; attempt += 1) {
-      const state = (await call('/api/status')).body.fill?.state as string;
-      if (state !== 'running') break;
-      await new Promise((rest) => setTimeout(rest, 500));
-    }
-    const status = await call('/api/status');
-    expect(status.body.fill.state).toBe('done');
-    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
-    try {
-      const rows = await owner.run(async (tx) => await tx.query<{ run_id: string }>('SELECT run_id FROM fill_unit_generation ORDER BY updated_at DESC LIMIT 1'));
-      const runId = rows.rows[0]?.run_id;
-      expect(runId).toBeString();
-      const units = (await readRunUnits(owner, runId!)).map((unit) => unit.unitId).sort();
-      expect(units.filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/glossary:doc.term']);
-    } finally {
-      await owner.close();
-    }
-    // The catalogue says what stands: the term kind is filled, and the state comes from the graph and the turn.
-    const catalogue = await call('/api/catalog');
-    const counts = (rows: { kind: string; count: number }[]) => rows.map(({ kind, count }) => ({ kind, count }));
-    expect(counts(status.body.kinds)).toEqual(counts(catalogue.body.kinds));
-    const term = (catalogue.body.kinds as { kind: string; state: string; plugins?: string[]; derivesFrom?: string[]; estimate?: { volume: number | null; tokensPerUnit: number | null; tokens: number | null } }[]).find((kind) => kind.kind === 'doc.term');
-    expect(term?.state).toBe('filled');
-    expect(term?.plugins).toEqual(['glossary']);
-    expect(term?.derivesFrom).toEqual(['code.file']);
-    // No producer declares a per-unit figure: the row carries no estimate at all, and the page says the cost is unknown.
-    expect(term?.estimate).toBeUndefined();
-    // A kind with no table of its own carries no estimate either.
-    const useCase = (catalogue.body.kinds as { kind: string; estimate?: { volume: number | null } }[]).find((kind) => kind.kind === 'doc.use-case');
-    expect(useCase?.estimate).toBeUndefined();
-  }, 600_000);
+    expect(pressed.status).toBe(409);
+    expect(JSON.stringify(pressed.body)).toMatch(/plugin\.json:\d+/);
+    expect(JSON.stringify(pressed.body)).toContain('requested an agent but none is selected');
+  });
 
 });
