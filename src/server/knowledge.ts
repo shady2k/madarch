@@ -386,7 +386,7 @@ export function createKnowledgePart(
       const runs = await product.fillRuns(runId ?? undefined);
       if (runId !== null && runs.length === 0) return refused(404, { message: `${here()}: this product holds no run ${JSON.stringify(runId)}` });
       return { response: json(200, runId === null ? { runs } : { run: runs[0] }) };
-    }, false),
+    }),
     fillSelected: guarded('fill the selected entities', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
       if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });

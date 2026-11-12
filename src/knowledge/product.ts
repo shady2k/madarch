@@ -950,7 +950,7 @@ export class KnowledgeProduct {
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
     this.notify();
-    const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
+    const request = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
@@ -963,7 +963,8 @@ export class KnowledgeProduct {
         return plugins.map((plugin) => ({ kind, group: declaration?.group ?? null, plugin, stageUnitId: pluginTurnUnitId(plugin, kind, options.targets?.vertex) }));
       }),
     };
-    await createRun(await this.open(), { runId, product: product.name, at: Date.parse(startedAt), ...(selection === undefined ? {} : { selection }) });
+    if (publication?.status !== 'pending') await createRun(await this.open(), { runId, product: product.name, at: Date.parse(startedAt), ...(selection === undefined ? {} : { selection }) });
+    const press = { ...request, ...(selection === undefined ? {} : { selection }) };
     this.fillRunId = runId;
     this.fill = { ...this.fill, runId };
     this.running = (async () => {
@@ -973,7 +974,7 @@ export class KnowledgeProduct {
         if (ready?.status === 'failed') throw new Error(`The catalogue could not be published: ${ready.message}`);
         await (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId, press));
       } catch (error) {
-        await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
+        if (publication?.status !== 'pending') await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
         if (this.closed) return;
         this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
         if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
@@ -992,12 +993,13 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string }; readonly selection?: import('../fill/fsm.js').RunSelection } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
     try {
       const owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true });
+      if (await readRun(owner, runId) === null) await createRun(owner, { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
       const run = await startKnowledgeFill({
         productFolder: product.folder,
         storeFolder,
@@ -1046,14 +1048,14 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
-    void product;
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string }; readonly selection?: import('../fill/fsm.js').RunSelection }): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;
     let end: Awaited<ReturnType<typeof readFillEnd>> = null;
     try {
       const owner = await this.open();
+      if (await readRun(owner, runId) === null) await createRun(owner, { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
@@ -2130,10 +2132,6 @@ export class KnowledgeProduct {
       return;
     }
     const live = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling'].includes(named.state) ? named : null;
-    if (named !== null && named.runId !== this.fillRunId && !['paused', 'cancelled'].includes(named.state)) {
-      this.fillRunId = named.runId;
-      this.fill = { state: 'running', runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
-    }
     if (named !== null && (named.state === 'paused' || named.state === 'cancelled')) {
       this.fillRunId = named.runId;
       this.fill = {
