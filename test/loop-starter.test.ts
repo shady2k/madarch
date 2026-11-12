@@ -62,7 +62,8 @@ test('document and template opinions declare complete structured content rather 
     expect(kind.source).toBe('graph');
     expect(kind.fields!.map((field) => field.name)).toEqual([...fields]);
     for (const field of kind.fields!) {
-      expect(field.binding?.kind).toBe('agent');
+      if (name === 'template') expect(field.producers).toEqual(['manifest']);
+      else expect(field.binding?.kind).toBe('agent');
       if (field.binding?.kind === 'agent') expect(field.binding.description).toContain(source);
     }
   }

@@ -1,0 +1,95 @@
+# CI follow-up test selection
+
+The root test selection includes every test file whose path or content mentions templates, manifest publication, startup, kind tables or repo add. Matching is case-insensitive; singular template and hyphenated names are included. The complete wiki app suite is also run. Browser/environment-gated cases retain their normal gates. No real agent or model is run.
+
+- `test/knowledge-manifest-views.test.ts`
+- `test/product-daemon.test.ts`
+- `test/knowledge-manifest-presentation.test.ts`
+- `test/knowledge-relations.test.ts`
+- `test/init-checkout.test.ts`
+- `test/product-cli.test.ts`
+- `test/product-draft.test.ts`
+- `test/plugin-host.test.ts`
+- `test/server-sources.test.ts`
+- `test/fill-updates.test.ts`
+- `test/knowledge-vertical.test.ts`
+- `test/authored-import.test.ts`
+- `test/catalog-read.test.ts`
+- `test/repository-wiki.test.ts`
+- `test/problems-pages.test.ts`
+- `test/agent-fill-bundle.test.ts`
+- `test/knowledge-home-page.test.ts`
+- `test/plugin-agent-edge-order.test.ts`
+- `test/knowledge-tracker-only.test.ts`
+- `test/knowledge-subgroups.test.ts`
+- `test/roles-check.test.ts`
+- `test/madarch-init-e2e.test.ts`
+- `test/db-schema-path.test.ts`
+- `test/knowledge-files-map.test.ts`
+- `test/authored.test.ts`
+- `test/knowledge-declared-entities.test.ts`
+- `test/draft-starter-copy.test.ts`
+- `test/describe-repos.test.ts`
+- `test/knowledge-records-listing.test.ts`
+- `test/knowledge-m38l21.test.ts`
+- `test/knowledge-publication-state.test.ts`
+- `test/mcp-kinds.test.ts`
+- `test/wiki-readers.test.ts`
+- `test/knowledge-view-regressions.test.ts`
+- `test/wiki-fill-button-walk.test.ts`
+- `test/loop-starter.test.ts`
+- `test/knowledge-overview.test.ts`
+- `test/manifest-contract.test.ts`
+- `test/knowledge-parse.test.ts`
+- `test/knowledge-contract-selection.test.ts`
+- `test/postgres-cluster-start.test.ts`
+- `test/knowledge-server.test.ts`
+- `test/manifest-publication-state.test.ts`
+- `test/test-quarantine-fill.test.ts`
+- `test/knowledge-catalog-view.test.ts`
+- `test/template-declarations.test.ts`
+- `test/knowledge-liquid.test.ts`
+- `test/loop-menu-counts.test.ts`
+- `test/product-serve.test.ts`
+- `test/product-wiki-serve.test.ts`
+- `test/manifest-start.test.ts`
+- `test/knowledge-page-snapshot.test.ts`
+- `test/plugin-contract.test.ts`
+- `test/graph-write.test.ts`
+- `test/wiki-walk.test.ts`
+- `test/startup-template-publication.test.ts`
+- `test/fill-updates-before-fill.test.ts`
+- `test/catalog-check.test.ts`
+- `test/agent-meter.test.ts`
+- `test/problems-wiki.test.ts`
+- `test/knowledge-render.test.ts`
+- `test/consistency-plugin.test.ts`
+- `test/status-fill-memo.test.ts`
+- `test/status-work.test.ts`
+- `test/plugin-agent-fill.test.ts`
+- `test/test-database-template.test.ts`
+- `test/architecture-schema-preparation.test.ts`
+- `test/knowledge-sync.test.ts`
+- `test/problems-listing-cache.test.ts`
+- `test/draft-templates.test.ts`
+- `test/manifest-publication.test.ts`
+- `test/writer-russian.test.ts`
+- `test/knowledge-history-product.test.ts`
+- `test/glossary-path.test.ts`
+- `test/catalog-test-quarantine.test.ts`
+- `test/knowledge-documents.test.ts`
+- `test/extract-truth-kinds.test.ts`
+
+Additional direct storage regression: `test/graph-records.test.ts`.
+
+## Results
+
+- Broad root run: 808 passed, 109 skipped, 17 failed, 2 errors across 77 files. Failures are retained here rather than calling that run green.
+- Separate file reruns after corrections: product-daemon 23/0; product-cli 106/0; server-sources 82/0; repository-wiki 6/0; knowledge-declared-entities 2/0; wiki-readers 17/0; problems-listing-cache 4/0; graph-records 17/0; knowledge-server 14/0 with 8 normal skips. Counts are passed/failed.
+- Wiki app full suite: 412 passed, 0 failed (35 files).
+- Consistency fixture: confined run 5 passed/3 failed because the sandbox supervisor vanishes before cgroup membership verification on this host. With `MADARCH_PLUGIN_SANDBOX=off`, the scripted fixture runs 8 passed/0 failed. This is a diagnostic result, not confined acceptance. No real model or agent ran; no sandbox source or default was changed.
+- The problem-cache test no longer injects a second template opinion over the startup-owned template. It still publishes its authored domain fixture and exercises the real startup template.
+- Builder refusal cases measure a correct exit 2 after real product-store preparation (44.7 seconds in the standalone measurement), not a deadlock. Those four cases now name 60-second bounds. The server fixture prepares several product stores before tests: its measured setup exceeded 60 seconds, so that hook names 120 seconds. No production deadlines or lifecycle ordering changed.
+- Product-serve full rerun: 27 passed/2 failed (a cleanup hook timeout caused the next case to lose its scratch product); rerun of both affected cases: 2 passed/0 failed. All four builder-refusal cases passed with the measured explicit bounds.
+- Manual mutation: moving the repository lookup back before the history-disabled return makes the new file-only storage case fail; restored source passes the full 17-case storage file.
+- Final root static check passed.
