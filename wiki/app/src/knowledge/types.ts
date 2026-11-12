@@ -224,10 +224,11 @@ type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
 
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
+  declaration?: { file: string; line: number };
   sources?: readonly string[];
   /** The summary has standards available from the single-kind detail request. */
   sourcesAvailable?: boolean;
-  fields?: readonly { name: string; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
+  fields?: readonly { name: string; labels?: Record<string, string>; declaration?: { file: string; line: number }; type: string; nullable?: boolean; producers?: readonly string[]; reference?: string; binding?: string | { agent: string }; line?: number }[];
   relations?: readonly { direction: 'out' | 'in'; name: string; kind?: string }[];
   pluginFolders?: readonly string[];
   kind: string;

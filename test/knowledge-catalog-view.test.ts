@@ -151,7 +151,7 @@ describe('the catalogue view lists every declared kind', () => {
       ['owns', { name: 'owns', from: ['written'], to: ['filled'], repeats: false, fields: [], line: 1 }],
     ]) };
     const rows = await catalogKinds({ ...ctx, manifest });
-    expect(rows.find((row) => row.kind === 'written')!.fields).toEqual(fields);
+    expect(rows.find((row) => row.kind === 'written')!.fields).toEqual(fields.map((field) => ({ ...field, declaration: { file: ctx.manifest.file, line: written.line } })));
     expect(rows.find((row) => row.kind === 'written')!.relations).toEqual([
       { direction: 'out', name: 'owns', kind: 'filled' },
       { direction: 'out', name: 'contains', kind: 'by-person' },
@@ -182,7 +182,7 @@ describe('the catalogue view lists every declared kind', () => {
     const kinds = await catalogKinds(ctx);
     for (const kind of kinds) {
       expect(kind.sources).toEqual([`https://example.test/${kind.kind}`]);
-      expect(kind).not.toHaveProperty('declaration');
+      expect(kind.declaration).toEqual({ file: ctx.manifest.file, line: ctx.manifest.catalog!.kinds.get(kind.kind)!.line });
       expect(kind).not.toHaveProperty('template');
     }
   });

@@ -1,3 +1,4 @@
+import { KindDetails } from './kind-details.js';
 import { FilterBar, FilterField } from '@/components/ui/filter-bar.js';
 import { Card, CardContent } from '@/components/ui/card.js';
 import { Stack, Text, PageSection, PageArticle, PageHeader, PageTitle, SectionTitle, Paragraph, PlainList, ListItem, DefinitionList, DefinitionTerm, DefinitionValue, FieldLabel, Form } from '@/components/ui/typography.js';
@@ -83,6 +84,7 @@ export function AuthoredKindPage({ kind, version }: { kind: string; version: num
   const read = useRead<AuthoredView>(kind, version + revision, (signal) => readAuthored(kind, undefined, signal));
   useTabTitle(kindName(kind, 'many'));
   return <PageSection data-testid="authored-kind-page"><PageHeader className="mb-6"><PageTitle>{kindName(kind, 'many')}</PageTitle><Button size="default" variant="default" onClick={() => setCreating(true)}>{t('authored.new')}</Button></PageHeader>
+    <KindDetails kind={kind} version={version} />
     {creating && <AuthoredForm key={kind} kind={kind} cancel={() => setCreating(false)} saved={() => { setCreating(false); setRevision(revision + 1); }} />}
     <FilterBar><FilterField><Input type="search" aria-label={t('knowledge.filter')} placeholder={t('knowledge.filter')} value={query} onChange={(event) => setQuery(event.target.value)} /></FilterField></FilterBar>
     {read.error !== null && <Paragraph role="alert">{read.error}</Paragraph>}

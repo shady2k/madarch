@@ -665,7 +665,7 @@ export function KnowledgeApp(): ReactElement {
       </ShellNavigationSheet>
     </Sheet>
   );
-  const contentPage = !['catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
+  const contentPage = !['kind', 'catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
   let view: ReactElement;
   // No store, no home page: until a fill runs the home is the introduction, even when the product repository holds a
   // page a later stage will read. Nothing of the product is parsed before the fill writes it.
