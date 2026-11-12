@@ -21,6 +21,7 @@
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
 import type { EdgeDraft, EdgeRemovalDraft, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
+import type { ProducerOutcomeDraft } from './producer-outcomes.js';
 
 /** How much of the product one capability or fact kind is about. */
 type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -166,6 +167,7 @@ interface StaticEdgeDraft {
  * a second pair of ends could state an edge whose ends nothing publishes.
  */
 export type StageDraftWrite =
+  | { kind: 'producer-outcome'; evidence: string; value: ProducerOutcomeDraft }
   | { kind: 'fact'; evidence: string; value: unknown }
   | { kind: 'entity'; evidence: string; value: unknown }
   | { kind: 'link'; evidence: string; value: unknown }
