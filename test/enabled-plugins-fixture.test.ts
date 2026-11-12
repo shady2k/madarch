@@ -17,7 +17,7 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
-const selections: { selected: string[] }[] = [{ selected: [] }, { selected: ['db-schema'] }];
+const selections: { selected: string[] }[] = [{ selected: [] }, { selected: ['db-schema'] }, { selected: ['disk', 'db-schema'] }];
 
 test.each(selections)('fixture plugin selection preserves all fields with %j', ({ selected }) => {
     writeFileSync(file, original);
@@ -49,6 +49,16 @@ test.each(selections)('fixture plugin selection preserves all fields with %j', (
     if (!read.present) throw new Error('fixture manifest is absent');
     expect(read.manifest.findings).toEqual([]);
     const plan = planManifestFill(read.manifest, folder, undefined, false);
-    expect(plan.order).toEqual(selected);
+    expect(plan.order).toEqual(selected.includes('disk') ? ['disk', 'db-schema'] : []);
     expect(plan.requiresAgent).toBe(false);
+    if (selected.includes('db-schema') && !selected.includes('disk')) {
+      expect(plan.outputs.has('db-schema')).toBe(false);
+      expect(plan.unproducedKinds).toContainEqual({ kind: 'code.file', outcome: 'abstained', reason: 'kind code.file has no configured producer; configure an ordinary producer or kind.agent' });
+      expect(plan.unproducedKinds).toContainEqual({ kind: 'code.database', outcome: 'abstained', reason: 'required prerequisite has no configured producer for code.database' });
+    }
+    if (selected.includes('disk')) {
+      expect(plan.outputs.get('disk')?.has('code.file')).toBe(true);
+      expect(plan.outputs.get('db-schema')?.has('code.database')).toBe(true);
+      expect(plan.unproducedKinds.some((one) => one.kind === 'code.file' || one.kind === 'code.database')).toBe(false);
+    }
 });
