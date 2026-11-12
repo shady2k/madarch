@@ -176,25 +176,21 @@ export async function pluginSnapshotValue(owner: DatabaseOwner, snapshot: Plugin
   });
 }
 
-/** File identities from one captured producer generation, never the current graph. */
-export async function pluginSnapshotFiles(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<GraphFileRow[]> {
+/** Declared vertices from one captured producer generation, never the current graph. */
+export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }[]> {
   return await owner.transaction('snapshot', async tx => {
     const writes = await snapshotDrafts(tx, snapshot);
     for (const partition of snapshot.partitions ?? []) writes.push(...await snapshotDrafts(tx, partition, true));
-    const files = new Map<string, GraphFileRow>();
+    const vertices = new Map<string, { key: import('../plugin/protocol.js').PluginKeyValues; values: Readonly<Record<string, unknown>> }>();
     for (const write of writes) {
       if (write.kind !== 'vertex' && write.kind !== 'vertex-removal') continue;
-      const vertex = write.value as { kind: string; key: import('../plugin/protocol.js').PluginKeyValues };
+      const vertex = write.value as { kind: string; key: import('../plugin/protocol.js').PluginKeyValues; values?: Readonly<Record<string, unknown>> };
       if (vertex.kind !== kind) continue;
       const identity = canonicalKey(vertex.key);
-      if (write.kind === 'vertex-removal') {
-        files.delete(identity);
-        continue;
-      }
-      const { repository, path } = vertex.key;
-      if (typeof repository === 'string' && typeof path === 'string') files.set(identity, { repository, path });
+      if (write.kind === 'vertex-removal') vertices.delete(identity);
+      else vertices.set(identity, { key: vertex.key, values: vertex.values ?? {} });
     }
-    return [...files.values()].sort((left, right) => left.repository < right.repository ? -1 : left.repository > right.repository ? 1 : left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+    return [...vertices.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, vertex]) => vertex);
   });
 }
 
