@@ -154,7 +154,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
       .replace('one producer\'s statement about a field, kept beside every other producer\'s.', 'a producer\'s statement the graph keeps beside the others.'));
     commit('Reword both terms');
     const answer = await fillCommand('--vertex', 'doc.term:Fill');
-    expect(answer.code).toBe(0);
+    expect(answer.code, answer.stderr).toBe(0);
     expect(answer.stdout).toContain('Rewriting only doc.term:Fill, and nothing else.');
     const read = await terms();
     expect(read['Fill']).toBe('the one run that fills a product\'s graph.');
