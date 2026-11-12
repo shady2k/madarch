@@ -68,6 +68,14 @@ Agent-requesting scenarios choose scripted fixtures; no real agent/model runs
 are required. Deterministic-only fixture declarations do not bypass a planned
 plugin's request for an agent.
 
+For fixture-only narrowing, an excluded plugin binding becomes passive
+`producers: [same-id]` metadata. Keep every typed field, kind and provider
+identity; enabled plugin bindings and agent bindings remain unchanged. A graph
+kind's input-selector terms for an excluded provider are also omitted when
+there is no active binding. This changes the fixture's exercised plugin scope,
+not the kind's field contract or its assertions, and does not introduce a
+production engine exception.
+
 ## Startup validation and refusal messages
 
 Validate before accepting or queueing a fill. Every refusal begins with the
