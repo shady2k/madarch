@@ -563,7 +563,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       }
       return { outcome: 'split', children: partitions.map(({ keys }) => {
         const ordered = [...keys].sort((left, right) => byCodePoint(canonicalKey(left), canonicalKey(right)));
-        const hash = createHash('sha256').update(JSON.stringify(ordered.map(canonicalKey))).digest('hex');
+        const hash = createHash('sha256').update(JSON.stringify({ runId: context.runId, keys: ordered.map(canonicalKey) })).digest('hex');
         return { id: `${unit.id}#${hash}`, scope: JSON.stringify({ keys: ordered }) };
       }) };
     },
