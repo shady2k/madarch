@@ -203,13 +203,39 @@ class PostgresOwner implements DatabaseOwner {
   private closing = false;
   private closePromise: Promise<void> | undefined;
 
-  constructor(private readonly pool: Pool, options: PoolConfig, hasVector = true) {
-    this.location = postgresLocation(options);
+  constructor(private readonly pool: Pool, options: PoolConfig, hasVector = true, store?: string) {
+    this.location = store === undefined ? postgresLocation(options) : `${store} (${postgresLocation(options)})`;
+    // pg removes failed idle clients before emitting this event. An unobserved event would crash the process.
+    this.pool.on('error', (error) => console.error(`PostgreSQL pool "${this.location}": ${errorMessage(error)}`));
+    this.pool.on('connect', (client) => {
+      client.on('error', (error) => console.error(`PostgreSQL client "${this.location}": ${errorMessage(error)}`));
+    });
     this.hasVector = hasVector;
-    this.ready = this.pool.query('SELECT 1').then(() => undefined);
+    this.ready = this.named(async () => { await this.pool.query('SELECT 1'); });
     // The caller that opened the owner observes a failure; this handler only
     // keeps it from becoming an unhandled rejection before that use happens.
     void this.ready.catch(() => {});
+  }
+
+  private async named<T>(work: () => Promise<T>): Promise<T> {
+    try { return await work(); }
+    catch (error) {
+      // Keep PostgreSQL codes and fields used by callers while naming the failed store.
+      if (error instanceof Error) { error.message = `database owner "${this.location}": ${error.message}`; throw error; }
+      throw new Error(`database owner "${this.location}": ${errorMessage(error)}`);
+    }
+  }
+
+  transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
+    return this.named(() => this.transactionWork(kind, work));
+  }
+
+  run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
+    return this.named(() => this.runWork(work));
+  }
+
+  exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
+    return this.named(() => this.execWork<Row>(text));
   }
 
   private ensureOpen(): void {
@@ -228,7 +254,7 @@ class PostgresOwner implements DatabaseOwner {
     }
   }
 
-  async transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
+  private async transactionWork<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
     this.ensureOpen();
     this.ensureOutsideOwnWork();
     const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
@@ -278,7 +304,7 @@ class PostgresOwner implements DatabaseOwner {
     }
   }
 
-  async run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
+  private async runWork<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
     this.ensureOpen();
     this.ensureOutsideOwnWork();
     await this.ready;
@@ -291,7 +317,7 @@ class PostgresOwner implements DatabaseOwner {
     return await withSpan('db.run', { 'db.system': 'postgres' }, async () => await this.ownWork.run(true, () => work(executor)));
   }
 
-  async exec<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
+  private async execWork<Row extends object>(text: string): Promise<{ rows: Row[] }[]> {
     this.ensureOpen();
     this.ensureOutsideOwnWork();
     const client = await withSpan('db.connection.wait', { 'db.system': 'postgres' }, async () => {
@@ -337,10 +363,10 @@ class PostgresOwner implements DatabaseOwner {
 }
 
 /** Opens the process's PostgreSQL pool once; every adapter lent it shares this pool. */
-export async function createPostgresDatabaseOwner(options: PoolConfig): Promise<DatabaseOwner> {
+export async function createPostgresDatabaseOwner(options: PoolConfig, store?: string): Promise<DatabaseOwner> {
   const { Pool } = await import('pg');
   const pool = new Pool(options);
-  return new PostgresOwner(pool, options);
+  return new PostgresOwner(pool, options, true, store);
 }
 
 /** A cluster another part of the run already started, which an owner only connects to. */
@@ -515,7 +541,7 @@ export async function createDatabaseOwner(options: DatabaseOwnerOptions = {}): P
       const held = await clusterQuery(cluster, CLUSTER_ADMIN_DATABASE, 'SELECT 1 AS held FROM pg_database WHERE datname = $1', [database]);
       if (held.length !== 1) throw new Error(`src/adapters/database-owner.ts:1: store "${options.store ?? cluster.socketDir}" has no prepared database "${database}"; run madarch start for this store before connecting`);
     } else await ensureDatabase(cluster, database);
-    const inner = await createPostgresDatabaseOwner({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), database, user: cluster.user, max: 8 });
+    const inner = await createPostgresDatabaseOwner({ ...(process.platform === 'win32' ? clusterEndpoint(cluster.socketDir) : { host: cluster.socketDir, port: cluster.port }), database, user: cluster.user, max: 8 }, options.store ?? cluster.dataDir);
     await inner.ready;
     return new ServerStoreOwner(inner, release, options.store);
   } catch (error) {
