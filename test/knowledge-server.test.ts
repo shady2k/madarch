@@ -31,6 +31,9 @@ import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
+import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
+import { publishFixtureTemplate } from './structured-template-fixture.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -147,7 +150,9 @@ describe('an empty product', () => {
     const status = await get('/products/bare/api/status');
     // The status names all published kind declarations and holds no catalogue of its own.
     expect(status.body.manifest).toBe('ok');
-    expect(status.body.kinds.length).toBe(519);
+    const published = readKinds(join(home, 'bare'));
+    if (!published.present || published.manifest.catalog === undefined) throw new Error('the fixture starter catalogue is absent');
+    expect(status.body.kinds.map((kind: { kind: string }) => kind.kind).sort()).toEqual([...published.manifest.catalog.kinds.keys()].sort());
     expect(status.body.catalog).toBeUndefined();
     const response = await fetch(`${server.url}/products/bare/api/catalog`);
     const text = await response.text();
@@ -648,6 +653,13 @@ describe('what a refresh changed', () => {
   }, 180_000);
 
   test('a file page\'s trail ends in the file, and its History is the commits Git gives for the path', async () => {
+    // Native inventory publishes file/history facts; this fixture authors its graph-backed layouts.
+    const product = join(home, 'tiny');
+    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, join(work, 'store'))), connectOnly: true });
+    try {
+      await publishFixtureTemplate(owner, product, 'templates/file.liquid', [{ type: 'block', name: 'file-page', params: {}, line: 1 }]);
+      await publishFixtureTemplate(owner, product, 'templates/directory.liquid', [{ type: 'block', name: 'folder', params: {}, line: 1 }]);
+    } finally { await owner.close(); }
     const id = recordKey('code.file', 'tiny/src/a.ts');
     const answer = await get(`/products/tiny/api/page?id=${encodeURIComponent(id)}`);
     expect(answer.status).toBe(200);
