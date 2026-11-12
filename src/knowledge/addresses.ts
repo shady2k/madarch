@@ -90,6 +90,7 @@ export const API = {
   page: '/api/page',
   block: '/api/block',
   statement: '/api/statement',
+  facts: '/api/facts',
   entities: '/api/entities',
   kindUsage: '/api/kind-usage',
   authored: '/api/authored',
