@@ -5,125 +5,122 @@ import { fillRequirementsOf } from '../src/knowledge/fill-requirements.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
-function plugin(name: string, extra: Record<string, unknown> = {}) {
-  const text = JSON.stringify({ ...base, name, produces: [{ kind: 'note', fields: '*' }], reads: [], ...extra }, null, 2);
+function plugin(name: string, produces: unknown[] = [{ kind: 'File', fields: '*' }], agent = false) {
+  const text = JSON.stringify({ ...base, name, produces, ...(agent ? { agent: { prompt: 'Fill.', roots: ['product'], catalogue: true } } : {}) }, null, 2);
   return { manifest: parsePluginManifest(text, `/product/${name}/plugin.json`), file: `/product/${name}/plugin.json`, text };
 }
-const kinds = [{ name: 'note', fields: ['title', 'body'], file: '/product/kinds.yaml', line: 4 }];
-test('plugin declarations refuse output-free plugins at the source line', () => {
-  expect(() => plugin('check', { produces: [] })).toThrow(/\/product\/check\/plugin.json:\d+: plugin check declares no output/);
-});
-test('declarations order readers and refiners without plugin categories', () => {
-  const a = plugin('writer');
-  const b = plugin('reader', { produces: [{ kind: 'note', fields: ['body'] }], reads: ['note'], refines: ['writer'] });
-  const plan = planFillDeclarations({ kinds, plugins: [b, a], selectedKinds: ['note'] });
-  expect(plan.order).toEqual(['writer', 'reader']);
-  expect(plan.predecessors.get('reader')).toEqual(['writer']);
-  expect(plan.lastProducer('note', 'body')).toBe('reader');
-});
-test('read ordering does not excuse unordered overlapping writers', () => {
-  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a'), plugin('b', { reads: ['note'] })] })).toThrow(/both produce note.title without a refinement relation.*other declaration \/product\/b\/plugin.json:\d+/);
-});
-test('wildcards expand from enabled producers and catalogue only', () => {
-  const plan = planFillDeclarations({ kinds, plugins: [plugin('specific'), plugin('general', { produces: [{ kind: '*', fields: '*' }], refines: ['*'] })] });
-  expect(plan.order).toEqual(['specific', 'general']);
-  expect(plan.lastProducer('note', 'title')).toBe('general');
-});
-test('cycles, missing outputs, invalid fields and disabled refiners refuse before execution', () => {
-  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { refines: ['b'] }), plugin('b', { refines: ['a'] })] })).toThrow(/fill declarations form a cycle/);
-  expect(() => planFillDeclarations({ kinds, plugins: [], selectedKinds: ['note'] })).toThrow('/product/kinds.yaml:4: selected kind note has no enabled producer');
-  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { produces: [{ kind: 'note', fields: ['missing'] }] })] })).toThrow(/names undeclared field note.missing/);
-  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { refines: ['disabled'] })] })).toThrow(/refines unknown or disabled plugin disabled/);
-});
-test('invalid concurrency points at the actual JSON property', () => {
-  expect(() => parsePluginManifest('{\n "name":"a",\n "concurrency":0\n}', '/product/a/plugin.json')).toThrow('/product/a/plugin.json:3: plugin a concurrency must be a positive integer');
-});
-
-test('read cycles and unknown inputs retain their declaration locations', () => {
-  const extraKinds = [...kinds, { name: 'other', fields: ['title'], file: '/product/kinds.yaml', line: 9 }];
-  expect(() => planFillDeclarations({ kinds: extraKinds, plugins: [plugin('a', { reads: ['other'] }), plugin('b', { produces: [{ kind: 'other', fields: '*' }], reads: ['note'] })] })).toThrow(/fill declarations form a cycle/);
-  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', { reads: ['missing'] })] })).toThrow(/\/product\/a\/plugin.json:\d+: missing is not a declared kind/);
-});
-test('agent requirement applies only to selected plugins that request the host agent', () => {
-  const agent = plugin('agent', { agent: { prompt: 'Fill.', roots: ['product'] } });
-  expect(() => planFillDeclarations({ kinds, plugins: [agent], selectedKinds: ['note'], agentSelected: false })).toThrow(/requested an agent but none is selected/);
-  expect(planFillDeclarations({ kinds, plugins: [agent], selectedKinds: [], agentSelected: false }).order).toEqual([]);
-  expect(planFillDeclarations({ kinds, plugins: [plugin('plain')], agentSelected: false }).order).toEqual(['plain']);
-});
-
-test('readers consume the pre-refinement snapshot, not their own downstream refiners', () => {
-  const catalogue = [...kinds, { name: 'source', fields: ['text'], file: '/product/kinds.yaml', line: 8 }];
-  const plan = planFillDeclarations({ kinds: catalogue, plugins: [
-    plugin('reader', { reads: ['source'] }),
-    plugin('review', { produces: [{ kind: '*', fields: '*' }], refines: ['reader'] }),
-  ], selectedKinds: ['note'] });
-  expect(plan.order).toEqual(['reader', 'review']);
-  expect(plan.predecessors.get('reader')).toEqual([]);
-});
-
-test('derived-kind units wait for prerequisite units from other producers', () => {
-  const catalogue = [...kinds, { name: 'summary', fields: ['body'], derivesFrom: ['note'], file: '/product/kinds.yaml', line: 8 }];
-  const plan = planFillDeclarations({ kinds: catalogue, plugins: [
-    plugin('source'), plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] }),
-    plugin('review', { produces: [{ kind: '*', fields: '*' }], refines: ['*'] }),
-  ] });
-  expect(plan.unitPredecessors('summary', 'summary')).toEqual([{ plugin: 'source', kind: 'note' }]);
-  expect(plan.unitPredecessors('review', 'summary')).toEqual(expect.arrayContaining([{ plugin: 'review', kind: 'note' }]));
-});
-
-test('kind prerequisite edges combined with plugin reads still refuse genuine unit cycles', () => {
-  const catalogue = [...kinds, { name: 'summary', fields: ['body'], derivesFrom: ['note'], file: '/product/kinds.yaml', line: 8 }];
-  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [
-    plugin('source', { reads: ['summary'] }),
-    plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] }),
-  ] })).toThrow(/fill declarations form a cycle/);
-});
-
-test('whole manifest fills validate declared plugin outputs, not unrelated native kinds', () => {
-  const producer = plugin('writer');
-  const manifest = {
-    file: '/product/madarch/kinds.yaml',
-    kinds: new Map([
-      ['note', { name: 'note', fields: [{ name: 'title' }, { name: 'body' }], line: 4 }],
-      ['native', { name: 'native', fields: [], line: 8 }],
-    ]),
-    plugins: new Map([['writer', { id: 'writer', declaration: producer.manifest, declarationFile: producer.file, declarationText: producer.text }]]),
+const kind = (name: string, fields = ['title', 'description'], derivesFrom: string[] = []) => ({ name, fields, derivesFrom, file: '/product/kinds.yaml', line: name === 'File' ? 4 : 9 });
+const kinds = [kind('File')];
+const output = (name: string, fields: '*' | string[] = '*', extra = {}) => ({ kind: name, fields, ...extra });
+const general = () => plugin('general', [output('*', '*', { coverage: 'gaps' })], true);
+function manifestOf(catalogue: ReturnType<typeof kind>[], declarations: ReturnType<typeof plugin>[]): KindsManifest {
+  return {
+    file: '/product/kinds.yaml',
+    kinds: new Map(catalogue.map((entry) => [entry.name, { ...entry, fields: entry.fields.map((name) => ({ name, type: 'text' })) }])),
+    plugins: new Map(declarations.map((entry) => [entry.manifest.name, { id: entry.manifest.name, declaration: entry.manifest, declarationFile: entry.file, declarationText: entry.text }])),
   } as unknown as KindsManifest;
-  expect(planManifestFill(manifest, '/product').order).toEqual(['writer']);
-  expect(() => planManifestFill(manifest, '/product', ['native'])).toThrow(/selected kind native has no enabled producer/);
-});
+}
 
-// Admission and preview use the same enabled-plugin plan, not kind origins.
-test('agentless deterministic plans expose no agent requirement; selected agent requests retain source advice', () => {
-  const plain = plugin('plain');
-  const agent = plugin('writer', { agent: { prompt: 'Fill.', roots: ['product'] }, produces: [{ kind: 'other', fields: '*' }] });
-  const catalogue = [...kinds, { name: 'other', fields: ['title'], file: '/product/kinds.yaml', line: 9 }];
-  const plan = planFillDeclarations({ kinds: catalogue, plugins: [plain, agent], selectedKinds: ['note'], agentSelected: false });
+test('S1: universal agent capability does not schedule covered deterministic output', () => {
+  const plan = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });
+  expect(plan.order).toEqual(['index']);
   expect(plan.requiresAgent).toBe(false);
-  expect(planFillDeclarations({ kinds: catalogue, plugins: [plain, agent], selectedKinds: ['other'] }).requiresAgent).toBe(true);
-  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [plain, agent], selectedKinds: ['other'], agentSelected: false }))
-    .toThrow(/\/product\/writer\/plugin.json:\d+: plugin writer requested an agent but none is selected; choose --agent or select one in the wiki/);
+  expect(plan.outputs.has('general')).toBe(false);
 });
-
-test('catalogue requirement follows prerequisites and wildcard plugins, not unrelated enabled outputs', () => {
-  const source = plugin('source', { agent: { prompt: 'Fill.', roots: ['product'] } });
-  const summary = plugin('summary', { produces: [{ kind: 'summary', fields: '*' }] });
-  const plain = plugin('plain', { produces: [{ kind: 'plain', fields: '*' }] });
-  const declarations = [source, summary, plain];
-  const manifest = {
-    file: '/product/madarch/kinds.yaml',
-    kinds: new Map([
-      ['note', { name: 'note', fields: [{ name: 'title' }, { name: 'body' }], line: 4 }],
-      ['summary', { name: 'summary', fields: [{ name: 'body' }], derivesFrom: ['note'], line: 8 }],
-      ['plain', { name: 'plain', fields: [{ name: 'title' }], line: 12 }],
-    ]),
-    plugins: new Map(declarations.map((item) => [item.manifest.name, { id: item.manifest.name, declaration: item.manifest, declarationFile: item.file, declarationText: item.text }])),
-  } as unknown as KindsManifest;
-  expect(fillRequirementsOf(manifest, '/product')(['plain'])).toEqual({});
-  expect(fillRequirementsOf(manifest, '/product')(['summary'])).toEqual({ requiresAgent: true });
-  expect(fillRequirementsOf(manifest, '/product')(['plain', 'summary'])).toEqual({ requiresAgent: true });
-  const general = plugin('general', { agent: { prompt: 'Fill.', roots: ['product'] }, produces: [{ kind: '*', fields: '*' }], refines: ['*'] });
-  const withGeneral = { ...manifest, plugins: new Map<string, unknown>([...manifest.plugins!, ['general', { id: 'general', declaration: general.manifest, declarationFile: general.file, declarationText: general.text }]]) } as unknown as KindsManifest;
-  expect(fillRequirementsOf(withGeneral, '/product')(['plain'])).toEqual({ requiresAgent: true });
-  expect(fillRequirementsOf({ ...manifest, plugins: new Map() }, '/product')(['plain'])).toEqual({ fillPlanRefusal: '/product/madarch/kinds.yaml:12: selected kind plain has no enabled producer; enable its producer' });
+test('S1: gap coverage is per field and complementary descriptions need no refinement', () => {
+  const plan = planFillDeclarations({ kinds, plugins: [plugin('index', [output('File', ['title'])]), general()] });
+  expect(plan.outputs.get('general')?.get('File')).toEqual(['description']);
+  expect(plan.requiresAgent).toBe(true);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('index', [output('File', ['title'])]), general()], agentSelected: false })).toThrow(/general.*requested an agent/);
+});
+test('S2: declaration gaps never depend on runtime omission or a value quality judgement', () => {
+  const covered = planFillDeclarations({ kinds, plugins: [plugin('index'), general()] });
+  expect(covered.producers('File', 'description')).toEqual(['index']);
+  expect(covered.lastProducer('File', 'description')).toBe('index');
+});
+test('S3: hidden prerequisite reads fail with output and actionable declaration locations', () => {
+  const catalogue = [kind('Document'), kind('Policy'), kind('Summary', ['description'], ['Document'])];
+  const declarations = [plugin('document', [output('Document')]), plugin('policy', [output('Policy')]), plugin('summary', [output('Summary', '*', { reads: ['Policy'] })])];
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['Summary'] })).toThrow(/\/product\/summary\/plugin.json:\d+: plugin summary reads Policy for output Summary.*add Policy to Summary.derives-from/);
+});
+test('S4: each output validates and selects only its own dependencies', () => {
+  const catalogue = [kind('X'), kind('Y'), kind('A', ['description'], ['X']), kind('B', ['description'], ['Y'])];
+  const multi = plugin('multi', [output('A', '*', { reads: ['X'] }), output('B', '*', { reads: ['Y'] })]);
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [plugin('x', [output('X')]), plugin('y', [output('Y')]), multi], selectedKinds: ['A'] });
+  expect(plan.selectedKinds).toEqual(['X', 'A']);
+  expect([...plan.outputs.get('multi')!.keys()]).toEqual(['A']);
+  expect(plan.unitPredecessors('multi', 'A')).toEqual([{ plugin: 'x', kind: 'X' }]);
+  expect(plan.readsFor('multi', 'A')).toEqual(['X']);
+  const hidden = plugin('multi', [output('A', '*', { reads: ['Y'] }), output('B', '*', { reads: ['Y'] })]);
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [hidden] })).toThrow(/reads Y for output A/);
+});
+test('S5: a later refiner does not silently remove a required latest dependency', () => {
+  const catalogue = [kind('Source'), kind('Summary', ['description'], ['Source'])];
+  const basePlugin = plugin('base', [output('Source'), output('Summary', '*', { reads: ['Source'] })]);
+  const refine = plugin('review', [output('Source', '*', { refines: ['base'] }), output('Summary', '*', { refines: ['base'] })]);
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [basePlugin, refine], selectedKinds: ['Summary'] });
+  expect(plan.unitPredecessors('base', 'Summary')).toContainEqual({ plugin: 'review', kind: 'Source' });
+});
+test('S5: explicit earlier reads pin only the named version; genuine refinement cycles still refuse', () => {
+  const catalogue = [kind('Source'), kind('Summary', ['description'], ['Source'])];
+  const basePlugin = plugin('base', [output('Source'), output('Summary', '*', { reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }] })]);
+  const downstream = plugin('review', [output('Source', '*', { refines: ['base'] })]);
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [basePlugin, downstream], selectedKinds: ['Summary'] });
+  expect(plan.unitPredecessors('base', 'Summary')).toEqual([{ plugin: 'base', kind: 'Source' }]);
+  expect(plan.unitPredecessors('base', 'Summary')).not.toContainEqual({ plugin: 'review', kind: 'Source' });
+  expect(plan.readsFor('base', 'Summary')).toEqual([{ kind: 'Source', version: 'earlier', producer: 'base' }]);
+  const left = plugin('left', [output('File', ['title'], { refines: ['right'] }), output('File', ['description'])]);
+  const right = plugin('right', [output('File', ['title']), output('File', ['description'], { refines: ['left'] })]);
+  expect(() => planFillDeclarations({ kinds, plugins: [left, right] })).toThrow(/fill declarations form a cycle/);
+});
+test('S6: authored input is satisfied by an ordinary enabled producer, not an origin exception', () => {
+  const catalogue = [kind('Requirement'), kind('Problem', ['description'], ['Requirement'])];
+  const check = plugin('check', [output('Problem', '*', { reads: ['Requirement'] })]);
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [check], selectedKinds: ['Problem'] })).toThrow(/Requirement has no enabled producer/);
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [plugin('authored', [output('Requirement')]), check], selectedKinds: ['Problem'], agentSelected: false });
+  expect(plan.order).toEqual(['authored', 'check']);
+  expect(plan.requiresAgent).toBe(false);
+});
+test('S7: selected outputs exclude unselected outputs from multi-output invocation planning', () => {
+  const catalogue = [kind('File'), kind('Summary', ['description'], ['File'])];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [plugin('multi', [output('File'), output('Summary')])], selectedKinds: ['File'] });
+  expect([...plan.outputs.get('multi')!.keys()]).toEqual(['File']);
+  expect(plan.producers('Summary', 'description')).toEqual([]);
+});
+test('explicit kind agent configuration compiles ordinary scoped refinement and retains gaps', () => {
+  const catalogue = [kind('File'), kind('Other')];
+  const manifest = manifestOf(catalogue, [plugin('index'), general()]);
+  const configured = manifest.kinds.get('File')!;
+  const withConfig = { ...manifest, kinds: new Map([...manifest.kinds, ['File', { ...configured, agent: { plugin: 'general', fields: ['description'], refines: ['index'] } }]]) } as KindsManifest;
+  const plan = planManifestFill(withConfig, '/product', ['File']);
+  expect(plan.outputs.get('general')?.get('File')).toEqual(['description']);
+  expect(plan.lastProducer('File', 'description')).toBe('general');
+  expect(plan.outputs.get('general')?.has('Other')).toBe(false);
+  expect(() => planManifestFill({ ...withConfig, kinds: new Map([['File', { ...configured, agent: { plugin: 'general', fields: ['description'] } }]]) } as KindsManifest, '/product', ['File'])).toThrow(/without a refinement relation/);
+});
+test('refinement authorization does not leak across kinds or fields', () => {
+  const catalogue = [kind('File'), kind('Other')];
+  const left = plugin('a', [output('File'), output('Other')]);
+  const right = plugin('b', [output('File', ['title'], { refines: ['a'] }), output('File', ['description']), output('Other')]);
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [left, right] })).toThrow(/both produce File.description without a refinement relation/);
+});
+test('earlier self reads require explicit refinement and an enabled named producer', () => {
+  const earlier = { kind: 'File', version: 'earlier', producer: 'base' };
+  const refiner = plugin('review', [output('File', '*', { reads: [earlier], refines: ['base'] })]);
+  expect(planFillDeclarations({ kinds, plugins: [plugin('base'), refiner] }).unitPredecessors('review', 'File')).toEqual([{ plugin: 'base', kind: 'File' }]);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('base'), plugin('review', [output('File', '*', { reads: [earlier] })])] })).toThrow(/without a refinement relation/);
+});
+test('unknown references, empty outputs and invalid concurrency retain source locations', () => {
+  expect(() => plugin('check', [])).toThrow(/\/product\/check\/plugin.json:\d+: plugin check declares no output/);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', [output('Missing')])] })).toThrow(/Missing is not a declared kind/);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', [output('File', ['missing'])])] })).toThrow(/names undeclared field File.missing/);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('a', [output('File', '*', { refines: ['disabled'] })])] })).toThrow(/refines unknown or disabled plugin disabled/);
+  expect(() => parsePluginManifest('{\n "name":"a",\n "concurrency":0\n}', '/product/a/plugin.json')).toThrow('/product/a/plugin.json:3: plugin a concurrency must be a positive integer');
+  expect(() => parsePluginManifest(JSON.stringify({ ...base, name: 'a', produces: [output('File')], reads: [] }), '/product/a/plugin.json')).toThrow();
+});
+test('catalogue preview plans requested closure and configured outputs, not raw agent capability', () => {
+  const manifest = manifestOf([kind('File'), kind('Summary', ['description'], ['File'])], [plugin('index'), plugin('summary', [output('Summary')]), general()]);
+  expect(fillRequirementsOf(manifest, '/product')(['File'])).toEqual({});
+  expect(fillRequirementsOf(manifest, '/product')(['Summary'])).toEqual({});
+  expect(fillRequirementsOf({ ...manifest, plugins: new Map() }, '/product')(['File'])).toEqual({ fillPlanRefusal: '/product/kinds.yaml:4: selected kind File has no enabled producer; enable its producer' });
 });

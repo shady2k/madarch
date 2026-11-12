@@ -4,6 +4,7 @@ import { byCodePoint } from '../model/order.js';
 import { ClosureRefusal, pluginManifestLine, type PluginManifest } from './closure.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 
+export type FillRead = NonNullable<PluginManifest['produces'][number]['reads']>[number];
 export interface FillKindDeclaration {
   readonly name: string;
   readonly fields: readonly string[];
@@ -22,6 +23,13 @@ export interface FillDeclarationInput {
   readonly selectedKinds?: readonly string[];
   readonly agentSelected?: boolean;
 }
+interface ExpandedOutput {
+  plugin: FillPluginDeclaration;
+  index: number;
+  kind: string;
+  fields: readonly string[];
+  declaration: PluginManifest['produces'][number];
+}
 export function planFillDeclarations(input: FillDeclarationInput) {
   const kinds = new Map(input.kinds.map((kind) => [kind.name, kind]));
   const plugins = new Map(input.plugins.map((plugin) => [plugin.manifest.name, plugin]));
@@ -33,121 +41,181 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   const kindRefusal = (kind: FillKindDeclaration, message: string): never => {
     throw new ClosureRefusal('fill-declaration', `${resolve(kind.file)}:${kind.line}: ${message}`, resolve(kind.file), kind.line);
   };
-  const outputs = new Map<string, Map<string, readonly string[]>>();
-  const predecessors = new Map<string, Set<string>>();
-  const refinements = new Map<string, Set<string>>();
-  const concurrency = new Map<string, number>();
+  const closure = new Map<string, Set<string>>();
+  const kindStack: string[] = [];
+  const prerequisites = (name: string): Set<string> => {
+    if (kindStack.includes(name)) kindRefusal(kinds.get(name)!, `kind prerequisites form a cycle: ${[...kindStack, name].join(' -> ')}`);
+    const cached = closure.get(name);
+    if (cached !== undefined) return cached;
+    const kind = kinds.get(name)!;
+    kindStack.push(name);
+    const result = new Set<string>();
+    for (const parent of kind.derivesFrom ?? []) {
+      if (!kinds.has(parent)) kindRefusal(kind, `${parent} is not a declared kind in produces, reads or derives-from`);
+      result.add(parent);
+      for (const ancestor of prerequisites(parent)) result.add(ancestor);
+    }
+    kindStack.pop();
+    closure.set(name, result);
+    return result;
+  };
+  for (const name of kinds.keys()) prerequisites(name);
+  const expanded: ExpandedOutput[] = [];
   for (const plugin of input.plugins) {
-    const { manifest } = plugin;
-    const output = new Map<string, readonly string[]>();
-    if (manifest.produces.length === 0) refuse(plugin, ['produces'], `plugin ${manifest.name} declares no output; declare produces, including Problem records for checks`);
-    for (const [i, produced] of manifest.produces.entries()) {
-      const names = produced.kind === '*' ? [...kinds.keys()] : [produced.kind];
+    if (plugin.manifest.produces.length === 0) refuse(plugin, ['produces'], `plugin ${plugin.manifest.name} declares no output; declare produces, including Problem records for checks`);
+    for (const [index, declaration] of plugin.manifest.produces.entries()) {
+      const names = declaration.kind === '*' ? [...kinds.keys()] : [declaration.kind];
       for (const name of names) {
         const kind = kinds.get(name);
-        if (kind === undefined) refuse(plugin, ['produces', i, 'kind'], `${name} is not a declared kind in produces, reads or derives-from`);
-        const fields = produced.fields === '*' ? kind!.fields : produced.fields;
-        for (const field of fields) if (!kind!.fields.includes(field)) refuse(plugin, ['produces', i, 'fields'], `plugin ${manifest.name} names undeclared field ${name}.${field}`);
-        output.set(name, [...new Set([...(output.get(name) ?? []), ...fields])]);
+        if (kind === undefined) refuse(plugin, ['produces', index, 'kind'], `${name} is not a declared kind in produces, reads or derives-from`);
+        const fields = declaration.fields === '*' ? kind!.fields : declaration.fields;
+        for (const field of fields) if (!kind!.fields.includes(field)) refuse(plugin, ['produces', index, 'fields'], `plugin ${plugin.manifest.name} names undeclared field ${name}.${field}`);
+        expanded.push({ plugin, index, kind: name, fields, declaration });
       }
     }
-    for (const [i, name] of manifest.reads.entries()) if (!kinds.has(name)) refuse(plugin, ['reads', i], `${name} is not a declared kind in produces, reads or derives-from`);
-    outputs.set(manifest.name, output);
-    predecessors.set(manifest.name, new Set());
-    refinements.set(manifest.name, new Set());
-    concurrency.set(manifest.name, manifest.concurrency ?? 1);
   }
-  for (const kind of kinds.values()) for (const name of kind.derivesFrom ?? []) if (!kinds.has(name)) kindRefusal(kind, `${name} is not a declared kind in produces, reads or derives-from`);
+  // Coverage is declaration-based; runtime omissions never activate another producer.
+  const claims = expanded.filter((entry) => entry.declaration.coverage !== 'gaps');
+  const entries = expanded.flatMap((entry) => {
+    if (entry.declaration.coverage !== 'gaps') return [entry];
+    const sameKind = claims.filter((claim) => claim.kind === entry.kind);
+    const fields = entry.fields.filter((field) => !sameKind.some((claim) => claim.fields.includes(field)));
+    return fields.length > 0 || (entry.fields.length === 0 && sameKind.length === 0) ? [{ ...entry, fields }] : [];
+  });
+  const allOutputs = new Map<string, Map<string, readonly string[]>>();
+  const readVersions = new Map<string, Map<string, readonly FillRead[]>>();
+  const fieldRefinements = new Map<string, Map<string, Set<string>>>();
+  const refinements = new Map<string, Set<string>>();
+  const concurrency = new Map<string, number>();
+  const fieldKey = (kind: string, field: string) => JSON.stringify([kind, field]);
+  const unitId = (plugin: string, kind: string) => JSON.stringify([plugin, kind]);
+  const unitInfo = new Map<string, { plugin: string; kind: string }>();
+  const unitEdges = new Map<string, Set<string>>();
+  const addUnit = (plugin: string, kind: string) => {
+    const id = unitId(plugin, kind);
+    if (!unitInfo.has(id)) { unitInfo.set(id, { plugin, kind }); unitEdges.set(id, new Set()); }
+    return id;
+  };
   for (const plugin of input.plugins) {
-    const name = plugin.manifest.name;
-    for (const [i, target] of (plugin.manifest.refines ?? []).entries()) {
-      const targets = target === '*' ? [...plugins.keys()].filter((other) => other !== name) : [target];
-      for (const other of targets) {
-        if (!plugins.has(other)) refuse(plugin, ['refines', i], `plugin ${name} refines unknown or disabled plugin ${other}`);
-        refinements.get(name)!.add(other);
-        predecessors.get(name)!.add(other);
-      }
-    }
+    allOutputs.set(plugin.manifest.name, new Map());
+    readVersions.set(plugin.manifest.name, new Map());
+    refinements.set(plugin.manifest.name, new Set());
+    concurrency.set(plugin.manifest.name, plugin.manifest.concurrency ?? 1);
+  }
+  for (const entry of entries) {
+    const name = entry.plugin.manifest.name;
+    const outputs = allOutputs.get(name)!;
+    outputs.set(entry.kind, [...new Set([...(outputs.get(entry.kind) ?? []), ...entry.fields])]);
+    addUnit(name, entry.kind);
+    const reads = readVersions.get(name)!;
+    reads.set(entry.kind, [...(reads.get(entry.kind) ?? []), ...(entry.declaration.reads ?? [])]);
   }
   const reachable = (from: string, to: string, edges: ReadonlyMap<string, ReadonlySet<string>>, seen = new Set<string>()): boolean => {
     if (seen.has(from)) return false;
     seen.add(from);
     return edges.get(from)?.has(to) === true || [...(edges.get(from) ?? [])].some((next) => reachable(next, to, edges, seen));
   };
-  // A downstream refiner reads the reader's result, not the other way around.
-  // Input kinds therefore name the snapshot before that reader's declared refinements.
-  for (const plugin of input.plugins) {
-    const name = plugin.manifest.name;
-    for (const read of plugin.manifest.reads) for (const [other, output] of outputs) {
-      if (other !== name && output.has(read) && !reachable(other, name, refinements)) predecessors.get(name)!.add(other);
+  for (const entry of entries) {
+    const name = entry.plugin.manifest.name;
+    for (const [i, target] of (entry.declaration.refines ?? []).entries()) {
+      const targets = target === '*' ? [...plugins.keys()].filter((other) => other !== name) : [target];
+      for (const other of targets) {
+        if (!plugins.has(other)) refuse(entry.plugin, ['produces', entry.index, 'refines', i], `plugin ${name} refines unknown or disabled plugin ${other}`);
+        if (other === name) refuse(entry.plugin, ['produces', entry.index, 'refines', i], `fill declarations form a cycle: ${name} refines itself`);
+        const otherFields = allOutputs.get(other)!.get(entry.kind);
+        if (otherFields === undefined) continue;
+        const overlap = entry.fields.length === 0 && otherFields.length === 0 ? ['*'] : entry.fields.filter((field) => otherFields.includes(field));
+        if (overlap.length === 0) continue;
+        refinements.get(name)!.add(other);
+        unitEdges.get(unitId(name, entry.kind))!.add(unitId(other, entry.kind));
+        for (const field of overlap) {
+          const key = fieldKey(entry.kind, field);
+          if (!fieldRefinements.has(key)) fieldRefinements.set(key, new Map());
+          const relations = fieldRefinements.get(key)!;
+          if (!relations.has(name)) relations.set(name, new Set());
+          relations.get(name)!.add(other);
+        }
+      }
     }
   }
-  const order: string[] = [];
-  const visiting: string[] = [];
-  const visit = (name: string) => {
-    const at = visiting.indexOf(name);
-    if (at >= 0) refuse(plugins.get(name)!, ['refines'], `fill declarations form a cycle: ${[...visiting.slice(at), name].join(' -> ')}`);
-    if (order.includes(name)) return;
-    visiting.push(name);
-    for (const previous of [...predecessors.get(name)!].sort()) visit(previous);
-    visiting.pop();
-    order.push(name);
-  };
-  for (const name of [...plugins.keys()].sort()) visit(name);
-  for (const [a, left] of outputs) for (const [b, right] of outputs) {
-    if (a >= b || reachable(a, b, refinements) || reachable(b, a, refinements)) continue;
+  // Every claimed field needs its own ordering relation; unrelated overlap cannot order it.
+  for (const [a, left] of allOutputs) for (const [b, right] of allOutputs) {
+    if (byCodePoint(a, b) >= 0) continue;
     for (const [kind, fields] of left) {
-      // Even a fieldless kind has entity membership, which is itself an overlapping output.
-      const overlap = fields.find((field) => right.get(kind)?.includes(field));
-      if (overlap !== undefined || (fields.length === 0 && right.has(kind))) refuse(plugins.get(a)!, ['produces'], `plugins ${a} and ${b} both produce ${kind}.${overlap ?? '*'} without a refinement relation; declare which refines which or disable one; other declaration ${location(plugins.get(b)!, ['produces'])}`);
+      const otherFields = right.get(kind);
+      if (otherFields === undefined) continue;
+      const overlap = fields.length === 0 && otherFields.length === 0 ? ['*'] : fields.filter((field) => otherFields.includes(field));
+      for (const field of overlap) {
+        const relations = fieldRefinements.get(fieldKey(kind, field)) ?? new Map<string, Set<string>>();
+        if (!reachable(a, b, relations) && !reachable(b, a, relations)) refuse(plugins.get(a)!, ['produces'], `plugins ${a} and ${b} both produce ${kind}.${field} without a refinement relation; declare which refines which or disable one; other declaration ${location(plugins.get(b)!, ['produces'])}`);
+      }
     }
   }
-  const selected = new Set(input.selectedKinds ?? [...kinds.keys()]);
-  for (const name of selected) {
+  for (const entry of entries) {
+    const name = entry.plugin.manifest.name;
+    for (const [i, read] of (entry.declaration.reads ?? []).entries()) {
+      const kind = typeof read === 'string' ? read : read.kind;
+      const path = ['produces', entry.index, 'reads', i];
+      if (!kinds.has(kind)) refuse(entry.plugin, path, `${kind} is not a declared kind in produces, reads or derives-from`);
+      const earlierSelf = typeof read !== 'string' && kind === entry.kind && (entry.declaration.refines ?? []).includes(read.producer);
+      if (!prerequisites(entry.kind).has(kind) && !earlierSelf) refuse(entry.plugin, path, `plugin ${name} reads ${kind} for output ${entry.kind}, outside that output's prerequisite closure; add ${kind} to ${entry.kind}.derives-from or declare an earlier version of the producer being refined`);
+      if (typeof read !== 'string' && !allOutputs.get(read.producer)?.has(kind)) refuse(entry.plugin, path, `earlier read of ${kind} names producer ${read.producer} without an enabled output of that kind`);
+    }
+  }
+  for (const [name, output] of allOutputs) for (const kind of output.keys()) {
+    const edges = unitEdges.get(unitId(name, kind))!;
+    const reads = readVersions.get(name)!.get(kind) ?? [];
+    const required = new Set([...(kinds.get(kind)?.derivesFrom ?? []), ...reads.map((read) => typeof read === 'string' ? read : read.kind)]);
+    for (const readKind of required) {
+      const versions = reads.filter((read) => (typeof read === 'string' ? read : read.kind) === readKind);
+      const earlier = versions.filter((read): read is Exclude<FillRead, string> => typeof read !== 'string');
+      const needsLatest = earlier.length === 0 || versions.some((read) => typeof read === 'string');
+      if (needsLatest) for (const [producer, outputs] of allOutputs) {
+        if (outputs.has(readKind)) edges.add(unitId(producer, readKind));
+      }
+      for (const read of earlier) edges.add(unitId(read.producer, readKind));
+    }
+  }
+  const requested = input.selectedKinds ?? [...kinds.keys()];
+  const selected = new Set<string>();
+  for (const name of requested) {
     const kind = kinds.get(name);
     if (kind === undefined) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'kinds.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'kinds.yaml'));
-    if (![...outputs.values()].some((output) => output.has(name))) kindRefusal(kind!, `selected kind ${name} has no enabled producer; enable its producer`);
+    for (const prerequisite of prerequisites(name)) selected.add(prerequisite);
+    selected.add(name);
   }
-  const active = order.filter((name) => [...outputs.get(name)!.keys()].some((kind) => selected.has(kind)));
-  if (input.agentSelected === false) for (const name of active) if (plugins.get(name)!.manifest.agent !== undefined) refuse(plugins.get(name)!, ['agent'], `plugin ${name} requested an agent but none is selected; choose --agent or select one in the wiki`);
-  const unitPredecessors = (plugin: string, kind: string): { plugin: string; kind: string }[] => {
-    const held = new Map<string, { plugin: string; kind: string }>();
-    const add = (producer: string, output: string) => {
-      if (selected.has(output)) held.set(`${producer}:${output}`, { plugin: producer, kind: output });
-    };
-    for (const previous of predecessors.get(plugin) ?? []) if (active.includes(previous)) for (const output of outputs.get(previous)!.keys()) add(previous, output);
-    for (const prerequisite of kinds.get(kind)?.derivesFrom ?? []) for (const [producer, output] of outputs) {
-      if (output.has(prerequisite) && !reachable(producer, plugin, refinements)) add(producer, prerequisite);
-    }
-    return [...held.values()].sort((a, b) => byCodePoint(`${a.plugin}:${a.kind}`, `${b.plugin}:${b.kind}`));
+  for (const name of selected) if (![...allOutputs.values()].some((output) => output.has(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
+  const sortedUnits: string[] = [];
+  const visiting: string[] = [];
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    const at = visiting.indexOf(id);
+    const unit = unitInfo.get(id)!;
+    if (at >= 0) refuse(plugins.get(unit.plugin)!, ['produces'], `fill declarations form a cycle: ${[...visiting.slice(at), id].map((key) => { const item = unitInfo.get(key)!; return `${item.plugin}:${item.kind}`; }).join(' -> ')}`);
+    if (visited.has(id)) return;
+    visiting.push(id);
+    for (const dependency of [...unitEdges.get(id)!].sort(byCodePoint)) visit(dependency);
+    visiting.pop(); visited.add(id); sortedUnits.push(id);
   };
-  const visitedUnits = new Set<string>();
-  const visitingUnits: string[] = [];
-  const visitUnit = (plugin: string, kind: string) => {
-    const id = `${plugin}:${kind}`;
-    const at = visitingUnits.indexOf(id);
-    if (at >= 0) refuse(plugins.get(plugin)!, ['reads'], `fill declarations form a cycle: ${[...visitingUnits.slice(at), id].join(' -> ')}`);
-    if (visitedUnits.has(id)) return;
-    visitingUnits.push(id);
-    for (const dependency of unitPredecessors(plugin, kind)) visitUnit(dependency.plugin, dependency.kind);
-    visitingUnits.pop();
-    visitedUnits.add(id);
-  };
-  for (const plugin of active) for (const kind of outputs.get(plugin)!.keys()) if (selected.has(kind)) visitUnit(plugin, kind);
+  // Validate all configured declarations, including currently unselected units.
+  for (const id of [...unitInfo.keys()].sort(byCodePoint)) visit(id);
+  const activeUnits = sortedUnits.filter((id) => selected.has(unitInfo.get(id)!.kind));
+  const order = [...new Set(activeUnits.map((id) => unitInfo.get(id)!.plugin))];
+  const outputs = new Map(order.map((name) => [name, new Map([...allOutputs.get(name)!].filter(([kind]) => selected.has(kind)))]));
+  if (input.agentSelected === false) for (const name of order) if (plugins.get(name)!.manifest.agent !== undefined) refuse(plugins.get(name)!, ['agent'], `plugin ${name} requested an agent but none is selected; choose --agent or select one in the wiki`);
+  const unitPredecessors = (plugin: string, kind: string): { plugin: string; kind: string }[] => [...(unitEdges.get(unitId(plugin, kind)) ?? [])]
+    .map((id) => unitInfo.get(id)!).filter((unit) => selected.has(unit.kind))
+    .sort((a, b) => byCodePoint(`${a.plugin}:${a.kind}`, `${b.plugin}:${b.kind}`));
+  const predecessors = new Map(order.map((name) => [name, [...new Set([...(outputs.get(name)?.keys() ?? [])].flatMap((kind) => unitPredecessors(name, kind).map((unit) => unit.plugin)))].filter((other) => other !== name).sort(byCodePoint)]));
+  const readsFor = (plugin: string, kind: string): readonly FillRead[] => readVersions.get(plugin)?.get(kind) ?? [];
   return {
-    unitPredecessors,
-    requiresAgent: active.some((name) => plugins.get(name)!.manifest.agent !== undefined),
-    order: active,
-    outputs,
-    refinements,
-    concurrency,
-    predecessors: new Map(active.map((name) => [name, [...predecessors.get(name)!].filter((other) => active.includes(other)).sort()])),
-    producers(kind: string, field: string): readonly string[] {
-      return order.filter((name) => outputs.get(name)?.get(kind)?.includes(field));
-    },
-    lastProducer(kind: string, field: string): string | undefined {
-      return order.filter((name) => outputs.get(name)?.get(kind)?.includes(field)).at(-1);
-    },
+    unitPredecessors, readsFor, readVersions,
+    reads: new Map([...readVersions].map(([name, output]) => [name, new Map([...output].map(([kind, reads]) => [kind, [...new Set(reads.map((read) => typeof read === 'string' ? read : read.kind))]]))])),
+    selectedKinds: [...selected],
+    requiresAgent: order.some((name) => plugins.get(name)!.manifest.agent !== undefined),
+    order, outputs, refinements, concurrency, predecessors,
+    producers(kind: string, field: string): readonly string[] { return order.filter((name) => outputs.get(name)?.get(kind)?.includes(field)); },
+    lastProducer(kind: string, field: string): string | undefined { return order.filter((name) => outputs.get(name)?.get(kind)?.includes(field)).at(-1); },
   };
 }
 
@@ -158,10 +226,23 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       throw new ClosureRefusal('fill-declaration', `${file}:1: plugin ${plugin.id} declares no output; declare produces, including Problem records for checks`, file);
     }
   }
-  const requested = selectedKinds ?? [...new Set([...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration!.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])))];
+  const declarations = [...(manifest.plugins?.values() ?? [])].map((plugin) => ({ manifest: plugin.declaration!, file: plugin.declarationFile ?? resolve(folder, plugin.path ?? '', 'plugin.json'), text: plugin.declarationText }));
+  for (const kind of manifest.kinds.values()) {
+    if (kind.agent === undefined) continue;
+    const target = declarations.find((plugin) => plugin.manifest.name === kind.agent!.plugin);
+    const refuse = (message: string): never => { throw new ClosureRefusal('fill-declaration', `${resolve(manifest.file)}:${kind.line}: ${message}`, resolve(manifest.file), kind.line); };
+    if (target === undefined || target.manifest.agent === undefined) refuse(`kind ${kind.name} configures unknown or disabled agent plugin ${kind.agent.plugin}`);
+    const capability = target!.manifest.produces.find((output) => output.kind === '*' || output.kind === kind.name);
+    if (capability === undefined) refuse(`agent plugin ${kind.agent.plugin} has no declared capability for ${kind.name}`);
+    const fields = kind.agent.fields === '*' ? (kind.fields ?? []).map((field) => field.name) : kind.agent.fields;
+    for (const field of fields) if (capability!.fields !== '*' && !capability!.fields.includes(field)) refuse(`agent plugin ${kind.agent.plugin} has no declared capability for ${kind.name}.${field}`);
+    // An explicit entry claims configured fields; the wildcard gap entry keeps all remaining gaps.
+    target!.manifest = { ...target!.manifest, produces: [...target!.manifest.produces, { kind: kind.name, fields: kind.agent.fields, reads: capability!.reads, ...(kind.agent.refines === undefined ? {} : { refines: [...kind.agent.refines] }) }] };
+  }
+  const requested = selectedKinds ?? [...new Set(declarations.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])))];
   return planFillDeclarations({
     kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
-    plugins: [...(manifest.plugins?.values() ?? [])].filter((plugin) => plugin.declaration !== undefined).map((plugin) => ({ manifest: plugin.declaration!, file: plugin.declarationFile ?? resolve(folder, plugin.path ?? '', 'plugin.json'), text: plugin.declarationText })),
+    plugins: declarations,
     selectedKinds: requested,
     ...(agentSelected === undefined ? {} : { agentSelected }),
   });

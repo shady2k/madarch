@@ -52,9 +52,13 @@ export const PluginManifest = Type.Object(
     produces: Type.Array(Type.Object({
       kind: Type.String({ minLength: 1 }),
       fields: Type.Union([Type.Literal('*'), Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })]),
+      reads: Type.Optional(Type.Array(Type.Union([
+        Type.String({ minLength: 1 }),
+        Type.Object({ kind: Type.String({ minLength: 1 }), version: Type.Literal('earlier'), producer: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+      ]))),
+      refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+      coverage: Type.Optional(Type.Literal('gaps')),
     }, { additionalProperties: false }), { minItems: 1 }),
-    reads: Type.Array(Type.String({ minLength: 1 })),
-    refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
     concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     description: Type.Optional(Type.String({ minLength: 1 })),
     agent: Type.Optional(Type.Object({
