@@ -167,15 +167,6 @@ function snapshotWrites(writes: unknown): { kind: string; value: unknown }[] {
   return (typeof writes === 'string' ? JSON.parse(writes) : writes) as { kind: string; value: unknown }[] ?? [];
 }
 
-/** Read only the captured generation, never a mutable open opinion or latest replacement. */
-export async function pluginSnapshotValue(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string, key: import('../plugin/protocol.js').PluginKeyValues, field: string): Promise<unknown> {
-  return await owner.transaction('snapshot', async (tx) => {
-    const writes = await snapshotDrafts(tx, snapshot);
-    for (const partition of snapshot.partitions ?? []) writes.push(...await snapshotDrafts(tx, partition, true));
-    return valueFromPluginSnapshot(writes, kind, key, field);
-  });
-}
-
 /** Declared vertices from one captured producer generation, never the current graph. */
 export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }[]> {
   return await owner.transaction('snapshot', async tx => {
