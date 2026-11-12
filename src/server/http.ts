@@ -483,8 +483,10 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     const entry = productEntries.get(name);
     if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
     if (opensPage(request) && manifestPublicationReady(entry.product.folder)) knowledgeHost.of(entry.product.folder).warm();
-    const rest = match[2] === undefined ? '/' : `/${match[2]}`;
-    const forwarded = new Request(new URL(rest + url.search, url), request);
+    const rest = match[2] === undefined ? '/' : `/${match[2]}`.replace(/\/{2,}/g, '/');
+    const forwardedUrl = new URL(url);
+    forwardedUrl.pathname = rest;
+    const forwarded = new Request(forwardedUrl, request);
     const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
     // The page a reader opens is the product this browser opens at the root next time.
     if ((answered.headers.get('content-type') ?? '').includes('text/html') && answered.status === 200 && !entry.own) answered.headers.append('set-cookie', `${LAST_PRODUCT_COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=31536000; SameSite=Lax`);

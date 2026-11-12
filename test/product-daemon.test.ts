@@ -188,6 +188,13 @@ test('a doubled slash under a product mount opens the same app address', async (
   expect(normal.status).toBe(200);
   expect(doubled.status).toBe(200);
   expect(await doubled.text()).toBe(await normal.text());
+  const nested = await fetch(`${server.url}/products/sample//kit?view=sample`);
+  expect(nested.status).toBe(200);
+  const unknown = await fetch(`${server.url}/products/sample//missing.example/unknown`);
+  expect(unknown.status).toBe(404);
+  const refusal = await unknown.json() as { message: string };
+  expect(refusal.message).toContain('/missing.example/unknown');
+  expect(refusal.message).toMatch(/wiki-app\.ts:\d+:/);
 });
 
 test('the kit showcase is served as an app route under a product mount', async () => {
