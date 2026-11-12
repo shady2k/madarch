@@ -1,3 +1,4 @@
+import { Stack, Text, Paragraph } from '@/components/ui/typography.js';
 /** The agent stage status on product pages, with links to the fill page for choices and retry. */
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -71,13 +72,13 @@ export function WriterLine({ status }: { status: WikiStatus; refresh: () => void
       <Alert variant="problem" className="mb-8" data-testid="writer-line" data-state="failed">
         <AlertTitle>{t('knowledge.writer.failedTitle', { agent })}</AlertTitle>
         <AlertDescription>
-          {writer.message !== undefined && <div data-testid="writer-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>}
-          <p className="mb-0 mt-2">{open}</p>
-          <p className="mb-0 mt-3">
+          {writer.message !== undefined && <Stack data-testid="writer-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></Stack>}
+          <Paragraph className="mb-0 mt-2">{open}</Paragraph>
+          <Paragraph className="mb-0 mt-3">
             <KLink href={WIKI_FILL} testId="writer-retry">{t('knowledge.writer.retry')}</KLink>
             {' '}
             <Button variant="default" size="default" data-testid="writer-dismiss" onClick={() => { try { window.sessionStorage.setItem('madarch-writer-dismissed', dismissKey); } catch { /* the dismissal lasts until the page is read again */ } setDismissed(dismissKey); }}>{t('knowledge.writer.dismiss')}</Button>
-          </p>
+          </Paragraph>
         </AlertDescription>
       </Alert>
     );
@@ -93,10 +94,10 @@ export function WriterLine({ status }: { status: WikiStatus; refresh: () => void
   return (
     <Card className="mb-8" data-testid="writer-line" data-state={writer.state}>
       <CardContent className="pt-6">
-        <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-small">
-          <span className="text-ink" data-testid="writer-line-words">{words}</span>
+        <Paragraph className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-small">
+          <Text className="text-ink" data-testid="writer-line-words">{words}</Text>
           {open}
-        </p>
+        </Paragraph>
       </CardContent>
     </Card>
   );

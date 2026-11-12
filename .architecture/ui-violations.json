@@ -440,11 +440,6 @@
     "subject": "PageSkeleton#1"
   },
   {
-    "rule": "local-styled-component",
-    "file": "wiki/app/src/knowledge/writer.tsx",
-    "subject": "WriterLine#1"
-  },
-  {
     "rule": "raw-ui-element",
     "file": "wiki/app/src/knowledge/app.tsx",
     "subject": "1e8b4eaf5b4231e4dfa2#1"
