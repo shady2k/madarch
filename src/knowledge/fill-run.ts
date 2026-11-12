@@ -25,6 +25,7 @@ import type { DraftEnv } from '../product/home.js';
 import { readProgress, writeFillEnd } from '../fill/orchestrator-store.js';
 import type { FillOrchestratorService, RefusedFillRun } from '../fill/orchestrator-host.js';
 import { advanceRun, createRun, readChain, readRun } from '../fill/state-store.js';
+import { TERMINAL_RUN_STATES } from '../fill/orchestrator.js';
 import { listRepositories, repositoryFacts } from '../graph/index.js';
 import { readProduct } from '../product/manifest.js';
 
@@ -228,6 +229,17 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
   try {
     const fillTheStore = async (): Promise<KnowledgeFillResult> => {
       try {
+        // A live fill takes precedence over admission of another request. The orchestrator still owns the atomic
+        // admission below; this read only avoids asking an already busy product for this request's agent and plan.
+        const identity = readProduct(options.productFolder);
+        const chain = identity.ok ? await readChain(owner, identity.product.name) : null;
+        if (chain?.state === 'active' && chain.context.activeRunId !== options.runId) {
+          const held = chain.context.activeRunId === null ? null : await readRun(owner, chain.context.activeRunId);
+          if (held !== null && !(TERMINAL_RUN_STATES as readonly string[]).includes(held.state)) {
+            recordEnd = false;
+            return { ok: false, state: 'failed', refused: true, message: await refusalWords(owner, options.productFolder, { ok: false, code: 'fill-orchestrator/chain-active', reason: '' }), units: 0 };
+          }
+        }
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
         // all start it here (madarch-8bdc.2.5, item 6).
         const pluginAgent = options.pluginAgent === undefined ? configuredPluginAgent(options.storeFolder, options.env ?? process.env) : options.pluginAgent ?? undefined;

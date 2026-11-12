@@ -2650,7 +2650,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
 }
 
 /** The states a run ended in: nothing further happens to it. */
-const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
+export const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
 
 /**
  * The run states a unit of which a later run may take up again: the run ended and nothing of it is in flight. A
