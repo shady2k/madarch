@@ -2,7 +2,7 @@ import { requestStorePreparation } from '../src/product/store-preparation.js';
 import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { storeDatabasePath } from '../src/product/store.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
-import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { withStorePreparationOwner } from '../src/adapters/store-preparation-owner.js';
 
 let releasePreparationOwner!: () => void;
@@ -64,7 +64,8 @@ let session: RepositorySession;
 beforeAll(async () => {
   await openPreparationOwner();
   git(REPOSITORY, 'init', '-q', '-b', 'main');
-  useRepositoryPlugins(REPOSITORY);
+  git(REPOSITORY, 'remote', 'add', 'origin', `file://${REPOSITORY}`);
+  seedRepositoryPlugins(REPOSITORY);
   put('README.md', '# Sample kit\n\nA fixture.\n');
   put('src/a.ts', 'export const a = 1;\n');
   put('src/nested/b.ts', 'export const b = 2;\n');
@@ -126,7 +127,7 @@ describe('the tools this step serves', () => {
       defaultBranch: 'main',
       asIsCommit: third,
       counts: { files: committedPaths.length, commits: 3, folders: committedFolders.length },
-      steps: { 'plugin-turns': true },
+      steps: { disk: true, git: true },
       // The history pass states it: this clone is not shallow.
       historyShallow: false,
     });
@@ -152,10 +153,10 @@ describe('the tools this step serves', () => {
     const { isError, answer } = await call('get_file', { path: 'src/a.ts' });
     expect(isError).toBe(false);
     expect(answer).toMatchObject({
-      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: null,
+      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'ambiguous',
       commitCount: 2, authors: ['Ada Example'],
     });
-    // Step 1 states the dataset's ambiguity; a later producer may publish a resolved language opinion.
+    // The disk producer states ambiguity and every candidate, not an accepted language chosen from them.
     expect(answer['candidates']).toEqual(['TypeScript', 'XML']);
     expect(answer['blob']).toBe(git(REPOSITORY, 'rev-parse', `${third}:src/a.ts`));
     expect(answer['historyShallow']).toBe(false);
@@ -248,13 +249,15 @@ describe('the tools this step serves', () => {
     expect(answer['historyShallow']).toBe(true);
   }, 180_000);
 
-  test('a tool of a later step answers that its step has not run, naming it', async () => {
+  test('a tool without published records refuses, naming the producer it needs', async () => {
     for (const [tool, step] of [['get_symbol', 'syntax'], ['trace_flow', 'semantic-resolution'], ['get_page', 'document-index']] as const) {
       const { isError, answer } = await call(tool, { name: 'a', entry: 'a', page: 'docs/a.md' });
       expect(isError).toBe(true);
       expect((answer['error'] as Record<string, unknown>)['code']).toBe('step-not-run');
       expect((answer['error'] as Record<string, unknown>)['step']).toBe(step);
-      expect(String((answer['error'] as Record<string, unknown>)['message'])).toContain(`the step "${step}" has not run`);
+      const message = String((answer['error'] as Record<string, unknown>)['message']);
+      expect(message).toContain(`the producer "${step}" has not published the records "${tool}" reads`);
+      expect(message).toContain('until a declared plugin publishes those records');
       // The answer still says where it would have been true.
       expect(sourceOf(answer)['commit']).toBe(third);
       expect(sourceOf(answer)['repository']).toBe(REPOSITORY);
