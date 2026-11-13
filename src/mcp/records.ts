@@ -383,22 +383,21 @@ async function dispatch(tool: string, args: Record<string, unknown>, context: Re
       };
     }
     case 'graph_schema': {
-      const manifest = await context.owner.run(async (tx) => await readPublishedManifest(tx));
+      const manifest = await context.owner.transaction('snapshot', async (tx) => await readPublishedManifest(tx));
       if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/catalog.yaml:1: the graph holds no published manifest`);
       return { answer: { schema: graphqlSchemaOf(publishedManifestOf(manifest)) }, isError: false };
     }
     case 'graph_query': {
       const query = textArgument(args['query'], 'query');
       if (typeof query !== 'string') return query;
-      const manifest = await context.owner.run(async (tx) => await readPublishedManifest(tx));
-      if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/catalog.yaml:1: the graph holds no published manifest`);
       const variables = args['variables'];
       if (variables !== undefined && variables !== null && (typeof variables !== 'object' || Array.isArray(variables))) return fail('bad-argument', '"variables" is an object of the operation\'s variables (src/mcp/records.ts)');
       const operationName = args['operationName'];
       if (operationName !== undefined && typeof operationName !== 'string') return fail('bad-argument', '"operationName" is the name of the operation to run (src/mcp/records.ts)');
       const lang = args['lang'];
       if (lang !== undefined && typeof lang !== 'string') return fail('bad-argument', '"lang" is the reader language (src/mcp/records.ts)');
-      const answer = await executeGraphql(context.owner, { manifest, folder: context.repository }, {
+      // The executor reads the published manifest inside its own snapshot: the schema and the data are one revision.
+      const answer = await executeGraphql(context.owner, { folder: context.repository }, {
         query,
         ...(variables === undefined || variables === null ? {} : { variables: variables as Record<string, unknown> }),
         ...(operationName === undefined ? {} : { operationName }),
