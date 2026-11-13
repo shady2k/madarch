@@ -14,7 +14,8 @@ describe('test quarantine in the starter catalogue', () => {
   test('a quarantine is a bilingual page in testing, not a second test case', () => {
     expect(row).toMatchObject({
       id: 'practice.test-quarantine', group: 'testing.case', status: 'implemented',
-      policy: 'page', source: 'graph', origin: 'code', template: 'test-quarantine.liquid',
+      policy: 'page', source: 'graph', origin: 'code',
+      sources: ['https://docs.gitlab.com/development/testing_guide/quarantining_tests/', 'https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html'],
       acquisition: ['extractor test-quarantine'],
       en: ['Test quarantine', 'Test quarantines'], ru: ['Карантин теста', 'Тесты в карантине'],
     });

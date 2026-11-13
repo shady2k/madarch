@@ -43,7 +43,7 @@ import { headCommitOf } from '../product/fill-updates.js';
 import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead } from './graph-read.js';
 import { graphMarkdownEntities, pageOpinionKinds } from './markdown.js';
-import type { AgentOffer, ChangedPage, FillErrorView, FillRunView, FillState, WikiStatus, WriterState, WriterBounds } from './model.js';
+import type { AgentOffer, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { agentUsageOf, readTraceRunSummary, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -1338,14 +1338,15 @@ export class KnowledgeProduct {
         cached: true,
       };
     }
-    // The evidence is read from the text a fill published, the same opinion the source view answers (section 8).
-    let opinions: Awaited<ReturnType<KnowledgeProduct['sourceOpinions']>> | undefined;
+    // The evidence is read from the text a fill published, the same opinion the source view answers (section 8). The
+    // read is one for the whole run: the promise is kept, so concurrent asks share it rather than each reading the store.
+    let opinions: ReturnType<KnowledgeProduct['sourceOpinions']> | undefined;
     const product = this.product();
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
       signal.throwIfAborted();
       if ('message' in product) throw new WikiReadError(product.message);
-      opinions ??= await this.sourceOpinions();
-      const held = opinions.get(path);
+      opinions ??= this.sourceOpinions();
+      const held = (await opinions).get(path);
       if (held === undefined) return undefined;
       return { text: held.text, repository: held.repository ?? productRepositoryId(product), commit: held.commit };
     };
@@ -1604,6 +1605,7 @@ export class KnowledgeProduct {
       } });
       this.generation += 1;
       this.storeStamp = undefined;
+      this.countsMemo = undefined;
       this.filesMemo = undefined;
       this.manifestMemo = undefined;
       this.problemsCache = undefined;
@@ -1801,7 +1803,7 @@ export class KnowledgeProduct {
     const publication = manifestPublicationState(this.folder);
     if (publication !== undefined && publication.status !== 'published') {
       const body = this.unpublishedStatus(product);
-      const run = await this.runViewOf().catch(() => null);
+      const run = await this.runViewOf();
       return { ...body, fill: { ...body.fill, ...(run === null ? {} : { run }) }, publication: publication.status === 'failed' ? 'failed' : 'pending', ...(publication.status === 'failed' ? { publicationMessage: publication.message } : {}) };
     }
     // An unfilled product opens no store merely to answer a poll: without one, the manifest is the checkout's own file.
@@ -1815,7 +1817,9 @@ export class KnowledgeProduct {
     // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
     const runId = this.fillRunId ?? run?.runId;
     const outcomes = runId === undefined ? undefined : await readProducerOutcomes(this.reader!.owner, { runId }).catch(() => undefined);
+    const counts = await this.repositoryCounts();
     this.fillExtras = {
+      ...(counts === undefined ? {} : { counts }),
       ...(run === null ? {} : { run }),
       ...(outcomes === undefined ? {} : { outcomes }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
@@ -1853,15 +1857,17 @@ export class KnowledgeProduct {
   }
 
   /**
-   * The count of every kind the manifest declares, from one graph query over the generated tables (section 8: the status
-   * states the kinds the manifest holds, and the graph answers how many of each stand).
+   * The kinds the manifest holds and the count of each, from one graph query over the generated tables (section 8). A
+   * manifest that declares a catalogue names every entry of it, catalogue-only ones included: the wiki's menu is the
+   * product's whole map, and a kind nothing filled yet stands with a count of zero.
    */
   private async kindCounts(manifest: KindsManifest): Promise<WikiStatus['kinds']> {
     const owner = await this.open();
     const kinds = graphKindsOf(manifest);
     const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
     const counts = new Map((await reader.kindCounts().catch(() => [])).map((one) => [one.kind, one.count] as const));
-    return [...manifest.kinds.values()].map((decl) => ({ kind: decl.name, count: counts.get(decl.name) ?? 0 }));
+    const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
+    return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
   }
 
   /** The writer's state as the poll states it: what it does and the plan it holds, never the units it has done. */
@@ -1890,6 +1896,25 @@ export class KnowledgeProduct {
       ...(changed === undefined ? {} : { changed }),
       ...this.fillExtras,
     };
+  }
+
+  private countsMemo: { seq: number; counts?: RepositoryCounts } | undefined;
+
+  /**
+   * The counts the end state states: the repository the pages show, read from the store once per publication (the old
+   * answer read them on every poll; a publication is what moves them).
+   */
+  private async repositoryCounts(): Promise<RepositoryCounts | undefined> {
+    const owner = this.reader?.owner;
+    if (owner === undefined || this.pins.size === 0) return undefined;
+    const seq = this.reader?.seq ?? 0;
+    if (this.countsMemo?.seq === seq) return this.countsMemo.counts;
+    const facts = await new GraphReader(owner, this.validAt).repositoryFactsAll().catch(() => []);
+    const declared = this.repositories().map((repository) => repository.name);
+    const chosen = facts.find((one) => one.name === declared[0]) ?? facts[0];
+    const counts = chosen?.counts;
+    this.countsMemo = { seq, ...(counts === undefined ? {} : { counts }) };
+    return counts;
   }
 
   /**

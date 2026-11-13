@@ -33,6 +33,9 @@ beforeAll(async () => {
   const draft = createDraft({ home, name: 'schema-route', gitEnv: gitEnv(SAMPLE_IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   product = draft.folder;
+  // A page template is a file of the product under `templates/` (decision 0036, section 6): the bootstrap lists them.
+  mkdirSync(join(product, 'templates'), { recursive: true });
+  writeFileSync(join(product, 'templates', 'entity.yaml'), 'template: entity\n');
   closeOwner = await prepareTestProduct(product, home);
   server = await startPreparedServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }, 120_000);
@@ -70,7 +73,7 @@ test('POST /graphql answers the product graph through the one executor', async (
   const catalogue = await post({ query: '{ allCatalogueEntity(first: 1) { totalCount edges { node { name taken } } } }' });
   expect(catalogue.status).toBe(200);
   expect(catalogue.body.errors).toBeUndefined();
-  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(520);
+  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(519);
 });
 
 test('POST /graphql refuses a query deeper than six levels', async () => {

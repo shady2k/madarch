@@ -23,6 +23,5 @@ describe('the starter catalogue schema', () => {
 
   test('leaves out no kind: every starter kind encodes to a name the schema holds', () => {
     expect(starterSchema().refused).toEqual([]);
-    expect(buildSchema(starterSchema().sdl).getType('Template')).toBeDefined();
   });
 });
