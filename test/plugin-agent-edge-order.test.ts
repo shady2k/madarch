@@ -164,7 +164,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (report) => sessions.push(report),

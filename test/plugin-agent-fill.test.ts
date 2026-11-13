@@ -137,7 +137,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'], pluginAgent: {
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (session) => sessions.push(session),
@@ -185,7 +185,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure, probeClosure], steps: ['plugin-turns'], pluginAgent: {
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure, probeClosure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
       } });
@@ -220,7 +220,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     execFileSync('git', ['-C', f.product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'agent-bound kind']);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
       } });
@@ -237,7 +237,7 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const f = fixture(false);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     try {
-      const run = await runFill({ product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'] });
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'] });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
