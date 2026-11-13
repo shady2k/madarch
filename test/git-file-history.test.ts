@@ -13,6 +13,7 @@ import gitContract from '../plugins/git/contract.json';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { runFill } from '../src/fill/run.js';
 import { repositoryFacts, fileFacts } from '../src/graph/index.js';
+import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { repositoryContract, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
@@ -148,6 +149,11 @@ test('a fill lists the current tree, keeps the deleted path on its commits, and 
     expect(kept).toMatchObject({ commitCount: 2, authors: ['Author One', 'Author Two'] });
     expect(kept?.created?.commit).toBe(first);
     expect(kept?.modified?.commit).toBe(second);
+    // The catalogue's class rules reach the plugin, and the file states its class beside its other facts.
+    const fileClass = await owner.transaction('snapshot', async (tx) => (await tx.query<{ class: string }>(
+      `SELECT o."class" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE (n.key->>'path') = 'kept.txt' AND o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'disk'`,
+    )).rows);
+    expect(fileClass).toEqual([{ class: 'code' }]);
   } finally {
     await owner.close();
   }
