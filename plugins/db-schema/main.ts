@@ -708,6 +708,8 @@ function composedProblems(literal: Literal, place: Place): Problem[] {
 
 // ---- the unit's answer -----------------------------------------------------------------------
 
+const CONTENT_READ_CONCURRENCY = 8;
+
 async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const inputs = (unit.inputs ?? {}) as {
     patterns?: unknown;
@@ -720,10 +722,20 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   const model: Model = { databases: new Map(), problems: [] };
   const files: { repository: string; path: string; content: string }[] = [];
   for (const pattern of patterns) {
-    for (const file of await context.graph.files(pattern)) {
+    const definitions = await context.graph.files(pattern);
+    const contents: (string | null | undefined)[] = new Array(definitions.length);
+    let nextFile = 0;
+    await Promise.all(Array.from({ length: Math.min(CONTENT_READ_CONCURRENCY, definitions.length) }, async () => {
+      while (nextFile < definitions.length) {
+        const index = nextFile++;
+        const file = definitions[index]!;
+        contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content');
+      }
+    }));
+    for (const [index, file] of definitions.entries()) {
       const repository = String(file.key['repository'] ?? '');
       const path = String(file.key['path'] ?? '');
-      const content = await context.graph.value<string | null>(file.kind, file.key, 'content');
+      const content = contents[index];
       if (typeof content === 'string' && content !== '') files.push({ repository, path, content });
     }
   }
