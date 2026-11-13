@@ -39,6 +39,8 @@ import { GIT_LEAKS } from '../src/product/git.js';
 import { createHash } from 'node:crypto';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
+import { installReleaseTools } from './release-tools.js';
+import { releaseToolPath } from '../src/plugin/release-tools.js';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
@@ -400,6 +402,12 @@ async function main(argv: readonly string[]): Promise<number> {
   if (typeof options === 'number') return options;
   const stage = createBuildScratch();
   try {
+    const toolAssets = join(stage, 'release-tools');
+    mkdirSync(toolAssets, { recursive: true });
+    if (options.os === 'linux' && options.arch === 'x64') {
+      await installReleaseTools();
+      cpSync(releaseToolPath(), join(toolAssets, 'git'));
+    }
     const staged = stageAssets(stage, options);
     if (!staged.ok) {
       console.error(staged.message);
@@ -415,7 +423,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const target = options.os === 'darwin' ? `bun-darwin-${options.arch}` : options.os === 'windows' ? `bun-windows-${options.arch}` : `bun-linux-${options.arch}`;
     const run = spawnSync('bun', [
       'build', '--compile', '--compile-autoload-package-json', join(REPO_ROOT, 'scripts', 'madarch.ts'),
-      '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'), '--asset', join(stage, 'own-wiki'),
+      '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'), '--asset', join(stage, 'own-wiki'), '--asset', toolAssets,
       '--target', target, '--outfile', outfile,
     ], { encoding: 'utf8' });
     const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();

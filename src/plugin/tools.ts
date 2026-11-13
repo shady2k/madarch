@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { ClosureRefusal } from './closure-refusal.js';
 import type { PluginManifest } from './closure.js';
 
-export interface TrustedTool {
-  readonly executable: string;
-  readonly sha256: string;
-}
+export type TrustedTool = { readonly sha256: string } & (
+  | { readonly executable: string }
+  | { readonly bytes: Uint8Array }
+);
 export interface SandboxTool {
   readonly name: string;
   readonly executable: string;
@@ -26,12 +26,15 @@ export function snapshotTools(declarations: PluginManifest['tools'], trusted: Re
     if (tool === undefined || tool.sha256 !== declaration.sha256) return refuse(`tool ${declaration.name} has no approved executable pin matching its declaration`);
     let bytes: Buffer;
     try {
-      const stat = lstatSync(tool.executable);
-      if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) refuse(`tool ${declaration.name} is not a regular executable file`);
-      bytes = readFileSync(tool.executable);
+      if ('bytes' in tool) bytes = Buffer.from(tool.bytes);
+      else {
+        const stat = lstatSync(tool.executable);
+        if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) refuse(`tool ${declaration.name} is not a regular executable file`);
+        bytes = readFileSync(tool.executable);
+      }
     } catch (error) {
       if (error instanceof ClosureRefusal) throw error;
-      return refuse(`tool ${declaration.name} cannot read approved executable ${tool.executable}: ${(error as Error).message}; install the matching release tool or use a release with the correct pin`);
+      return refuse(`tool ${declaration.name} cannot read approved executable ${'executable' in tool ? tool.executable : 'embedded bytes'}: ${(error as Error).message}; install the matching release tool or use a release with the correct pin`);
     }
     if (createHash('sha256').update(bytes).digest('hex') !== declaration.sha256) refuse(`tool ${declaration.name} differs from its approved sha256`);
     mkdirSync(folder, { recursive: true });
