@@ -19,3 +19,14 @@ edges:
     to: [demo.file]
     fields:
       - { name: position, type: integer, nullable: true, producers: [agent] }
+  - name: demo.touched
+    from: [demo.file]
+    to: [demo.file]
+    repeats: true
+    discriminator: path
+    fields:
+      - { name: changed_at, type: timestamp, nullable: true, producers: [agent] }
+      - { name: weight, type: bigint, nullable: true, producers: [agent] }
+  - name: demo.related
+    from: [demo.file]
+    to: [demo.file]

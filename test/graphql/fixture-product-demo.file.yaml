@@ -18,5 +18,7 @@ fields:
   - { name: repository, type: text, reference: demo.repository, producers: [agent] }
   - { name: path, type: text, producers: [agent] }
   - { name: lines, type: integer, nullable: true, producers: [agent] }
+  - { name: language, type: text, nullable: true, producers: [agent] }
+  - { name: primary, type: json, nullable: true, reference: demo.repository, producers: [agent] }
 key: [repository, path]
 derives-from: [demo.repository]
