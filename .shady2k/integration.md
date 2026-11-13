@@ -97,7 +97,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   task's criterion through `check.mjs`, so the three travel together. The
   0.51.0 rules this installation has not switched on, each turned on only by
   the value it reads (owner's profile, 2026-10-21, madarch-y47p): the outcome
-  rules (`orphaned-outcome`, `unobservable-first-stage`, `unserved-outcome`)
+  rules (`orphaned-outcome`, `unserved-outcome`; `unobservable-first-stage`
+  judges any feature that declares `Seen at:`, see below)
   and the forecast rules (`unforecast-target`, `unmeasured-forecast`) wait for
   ids on the vision and the charter, which come with the self-filling
   milestone's re-plan; the commit check's code-path rule waits for
@@ -111,8 +112,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   feature with stages whose work has begun carries `Agreed direction:`,
   `Design:` and `Agreed plan:` lines; the features already under way when it
   arrived are listed once in the config's `agreementExempt` and the list only
-  shrinks. `unobservable-first-stage` now judges every open stage against its
-  feature's `Seen at:` handles. `merged-but-open` stays off by the owner's
+  shrinks. `unobservable-first-stage` judges every open stage of a feature
+  that declares `Seen at:` against those handles, not only the first. `merged-but-open` stays off by the owner's
   choice: the adapter exports no `landed` list, because here every commit of
   partial work carries its `Task:` line, so a main-line commit naming a leaf
   does not mean the leaf was delivered (measured: about 59 leaves still in
@@ -124,8 +125,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
   <rev> [--head <rev>]` runs in the pre-push hook for every pushed ref that
   introduces commits, against the revision just before the first of them (see
-  "What a push introduces"); the push of a change's branch is where its pull
-  request opens, so the push stands in for that opening. It refuses a change that leaves one of them naming a path the tree no
+  "What a push introduces"), so a change's branch is checked locally before its
+  pull request is opened or updated; with personal scope CI does not run it. It refuses a change that leaves one of them naming a path the tree no
   longer has; the list itself is not a reference, so moving or dropping a listed
   document with no other document naming its path is not what it refuses
   (checked 2026-10-09: moving `docs/glossary.md` passed, moving
