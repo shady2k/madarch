@@ -16,6 +16,7 @@ import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { activateTestProduct } from './prepared-server.js';
+import { parseDocument } from 'yaml';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, args: string[], extra: Record<string, string> = {}): string =>
@@ -74,12 +75,17 @@ beforeAll(async () => {
   folder = makeProduct(home, SHOP, repository, CODE);
   withRepositoryPluginsOnly(folder);
   const kindsFile = join(folder, 'madarch/kinds.yaml');
-  const kinds = readFileSync(kindsFile, 'utf8');
-  const rule = kinds.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
-  expect(rule).toContain('enabled: true');
-  const debt = '  code.debt:\n';
-  expect(kinds).toContain(debt);
-  writeFileSync(kindsFile, kinds.replace(rule, rule.replace('enabled: true', 'enabled: false')).replace(debt, `${debt}    key: [path]\n    fields:\n      - { name: path, type: text, binding: { agent: "The source file path" } }\n      - { name: marker, type: text, binding: { agent: "The debt marker" } }\n      - { name: text, type: text, binding: { agent: "The comment text" } }\n`));
+  const kinds = parseDocument(readFileSync(kindsFile, 'utf8'));
+  expect(kinds.getIn(['problems', 'rules', 'debt.todo', 'enabled'])).toBe(true);
+  expect(kinds.hasIn(['kinds', 'code.debt'])).toBe(true);
+  kinds.setIn(['problems', 'rules', 'debt.todo', 'enabled'], false);
+  kinds.setIn(['kinds', 'code.debt', 'key'], ['path']);
+  kinds.setIn(['kinds', 'code.debt', 'fields'], [
+    { name: 'path', type: 'text', binding: { agent: 'The source file path' } },
+    { name: 'marker', type: 'text', binding: { agent: 'The debt marker' } },
+    { name: 'text', type: 'text', binding: { agent: 'The comment text' } },
+  ]);
+  writeFileSync(kindsFile, kinds.toString());
   commitProduct(folder, 'Declare a debt opinion and disable its TODO rule');
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
@@ -122,10 +128,10 @@ describe('the problems entry of the menu', () => {
 
     // A valid manifest enables the TODO rule for the one structured debt opinion already in the graph.
     const file = join(folder, 'madarch/kinds.yaml');
-    const manifest = readFileSync(file, 'utf8');
-    const rule = manifest.split('\n').find((line) => line.startsWith('    debt.todo:'))!;
-    expect(rule).toContain('enabled: false');
-    writeFileSync(file, manifest.replace(rule, rule.replace('enabled: false', 'enabled: true')));
+    const manifest = parseDocument(readFileSync(file, 'utf8'));
+    expect(manifest.getIn(['problems', 'rules', 'debt.todo', 'enabled'])).toBe(false);
+    manifest.setIn(['problems', 'rules', 'debt.todo', 'enabled'], true);
+    writeFileSync(file, manifest.toString());
     commitProduct(folder, 'Enable the TODO finding');
     const validated = validateProductManifests(folder);
     if (!validated.ok) throw new Error(validated.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
