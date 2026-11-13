@@ -167,7 +167,9 @@ function decided(candidates: readonly string[], extension: string, content: stri
   switch (extension) {
     case '.ts':
     case '.tsx': {
-      if (/^\uFEFF?\s*<\?xml\b/u.test(text) || /<TS\b/u.test(text)) return named(candidates, 'XML');
+      // The XML rule is anchored to the document's start: an optional BOM and whitespace, an XML declaration, then
+      // the element. A TypeScript file that mentions `<TS` inside its own text stays TypeScript.
+      if (/^\uFEFF?\s*(?:<\?xml\b[^>]*>\s*)?<TS\b/u.test(text)) return named(candidates, 'XML');
       return preferred;
     }
     case '.md':
