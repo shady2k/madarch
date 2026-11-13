@@ -322,14 +322,24 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const location = `${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}`;
   const reads = declarationPlan.readsFor(unit.plugin.id, unit.kind.name);
   const snapshots = new Map<string, Awaited<ReturnType<typeof successfulPluginSnapshot>>>();
+  const capturedSnapshots = new Map<string, ReturnType<typeof successfulPluginSnapshot>>();
+  const captureSnapshot = (producer: string, kind: string) => {
+    const scope = pluginTurnUnitId(producer, kind, selectedVertex(wiring, kind));
+    let captured = capturedSnapshots.get(scope);
+    if (captured === undefined) {
+      captured = successfulPluginSnapshot(wiring.owner, runId!, scope);
+      capturedSnapshots.set(scope, captured);
+    }
+    return captured;
+  };
   for (const read of reads) if (typeof read !== 'string') {
     if (runId === undefined) throw new Error(`${location}: output ${unit.kind.name} requires current-run identity to capture earlier snapshot ${read.kind} from ${read.producer}`);
-    snapshots.set(read.kind, await successfulPluginSnapshot(wiring.owner, runId, pluginTurnUnitId(read.producer, read.kind, selectedVertex(wiring, read.kind))));
+    snapshots.set(read.kind, await captureSnapshot(read.producer, read.kind));
   }
   if (runId !== undefined) for (const read of reads) if (typeof read === 'string') {
     for (const field of wiring.manifest.kinds.get(read)?.fields ?? []) {
       const producer = declarationPlan.lastProducer(read, field.name);
-      if (producer !== undefined) snapshots.set(`${read}.${field.name}`, await successfulPluginSnapshot(wiring.owner, runId, pluginTurnUnitId(producer, read, selectedVertex(wiring, read))));
+      if (producer !== undefined) snapshots.set(`${read}.${field.name}`, await captureSnapshot(producer, read));
     }
   }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
