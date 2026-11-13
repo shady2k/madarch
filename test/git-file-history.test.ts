@@ -141,6 +141,18 @@ test('a fill counts the files whose removal is empty, and dates and commits ever
       { path: 'gone.txt', added_at: '2026-01-01T00:00:00.000Z', added_in: first, removed_at: '2026-01-02T00:00:00.000Z', removed_in: second },
       { path: 'kept.txt', added_at: '2026-01-01T00:00:00.000Z', added_in: first, removed_at: null, removed_in: null },
     ]);
+    // A rerun reads the same first-parent history and states the same periods.
+    const rerun = await runFill({ product: PRODUCT, database: owner, home: join(ROOT, 'home'), runId: 'code-data-2', prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
+    if (!rerun.ok) throw new Error(`fill refused: ${rerun.reason}`);
+    expect(rerun.state).toBe('succeeded');
+    const again = await owner.transaction('snapshot', async (tx) => (await tx.query<{ path: string; added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>(
+      `SELECT n.key->>'path' AS path,
+              to_char(o.added_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS added_at, o.added_in,
+              to_char(o.removed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS removed_at, o.removed_in
+       FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
+       WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git' AND n.key->>'repository' = 'fixture' ORDER BY path`,
+    )).rows);
+    expect(again).toEqual(periods);
     const counted = await owner.transaction('snapshot', async (tx) => (await tx.query<{ n: number }>(
       `SELECT count(DISTINCT n.id)::integer AS n FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id
        WHERE o.state = 'open' AND split_part(o.said_by, '@', 1) = 'git' AND n.key->>'repository' = 'fixture' AND o.removed_at IS NULL`,
@@ -184,4 +196,51 @@ test('a path deleted and added again states its latest period', async () => {
     added_at: '2026-01-03T00:00:00.000Z', added_in: again, removed_at: null, removed_in: null,
   });
   expect(file?.evidence).toEqual({ repository: 'twice', path: 'twice.txt', commitOrDigest: again });
+});
+
+
+test('a removal made by a merge commit is stated by that merge', async () => {
+  const folder = join(ROOT, 'merge-removal');
+  mkdirSync(folder);
+  git(folder, ONE, 'init', '-q', '-b', 'main');
+  git(folder, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(folder, 'f.txt'), 'f\n');
+  writeFileSync(join(folder, 'base.txt'), 'base\n');
+  const added = commit(folder, ONE, 'add');
+  git(folder, TWO, 'checkout', '-qb', 'side');
+  git(folder, TWO, 'rm', '-q', 'f.txt');
+  const deletedOnSide = commit(folder, TWO, 'side deletes f');
+  git(folder, TWO, 'checkout', '-q', 'main');
+  writeFileSync(join(folder, 'base.txt'), 'base changed\n');
+  commit(folder, TWO, 'main changes base');
+  git(folder, TWO, 'merge', '--no-ff', '-m', 'merge side', 'side');
+  const merged = git(folder, TWO, 'rev-parse', 'HEAD');
+  expect(current(folder)).toEqual(['base.txt']);
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'merge-removal', merged)), context(current(folder)));
+  const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'f.txt');
+  expect(file?.values).toMatchObject({ added_in: added, removed_in: merged, removed_at: '2026-01-02T00:00:00.000Z' });
+  expect(file?.values?.['removed_in']).not.toBe(deletedOnSide);
+});
+
+test('a deletion discarded by a merge is no removal', async () => {
+  const folder = join(ROOT, 'merge-discarded');
+  mkdirSync(folder);
+  git(folder, ONE, 'init', '-q', '-b', 'main');
+  git(folder, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(folder, 'f.txt'), 'f\n');
+  writeFileSync(join(folder, 'base.txt'), 'base\n');
+  const added = commit(folder, ONE, 'add');
+  git(folder, TWO, 'checkout', '-qb', 'side');
+  git(folder, TWO, 'rm', '-q', 'f.txt');
+  const discarded = commit(folder, TWO, 'side deletes f');
+  git(folder, TWO, 'checkout', '-q', 'main');
+  writeFileSync(join(folder, 'base.txt'), 'base changed\n');
+  commit(folder, TWO, 'main changes base');
+  git(folder, TWO, 'merge', '-s', 'ours', '--no-ff', '-m', 'keep ours', 'side');
+  const merged = git(folder, TWO, 'rev-parse', 'HEAD');
+  expect(current(folder)).toEqual(['base.txt', 'f.txt']);
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'merge-discarded', merged)), context(current(folder)));
+  const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'f.txt');
+  expect(file?.values).toMatchObject({ added_in: added, removed_in: null, removed_at: null });
+  expect(file?.values?.['removed_in']).not.toBe(discarded);
 });

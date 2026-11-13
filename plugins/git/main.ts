@@ -51,13 +51,16 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
         changes.set(path, facts);
       }
     }
-    // The latest period of each path's existence: the history is walked oldest first, so an add begins a period and
-    // clears the removal of a path added again, and a delete or a rename away ends it. Merge commits are skipped like
-    // the change count above: the work they bring is a commit of its own in the walk.
+    // The latest period of each path's existence follows the first-parent history of the pin: each commit is diffed
+    // against its first parent, merge commits included, so a deletion the merge itself made is its removal and a
+    // change the merge discarded is no change at all. The history is walked oldest first, so an add begins a period and
+    // clears the removal of a path added again, and a delete or a rename away ends it.
+    const byHash = new Map(history.commits.map((held) => [held.hash, held]));
+    const firstParent: typeof history.commits[number][] = [];
+    for (let held = byHash.get(pin.commit); held !== undefined; held = held.parents[0] === undefined ? undefined : byHash.get(held.parents[0]!)) firstParent.push(held);
     const periods = new Map<string, { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>();
     const emptyPeriod = () => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
-    for (const held of [...history.commits].reverse()) {
-      if (held.parents.length > 1) continue;
+    for (const held of firstParent.reverse()) {
       const at = new Date(held.commitDate).toISOString();
       for (const touched of held.touched) {
         if (touched.change === 'added' || touched.change === 'renamed') {
