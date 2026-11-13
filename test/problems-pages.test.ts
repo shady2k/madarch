@@ -14,6 +14,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { commitProduct, makeProduct, SAMPLE_IDENTITY, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
+import { restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { parse, stringify } from 'yaml';
 
@@ -56,14 +57,10 @@ beforeAll(async () => {
   writeFileSync(workspace, workspaceText);
   // Pagination needs repository facts and one rule, not the starter catalogue's hundreds of planned kinds.
   const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+  restrictRepositoryDeclarations(folder);
   const starter = parse(readFileSync(kindsFile, 'utf8'));
-  const kinds = Object.fromEntries(['code.repository', 'code.directory', 'code.file', 'code.commit'].map((name) => {
-    const kind = starter.kinds[name];
-    return [name, { template: kind.template, source: 'graph', capability: 'git' }];
-  }));
-  writeFileSync(kindsFile, stringify({ language: 'en', kinds, problems: { rules: {
-    'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'],
-  } } }));
+  starter.problems = { rules: { 'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'] } };
+  writeFileSync(kindsFile, stringify(starter));
   commitProduct(folder, 'Declare empty repositories for paged problems');
   const app = join(work, 'app');
   mkdirSync(app);
