@@ -302,7 +302,8 @@ function pinOf(id: string, form: 'code' | 'product', root: string, defaultBranch
   const commit = git(root, id, ['rev-parse', 'HEAD']);
   const branch = defaultBranch ?? branchOf(root, id);
   const shallowFile = resolve(root, git(root, id, ['rev-parse', '--git-path', 'shallow']));
-  const historyBoundaryHash = hashFillInput(existsSync(shallowFile) ? readFileSync(shallowFile, 'utf8') : '');
+  const shallowBoundaries = existsSync(shallowFile) ? readFileSync(shallowFile, 'utf8').split('\n').filter(Boolean).sort(byCodePoint).join('\n') : '';
+  const historyBoundaryHash = hashFillInput(shallowBoundaries);
   const url = sanitizeRepositoryUrl(gitQuietly(root, ['remote', 'get-url', 'origin']) ?? '');
   return { id, form, root, commit, url, historyBoundaryHash, ...(branch === undefined ? {} : { defaultBranch: branch }) };
 }
