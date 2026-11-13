@@ -184,11 +184,11 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     if (selected.has(name) || collecting.has(name)) return;
     collecting.add(name);
     for (const prerequisite of kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
-    for (const plugin of input.plugins) {
-      for (const output of plugin.manifest.produces) {
-        if (output.kind !== '*' && output.kind !== name) continue;
-        for (const read of output.reads ?? []) collect(typeof read === 'string' ? read : read.kind);
-      }
+    for (const entry of entries) {
+      // Only the outputs a fill actually runs: an output fully covered by another producer's claims is suppressed, and
+      // the kinds a suppressed producer reads are not inputs of this turn.
+      if (entry.kind !== name) continue;
+      for (const read of entry.declaration.reads ?? []) collect(typeof read === 'string' ? read : read.kind);
     }
     collecting.delete(name);
     selected.add(name);

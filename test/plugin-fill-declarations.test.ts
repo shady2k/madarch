@@ -85,6 +85,14 @@ test('a plugin that reads a kind its output does not rest on still runs after th
   expect(plan.order).toEqual(['disk', 'imports']);
   expect(plan.unitPredecessors('imports', 'code.package')).toEqual([{ plugin: 'disk', kind: 'code.file' }]);
 });
+test('a suppressed gap producer does not pull the kinds it reads into the selected set', () => {
+  const catalogue = [kind('X'), kind('Y')];
+  const declarations = [plugin('main', [output('X')]), plugin('extra', [output('X', '*', { coverage: 'gaps', reads: ['Y'] })])];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['X'] });
+  expect(plan.selectedKinds).toEqual(['X']);
+  expect(plan.order).toEqual(['main']);
+});
+
 test('S4: each output validates and selects only its own dependencies', () => {
   const catalogue = [kind('X'), kind('Y'), kind('A', ['description'], ['X']), kind('B', ['description'], ['Y'])];
   const multi = plugin('multi', [output('A', '*', { reads: ['X'] }), output('B', '*', { reads: ['Y'] })]);

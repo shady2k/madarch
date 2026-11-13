@@ -89,9 +89,24 @@ function isNode(value: unknown): value is BabelNode {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && typeof (value as { type?: unknown }).type === 'string';
 }
 
-/** The source text of a string literal, or undefined for any other expression. */
+/** The source text of a string literal or a template with no substitution, or undefined for any other expression. */
 function stringOf(value: unknown): string | undefined {
-  return isNode(value) && value['type'] === 'StringLiteral' && typeof value['value'] === 'string' ? value['value'] : undefined;
+  if (!isNode(value)) return undefined;
+  if (value['type'] === 'StringLiteral' && typeof value['value'] === 'string') return value['value'];
+  if (value['type'] === 'TemplateLiteral') {
+    const expressions = value['expressions'];
+    const quasis = value['quasis'];
+    if (!Array.isArray(expressions) || expressions.length !== 0 || !Array.isArray(quasis) || quasis.length !== 1) return undefined;
+    const quasi = quasis[0];
+    if (!isNode(quasi)) return undefined;
+    // A template element's value is `{ raw, cooked }`, not a node of the syntax.
+    const parts = quasi['value'];
+    if (typeof parts !== 'object' || parts === null) return undefined;
+    const held = parts as { readonly cooked?: unknown; readonly raw?: unknown };
+    if (typeof held.cooked === 'string') return held.cooked;
+    if (typeof held.raw === 'string') return held.raw;
+  }
+  return undefined;
 }
 
 /** The name an identifier or a string literal states. */
@@ -244,6 +259,15 @@ function byPlace(left: ImportRecord, right: ImportRecord): number {
   return leftTarget < rightTarget ? -1 : leftTarget > rightTarget ? 1 : 0;
 }
 
+/** The parser's plugins for a path: a `.ts` file is TypeScript (a `<T>value` assertion is not JSX), a `.tsx` or `.jsx` adds JSX. */
+function parseOptionsOf(path: string): { sourceType: 'unambiguous'; plugins: string[]; allowReturnOutsideFunction: boolean; allowAwaitOutsideFunction: boolean; errorRecovery: boolean } {
+  const extension = sourceExtensionOf(path);
+  const shared = { sourceType: 'unambiguous' as const, allowReturnOutsideFunction: true, allowAwaitOutsideFunction: true, errorRecovery: true };
+  if (extension === '.tsx' || extension === '.jsx') return { ...shared, plugins: ['typescript', 'jsx', 'decorators-legacy'] };
+  if (extension === '.ts' || extension === '.mts' || extension === '.cts') return { ...shared, plugins: ['typescript', 'decorators-legacy'] };
+  return { ...shared, plugins: ['jsx', 'decorators-legacy'] };
+}
+
 /** The part a site states of a record or a problem. */
 function statedBy(site: { names?: readonly string[]; typeOnly?: boolean }): { names?: readonly string[]; typeOnly?: boolean } {
   return { ...(site.names === undefined ? {} : { names: site.names }), ...(site.typeOnly === true ? { typeOnly: true } : {}) };
@@ -266,7 +290,7 @@ export function readRepository(repository: RepositoryTexts): ReadResult {
     const text = repository.texts.get(path) ?? '';
     let program: BabelNode;
     try {
-      program = parseTypeScript(text, { sourceType: 'unambiguous', plugins: ['typescript', 'jsx', 'decorators-legacy'], allowReturnOutsideFunction: true, allowAwaitOutsideFunction: true, errorRecovery: true }) as BabelNode;
+      program = parseTypeScript(text, parseOptionsOf(path)) as BabelNode;
     } catch (error) {
       const failed = error as { message?: string; loc?: { line?: number; column?: number } };
       const line = failed.loc?.line ?? 1;

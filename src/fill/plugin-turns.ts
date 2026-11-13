@@ -432,22 +432,24 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         for (const vertex of [...outcome.result.vertices, ...outcome.result.removals]) if (!partitionKeys.has(canonicalKey(vertex.key))) throw new Error(`${location}: output outside selected partition keys`);
         for (const edge of outcome.result.edges) if (!partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge outside selected partition keys`);
       }
+      // The places the unit could not read are its problems, with their file, line and cause: one unreadable file never
+      // makes the rest of the answer a silence, and the reason is where a person finds what was left out. A partial unit
+      // keeps its cause and its places alike, so a file-specific problem is never hidden under the general cause.
+      const problems = outcome.result.problems;
+      const problemsText = problems.length === 0 ? undefined : `${String(problems.length)} place${problems.length === 1 ? '' : 's'} could not be read: ${problems.map((problem) => `${problem.repository === undefined ? '' : `${problem.repository}/`}${problem.path}:${String(problem.line)}${problem.column === undefined ? '' : `:${String(problem.column)}`} ${problem.message}`).join('; ')}`;
       if (outcome.result.end.state === 'partial') {
-        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: outcome.result.end.cause } });
+        const reason = problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`;
+        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason } });
         draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
         journaled = true;
-        progress?.(`the plugin ${unit.plugin.id} abstained: ${outcome.result.end.cause}`);
+        progress?.(`the plugin ${unit.plugin.id} abstained: ${reason}`);
         await meter?.flush();
         const stop = meter?.stop();
         if (stop !== undefined) throw new Error(stop.message);
         return;
       }
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
-      // The places the unit could not read are its problems, with their file, line and cause: one unreadable file never
-      // makes the rest of the answer a silence, and the reason is where a person finds what was left out.
-      const problems = outcome.result.problems;
-      const reason = problems.length === 0 ? undefined : `${String(problems.length)} place${problems.length === 1 ? '' : 's'} could not be read: ${problems.map((problem) => `${problem.repository === undefined ? '' : `${problem.repository}/`}${problem.path}:${String(problem.line)}${problem.column === undefined ? '' : `:${String(problem.column)}`} ${problem.message}`).join('; ')}`;
-      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length, ...(reason === undefined ? {} : { reason }) } });
+      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length, ...(problemsText === undefined ? {} : { reason: problemsText }) } });
       const only = selectedVertex(wiring, unit.kind.name);
       // Publish this kind's unit; other declared results belong to their own units.
       const selectedKinds = new Set([unit.kind.name]);
