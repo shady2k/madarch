@@ -1,0 +1,20 @@
+{
+  "name": "imports",
+  "version": "1.0.0",
+  "entry": "main.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "description": "The imports plugin: reads the graph's TypeScript and JavaScript files and states which file imports which, and which package each names (decision 0035; task madarch-o0eq.6).",
+  "produces": [
+    {
+      "kind": "code.package",
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
+    }
+  ],
+  "concurrency": 1
+}

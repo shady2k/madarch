@@ -1,0 +1,125 @@
+{
+  "id": "imports",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "code.package",
+        "key": [
+          "ecosystem",
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "ecosystem",
+            "type": "text",
+            "meaning": "The runtime the package belongs to: node for TypeScript and JavaScript.",
+            "example": "node",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The package's own name, as a specifier writes it: graphql, @scope/pkg, node:fs.",
+            "example": "graphql",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "kind": "code.imports",
+        "from": "code.file",
+        "to": "code.file",
+        "fields": [
+          {
+            "name": "place",
+            "type": "text",
+            "meaning": "The line and column the import opens at, which tells a repeated edge from another.",
+            "example": "3:1",
+            "required": true
+          },
+          {
+            "name": "specifier",
+            "type": "text",
+            "meaning": "The specifier as the importing file writes it.",
+            "example": "./graph/write.js",
+            "required": true
+          },
+          {
+            "name": "form",
+            "type": "text",
+            "meaning": "How the file names the module: static, type, dynamic, require or re-export.",
+            "example": "static",
+            "required": true
+          },
+          {
+            "name": "names",
+            "type": "json",
+            "meaning": "The names the import takes, as the module exports them; absent when it takes none.",
+            "example": [
+              "readGraph"
+            ],
+            "required": false
+          },
+          {
+            "name": "type_only",
+            "type": "boolean",
+            "meaning": "Whether every binding the import takes is a type.",
+            "example": true,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.imports-package",
+        "from": "code.file",
+        "to": "code.package",
+        "fields": [
+          {
+            "name": "place",
+            "type": "text",
+            "meaning": "The line and column the import opens at, which tells a repeated edge from another.",
+            "example": "3:1",
+            "required": true
+          },
+          {
+            "name": "specifier",
+            "type": "text",
+            "meaning": "The specifier as the importing file writes it.",
+            "example": "@scope/pkg/sub",
+            "required": true
+          },
+          {
+            "name": "form",
+            "type": "text",
+            "meaning": "How the file names the package: static, type, dynamic, require or re-export.",
+            "example": "static",
+            "required": true
+          },
+          {
+            "name": "names",
+            "type": "json",
+            "meaning": "The names the import takes, as the module exports them; absent when it takes none.",
+            "example": [
+              "readFile"
+            ],
+            "required": false
+          },
+          {
+            "name": "type_only",
+            "type": "boolean",
+            "meaning": "Whether every binding the import takes is a type.",
+            "example": false,
+            "required": false
+          }
+        ]
+      }
+    ]
+  },
+  "rights": {
+    "network": "none",
+    "graph": true
+  }
+}

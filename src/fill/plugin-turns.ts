@@ -316,10 +316,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
+  // An edge is published in the turn of the later of its ends' kinds; an edge between two kinds the plugin reads rather
+  // than produces — a file imports a file — belongs to the plugin's last output turn, the turn in which it reads them.
+  // The plugin's reads, not the catalogue's derives-from, is what makes a file the source of such an edge.
+  const edgeOwner = (from: string, to: string): string | undefined =>
+    outputOrder.filter((kind) => kind === from || kind === to).at(-1) ?? outputOrder.at(-1);
   const edgeOutputs = (unit.plugin.contract?.edges ?? []).flatMap((edge) => {
     const fromKinds = typeof edge.from === 'string' ? [edge.from] : edge.from;
     const toKinds = typeof edge.to === 'string' ? [edge.to] : edge.to;
-    return fromKinds.flatMap((from) => toKinds.filter((to) => outputOrder.filter((kind) => kind === from || kind === to).at(-1) === unit.kind.name)
+    return fromKinds.flatMap((from) => toKinds.filter((to) => edgeOwner(from, to) === unit.kind.name)
       .map((to) => ({ kind: edge.kind, from, to })));
   });
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>

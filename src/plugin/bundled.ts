@@ -63,6 +63,12 @@ export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
     files: pluginFiles('glossary').map((file) => ({ path: file.path, content: contentOf(file.base64) })),
   },
   {
+    id: 'imports',
+    folder: 'plugins/imports',
+    version: '1.0.0',
+    files: pluginFiles('imports').map((file) => ({ path: file.path, content: contentOf(file.base64) })),
+  },
+  {
     id: 'test-quarantine', folder: 'plugins/test-quarantine', version: '1.0.0',
     files: pluginFiles('test-quarantine').map((file) => ({ path: file.path, content: contentOf(file.base64) })),
   },

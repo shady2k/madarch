@@ -518,6 +518,8 @@ edges:
   - { name: code.history, from: [code.repository], to: [code.commit], capability: git }
   - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }
   - { name: code.touched, from: [code.commit], to: [code.file], capability: git }
+  - { name: code.imports, from: [code.file], to: [code.file], repeats: true, discriminator: place, capability: imports }
+  - { name: code.imports-package, from: [code.file], to: [code.package], repeats: true, discriminator: place, capability: imports }
   - { name: code.authored, from: [code.author], to: [code.commit], capability: git }
   - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }
   - { name: quarantines, from: [code.test-quarantine], to: [code.test-case], capability: test-quarantine }
