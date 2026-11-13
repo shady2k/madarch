@@ -441,14 +441,15 @@ describe('a git date of a zero or a negative offset', () => {
       listed.rows.push(...page.rows);
     }
     expect(listed.rows).toHaveLength(listed.total);
-    const file = listed.rows.find((one) => one.key === 'code.file:fixture/src/a.ts');
+    // The later offsets fill replaces disk/git opinions in this shared store; read its standing file.
+    const file = listed.rows.find((one) => one.key === 'code.file:offsets/a.txt');
     if (file === undefined) throw new Error(`the listing answered ${listed.rows.map((one) => one.key).join(', ')}`);
     expect(typeof file.properties['path']).toBe('string');
     expect(typeof file.properties['mode']).toBe('string');
     expect(file.evidence ?? []).toEqual([]);
     expect(file.opinions ?? []).toEqual([]);
     // The single entity's read is the one that states the sources, and the value is the same one.
-    const one = (await reader.find('code.file:fixture/src/a.ts'))[0];
+    const one = (await reader.find('code.file:offsets/a.txt'))[0];
     expect(one?.properties['mode']).toBe(file.properties['mode']);
     expect((one?.evidence ?? []).length).toBeGreaterThan(0);
     expect((one?.opinions ?? []).length).toBeGreaterThan(0);
