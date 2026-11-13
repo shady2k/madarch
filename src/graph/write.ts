@@ -17,8 +17,8 @@
  * opinion; one publication states the producer's whole opinion of the entity, and a field it leaves out is a field it
  * has no opinion on. A rerun of the same answer writes nothing; changed evidence under an unchanged value updates the
  * row's evidence (journaled from stage 2), never opening a second opinion; a changed value closes the producer's open
- * opinion and opens a new one; a removal closes only its own producer's opinions, and the vertex is removed when no
- * open opinion of any producer remains.
+ * opinion and opens a new one; a removal closes only its own producer's opinions — a vertex's, or an edge's in every
+ * language — and the vertex or edge is removed when no open opinion of any producer remains.
  *
  * **Declarations before references.** A publication declares its vertices first (which creates a node if absent) and
  * only then resolves the references its keys and its edges name. A reference to a key no vertex holds is recorded in
@@ -598,7 +598,12 @@ export async function publishOpinion(executor: SqlExecutor, contract: GraphContr
   return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
 }
 
-/** One edge by its id, removed: its opinions go with it (a consistent cascade), never the vertices it names. */
+/**
+ * One edge by its id, removed whole: every producer's opinions go with it (a consistent cascade), never the vertices
+ * it names. This is the delete-everything path, for the callers that remove the edge with no producer to keep: the
+ * incident edges of a vertex that leaves the store (every producer's opinion there is about a vertex that is gone) and
+ * a journal replay's own teardown of a store built from history. A producer's retraction goes through `withdrawEdge`.
+ */
 export async function removeEdgeById(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, journal?: Journal): Promise<boolean> {
   journal = heldJournal(executor, journal);
   const kind = edgeOfKind(contract, kindName);
@@ -610,6 +615,39 @@ export async function removeEdgeById(executor: SqlExecutor, contract: GraphContr
   const opinions = await executor.query<{ id: string; said_by: string; lang: string | null }>(`SELECT "id"::text AS id, "said_by", "lang" FROM ${kind.table} WHERE edge_id = $1::bigint AND "state" = 'open'`, [edgeId]);
   for (const one of opinions.rows) journal?.opinion({ id: one.id, entity: kind.name, edge: edgeId, state: 'closed', fields: [], lang: one.lang, said_by: one.said_by });
   await executor.query(`DELETE FROM ${kind.table} WHERE edge_id = $1::bigint`, [edgeId]);
+  await executor.query(`DELETE FROM edge WHERE id = $1::bigint`, [edgeId]);
+  journal?.removedEdge(kindName, edgeId, row.from_uid, row.to_uid, row.discriminator, Number(row.context_id));
+  return true;
+}
+
+/**
+ * One producer's retraction of an edge: its open opinions of the edge — in every language — close and stay as history,
+ * and the edge row is removed when no open opinion of any producer remains, as a vertex retraction does (decision 0034,
+ * item 5; 0035, item 2). A retraction naming an edge the store does not hold, or one this producer holds no open
+ * opinion of, writes nothing.
+ */
+export async function withdrawEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, producer: string, journal?: Journal): Promise<boolean> {
+  journal = heldJournal(executor, journal);
+  const kind = edgeOfKind(contract, kindName);
+  const held = await executor.query<{ from_uid: string; to_uid: string; discriminator: string; context_id: string }>(
+    `SELECT fn.uid::text AS from_uid, tn.uid::text AS to_uid, e.discriminator, e.context_id::text AS context_id
+     FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint FOR UPDATE OF e`, [edgeId]);
+  const row = held.rows[0];
+  if (row === undefined) return false;
+  const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
+    `UPDATE ${kind.table} SET "state" = 'closed' WHERE "edge_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
+    [edgeId, producer, row.context_id],
+  );
+  if (closed.rows.length === 0) return false;
+  for (const one of closed.rows) journal?.opinion({ id: one.id, entity: kind.name, edge: edgeId, state: 'closed', fields: [], lang: one.lang, said_by: one.said_by });
+  const open = await executor.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM ${kind.table} WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`,
+    [edgeId, row.context_id],
+  );
+  if (Number(open.rows[0]?.n ?? '0') > 0) return true;
+  // No open opinion of any producer remains: the edge row goes, and its rows with it — a consistent cascade, the closes
+  // kept in the journal as the history of every producer that stated it.
+  await executor.query(`DELETE FROM ${kind.table} WHERE "edge_id" = $1::bigint`, [edgeId]);
   await executor.query(`DELETE FROM edge WHERE id = $1::bigint`, [edgeId]);
   journal?.removedEdge(kindName, edgeId, row.from_uid, row.to_uid, row.discriminator, Number(row.context_id));
   return true;
@@ -747,8 +785,9 @@ function producerOf(drafts: GraphDrafts): string | undefined {
 
 /**
  * One edge a producer withdraws: its ends are found the way a declaration's are (by uid of the kind and key), the edge
- * row between them by its discriminator, and the row is removed with its opinions. A removal that names an edge the
- * store does not hold writes nothing — a rerun of the same answer and an edge never made are the same silence.
+ * row between them by its discriminator, and the producer's own open opinions of it close (decision 0034, item 5; 0035,
+ * item 2). A removal that names an edge the store does not hold, or one the producer holds no open opinion of, writes
+ * nothing — a rerun of the same answer and an edge never made are the same silence.
  */
 async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, draft: EdgeRemovalDraft, contextId: number, journal?: Journal): Promise<boolean> {
   const declared = contract.edge.find((held) => held.name === draft.kind);
@@ -763,7 +802,7 @@ async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, d
   );
   const id = found.rows[0]?.id;
   if (id === undefined) return false;
-  return await removeEdgeById(executor, contract, draft.kind, id, journal);
+  return await withdrawEdge(executor, contract, draft.kind, id, draft.producer, journal);
 }
 
 /** A declaration's node, and where each vertex's key names its references. */
