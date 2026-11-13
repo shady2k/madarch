@@ -276,6 +276,11 @@ export interface FactDecl {
   readonly buckets?: readonly number[];
   readonly limit?: number;
   readonly audience?: readonly string[];
+  /**
+   * The entities the fact counts: each field named here must hold the value, and `null` matches a field no opinion
+   * states (a current file's `removed_at`, for example). A fact without it counts every entity of its kind.
+   */
+  readonly where?: Readonly<Record<string, string | number | boolean | null>>;
 }
 
 export interface PurposeDecl {
@@ -1792,7 +1797,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       const path = ['facts', index] as (string | number)[];
       if (!isRecord(raw)) { problem(path, 'a fact is a mapping'); return; }
       const start = findings.length;
-      for (const key of Object.keys(raw)) if (!['id', 'labels', 'measure', 'display', 'field', 'buckets', 'limit', 'audience'].includes(key)) problem([...path, key], `unknown fact field "${key}"`);
+      for (const key of Object.keys(raw)) if (!['id', 'labels', 'measure', 'display', 'field', 'buckets', 'limit', 'audience', 'where'].includes(key)) problem([...path, key], `unknown fact field "${key}"`);
       if (typeof raw['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/u.test(raw['id']) || facts.some((fact) => fact.id === raw['id'])) problem([...path, 'id'], 'a fact id is a unique lower-case identifier');
       const labels = raw['labels'];
       if (!isRecord(labels) || Object.keys(labels).some((key) => !LABEL_LANGUAGES.includes(key)) || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || (labels[lang] as string).trim() === '')) problem([...path, 'labels'], `fact labels must name every language (${LABEL_LANGUAGES.join(', ')})`);
@@ -1814,7 +1819,22 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (typeof raw['limit'] !== 'number' || !Number.isInteger(raw['limit']) || raw['limit'] < 1) problem([...path, 'limit'], 'top-n requires a positive integer limit');
       } else if (raw['limit'] !== undefined) problem([...path, 'limit'], 'only top-n declares a limit');
       const factAudience = audienceOf(raw['audience'], [...path, 'audience']);
-      if (start === findings.length) facts.push({ ...raw, ...(factAudience === undefined ? {} : { audience: factAudience }) } as unknown as FactDecl);
+      // A fact's population: a field's value, where null names a field no opinion states (a current file has no removal).
+      const where = raw['where'];
+      let condition: Readonly<Record<string, string | number | boolean | null>> | undefined;
+      if (where !== undefined) {
+        if (!isRecord(where) || Object.keys(where).length === 0) problem([...path, 'where'], '"where" is a non-empty mapping of a declared field to the value an entity must hold');
+        else {
+          const held: Record<string, string | number | boolean | null> = {};
+          for (const [field, value] of Object.entries(where)) {
+            if (!fields.some((declared) => declared.name === field)) problem([...path, 'where', field], `"where" names the field ${JSON.stringify(field)}, and the kind declares no such field`);
+            else if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') problem([...path, 'where', field], '"where" compares a field with a text, a number, a boolean or null');
+            else held[field] = value;
+          }
+          if (Object.keys(held).length === Object.keys(where).length) condition = held;
+        }
+      }
+      if (start === findings.length) facts.push({ ...raw, ...(factAudience === undefined ? {} : { audience: factAudience }), ...(condition === undefined ? {} : { where: condition }) } as unknown as FactDecl);
     });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');

@@ -12,6 +12,7 @@ export interface FactGround {
   field?: string;
   buckets?: readonly number[];
   limit?: number;
+  where?: Readonly<Record<string, string | number | boolean | null>>;
   total: number;
   missing: number;
   entities: string[];
@@ -83,10 +84,14 @@ export async function buildFacts(ctx: RenderContext, role: string, language = 'e
       after = page.next ?? undefined;
     } while (after !== undefined);
     const label = kind.labels?.[language]?.many ?? kind.labels?.['en']?.many ?? kind.name;
+    // A fact counts the entities its declared condition names: `removed_at: null` is a field no opinion states, so an
+    // absent value matches it as well as a stored null.
+    const populationOf = (fact: FactDecl): readonly GraphEntity[] => fact.where === undefined ? entities : entities.filter((entity) => Object.entries(fact.where!).every(([field, value]) => value === null ? entity.properties[field] === null || entity.properties[field] === undefined : entity.properties[field] === value));
     const statements = facts.map((fact): FactStatement => {
-      const result = aggregate(entities, fact, now, language);
+      const population = populationOf(fact);
+      const result = aggregate(population, fact, now, language);
       const label = fact.labels[language] ?? fact.labels['en']!;
-      const ground: FactGround = { kind: kind.name, measure: fact.measure, ...(fact.field === undefined ? {} : { field: fact.field }), ...(fact.buckets === undefined ? {} : { buckets: fact.buckets }), ...(fact.limit === undefined ? {} : { limit: fact.limit }), total: entities.length, missing: result.missing, entities: entities.map((entity) => entity.key).sort(byCodePoint), computedAt: now.toISOString(), value: result.value, rows: result.rows };
+      const ground: FactGround = { kind: kind.name, measure: fact.measure, ...(fact.field === undefined ? {} : { field: fact.field }), ...(fact.buckets === undefined ? {} : { buckets: fact.buckets }), ...(fact.limit === undefined ? {} : { limit: fact.limit }), ...(fact.where === undefined ? {} : { where: fact.where }), total: population.length, missing: result.missing, entities: population.map((entity) => entity.key).sort(byCodePoint), computedAt: now.toISOString(), value: result.value, rows: result.rows };
       const id = `fact:${kind.name}/${fact.id}`;
       const statement: StatementModel = { page: { id, kind: kind.name, label, href: kindAddress(kind.name) }, name: fact.id, sentence: label, paragraph: result.value === null ? `${label}: ${result.rows.map((row) => `${row.label}: ${row.value}`).join('; ')}` : `${label}: ${result.value}`, file: ctx.manifest.kindFiles?.get(kind.name) ?? ctx.manifest.file, line: kind.line, grounded: true, grounds: [{ url: kindAddress(kind.name), resolution: { state: 'ok', target: kind.name, kind: kind.name, label, href: kindAddress(kind.name) }, excerpt: null }], aggregate: ground, relying: [], resolutions: {} };
       return { id, label, display: fact.display, measure: fact.measure, value: result.value, rows: result.rows, ground, statement };

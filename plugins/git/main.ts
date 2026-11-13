@@ -1,6 +1,16 @@
 import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 'madarch-plugin-sdk';
 import { readRepositoryHistory, shallowGapOf, type RepositoryAt } from './reader.js';
 
+/** What the git plugin states about one path: its change count, its last change and the latest period it existed. */
+type PathFacts = {
+  readonly commit_count: number;
+  readonly last_change: string | null;
+  readonly added_at: string | null;
+  readonly added_in: string | null;
+  readonly removed_at: string | null;
+  readonly removed_in: string | null;
+};
+
 /** The git plugin reads disk identities, then interprets history from pinned repository objects. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
   const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; keys?: readonly { hash: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
@@ -10,15 +20,11 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const known = new Set(files.map(file => `${String(file.key['repository'])}\0${String(file.key['path'])}`));
   const authors = new Set<string>();
   const paths = new Set<string>();
-  // A file in the current tree is a file with its history. A path only the history names is an identity its commits
-  // reach: the graph creates the vertex and no opinion, so the path is never counted among the current files.
-  const fileIdentity = (repository: string, path: string, commit: string, values?: { commit_count: number; last_change: string | null }): void => {
+  const fileIdentity = (repository: string, path: string, commit: string, values: PathFacts): void => {
     const identity = JSON.stringify([repository, path]);
     if (paths.has(identity)) return;
     paths.add(identity);
-    vertices.push(values === undefined
-      ? { kind: 'code.file', key: { repository, path }, identityOnly: true }
-      : { kind: 'code.file', key: { repository, path }, values, evidence: { repository, path, commitOrDigest: commit } });
+    vertices.push({ kind: 'code.file', key: { repository, path }, values, evidence: { repository, path, commitOrDigest: commit } });
   };
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('git extraction cancelled');
@@ -45,7 +51,29 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
         changes.set(path, facts);
       }
     }
-    const factsOf = (path: string) => changes.get(path) ?? { commit_count: 0, last_change: null };
+    // The latest period of each path's existence: the history is walked oldest first, so an add begins a period and
+    // clears the removal of a path added again, and a delete or a rename away ends it. Merge commits are skipped like
+    // the change count above: the work they bring is a commit of its own in the walk.
+    const periods = new Map<string, { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>();
+    const emptyPeriod = () => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
+    for (const held of [...history.commits].reverse()) {
+      if (held.parents.length > 1) continue;
+      const at = new Date(held.commitDate).toISOString();
+      for (const touched of held.touched) {
+        if (touched.change === 'added' || touched.change === 'renamed') {
+          periods.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
+        } else if (touched.change === 'deleted') {
+          periods.set(touched.path, { ...(periods.get(touched.path) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
+        }
+        if (touched.change === 'renamed' && touched.previousPath !== undefined) {
+          periods.set(touched.previousPath, { ...(periods.get(touched.previousPath) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
+        }
+      }
+    }
+    const factsOf = (path: string): PathFacts => ({
+      ...(changes.get(path) ?? { commit_count: 0, last_change: null }),
+      ...(periods.get(path) ?? emptyPeriod()),
+    });
     for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit, factsOf(String(file.key['path'])));
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
     const hashes = inputs.keys === undefined ? undefined : new Set(inputs.keys.map(key => key.hash));
@@ -63,9 +91,8 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       held.parents.forEach((hash, position) => edges.push({ kind: 'code.parent', from: commit, to: { kind: 'code.commit', key: { hash } }, values: { position }, evidence }));
       for (const touched of held.touched) {
         const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
-        // A current path already stands as a file of the tree; only a path the history alone names becomes an identity.
-        if (!known.has(`${pin.repository}\0${touched.path}`)) fileIdentity(pin.repository, touched.path, pin.commit);
-        if (touched.previousPath !== undefined && !known.has(`${pin.repository}\0${touched.previousPath}`)) fileIdentity(pin.repository, touched.previousPath, pin.commit);
+        fileIdentity(pin.repository, touched.path, pin.commit, factsOf(touched.path));
+        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
         edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
         if (touched.previousPath !== undefined) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
       }
@@ -76,14 +103,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const output = inputs.contract.vertices.find(vertex => vertex.kind === unit.kind);
   if (output === undefined) throw new Error(`no selected output contract for ${unit.kind}`);
   const fields = new Set(output.fields.map(field => field.name));
+  const selectedVertices = vertices.filter(vertex => vertex.kind === unit.kind).map(vertex => ({ ...vertex, ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }) }));
   const edgeOutputs = new Set(inputs.edgeOutputs.map(edge => JSON.stringify([edge.kind, edge.from, edge.to])));
   const selectedEdges = edges.filter(edge => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind])));
-  // An identity-only vertex travels with the edge that names it, even in a unit of another kind: a commit names the
-  // path it deleted, and that path must stand for the edge to reach it.
-  const endpoints = new Set(selectedEdges.flatMap(edge => [edge.from, edge.to].map(end => JSON.stringify([end.kind, end.key]))));
-  const selectedVertices = vertices
-    .filter(vertex => vertex.kind === unit.kind || (vertex.identityOnly === true && endpoints.has(JSON.stringify([vertex.kind, vertex.key]))))
-    .map(vertex => ({ ...vertex, ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }) }));
   return { vertices: selectedVertices, edges: selectedEdges, end: problems.some(problem => !problem.endsWith('shallow-history')) ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' } };
 }
 

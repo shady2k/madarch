@@ -891,10 +891,6 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   if (author === undefined || author === '') {
     throw new Error(`${WHERE}:1: a publication names its author — a producer and its version, "agent", or "person:<uid>" — and this one states a change with none: every change stands in the journal`);
   }
-  // An identity-only vertex is an edge's end, not an opinion: it cannot state values or evidence of its own.
-  for (const draft of drafts.vertices) if (draft.identityOnly === true && (draft.values !== undefined || (draft.evidence ?? []).length > 0)) {
-    throw new Error(`${WHERE}:1: the ${draft.kind} vertex ${JSON.stringify(draft.key)} is identityOnly and states an opinion: an identity-only vertex carries neither values nor evidence`);
-  }
   const journal = journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...(options.session === undefined ? {} : { session: options.session }) });
   journalOn(executor, journal);
   for (const record of options.reads ?? []) journal.read(record);
@@ -909,7 +905,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
     let end = at + 1;
     while (end < declared.length && declared[end]!.draft.kind === kind.name) end += 1;
     const fields = kind.fields.filter(field => !kind.key.includes(field.name)).map(field => field.name);
-    const inputs = declared.slice(at, end).filter(({ draft }) => draft.identityOnly !== true).map(({ draft, nodeId, uid }) => ({
+    const inputs = declared.slice(at, end).map(({ draft, nodeId, uid }) => ({
       ownerId: nodeId, nodeUid: uid, saidBy: `${draft.producer}@${draft.producerVersion}`, values: valuesOf(kind, draft),
       evidence: evidenceList(draft), lang: draft.lang ?? null, ...(draft.selectedFields === undefined ? {} : { selectedFields: draft.selectedFields }),
     }));
