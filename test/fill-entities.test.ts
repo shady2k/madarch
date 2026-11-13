@@ -130,7 +130,7 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     expect(answer.stdout).toContain('Also filling code.commit, needed by code.author.');
     expect(answer.stdout).toContain('Also filling code.repository, needed by code.commit.');
     expect(answer.stdout).toContain('Filling in dependency order: code.repository, code.directory, code.file, code.commit, code.author.');
-    const units = (await runUnits(answer.stdout)).map((unit) => unit.split('#')[0]);
+    const units = (await runUnits(answer.stdout)).map((unit) => unit.split('#')[0]!);
     expect(units).toContain('plugin-turns/git:code.author');
     expect(units).toContain('plugin-turns/git:code.commit');
     expect(units.every((unit) => /^plugin-turns\/(disk|git):code\./u.test(unit))).toBe(true);
