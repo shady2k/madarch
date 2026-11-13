@@ -991,7 +991,8 @@ export class GraphReader {
         }
         const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
         const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
-        const rows = await this.generatedEntities(tx, generated, page.rows);
+        const entities = await this.generatedEntities(tx, generated, page.rows);
+        const rows = entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity);
         return { total: Number(counted.rows[0]?.n ?? '0'), rows };
       });
     }

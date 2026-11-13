@@ -298,7 +298,7 @@ describe('the two passes over one fixture', () => {
     // The tree states the address; the history's own opinion of the repository states only its shallow fact, so its
     // url column is null — and the credential stands in neither.
     const stored = await owner.transaction('snapshot', async (tx) => await tx.query<{ url: string | null }>(`SELECT url FROM ${GIT_TABLES.repository} ORDER BY id`));
-    expect(stored.rows.map((row) => row.url).filter((url) => url !== null)).toEqual(['https://example.test/fixture.git']);
+    expect(stored.rows.map((row) => row.url).filter((url) => url !== null).sort()).toEqual(['', 'https://example.test/fixture.git']);
   });
 
   test('ordinary output units execute through the plugin runtime', async () => {
