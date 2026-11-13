@@ -294,3 +294,26 @@ test('a path created and deleted on a side branch is not current', async () => {
   const open = (answer.vertices ?? []).filter((vertex) => vertex.kind === 'code.file' && (vertex.values?.['removed_at'] ?? null) === null);
   expect(open.map((vertex) => String(vertex.key['path']))).toEqual(['main.txt']);
 });
+
+
+test('a shallow boundary elsewhere does not suppress a genuine root addition', async () => {
+  const folder = join(ROOT, 'shallow-elsewhere');
+  mkdirSync(folder);
+  git(folder, ONE, 'init', '-q', '-b', 'main');
+  git(folder, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(folder, 'main.txt'), 'main\n');
+  const root = commit(folder, ONE, 'root');
+  git(folder, TWO, 'checkout', '-qb', 'side');
+  writeFileSync(join(folder, 'side.txt'), 'side\n');
+  const side = commit(folder, TWO, 'side adds');
+  git(folder, TWO, 'checkout', '-q', 'main');
+  writeFileSync(join(folder, 'main.txt'), 'main changed\n');
+  commit(folder, TWO, 'main changes');
+  git(folder, TWO, 'merge', '--no-ff', '-m', 'merge side', 'side');
+  const merged = git(folder, TWO, 'rev-parse', 'HEAD');
+  // The side commit is the shallow boundary; the genuine root on the first-parent chain is not.
+  writeFileSync(join(folder, '.git', 'shallow'), `${side}\n`);
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
+  const main = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'main.txt');
+  expect(main?.values).toMatchObject({ added_in: root, added_at: '2026-01-01T00:00:00.000Z' });
+});

@@ -1,4 +1,6 @@
 /** Git history parsing is owned by the git plugin. */
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { gitStream, gitText } from './git-bytes.js';
 export interface RepositoryAt { readonly repository: string; readonly root: string; readonly commit: string; readonly url?: string; readonly defaultBranch?: string }
 export interface HistoryCommit {
@@ -76,6 +78,21 @@ export async function shallowGapOf(pin: RepositoryAt): Promise<{ what: string; r
   return (await gitText(pin.root, ['rev-parse', '--is-shallow-repository'])).trim() === 'true'
     ? { what: `${pin.repository} at ${pin.commit}`, reason: 'shallow-history' }
     : null;
+}
+
+/**
+ * The commits git lists in `.git/shallow`: each is a boundary whose parent is absent, so its diff against that parent
+ * is no change it can read. A commit the file does not name is no boundary, even in a shallow clone.
+ */
+export async function shallowBoundariesOf(root: string): Promise<readonly string[]> {
+  if ((await gitText(root, ['rev-parse', '--is-shallow-repository'])).trim() !== 'true') return [];
+  const path = (await gitText(root, ['rev-parse', '--git-path', 'shallow'])).trim();
+  if (path === '') return [];
+  try {
+    return readFileSync(isAbsolute(path) ? path : join(root, path), 'utf8').split('\n').map((line) => line.trim()).filter((line) => line !== '');
+  } catch {
+    return [];
+  }
 }
 
 // ---- the history pass ------------------------------------------------------
@@ -179,9 +196,10 @@ function entryWithoutNewline(record: Buffer): Buffer {
  * counts), so the two walks are one git call each, with the same format, joined by the commit and
  * the path. Both are git's own answers; nothing here parses source text.
  */
-export async function readRepositoryHistory(pin: RepositoryAt, options: { readonly touched?: boolean; readonly counts?: boolean } = {}): Promise<{ repository: { name: string }; commits: readonly HistoryCommit[]; gaps: readonly RepositoryGap[] }> {
+export async function readRepositoryHistory(pin: RepositoryAt, options: { readonly touched?: boolean; readonly counts?: boolean } = {}): Promise<{ repository: { name: string }; commits: readonly HistoryCommit[]; gaps: readonly RepositoryGap[]; shallowBoundaries: readonly string[] }> {
   type Touched = HistoryCommit['touched'][number];
   const gaps: RepositoryGap[] = [];
+  const shallowBoundaries = await shallowBoundariesOf(pin.root);
   const shallow = await shallowGapOf(pin);
   if (shallow !== null) gaps.push(shallow);
   const statusParser = logStreams(gaps);
@@ -256,6 +274,6 @@ export async function readRepositoryHistory(pin: RepositoryAt, options: { readon
   }
   // The stream's own order: the first commit is the tip, so a commit's index is its walk from the
   // tip, which is the order `git log --follow` answers a file's history in.
-  return { repository: { name: pin.repository }, commits, gaps };
+  return { repository: { name: pin.repository }, commits, gaps, shallowBoundaries };
 }
 

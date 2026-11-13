@@ -58,10 +58,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const byHash = new Map(history.commits.map((held) => [held.hash, held]));
     const firstParent: typeof history.commits[number][] = [];
     for (let held = byHash.get(pin.commit); held !== undefined; held = held.parents[0] === undefined ? undefined : byHash.get(held.parents[0]!)) firstParent.push(held);
-    // A shallow clone's oldest available commit is diffed against an empty tree, so every file it holds looks added.
-    // That addition may lie beyond the history the clone holds: the period stays unknown, and history_shallow says why.
-    const shallow = history.gaps.some((gap) => gap.reason === 'shallow-history');
-    const boundary = shallow ? firstParent.at(-1)?.hash : undefined;
+    // A commit git lists in .git/shallow has an absent parent, so its diff against it is no change it can read: every
+    // file in its tree looks added. Only those commits are boundaries; a genuine root elsewhere keeps its additions.
+    const boundaries = new Set(history.shallowBoundaries);
     type Period = { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null };
     const emptyPeriod = (): Period => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
     const periodsOf = (commits: readonly (typeof history.commits)[number][]): Map<string, Period> => {
@@ -70,7 +69,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
         const at = new Date(held.commitDate).toISOString();
         for (const touched of held.touched) {
           if (touched.change === 'added' || touched.change === 'renamed') {
-            if (held.hash !== boundary) out.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
+            if (!boundaries.has(held.hash)) out.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
           } else if (touched.change === 'deleted') {
             out.set(touched.path, { ...(out.get(touched.path) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
           }
