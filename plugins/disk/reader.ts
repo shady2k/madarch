@@ -168,8 +168,9 @@ function decided(candidates: readonly string[], extension: string, content: stri
     case '.ts':
     case '.tsx': {
       // The XML rule is anchored to the document's start: an optional BOM and whitespace, an XML declaration, then
-      // the element. A TypeScript file that mentions `<TS` inside its own text stays TypeScript.
-      if (/^\uFEFF?\s*(?:<\?xml\b[^>]*>\s*)?<TS\b/u.test(text)) return named(candidates, 'XML');
+      // comments and a doctype (Qt translation files carry both), and the element. A TypeScript file that mentions
+      // `<TS` inside its own text stays TypeScript.
+      if (/^\uFEFF?\s*(?:<\?xml\b[^>]*>\s*)?(?:(?:<!--[\s\S]*?-->|<!DOCTYPE\b[^>]*>)\s*)*<TS\b/u.test(text)) return named(candidates, 'XML');
       return preferred;
     }
     case '.md':
