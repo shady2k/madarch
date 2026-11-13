@@ -351,7 +351,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
     location, plugin: unit.plugin.id, output: unit.kind.name, fields: allowedFields, reads,
-    catalogueKinds: [...wiring.manifest.kinds.keys()], fileKind: 'code.file', edges: [...unitEdges], snapshots,
+    fileKind: 'code.file', edges: [...unitEdges], snapshots,
   });
   const outputs = {
     vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => vertex.kind === unit.kind.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.filter((field) => vertex.key.includes(field.name) || allowedFields.includes(field.name)).map((field) => {

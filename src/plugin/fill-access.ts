@@ -10,7 +10,6 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   readonly output: string;
   readonly fields: readonly string[];
   readonly reads: readonly DeclaredRead[];
-  readonly catalogueKinds: readonly string[];
   readonly fileKind: string;
   readonly edges: readonly string[];
   readonly snapshots?: ReadonlyMap<string, { readonly runId: string; readonly unitId: string; readonly generation: number }>;

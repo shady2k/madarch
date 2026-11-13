@@ -9,7 +9,7 @@ function setup(output: string, reads: string[], fields = ['text']) {
     files: async () => { calls.push('files'); return []; },
     value: async (kind) => { calls.push(kind); return kind; },
     unresolved: async () => { calls.push('unresolved'); return { references: [] }; },
-  }, { location: '/product/plugin.json:7', plugin: 'multi', output, reads, fields, catalogueKinds: ['X', 'Y'], fileKind: 'File', edges: [] });
+  }, { location: '/product/plugin.json:7', plugin: 'multi', output, reads, fields, fileKind: 'File', edges: [] });
   return { access, calls };
 }
 
@@ -42,7 +42,7 @@ test('consistency record reads preserve bounded pages without requiring catalogu
     unresolved: async (page) => { calls.push(['unresolved', page]); return { references: [], next: 'references-next' }; },
     removedEnds: async (page) => { calls.push(['removedEnds', page]); return { edges: [], next: 'edges-next' }; },
     unevidenced: async (page) => { calls.push(['unevidenced', page]); return { opinions: [], next: 'opinions-next' }; },
-  }, { location: '/product/plugin.json:7', plugin: 'consistency', output: 'Finding', reads: [], fields: [], catalogueKinds: ['X', 'Y', 'Finding'], fileKind: 'File', edges: [] });
+  }, { location: '/product/plugin.json:7', plugin: 'consistency', output: 'Finding', reads: [], fields: [], fileKind: 'File', edges: [] });
   expect(await access.graph.unresolved!(query)).toEqual({ references: [], next: 'references-next' });
   expect(await access.graph.removedEnds!(query)).toEqual({ edges: [], next: 'edges-next' });
   expect(await access.graph.unevidenced!(query)).toEqual({ opinions: [], next: 'opinions-next' });
@@ -73,7 +73,7 @@ test('explicit earlier read freezes producer generation and never reads later re
   const access = pluginInvocationAccess({ files: async () => [], value: async (kind, key, field, token) => {
     seen = token;
     return savedValue(kind, key, field);
-  } }, { location: '/product/plugin.json:7', plugin: 'summary', output: 'Summary', fields: ['text'], reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }], snapshots: new Map([['Source', snapshot]]), catalogueKinds: ['Source'], fileKind: 'File', edges: [] });
+  } }, { location: '/product/plugin.json:7', plugin: 'summary', output: 'Summary', fields: ['text'], reads: [{ kind: 'Source', version: 'earlier', producer: 'base' }], snapshots: new Map([['Source', snapshot]]), fileKind: 'File', edges: [] });
   expect(await access.graph.value('Source', { id: 'x' }, 'text')).toBe('original');
   expect(seen).toEqual(snapshot);
   expect(savedValue('Source', { id: 'missing' }, 'text')).toBeNull();
@@ -84,7 +84,7 @@ test('earlier file enumeration forwards the exact named snapshot and refuses mis
   const snapshot = { runId: 'original', unitId: 'plugin-turns/base:File', generation: 2 };
   const calls: unknown[] = [];
   const graph = { files: async (pattern: string, token?: typeof snapshot) => { calls.push([pattern, token]); return [{ kind: 'File', key: { path: 'saved.ts' } }]; }, value: async () => null };
-  const scope = { location: '/product/plugin.json:7', plugin: 'refiner', output: 'File', fields: [], reads: [{ kind: 'File', version: 'earlier' as const, producer: 'base' }], catalogueKinds: ['File'], fileKind: 'File', edges: [] };
+  const scope = { location: '/product/plugin.json:7', plugin: 'refiner', output: 'File', fields: [], reads: [{ kind: 'File', version: 'earlier' as const, producer: 'base' }], fileKind: 'File', edges: [] };
   const access = pluginInvocationAccess(graph, { ...scope, snapshots: new Map([['File', snapshot]]) });
   expect(await access.graph.files('**/*.ts')).toEqual([{ kind: 'File', key: { path: 'saved.ts' } }]);
   expect(calls).toEqual([['**/*.ts', snapshot]]);
