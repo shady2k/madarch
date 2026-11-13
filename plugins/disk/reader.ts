@@ -101,41 +101,133 @@ async function emptyTreeOf(root: string): Promise<string> {
  * dataset gives it. The full `linguist-languages` 9.5.0 dataset is generated into languages.json
  * (see LANGUAGES.md); a key it does not name is unknown.
  */
-let datasetIndex: { extensions: Map<string, string[]>; names: Map<string, string[]> } | undefined;
-function indexOfDataset(): { extensions: Map<string, string[]>; names: Map<string, string[]> } {
+let datasetIndex: { extensions: Map<string, string[]>; names: Map<string, string[]>; interpreters: Map<string, string> } | undefined;
+function indexOfDataset(): { extensions: Map<string, string[]>; names: Map<string, string[]>; interpreters: Map<string, string> } {
   if (datasetIndex !== undefined) return datasetIndex;
   const extensions = new Map<string, string[]>();
   const names = new Map<string, string[]>();
-  for (const [name, data] of Object.entries(languages as unknown as Record<string, { extensions?: readonly string[]; filenames?: readonly string[] }>)) {
+  const interpreters = new Map<string, string[]>();
+  for (const [name, data] of Object.entries(languages as unknown as Record<string, { extensions?: readonly string[]; filenames?: readonly string[]; interpreters?: readonly string[] }>)) {
     for (const extension of data.extensions ?? []) {
       const key = extension.toLowerCase();
       extensions.set(key, [...(extensions.get(key) ?? []), name]);
     }
     for (const filename of data.filenames ?? []) names.set(filename.toLowerCase(), [...(names.get(filename.toLowerCase()) ?? []), name]);
+    // Several languages may name one interpreter (`node` runs JavaScript and TypeScript): the first in code point order
+    // is the default, and a shebang names that one.
+    for (const interpreter of data.interpreters ?? []) interpreters.set(interpreter.toLowerCase(), [...(interpreters.get(interpreter.toLowerCase()) ?? []), name]);
   }
   for (const map of [extensions, names]) for (const [key, held] of map) map.set(key, [...new Set(held)].sort(byCodePoint));
-  datasetIndex = { extensions, names };
+  const firstInterpreter = new Map([...interpreters].map(([key, held]) => [key, [...new Set(held)].sort(byCodePoint)[0]!] as const));
+  datasetIndex = { extensions, names, interpreters: firstInterpreter };
   return datasetIndex;
+}
+
+/** The language an extension's ambiguity falls back to when its content states nothing: the dataset's own name. */
+const PREFERRED: Readonly<Record<string, string>> = {
+  '.ts': 'TypeScript', '.tsx': 'TSX', '.json': 'JSON', '.md': 'Markdown', '.markdown': 'Markdown',
+  '.yaml': 'YAML', '.yml': 'YAML', '.html': 'HTML', '.htm': 'HTML', '.sql': 'SQL', '.txt': 'Text',
+  '.h': 'C', '.hh': 'C++', '.hpp': 'C++', '.hxx': 'C++', '.m': 'Objective-C', '.mm': 'Objective-C++',
+};
+
+/** The base name of a shebang's program: `python3.12` is `python3.12`, and its version is cut only to find its language. */
+function programOf(shebang: string): string | undefined {
+  const words = shebang.trim().split(/\s+/);
+  let at = 0;
+  const base = (word: string): string => word.slice(word.lastIndexOf('/') + 1);
+  if (base(words[0] ?? '') === 'env') { at = 1; while (at < words.length && words[at]!.startsWith('-')) at += 1; }
+  const program = base(words[at] ?? '').toLowerCase();
+  return program === '' ? undefined : program;
+}
+
+/** The language a script's first line names, through the dataset's interpreters, or undefined for no shebang. */
+function shebangLanguageOf(content: string | undefined): string | undefined {
+  if (content === undefined || !content.startsWith('#!')) return undefined;
+  const line = content.slice(0, content.indexOf('\n') < 0 ? content.length : content.indexOf('\n'));
+  const program = programOf(line.slice(2));
+  if (program === undefined) return undefined;
+  const interpreters = indexOfDataset().interpreters;
+  return interpreters.get(program) ?? interpreters.get(program.replace(/[0-9.]+$/, ''));
+}
+
+/** Whether one of a candidate list is named by the value, for a content or a default that names no candidate. */
+function named(candidates: readonly string[], language: string | undefined): string | undefined {
+  return language !== undefined && candidates.includes(language) ? language : undefined;
+}
+
+/**
+ * The language several candidates leave open, decided by the bytes when they say which one it is and otherwise by the
+ * extension's default. Linguist's own ambiguous extensions are read the way GitHub reads them: a `.ts` that opens with
+ * an XML declaration is XML and every other is TypeScript, a `.md` holding `(define_insn` is a GCC machine description,
+ * and an OpenAPI document names itself. A value no candidate names is no decision, and the candidates stand.
+ */
+function decided(candidates: readonly string[], extension: string, content: string | undefined): string | undefined {
+  const text = content ?? '';
+  const preferred = named(candidates, PREFERRED[extension]);
+  switch (extension) {
+    case '.ts':
+    case '.tsx': {
+      if (/^\uFEFF?\s*<\?xml\b/u.test(text) || /<TS\b/u.test(text)) return named(candidates, 'XML');
+      return preferred;
+    }
+    case '.md':
+      return /^\s*\(define_/mu.test(text) ? named(candidates, 'GCC Machine Description') : preferred;
+    case '.json': {
+      let held: unknown;
+      try { held = JSON.parse(text); } catch { return preferred; }
+      if (held === null || typeof held !== 'object' || Array.isArray(held)) return preferred;
+      const body = held as Record<string, unknown>;
+      if (typeof body['openapi'] === 'string' && body['openapi'].startsWith('3')) return named(candidates, 'OASv3-json');
+      if (typeof body['swagger'] === 'string' && body['swagger'].startsWith('2')) return named(candidates, 'OASv2-json');
+      return preferred;
+    }
+    case '.yaml':
+    case '.yml': {
+      if (/^\s*openapi\s*:\s*['"]?3/mu.test(text)) return named(candidates, 'OASv3-yaml');
+      if (/^\s*swagger\s*:\s*['"]?2/mu.test(text)) return named(candidates, 'OASv2-yaml');
+      return preferred;
+    }
+    case '.html':
+    case '.htm':
+      return /<emu-[a-z]/iu.test(text) ? named(candidates, 'Ecmarkup') : preferred;
+    case '.sql': {
+      if (/\$\$/u.test(text) && /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION/iu.test(text)) return named(candidates, 'PLpgSQL');
+      if (/^\s*GO\s*$/mu.test(text) || /\[dbo\]/iu.test(text)) return named(candidates, 'TSQL');
+      if (/VARCHAR2\b/iu.test(text) || /^\s*BEGIN\b[\s\S]*\bEND\s*;/mu.test(text)) return named(candidates, 'PLSQL');
+      return preferred;
+    }
+    case '.h': {
+      if (/@interface|@protocol|#import\s/iu.test(text)) return named(candidates, 'Objective-C');
+      if (/^\s*(class|namespace|template\s*<)/mu.test(text) || /std::/u.test(text)) return named(candidates, 'C++');
+      return preferred;
+    }
+    default:
+      return preferred;
+  }
 }
 
 /**
  * The language one path's name answers: the dataset's file name first, then its longest extension
- * (`h.in` before `in`), and `unknown` where the dataset names neither. Several candidates are the
- * ambiguity itself: `ambiguous` with them, never one of them picked.
+ * (`h.in` before `in`), and `unknown` where the dataset names neither. Several candidates are decided by the bytes
+ * and the extension's default; a value no candidate names stays `ambiguous` with the candidates, never one of them
+ * picked in silence.
  */
 export function languageOfPath(path: string, content?: string): { language: string; candidates: readonly string[] } {
   const index = indexOfDataset();
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   const held = index.names.get(name);
-  if (held !== undefined) return held.length === 1 ? { language: held[0]!, candidates: held } : { language: 'ambiguous', candidates: held };
+  if (held !== undefined) return held.length === 1 ? { language: held[0]!, candidates: held } : { language: decided(held, name, content) ?? 'ambiguous', candidates: held };
   let best: string[] | undefined;
   let bestLength = -1;
+  let bestExtension = name;
   for (let at = name.indexOf('.'); at >= 0; at = name.indexOf('.', at + 1)) {
     const extension = name.slice(at);
     const found = index.extensions.get(extension);
-    if (found !== undefined && extension.length > bestLength) { best = found; bestLength = extension.length; }
+    if (found !== undefined && extension.length > bestLength) { best = found; bestLength = extension.length; bestExtension = extension; }
   }
   if (best === undefined) {
+    const shebang = shebangLanguageOf(content);
+    if (shebang !== undefined) return { language: shebang, candidates: [shebang] };
     if (content !== undefined) {
       try {
         JSON.parse(content);
@@ -144,7 +236,7 @@ export function languageOfPath(path: string, content?: string): { language: stri
     }
     return { language: 'unknown', candidates: ['unknown'] };
   }
-  return best.length === 1 ? { language: best[0]!, candidates: best } : { language: 'ambiguous', candidates: best };
+  return best.length === 1 ? { language: best[0]!, candidates: best } : { language: decided(best, bestExtension, content) ?? 'ambiguous', candidates: best };
 }
 
 
@@ -293,9 +385,8 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   for (const file of files) if (file.form === 'text') {
     const content = contents.get(file.blob) ?? null;
     (file as { content: string | null }).content = content;
-    if (file.language === 'unknown' && content !== null && !overrides.has(file.path)) {
-      Object.assign(file, languageOfPath(file.path, content));
-    }
+    // The bytes decide an ambiguous extension and name a shebang script; a git attribute still wins over both.
+    if (content !== null && !overrides.has(file.path)) Object.assign(file, languageOfPath(file.path, content));
   }
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
