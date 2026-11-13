@@ -51,8 +51,11 @@ test('fields resolve explicit refinement rather than reverse arrival while retai
       expect(result.rows.find((one) => one.key === 'note:two')?.properties['body']).toBe('middle');
       expect(entity.properties['body']).toBe('parser-last');
       expect(entity.properties['detail']).toBe('middle');
-      expect(entity.opinions?.filter((one) => one.field === 'body').map((one) => one.producer).sort()).toEqual(names.map((name) => `${name}@1.0.0`).sort());
-      expect(new Set(entity.evidence?.map((one) => one.path))).toEqual(new Set(names.map((name) => `${name}.md`)));
+      // Prefix rows are value-only; the canonical detail read retains every source opinion and its evidence.
+      const [detail] = await reader.find(entity.key);
+      expect(detail).toBeDefined();
+      expect(detail!.opinions?.filter((one) => one.field === 'body').map((one) => one.producer).sort()).toEqual(names.map((name) => `${name}@1.0.0`).sort());
+      expect(new Set(detail!.evidence?.map((one) => one.path))).toEqual(new Set(names.map((name) => `${name}.md`)));
     } finally { await owner.close(); }
   } finally { rmSync(folder, { recursive: true, force: true }); }
 }, 30_000);
