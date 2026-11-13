@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
@@ -18,7 +18,6 @@ import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
 import { parsePluginLock } from '../src/plugin/lock.js';
 import { probeUnit } from '../src/plugin/conformance.js';
 import type { PluginContractDeclaration } from '../src/plugin/protocol.js';
-import { releaseToolPath } from '../src/plugin/release-tools.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 let root = '';
@@ -94,11 +93,7 @@ describe('the starter set a draft copies', () => {
 
   test('the compiled CLI resolves installed starter package manifests at runtime', () => {
     const binary = join(root, 'madarch-test');
-    // Match the release's declared executable assets; a compiled entry has no checkout's node_modules to read.
-    const tools = join(root, 'release-tools');
-    mkdirSync(tools, { recursive: true });
-    if (process.platform === 'linux' && process.arch === 'x64') cpSync(releaseToolPath(), join(tools, 'git'));
-    execFileSync(process.execPath, ['build', '--compile', '--compile-autoload-package-json', 'scripts/madarch.ts', '--asset', tools, '--outfile', binary], {
+    execFileSync(process.execPath, ['build', '--compile', '--compile-autoload-package-json', 'scripts/madarch.ts', '--outfile', binary], {
       cwd: join(import.meta.dir, '..'), env, encoding: 'utf8', timeout: 120_000,
     });
     for (const plugin of BUNDLED_PLUGINS) {
