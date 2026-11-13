@@ -462,7 +462,7 @@ export class GraphReader {
       defaultBranch: facts.defaultBranch, asIsCommit: facts.asIsCommit,
       asIsHref: facts.asIsCommit === null ? null : entityAddress(`code.commit:${facts.asIsCommit}`),
       counts: { files: facts.fileCount, commits: facts.commitCount, folders: facts.directoryCount },
-      historyShallow: facts.historyShallow, steps: { tree: facts.asIsCommit !== null, history: facts.commitCount > 0 },
+      historyShallow: facts.historyShallow, steps: { tree: facts.hasTree, history: facts.commitCount > 0 },
     };
   }
 
@@ -539,7 +539,7 @@ export class GraphReader {
   /** One folder's page: its own subfolders and one page of its files, bounded by the cursor the page carries. */
   async folder(repository: string, folder: string, after: string | undefined, limit: number): Promise<GraphFolderFacts | null> {
     const facts = await this.repository(repository);
-    if (facts === null || facts.asIsCommit === null) return null;
+    if (facts === null || !facts.steps.tree) return null;
     const directories = this.holds(GIT_KINDS.directory) ? await listDirectories(this.storeOwner(), repository) : [];
     const found = folder === '' ? undefined : directories.find((one) => one.path === folder);
     if (folder !== '' && found === undefined) return null;
@@ -758,13 +758,18 @@ export class GraphReader {
     if (ids.length === 0) return held;
     const declarations = [...this.generated?.values() ?? []];
     if (declarations.length === 0) return held;
-    const parts = declarations.map((decl) => `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, ${quoteLiteral(decl.kind)} AS kind,
-      (SELECT jsonb_agg(to_jsonb(t) || jsonb_build_object('node', n.id::text, 'opinion_id', t.id::text, 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author, 'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.evidence) AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY t.id)
-       FROM ${decl.table} t WHERE t.node_id = n.id AND t.state = 'open' AND t.context_id = 1) AS opinions
-      FROM node n JOIN entity k ON k.id = n.entity_id
-      CROSS JOIN LATERAL (SELECT ${PRESENTATION_COLUMNS}) metadata
-      WHERE k.name = ${quoteLiteral(decl.kind)} AND n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`);
-    const found = await tx.query<Raw>(parts.join(' UNION ALL '), [`{${ids.join(',')}}`]);
+    const opinions = declarations.map((decl) => `SELECT to_jsonb(t) AS opinion FROM ${decl.table} t
+      WHERE k.name = ${quoteLiteral(decl.kind)} AND t.node_id = n.id AND t.state = 'open' AND t.context_id = 1`);
+    const found = await tx.query<Raw>(
+      `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, k.name AS kind,
+        (SELECT jsonb_agg(t.opinion || jsonb_build_object('node', n.id::text, 'opinion_id', t.opinion->>'id', 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author,
+          'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.opinion->'evidence') AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY (t.opinion->>'id')::bigint)
+         FROM (${opinions.join(' UNION ALL ')}) t) AS opinions
+       FROM node n JOIN entity k ON k.id = n.entity_id
+       CROSS JOIN LATERAL (SELECT ${PRESENTATION_COLUMNS}) metadata
+       WHERE k.name = ANY($2::text[]) AND n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`,
+      [`{${ids.join(',')}}`, declarations.map((decl) => decl.kind)],
+    );
     for (const decl of declarations) {
       const rows = found.rows.filter((row) => row['kind'] === decl.kind && Array.isArray(row['opinions']));
       const opinions = rows.flatMap((row) => row['opinions'] as Raw[]);
@@ -826,6 +831,7 @@ export class GraphReader {
     if (entity.nodeIds.length === 0) return [];
     return await this.run(async (tx) => {
       const groups: NeighborGroup[] = [];
+      const directions: { direction: 'out' | 'in'; byRelation: Map<string, { total: number; edges: number; rows: { id: string; count: number }[] }> }[] = [];
       for (const direction of ['out', 'in'] as const) {
         const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
         const found = await tx.query<{ relation: string; node: string; node_edges: string; total: string; edges: string }>(
@@ -852,9 +858,12 @@ export class GraphReader {
           held.rows.push({ id: row.node, count: Number(row.node_edges) });
           byRelation.set(row.relation, held);
         }
+        directions.push({ direction, byRelation });
+      }
+      const entities = await this.entitiesOfIds(tx, [...new Set(directions.flatMap(({ byRelation }) => [...byRelation.values()].flatMap((held) => held.rows.map((row) => row.id))))]);
+      for (const { direction, byRelation } of directions) {
         for (const relation of [...byRelation.keys()].sort(byCodePoint)) {
           const held = byRelation.get(relation)!;
-          const entities = await this.entitiesOfIds(tx, held.rows.map((row) => row.id));
           const rows = held.rows
             .map((row) => ({ entity: entities.get(row.id), count: row.count }))
             .filter((row): row is { entity: GraphEntity; count: number } => row.entity !== undefined)
@@ -1297,7 +1306,6 @@ export class GraphReader {
       // Only the rows the block shows are resolved to their labels: the history block reads `limit` hotspots, and the
       // whole repository's 2 800 files were read as entities to sort them (madarch-64o5.3's own wiki).
       const hottest = [...merged.entries()].sort((left, right) => right[1] - left[1] || byCodePoint(left[0], right[0])).slice(0, limit);
-      const hotspotEntities = await this.entitiesOfIds(tx, hottest.map(([node]) => node), scope);
       const authors = await tx.query<{ node: string; n: number }>(
         `WITH hc AS (
            SELECT DISTINCT he.to_node AS commit FROM edge he JOIN entity hk ON hk.id = he.entity_id AND hk.name = '${GIT_KINDS.history}'
@@ -1308,7 +1316,9 @@ export class GraphReader {
          JOIN hc ON hc.commit = ae.to_node WHERE ae.context_id = 1 GROUP BY 1`,
         [scope],
       );
-      const authorEntities = await this.entitiesOfIds(tx, authors.rows.map((one) => one.node));
+      const allEntities = await this.entitiesOfIds(tx, [...new Set([...hottest.map(([node]) => node), ...authors.rows.map((one) => one.node)])]);
+      const hotspotEntities = new Map([...allEntities].map(([node, entity]) => [node, { ...entity, scope }]));
+      const authorEntities = allEntities;
       const sort = (rows: { node: string; n: number }[], entities: Map<string, GraphEntity>) => rows
         .flatMap((one) => { const entity = entities.get(one.node); return entity === undefined ? [] : [{ entity, commits: one.n }]; })
         .sort((left, right) => right.commits - left.commits || byCodePoint(left.entity.key, right.entity.key))

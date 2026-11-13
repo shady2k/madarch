@@ -578,6 +578,8 @@ export interface RepositoryFacts {
   readonly url: string;
   readonly defaultBranch: string | null;
   readonly asIsCommit: string | null;
+  /** Current containment or a successful inventory publication, including an empty tree. */
+  readonly hasTree: boolean;
   readonly fileCount: number;
   readonly commitCount: number;
   readonly directoryCount: number;
@@ -611,12 +613,27 @@ async function readRepositoryFacts(tx: OuterTransaction, repository: string, dec
   // The declared contract decides: a product that declares no repository kind is answered before the table is named.
   if (declared === undefined && (await tx.query<{ id: string }>("SELECT id FROM entity WHERE name = $1 LIMIT 1", [GIT_KINDS.repository])).rows.length === 0) return null;
   // One statement for the repository row and everything a page states about it: its opinions, its as-is commit and its
-  // counts (the CI page budget counts statements, not only rows).
-  const found = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; files: string; commits: string; directories: string }>(
+  // counts (the CI page budget counts statements, not only rows). A successful inventory header also proves an
+  // empty tree, but only for a producer whose repository opinion names this repository in its evidence.
+  const found = await tx.query<{ node_id: string; opinions: unknown; as_is: string | null; has_tree: boolean; files: string; commits: string; directories: string }>(
 
     `SELECT n.id::text AS node_id,
        (SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'url', o."url", 'default_branch', o."default_branch", 'history_shallow', o."history_shallow") ORDER BY o."id") FROM ${GIT_TABLES.repository} o WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS opinions,
        (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.asIs}' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS as_is,
+       (EXISTS (SELECT 1 FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}' WHERE e.from_node = n.id AND e.context_id = 1)
+        OR EXISTS (
+          SELECT 1 FROM fill_unit u
+          JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation AND g.state = 'published'
+          JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+          JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
+          CROSS JOIN LATERAL jsonb_array_elements(d.writes) w
+          JOIN ${GIT_TABLES.repository} o ON o.node_id = n.id AND o.state = 'open' AND o.context_id = 1
+            AND split_part(o.said_by, '@', 1) = w->'value'->>'plugin'
+          WHERE u.stage_id = 'plugin-turns' AND w->>'kind' = 'producer-outcome'
+            AND w->'value'->>'kind' IN ('${GIT_KINDS.file}', '${GIT_KINDS.directory}')
+            AND w->'value'->>'outcome' IN ('completed', 'unchanged', 'empty')
+            AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.evidence) place WHERE place->>'repository' = $1::text)
+        )) AS has_tree,
        (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (f.key->>'repository') = $1::text) AS files,
        (SELECT count(*)::text FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.history}' WHERE e.from_node = n.id AND e.context_id = 1) AS commits,
        (SELECT count(*)::text FROM node d JOIN entity de ON de.id = d.entity_id AND de.name = '${GIT_KINDS.directory}' JOIN edge e ON e.to_node = d.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (d.key->>'repository') = $1::text) AS directories
@@ -629,6 +646,7 @@ async function readRepositoryFacts(tx: OuterTransaction, repository: string, dec
   return {
     nodeId: row['node_id'], name: repository, url: fieldRead(opinions, 'url', asText).value ?? '', defaultBranch: fieldRead(opinions, 'default_branch', asText).value,
     asIsCommit: row['as_is'],
+    hasTree: row['has_tree'],
     fileCount: Number(row['files'] ?? '0'),
     commitCount: Number(row['commits'] ?? '0'),
     directoryCount: Number(row['directories'] ?? '0'),

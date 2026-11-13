@@ -17,7 +17,7 @@ import { generatedTableName } from '../src/graph/contract.js';
 import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { runFill } from '../src/fill/run.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { seedRepositoryPlugins, useFixturePlugins } from './enabled-plugins-fixture.js';
 import { instantOf } from '../plugins/git/main.js';
 import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
@@ -381,6 +381,31 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     expect(open.rows[0]?.n).toBe('1');
   }, 120_000);
 });
+
+test('an empty disk-only tree is available from its successful inventory publication', async () => {
+  const empty = join(root, 'empty-tree');
+  mkdirSync(empty);
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: empty });
+  execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Empty tree'], { cwd: empty });
+  const fixture = join(root, 'product-empty-tree');
+  makeProduct(fixture, empty, 'empty-tree');
+  useFixturePlugins(fixture, ['disk']);
+  execFileSync('git', ['add', '-A'], { cwd: fixture });
+  execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Only inventory'], { cwd: fixture });
+  const inventory = await createTestDatabaseOwner({ graphContract: GIT_CONTRACT });
+  try {
+    const run = await runFill({ product: fixture, database: inventory, home: join(root, 'empty-home'), runId: 'empty-tree', prepareContract: async contract => { await prepareStore(inventory, { contract }); } });
+    if (!run.ok) throw new Error(`empty inventory fill refused: ${run.reason}`);
+    expect(run.state).toBe('succeeded');
+    const facts = await repositoryFacts(inventory, 'empty-tree');
+    expect(facts).toMatchObject({ hasTree: true, asIsCommit: null, fileCount: 0, directoryCount: 0, commitCount: 0 });
+    const reader = new GraphReader(inventory, () => '', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
+    expect((await reader.repository('empty-tree'))?.steps).toEqual({ tree: true, history: false });
+    expect(await reader.folder('empty-tree', '', undefined, 10)).toMatchObject({ folders: [], files: [] });
+  } finally {
+    await inventory.close();
+  }
+}, 120_000);
 
 describe('a git date of a zero or a negative offset', () => {
 

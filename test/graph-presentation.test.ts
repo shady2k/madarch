@@ -53,5 +53,13 @@ test('ordinary declarations preserve canonical keys across producers and present
     expect(unplaced?.span).toBeUndefined();
     expect(unplaced?.evidence).toBeUndefined();
     expect(unplaced?.properties['definition']).toBe('No source place');
+    // A mixed-kind relation read uses the batched path; it must keep the same opinions and presentation as find.
+    const expected = [...files, term!, unplaced!];
+    await owner.transaction('snapshot', async (tx) => {
+      const batchReader = reader as unknown as { entitiesOfIds(transaction: typeof tx, ids: readonly string[]): Promise<Map<string, typeof files[number]>> };
+      const batched = await batchReader.entitiesOfIds(tx, expected.flatMap((entity) => entity.nodeIds));
+      expect([...batched.values()].sort((left, right) => left.key.localeCompare(right.key)))
+        .toEqual(expected.sort((left, right) => left.key.localeCompare(right.key)));
+    });
   } finally { await owner.close(); }
 });
