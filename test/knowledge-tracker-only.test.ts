@@ -3,6 +3,7 @@ import { authoredEntity } from '../src/graph/authored.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
+import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 /**
  * A product that is only a tracker (decision 0034, item 14): its manifest declares two person-authored kinds
  * and binds no capability. It opens, fills and serves its wiki, and its store holds the mechanism
@@ -140,15 +141,21 @@ describe('a product that is only a tracker', () => {
         `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`,
       ));
       const names = tables.rows.map((row) => row.table_name);
-      // The mechanism holds the product's files: the path index, the blob text and the entry of each path.
-      expect(names).toContain('file_entry');
-      expect(names.filter((name) => name.startsWith('d_path_'))).toHaveLength(1);
-      expect(names.filter((name) => name.startsWith('d_blob_'))).toHaveLength(1);
+      // Only declared ordinary opinions and catalogue metadata have generated tables; no file mechanism is implicit.
+      const contract = graphContractOf(manifest.manifest);
+      for (const kind of ['idea', 'task', 'template']) {
+        const declared = contract.vertex.find((vertex) => vertex.name === kind);
+        expect(declared).toBeDefined();
+        expect(names).toContain(declared!.table);
+      }
+      expect(names.filter((name) => name.startsWith('k_manifest_'))).toHaveLength(6);
+      expect(names.filter((name) => name.startsWith('d_path_'))).toEqual([]);
+      expect(names.filter((name) => name.startsWith('d_blob_'))).toEqual([]);
       // No code kind is declared: only the tracker and structured-template opinion tables stand.
       for (const generated of ['k_file_', 'k_repository_', 'k_directory_', 'k_commit_', 'k_signature_', 'e_contains_', 'e_as-is_', 'd_language_']) {
         expect({ table: generated, present: names.some((name) => name.startsWith(generated)) }).toEqual({ table: generated, present: false });
       }
-      for (const absent of ['repository', 'directory', 'file', 'gitlink', 'commit', 'signature', 'blob', 'path', 'language', 'touched', 'history', 'parent_position', 'authored', 'lifecycle', 'responsibility', 'work_span']) {
+      for (const absent of ['file_entry', 'repository', 'directory', 'file', 'gitlink', 'commit', 'signature', 'blob', 'path', 'language', 'touched', 'history', 'parent_position', 'authored', 'lifecycle', 'responsibility', 'work_span']) {
         expect({ table: absent, present: names.includes(absent) }).toEqual({ table: absent, present: false });
       }
       for (const present of ['entity', 'node', 'edge', 'context', 'operation']) {
