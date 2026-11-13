@@ -308,6 +308,8 @@ export class KnowledgeProduct {
   private problemsCache: { key: string; sequence: number; listing: ProblemListing } | undefined;
   /** The listing being collected for a key: a reader that asks while it runs waits for the same work, never a second walk. */
   private problemsFlight: { key: string; promise: Promise<ProblemListing> } | undefined;
+  /** Includes opening the reader and resolving its key, before a collection has a key to share. */
+  private problemsRefresh: Promise<void> | undefined;
   /** Orders collections, so a listing for older inputs that lands late never replaces a newer one. */
   private problemsSequence = 0;
   /** The key whose background collection failed: the menu does not walk it again on every poll. */
@@ -3197,11 +3199,9 @@ export class KnowledgeProduct {
     return `${plan}|${revision ?? await this.graphRevision()}`;
   }
 
-  /** The store as a listing reads it: the snapshot the pages show and what each repository was filled to. */
+  /** Repository pins beside the graph publication stamp; local reader generations do not change graph facts. */
   private storeKey(): string {
-    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
-    const snapshot = this.reader === undefined ? '' : String(this.reader.seq);
-    return `${snapshot}|${pins}`;
+    return [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
   }
 
   /** The key where a store that cannot answer is no reason to fail an answer: the background refresh. */
@@ -3239,15 +3239,17 @@ export class KnowledgeProduct {
    * is what tries it again (madarch-u3vw.8).
    */
   private refreshProblems(key: string): void {
-    if (this.fill.state === 'running' || this.problemsFlight !== undefined) return;
+    if (this.fill.state === 'running' || this.problemsFlight !== undefined || this.problemsRefresh !== undefined) return;
     if (key === '' || this.problemsCache?.key === key || this.problemsFailed === key) return;
-    void this.open()
+    const refresh = this.open()
       .then(async (owner) => {
         const current = await this.problemsKeySafe();
-        if (current === '' || this.problemsCache?.key === current) return undefined;
-        return this.problemsFor(current, owner);
+        if (current === '' || this.problemsCache?.key === current) return;
+        await this.problemsFor(current, owner);
       })
-      .catch(() => { this.problemsFailed = key; });
+      .catch(() => { this.problemsFailed = key; })
+      .finally(() => { this.problemsRefresh = undefined; });
+    this.problemsRefresh = refresh;
   }
 
   private async collectProblems(owner: DatabaseOwner): Promise<ProblemListing> {

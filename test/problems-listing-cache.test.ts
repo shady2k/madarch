@@ -99,7 +99,8 @@ beforeAll(async () => {
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  await fill();
+  // Publish the whole fixture before a poll can start its background Problems collection.
+  await fillInProcess(folder, home, join(work, 'store'));
   await publishFixtureOpinions(folder, join(work, 'store'), [{
     kind: 'domain', key: { slug: 'payment' },
     values: {
