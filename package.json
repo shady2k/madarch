@@ -14,7 +14,6 @@
     "check:architecture-base": "bun scripts/check-architecture.ts --base-guard && bun scripts/check-ui-architecture.ts --base-guard",
     "test": "bun test test/",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
-    "wiki:shots": "bun scripts/walk-shots.ts",
     "install:plugins": "bun scripts/plugin-deps.ts",
     "postinstall": "bun run install:plugins"
   },
