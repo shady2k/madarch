@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ const folder = mkdtempSync(join(tmpdir(), 'madarch-selected-agent-'));
 mkdirSync(join(folder, 'madarch'));
 mkdirSync(join(folder, 'templates'));
 writeFileSync(join(folder, 'templates/summary.liquid'), '{{ title }}');
-writeFileSync(join(folder, 'madarch/kinds.yaml'), 'kinds:\n  probe.summary: {description: {en: A summary}, template: templates/summary.liquid, source: graph, derives-from: []}\n');
+writeFolderManifest(folder, 'kinds:\n  probe.summary: {description: {en: A summary}, template: templates/summary.liquid, source: graph, derives-from: []}\n');
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
 test('a selected fill forwards agent and cap to the run without starting an adapter', async () => {
@@ -30,7 +31,7 @@ test('the product refuses a disabled producer stage before queue acceptance', as
   mkdirSync(join(folder, 'plugins/probe'), { recursive: true });
   writeFileSync(join(folder, 'plugins/probe/plugin.json'), JSON.stringify({ name: 'probe', version: '1.0.0', runtime: { name: 'bun', version: Bun.version }, entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: ['id'], reads: [] }] }));
   writeFileSync(join(folder, 'plugins/probe/main.ts'), '');
-  writeFileSync(join(folder, 'madarch/kinds.yaml'), `kinds:
+  writeFolderManifest(folder, `kinds:
   probe.summary:
     template: templates/summary.liquid
     source: graph

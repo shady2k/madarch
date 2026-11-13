@@ -195,10 +195,10 @@ function gitCheckout(folder: string): void {
 
 /** The serve tests supply document opinions explicitly; they do not run the unrelated plugin pipeline. */
 async function prepareDocuments(folder: string, home: string): Promise<void> {
-  const path = join(folder, 'madarch', 'kinds.yaml');
+  const path = join(folder, 'madarch/kinds/documentation/document/document.yaml');
   const manifest = parseDocument(readFileSync(path, 'utf8'));
-  const declaration = manifest.getIn(['kinds', 'document']) as { toJSON(): Record<string, unknown> };
-  manifest.setIn(['kinds', 'document'], {
+  const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
+  manifest.setIn([], {
     ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
     fields: ['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
       { name: 'anchors', type: 'json', producers: ['fixture'] },

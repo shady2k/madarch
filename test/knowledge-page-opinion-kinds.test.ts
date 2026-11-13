@@ -5,7 +5,7 @@ import { pageOpinionKinds } from '../src/knowledge/markdown.js';
 import { listProblems, type ProblemInput } from '../src/loop/views.js';
 
 const manifest = {
-  file: 'madarch/kinds.yaml',
+  file: 'madarch/catalog.yaml',
   kinds: new Map([
     ['code.file', { name: 'code.file', fields: [{ name: 'path', type: 'text' }] }],
     ['page', { name: 'page', fields: [{ name: 'body', type: 'text' }] }],

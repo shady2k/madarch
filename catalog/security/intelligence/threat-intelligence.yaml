@@ -1,0 +1,27 @@
+id: stix.threat-intelligence
+purpose: quality
+audience: [security-engineer, architect]
+definition: What is known about the campaigns, the tools and the targets of attackers, kept so it can be acted on.
+sources:
+- https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Threat intelligence
+    many: Threat intelligence
+  ru:
+    one: Данные об угрозах
+    many: Данные об угрозах
+description:
+  en: What is known about the campaigns, the tools and the targets of attackers, kept so it can be acted on.
+  ru: То, что известно о кампаниях, инструментах и целях атакующих, сохранённое для действий.

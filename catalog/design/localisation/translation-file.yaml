@@ -1,0 +1,27 @@
+id: xliff.document
+purpose: structure
+audience: [designer, developer]
+definition: An XLIFF file that carries the translation units of one language.
+sources:
+- https://docs.oasis-open.org/xliff/xliff-core/v2.1/os/xliff-core-v2.1-os.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Translation file
+    many: Translation files
+  ru:
+    one: Файл перевода
+    many: Файлы перевода
+description:
+  en: An XLIFF file that carries the translation units of one language.
+  ru: Файл XLIFF с единицами перевода одного языка.

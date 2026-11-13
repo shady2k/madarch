@@ -1,0 +1,27 @@
+id: openfeature.flag-set
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The collection of feature flags one provider serves for one context.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Flag set
+    many: Flag sets
+  ru:
+    one: Набор флагов
+    many: Наборы флагов
+description:
+  en: The collection of feature flags one provider serves for one context.
+  ru: Собрание флагов функций, которое один поставщик обслуживает для одного контекста.

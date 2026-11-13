@@ -1,0 +1,27 @@
+id: owasp.threat-model
+purpose: quality
+audience: [security-engineer, architect, developer]
+definition: A description of a system, its assumptions and its threats, with the mitigations that answer them.
+sources:
+- https://community.owasp.org/Threat_Modeling
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Threat model
+    many: Threat models
+  ru:
+    one: Модель угроз
+    many: Модели угроз
+description:
+  en: A description of a system, its assumptions and its threats, with the mitigations that answer them.
+  ru: Описание системы, её допущений и угроз с отвечающими им смягчениями.

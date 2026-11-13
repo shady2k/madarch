@@ -1,0 +1,27 @@
+id: practice.load-balancer
+purpose: structure
+audience: [operations, platform-devops, architect]
+definition: A component that spreads traffic over several targets and checks which are healthy.
+sources:
+- https://www.rfc-editor.org/rfc/rfc7230.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Load balancer
+    many: Load balancers
+  ru:
+    one: Балансировщик
+    many: Балансировщики
+description:
+  en: A component that spreads traffic over several targets and checks which are healthy.
+  ru: Компонент, который распределяет трафик по нескольким целям и проверяет, какие из них здоровы.

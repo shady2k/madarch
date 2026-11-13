@@ -1,0 +1,27 @@
+id: ddd.factory
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A domain object that builds aggregates or other complex objects.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Factory
+    many: Factories
+  ru:
+    one: Фабрика
+    many: Фабрики
+description:
+  en: A domain object that builds aggregates or other complex objects.
+  ru: Объект предметной области, который создаёт агрегаты или другие сложные объекты.

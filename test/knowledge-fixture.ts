@@ -8,14 +8,12 @@
  * the engine show both.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseDocument } from 'yaml';
 import { createDraft } from '../src/product/draft.js';
-import { CATALOG_KINDS, type CatalogKindData } from '../src/knowledge/starter-catalog.js';
-import { KINDS_FILE } from '../src/product/manifest/kinds.js';
-import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { CATALOG_KINDS, CATALOG_KIND_FILES, type CatalogKindData } from '../src/knowledge/catalog-starter.js';
+import { starterManifestText as compositeStarterManifestText } from './catalog-folder-fixture.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
@@ -121,11 +119,11 @@ export function commitProduct(folder: string, message: string): void {
  * the enrichments and proves them.
  */
 export function withoutEnrichmentKind(folder: string): void {
-  const file = join(folder, 'madarch/kinds.yaml');
-  const manifest = parseDocument(readFileSync(file, 'utf8'));
-  if (!manifest.hasIn(['kinds', 'enrichment'])) return;
-  manifest.deleteIn(['kinds', 'enrichment']);
-  writeFileSync(file, manifest.toString());
+  const kindPath = CATALOG_KIND_FILES['enrichment'];
+  if (kindPath === undefined) throw new Error('the catalogue declares no enrichment kind');
+  const file = join(folder, 'madarch/kinds', kindPath);
+  if (!existsSync(file)) return;
+  unlinkSync(file);
   commitProduct(folder, 'Drop the enrichment kind');
 }
 
@@ -150,7 +148,6 @@ export function starterKinds(): readonly ShownStarterKind[] {
 
 /** The starter manifest's text as `madarch init` writes it, with the product's page language when it has one. */
 export function starterManifestText(language?: string): string {
-  const entry = STARTER_FILES.find((file) => file.path === KINDS_FILE);
-  if (entry === undefined) throw new Error(`the starter set holds no ${KINDS_FILE}`);
-  return language === undefined ? entry.content : `${entry.content}language: ${language}\n`;
+  const text = compositeStarterManifestText();
+  return language === undefined ? text : `${text}language: ${language}\n`;
 }

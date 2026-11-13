@@ -1,0 +1,27 @@
+id: practice.chaos-result
+purpose: quality
+audience: [tester, developer]
+definition: What a chaos experiment showed, with the steady state it compared against.
+sources:
+- https://principlesofchaos.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Chaos result
+    many: Chaos results
+  ru:
+    one: Результат эксперимента с отказами
+    many: Результаты экспериментов с отказами
+description:
+  en: What a chaos experiment showed, with the steady state it compared against.
+  ru: То, что показал эксперимент с отказами, и устойчивое состояние, с которым сравнивали.

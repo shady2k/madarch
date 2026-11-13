@@ -1,0 +1,56 @@
+id: practice.database-index
+purpose: structure
+audience: [analyst, architect, developer]
+definition: A database index, with the columns it covers.
+sources:
+- https://www.postgresql.org/docs/
+acquisition:
+- extractor data-model
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+fields:
+- name: table
+  type: text
+  binding: db-schema@1.table
+- name: name
+  type: text
+  binding: db-schema@1.name
+- name: unique
+  type: boolean
+  binding: db-schema@1.unique
+- name: columns
+  type: json
+  binding: db-schema@1.columns
+- name: where
+  type: text
+  nullable: true
+  binding: db-schema@1.where
+key:
+- table
+- name
+terms:
+- '**/*.ts'
+- '**/*.tsx'
+details:
+- columns
+- unique
+- where
+labels:
+  en:
+    one: Index
+    many: Indexes
+  ru:
+    one: Индекс
+    many: Индексы
+description:
+  en: A database index.
+  ru: Индекс базы данных.
+derives-from:
+- code.table

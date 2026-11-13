@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'bun:test';
 import { RELATION_LABELS, relationLabel } from '../src/knowledge/relation-labels.js';
-import { CATALOG_KINDS, CATALOG_RELATIONS } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_KINDS } from '../src/knowledge/catalog-starter.js';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
+import { parseCatalogYaml } from '../src/product/manifest/kinds.js';
 import gitContract from '../plugins/git/contract.json';
 import diskContract from '../plugins/disk/contract.json';
 import dbSchema from '../plugins/db-schema/contract.json';
+
+const CATALOG_RELATIONS = (parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as { catalog: { relations: Record<string, string | null> } }).catalog.relations;
 
 test('both languages directly name every catalogue and declared built-in relation', () => {
   const templateRelations = [...readFileSync(new URL('../src/knowledge/seed.ts', import.meta.url), 'utf8').matchAll(/relation="([^"]+)"/gu)].flatMap((match) => match[1]!.split(','));

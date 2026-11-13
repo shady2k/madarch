@@ -1,0 +1,43 @@
+id: practice.directory
+purpose: structure
+audience: [developer, architect]
+definition: A folder of a code repository, which holds files and further folders.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/
+acquisition:
+- extractor files
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: page
+template: templates/directory.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  producers:
+  - disk
+- name: path
+  type: text
+  producers:
+  - disk
+key:
+- repository
+- path
+details:
+- path
+labels:
+  en:
+    one: Directory
+    many: Directories
+  ru:
+    one: Папка
+    many: Папки
+description:
+  en: A folder of a code repository, which holds files and further folders.
+  ru: Папка репозитория кода, которая содержит файлы и другие папки.
+derives-from:
+- code.repository

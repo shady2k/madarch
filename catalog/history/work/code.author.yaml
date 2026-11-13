@@ -1,0 +1,43 @@
+id: practice.commit-author
+purpose: history
+audience: [developer, architect, product-lead]
+definition: A person who made commits.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- extractor history
+status: implemented
+relation-constraints:
+  out:
+  - assigns
+  in:
+  - assigns
+template-policy: page
+template: templates/author.liquid
+source: graph
+fields:
+- name: name
+  type: text
+  producers:
+  - git
+- name: email
+  type: text
+  producers:
+  - git
+key:
+- name
+- email
+origin: history
+history: author
+labels:
+  en:
+    one: Author
+    many: Authors
+  ru:
+    one: Автор
+    many: Авторы
+description:
+  en: A person who made commits.
+  ru: Человек, который делал коммиты.
+derives-from:
+- code.commit

@@ -1,5 +1,6 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -9,21 +10,20 @@ import { planManifestFill } from '../src/plugin/fill-declarations.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 
 const folder = mkdtempSync(join(tmpdir(), 'madarch-fixture-plugins-'));
-const file = join(folder, 'madarch', 'kinds.yaml');
 let original: string;
 beforeAll(() => {
   seedStarterSet(folder);
-  original = readFileSync(file, 'utf8');
+  original = readFolderManifestText(folder);
 });
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
 const selections: { selected: string[] }[] = [{ selected: [] }, { selected: ['db-schema'] }, { selected: ['disk', 'db-schema'] }];
 
 test.each(selections)('fixture plugin selection preserves all fields with %j', ({ selected }) => {
-    writeFileSync(file, original);
+    writeFolderManifest(folder, original);
     const before = parse(original);
     useFixturePlugins(folder, selected);
-    const after = parse(readFileSync(file, 'utf8'));
+    const after = parse(readFolderManifestText(folder));
     expect(after.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(before.plugins.filter((plugin: { id: string }) => selected.includes(plugin.id)).map((plugin: { id: string }) => plugin.id));
     const expected = structuredClone(before.kinds);
     let converted = 0;

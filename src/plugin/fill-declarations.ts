@@ -180,7 +180,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   const selected = new Set<string>();
   for (const name of requested) {
     const kind = kinds.get(name);
-    if (kind === undefined) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'kinds.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'kinds.yaml'));
+    if (kind === undefined) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml'));
     for (const prerequisite of prerequisites(name)) selected.add(prerequisite);
     selected.add(name);
   }

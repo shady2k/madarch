@@ -1,0 +1,27 @@
+id: practice.websocket-endpoint
+purpose: structure
+audience: [developer, architect, analyst]
+definition: A WebSocket endpoint a service offers, with the messages it exchanges.
+sources:
+- https://www.rfc-editor.org/rfc/rfc6455.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - consumesApi
+template-policy: none
+labels:
+  en:
+    one: WebSocket endpoint
+    many: WebSocket endpoints
+  ru:
+    one: Конечная точка WebSocket
+    many: Конечные точки WebSocket
+description:
+  en: A WebSocket endpoint a service offers, with the messages it exchanges.
+  ru: Конечная точка WebSocket, которую предлагает сервис, с сообщениями, которыми она обменивается.

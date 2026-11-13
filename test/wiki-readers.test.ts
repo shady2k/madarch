@@ -29,7 +29,7 @@ describe('the manifest\'s roles', () => {
   afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
   test('a role declares the blocks it opens and the groups that lead; "everything" needs no declaration', () => {
-    const manifest = parseKinds(MANIFEST('roles:\n  developer: { lead: [code], open: [source, callers] }\n  product: { lead: [product] }\n'), 'kinds.yaml', folder);
+    const manifest = parseKinds(MANIFEST('roles:\n  developer: { lead: [code], open: [source, callers] }\n  product: { lead: [product] }\n'), 'catalog.yaml', folder);
     expect(manifest.findings).toEqual([]);
     expect([...manifest.roles.keys()]).toEqual(['developer', 'product']);
     expect(manifest.roles.get('developer')).toMatchObject({ open: ['source', 'callers'], lead: ['code'] });
@@ -38,7 +38,7 @@ describe('the manifest\'s roles', () => {
 
   test('a role the engine never heard of is the product\'s own, while a block outside the library and a group not declared are findings with the file and line', () => {
     // A role's name is data (decision 0033, item 12): a product declares the roles it reads as, and the engine holds none.
-    const manifest = parseKinds(MANIFEST('roles:\n  janitor: { lead: [code] }\n  tester: { open: [nothing] }\n  analyst: { lead: [elsewhere] }\n  architect: { lead: [code, product] }\n'), 'kinds.yaml', folder);
+    const manifest = parseKinds(MANIFEST('roles:\n  janitor: { lead: [code] }\n  tester: { open: [nothing] }\n  analyst: { lead: [elsewhere] }\n  architect: { lead: [code, product] }\n'), 'catalog.yaml', folder);
     expect(manifest.findings.map((finding) => [finding.line, finding.message.split(':')[0]])).toEqual([[11, 'role "tester"'], [12, 'role "analyst"']]);
     expect(manifest.findings[0]!.message).toContain('"nothing" is not a block of the library');
     expect(manifest.findings[1]!.message).toContain('"elsewhere" is not a group');
@@ -46,7 +46,7 @@ describe('the manifest\'s roles', () => {
   });
 
   test('"everything" is every role at once and is not declared, and a role\'s name is one word', () => {
-    const manifest = parseKinds(MANIFEST('roles:\n  everything: { lead: [code] }\n  "security engineer": { lead: [code] }\n  security-engineer: { lead: [code, product] }\n'), 'kinds.yaml', folder);
+    const manifest = parseKinds(MANIFEST('roles:\n  everything: { lead: [code] }\n  "security engineer": { lead: [code] }\n  security-engineer: { lead: [code, product] }\n'), 'catalog.yaml', folder);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
       [10, 'role "everything": "everything" is every role at once and is not declared'],
       [11, 'role "security engineer": a role\'s name is one word without whitespace'],

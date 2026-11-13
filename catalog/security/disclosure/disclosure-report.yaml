@@ -1,0 +1,27 @@
+id: practice.disclosure-report
+purpose: history
+audience: [security-engineer, architect]
+definition: A vulnerability report received from outside, with its handling and its resolution.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/216/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - foundBy
+template-policy: none
+labels:
+  en:
+    one: Disclosure report
+    many: Disclosure reports
+  ru:
+    one: Сообщение об уязвимости
+    many: Сообщения об уязвимости
+description:
+  en: A vulnerability report received from outside, with its handling and its resolution.
+  ru: Отчёт об уязвимости, полученный извне, с его обработкой и разрешением.

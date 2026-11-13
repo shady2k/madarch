@@ -1,0 +1,27 @@
+id: protobuf.service
+purpose: structure
+audience: [developer, architect, analyst]
+definition: A service declared in a Protocol Buffers file, with the remote calls it offers.
+sources:
+- https://protobuf.dev/reference/protobuf/proto3-spec/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: gRPC service
+    many: gRPC services
+  ru:
+    one: Служба gRPC
+    many: Службы gRPC
+description:
+  en: A service declared in a Protocol Buffers file, with the remote calls it offers.
+  ru: Служба, объявленная в файле Protocol Buffers, с её удалёнными вызовами.

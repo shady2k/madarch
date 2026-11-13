@@ -1,0 +1,69 @@
+id: practice.column
+purpose: structure
+audience: [analyst, architect, developer]
+definition: A column of a table, with its type and the constraints it holds.
+sources:
+- https://www.postgresql.org/docs/
+acquisition:
+- extractor data-model
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+fields:
+- name: table
+  type: text
+  binding: db-schema@1.table
+- name: name
+  type: text
+  binding: db-schema@1.name
+- name: type
+  type: text
+  binding: db-schema@1.type
+- name: nullable
+  type: boolean
+  binding: db-schema@1.nullable
+- name: default
+  type: text
+  nullable: true
+  binding: db-schema@1.default
+- name: primary_key
+  type: boolean
+  binding: db-schema@1.primary_key
+- name: unique
+  type: boolean
+  binding: db-schema@1.unique
+- name: check
+  type: json
+  nullable: true
+  binding: db-schema@1.check
+key:
+- table
+- name
+terms:
+- '**/*.ts'
+- '**/*.tsx'
+details:
+- type
+- nullable
+- default
+- primary_key
+- unique
+- check
+labels:
+  en:
+    one: Column
+    many: Columns
+  ru:
+    one: Столбец
+    many: Столбцы
+description:
+  en: A column of a table with its type.
+  ru: Столбец таблицы с его типом.
+derives-from:
+- code.table

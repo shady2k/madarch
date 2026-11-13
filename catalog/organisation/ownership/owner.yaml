@@ -1,0 +1,27 @@
+id: backstage.owner
+purpose: history
+audience: [product-lead, architect, developer, operations]
+definition: The person or the group that answers for an element of the product.
+sources:
+- https://backstage.io/docs/features/software-catalog/well-known-relations
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - ownedBy
+  in:
+  - ownedBy
+template-policy: none
+labels:
+  en:
+    one: Owner
+    many: Owners
+  ru:
+    one: Владелец
+    many: Владельцы
+description:
+  en: The person or the group that answers for an element of the product.
+  ru: Человек или группа, которые отвечают за элемент продукта.

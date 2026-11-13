@@ -1,0 +1,37 @@
+id: practice.field
+purpose: structure
+audience: [developer, architect]
+definition: A field or a property of a type, read on the page of the type that declares it.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: member
+template: templates/item-plain.liquid
+source: graph
+member:
+  relation: code.contains
+  direction: in
+  parentKind: code.symbol
+details:
+- symbolKind
+- qualifiedName
+- typeText
+- value
+- language
+labels:
+  en:
+    one: Field
+    many: Fields
+  ru:
+    one: Поле
+    many: Поля
+description:
+  en: A field or property of a class, struct or interface; it is read on the page of the type that declares it.
+  ru: Поле или свойство класса, структуры или интерфейса; о нём читают на странице объявившего его типа.

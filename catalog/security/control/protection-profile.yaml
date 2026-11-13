@@ -1,0 +1,27 @@
+id: iso15408.protection-profile
+purpose: quality
+audience: [security-engineer, architect]
+definition: A standard statement of security requirements for a kind of product, as ISO/IEC 15408 defines it.
+sources:
+- https://www.iso.org/standard/72891.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Protection profile
+    many: Protection profiles
+  ru:
+    one: Профиль защиты
+    many: Профили защиты
+description:
+  en: A standard statement of security requirements for a kind of product, as ISO/IEC 15408 defines it.
+  ru: Стандартное изложение требований безопасности для вида продукта, как определяет ISO/IEC 15408.

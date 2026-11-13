@@ -1,0 +1,27 @@
+id: nist800-34.impact-scenario
+purpose: operations
+audience: [operations, product-lead, analyst, architect]
+definition: One described outage, with its effect over time and the point at which it becomes unacceptable.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Impact scenario
+    many: Impact scenarios
+  ru:
+    one: Сценарий последствий
+    many: Сценарии последствий
+description:
+  en: One described outage, with its effect over time and the point at which it becomes unacceptable.
+  ru: Описанный простой с его эффектом во времени и точкой, где он становится недопустимым.

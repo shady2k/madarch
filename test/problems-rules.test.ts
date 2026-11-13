@@ -12,7 +12,7 @@ import { evaluateCode, type CodeSnapshot } from '../src/problems/code.js';
 import { evaluateDocuments } from './problems-documents-fixture.js';
 import { openProblemsOf } from '../src/problems/index.js';
 import { unimplementedRuleNotes } from '../src/problems/rules.js';
-import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
+import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 import { DEFAULT_THRESHOLDS, SONAR_KINDS, PROBLEM_SEVERITIES, problemId, type ProblemSettings, type RuleSetting } from '../src/problems/types.js';
 import type { ProblemDraft } from '../src/problems/types.js';
 

@@ -1,13 +1,13 @@
 import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
-import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS, CATALOG_SCHEMA, type CatalogGroupData, type CatalogKindData } from './starter-catalog.js';
+import { CATALOG_KINDS, CATALOG_KIND_FILES, CATALOG_RAW_KINDS, type CatalogKindData } from './catalog-starter.js';
+import { stringify } from 'yaml';
+import { parseCatalogYaml } from '../product/manifest/kinds.js';
+import { CATALOG_FILES } from './catalog-assets.js';
 import { STARTER_WORKFLOWS } from './starter-workflows.js';
 import { DEFAULT_STARTER_TEMPLATE, starterTemplateOf, type StarterTemplate } from './starter-templates.js';
 import { BUNDLED_PLUGINS, bundledClosureHash, bundledPluginFiles, type BundledPlugin } from '../plugin/bundled.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
-import { DEFAULT_THRESHOLDS } from '../problems/types.js';
-import { byCodePoint } from '../model/order.js';
-import type { RuleSpec } from '../problems/types.js';
 
 /**
  * The starter set `madarch init --template everything` writes into a product (decision 0029): the
@@ -289,375 +289,43 @@ them, as label.
  * The groups of the navigation and the catalogue, as the catalog declares them: an area, then its subgroups. The
  * engine holds none of them; the product's manifest names every one.
  */
-export const GROUPS: readonly CatalogGroupData[] = CATALOG_GROUPS;
-
-/** What each role opens on a page and puts first in the navigation (decision 0031); the product edits them. */
-export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
-  { name: 'product', lead: ['strategy', 'discovery', 'requirements', 'rd'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
-  { name: 'analyst', lead: ['strategy', 'requirements', 'data', 'contracts', 'information'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
-  { name: 'architect', lead: ['architecture', 'code', 'contracts', 'data', 'infrastructure', 'security', 'common'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
-  { name: 'developer', lead: ['code', 'contracts', 'data', 'testing', 'delivery', 'review', 'history', 'work'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
-  { name: 'operations', lead: ['operations', 'infrastructure', 'messaging', 'resilience'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
-  { name: 'tester', lead: ['testing', 'requirements', 'strategy'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
-  { name: 'designer', lead: ['design', 'requirements', 'discovery'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'children'] },
-  { name: 'security-engineer', lead: ['security', 'privacy', 'architecture', 'delivery'], open: ['properties', 'related', 'graph', 'children', 'source', 'stated'] },
-  { name: 'platform-devops', lead: ['infrastructure', 'delivery', 'operations', 'messaging', 'automation', 'decommissioning'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
-  { name: 'product-lead', lead: ['strategy', 'costs', 'suppliers', 'documentation', 'organisation', 'ml', 'work', 'common'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
-];
-
-/**
- * A property's declaration as the starter set writes it: the words a reader sees in each language, how the value is
- * written, and, for a value that is an object, the keys it holds and their labels (a build's context, its Dockerfile).
- */
-interface PropertyLabel {
-  en: string;
-  ru: string;
-  format?: string;
-  fields?: Readonly<Record<string, { en: string; ru: string; format?: string }>>;
+interface CatalogMetadata {
+  groups: Record<string, { parent?: string }>;
+  roles: Record<string, { lead: string[]; open: string[] }>;
+  documents: { expect: string[] };
+  edges?: { from: string[]; to: string[] }[];
 }
 
-const PROPERTY_LABELS: Readonly<Record<string, PropertyLabel>> = {
-  task: { en: 'Repair task', ru: 'Задача исправления' },
-  quarantine_reason: { en: 'Reason', ru: 'Причина' },
-  since: { en: 'Quarantined since commit', ru: 'Коммит введения карантина' },
-  latest_result: { en: 'Latest quarantine CI result', ru: 'Последний результат CI карантина' },
-  correction_reason: { en: "Reason", ru: "Причина", format: "text" },
-  dismissal_reason: { en: "Reason", ru: "Причина", format: "text" },
-  statement: { en: "Statement", ru: "Утверждение", format: "text" },
-  sides: { en: "What the sources say", ru: "Что говорят источники", format: "text" },
-  why: { en: "Why it matters", ru: "Почему это важно", format: "text" },
-  question: { en: "Question", ru: "Вопрос", format: "text" },
-  answer: { en: "Answer", ru: "Ответ", format: "text" },
-  problem: { en: "Problem", ru: "Проблема", format: "text" },
-  grounds: { en: "Grounds", ru: "Основания", format: "text" },
-  closed_by: { en: "Closing commit", ru: "Закрывающий коммит", format: "text" },
-  closed_at: { en: "Closed at", ru: "Время закрытия", format: "text" },
-  rule: { en: "Rule", ru: "Правило", format: "text" },
-  identity: { en: "Identity", ru: "Идентификатор", format: "text" },
-  place: { en: "Place", ru: "Место", format: "text" },
+const CATALOG_METADATA = parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as CatalogMetadata;
 
-  status: { en: "Status", ru: "Статус", format: "text" },
-  about: { en: "About", ru: "О чём", format: "list" },
-  asked_in: { en: "Asked on", ru: "Страница вопроса", format: "text" },
-  asked_at: { en: "Asked at", ru: "Время вопроса", format: "date" },
-  resolved_by: { en: "Used by pages", ru: "Учтено на страницах", format: "list" },
-  resolved_at: { en: "Resolved at", ru: "Время разрешения", format: "date" },
-  written_at: { en: "Written from", ru: "Основания записи", format: "list" },
-  by: { en: "Corrected by", ru: "Автор поправки", format: "text" },
-  at: { en: "Corrected at", ru: "Время поправки", format: "date" },
-
-  language: { en: "Language", ru: "Язык", format: "text" },
-  frameworks: { en: "Frameworks", ru: "Фреймворки", format: "list" },
-  infrastructure: { en: "Infrastructure", ru: "Инфраструктура", format: "list" },
-  testFramework: { en: "Test framework", ru: "Тестовый фреймворк", format: "text" },
-  ecosystem: { en: "Ecosystem", ru: "Экосистема", format: "text" },
-  name: { en: "Name", ru: "Имя", format: "text" },
-  version: { en: "Version", ru: "Версия", format: "text" },
-  external: { en: "External", ru: "Внешняя", format: "boolean" },
-  hasTests: { en: "Has tests", ru: "Есть тесты", format: "boolean" },
-  sourceFiles: { en: "Source files", ru: "Исходные файлы", format: "number" },
-  testFiles: { en: "Test files", ru: "Тестовые файлы", format: "number" },
-  tests: { en: "Tests", ru: "Тесты", format: "list" },
-  versionStatus: { en: "Version status", ru: "Состояние версии", format: "text" },
-  standardLibrary: { en: "Standard library", ru: "Стандартная библиотека", format: "boolean" },
-  role: { en: "Role", ru: "Роль", format: "text" },
-  kind: { en: "Kind", ru: "Вид", format: "text" },
-  files: { en: "Files", ru: "Файлы", format: "number" },
-  parsedFiles: { en: "Parsed files", ru: "Разобранные файлы", format: "number" },
-  packageName: { en: "Package name", ru: "Имя пакета", format: "text" },
-  symbolKind: { en: "Symbol kind", ru: "Вид символа", format: "text" },
-  qualifiedName: { en: "Qualified name", ru: "Полное имя", format: "text" },
-  typeText: { en: "Type", ru: "Тип", format: "text" },
-  value: { en: "Value", ru: "Значение", format: "code" },
-  exported: { en: "Exported", ru: "Экспортируется", format: "boolean" },
-  abstract: { en: "Abstract", ru: "Абстрактный", format: "boolean" },
-  inline: { en: "Inline", ru: "Встроенный", format: "boolean" },
-  test: { en: "Test", ru: "Тест", format: "commands" },
-  deadExport: { en: "Unused export", ru: "Неиспользуемый экспорт", format: "boolean" },
-  entryPoint: { en: "Entry point", ru: "Точка входа", format: "text" },
-  entryPoints: { en: "Entry points", ru: "Точки входа", format: "list" },
-  file: { en: "File", ru: "Файл", format: "path" },
-  service: { en: "Service", ru: "Сервис", format: "text" },
-  symbol: { en: "Symbol", ru: "Символ", format: "text" },
-  starts: { en: "Starts", ru: "Запускает", format: "list" },
-  level: { en: "Level", ru: "Уровень", format: "text" },
-  size: { en: "Size", ru: "Размер", format: "number" },
-  marker: { en: "Marker", ru: "Маркер", format: "text" },
-  text: { en: "Text", ru: "Текст", format: "text" },
-  path: { en: "Path", ru: "Путь", format: "path" },
-  line: { en: "Line", ru: "Строка", format: "number" },
-  lines: { en: "Lines", ru: "Строк", format: "number" },
-  mode: { en: "Mode", ru: "Режим", format: "text" },
-  blob: { en: "Content hash", ru: "Хеш содержимого", format: "code" },
-  bytes: { en: "Bytes", ru: "Байт", format: "number" },
-  form: { en: "Form", ru: "Форма", format: "text" },
-  candidates: { en: "Languages", ru: "Языки", format: "list" },
-  author: { en: "Author", ru: "Автор", format: "text" },
-  authorEmail: { en: "Author email", ru: "Почта автора", format: "text" },
-  source: { en: "Source", ru: "Источник", format: "text" },
-  readBy: { en: "Read by", ru: "Читает", format: "text" },
-  function: { en: "Function", ru: "Функция", format: "text" },
-  callee: { en: "Callee", ru: "Вызываемый", format: "text" },
-  method: { en: "Method", ru: "Метод", format: "text" },
-  authGroup: { en: "Authentication group", ru: "Группа авторизации", format: "boolean" },
-  authAlgorithm: { en: "Authentication algorithm", ru: "Алгоритм авторизации", format: "text" },
-  handler: { en: "Handler", ru: "Обработчик", format: "text" },
-  handlerPath: { en: "Handler file", ru: "Файл обработчика", format: "path" },
-  operationId: { en: "Operation id", ru: "Идентификатор операции", format: "text" },
-  public: { en: "Public", ru: "Публичная", format: "boolean" },
-  package: { en: "Package", ru: "Пакет", format: "text" },
-  input: { en: "Input", ru: "Входные данные", format: "text" },
-  output: { en: "Output", ru: "Результат", format: "text" },
-  rpc: { en: "RPC", ru: "RPC", format: "text" },
-  servers: { en: "Servers", ru: "Серверы", format: "list" },
-  summary: { en: "Summary", ru: "Кратко", format: "text" },
-  format: { en: "Format", ru: "Формат", format: "text" },
-  specVersion: { en: "Specification version", ru: "Версия спецификации", format: "text" },
-  protocol: { en: "Protocol", ru: "Протокол", format: "text" },
-  contract: { en: "Contract", ru: "Контракт", format: "text" },
-  description: { en: "Description", ru: "Описание", format: "text" },
-  consumerStatus: { en: "Consumer status", ru: "Состояние потребителя", format: "text" },
-  consumerFound: { en: "Consumer found", ru: "Потребитель найден", format: "boolean" },
-  channel: { en: "Channel", ru: "Канал", format: "text" },
-  eventTypes: { en: "Event types", ru: "Типы событий", format: "list" },
-  database: { en: "Database", ru: "База данных", format: "text" },
-  schema: { en: "Schema", ru: "Схема", format: "text" },
-  unsupported: { en: "Unsupported SQL", ru: "Неподдерживаемый SQL", format: "text" },
-  evidenceKind: { en: "Evidence", ru: "Основание", format: "text" },
-  type: { en: "Type", ru: "Тип", format: "text" },
-  nullable: { en: "Nullable", ru: "Допускает NULL", format: "boolean" },
-  default: { en: "Default", ru: "Значение по умолчанию", format: "code" },
-  primary_key: { en: "Primary key", ru: "Первичный ключ", format: "boolean" },
-  unique: { en: "Unique", ru: "Уникальный", format: "boolean" },
-  check: { en: "Check", ru: "Проверка", format: "code" },
-  columns: { en: "Columns", ru: "Столбцы", format: "list" },
-  where: { en: "Condition", ru: "Условие", format: "code" },
-  ordinal: { en: "Order", ru: "Порядок", format: "number" },
-  required: { en: "Required", ru: "Обязательна", format: "boolean" },
-  scope: { en: "Scope", ru: "Область", format: "text" },
-  exact: { en: "Exact version", ru: "Точная версия", format: "boolean" },
-  module: { en: "Module", ru: "Модуль", format: "text" },
-  goVersion: { en: "Go version", ru: "Версия Go", format: "text" },
-  private: { en: "Private", ru: "Приватный", format: "boolean" },
-  scripts: { en: "Scripts", ru: "Сценарии", format: "scripts" },
-  lockfileVersion: { en: "Lock file version", ru: "Версия файла блокировки", format: "number" },
-  modules: { en: "Modules", ru: "Модули", format: "number" },
-  packages: { en: "Packages", ru: "Пакеты", format: "number" },
-  devOnlyPackages: { en: "Development packages", ru: "Пакеты для разработки", format: "number" },
-  baseImages: { en: "Base images", ru: "Базовые образы", format: "list" },
-  exposes: { en: "Exposes", ru: "Открывает порты", format: "list" },
-  command: { en: "Command", ru: "Команда", format: "commands" },
-  repository: { en: "Repository", ru: "Репозиторий", format: "text" },
-  tag: { en: "Tag", ru: "Тег", format: "text" },
-  image: { en: "Image", ru: "Образ", format: "text" },
-  build: {
-    en: "Build", ru: "Сборка", format: "build",
-    // The keys a compose build holds. The engine reads them because the manifest names them, not because it knows a product.
-    fields: { context: { en: "Build context", ru: "Контекст сборки", format: "path" }, dockerfile: { en: "Dockerfile", ru: "Dockerfile", format: "path" } },
-  },
-  ports: { en: "Ports", ru: "Порты", format: "ports" },
-  dependsOn: { en: "Depends on", ru: "Зависит от", format: "list" },
-  environment: { en: "Environment", ru: "Окружение", format: "list" },
-  containerPorts: { en: "Container ports", ru: "Порты контейнера", format: "list" },
-  envFrom: { en: "Environment from", ru: "Окружение из", format: "list" },
-  replicas: { en: "Replicas", ru: "Реплики", format: "number" },
-  probePath: { en: "Probe path", ru: "Путь проверки", format: "text" },
-  probePaths: { en: "Probe paths", ru: "Пути проверки", format: "list" },
-  on: { en: "On", ru: "События", format: "list" },
-  workingDirectory: { en: "Working directory", ru: "Рабочая папка", format: "path" },
-  steps: { en: "Steps", ru: "Шаги", format: "commands" },
-  uses: { en: "Uses", ru: "Использует", format: "list" },
-  phony: { en: "Phony", ru: "Фиктивная цель", format: "boolean" },
-  recipe: { en: "Recipe", ru: "Рецепт", format: "commands" },
-  binary: { en: "Binary", ru: "Программа", format: "text" },
-  port: { en: "Port", ru: "Порт", format: "number" },
-  statusOk: { en: "Healthy on success", ru: "Успех означает здоровье", format: "boolean" },
-  metricType: { en: "Metric type", ru: "Тип метрики", format: "text" },
-  help: { en: "Help", ru: "Описание", format: "text" },
-  labels: { en: "Labels", ru: "Метки", format: "list" },
-  library: { en: "Library", ru: "Библиотека", format: "text" },
-  definitionFormat: { en: "Definition format", ru: "Формат описания", format: "text" },
-  technology: { en: "Technology", ru: "Технология", format: "text" },
-  addresses: { en: "Addresses", ru: "Адреса", format: "list" },
-  probeType: { en: "Probe type", ru: "Тип пробы", format: "text" },
-  container: { en: "Container", ru: "Контейнер", format: "text" },
-  resolvedPort: { en: "Resolved port", ru: "Найденный порт", format: "number" },
-  scheme: { en: "Scheme", ru: "Схема", format: "text" },
-  host: { en: "Host", ru: "Хост", format: "text" },
-  initialDelaySeconds: { en: "Initial delay", ru: "Начальная задержка", format: "text" },
-  periodSeconds: { en: "Period", ru: "Период", format: "text" },
-  timeoutSeconds: { en: "Timeout", ru: "Таймаут", format: "text" },
-  successThreshold: { en: "Success threshold", ru: "Порог успеха", format: "number" },
-  failureThreshold: { en: "Failure threshold", ru: "Порог отказа", format: "number" },
-  terminationGracePeriodSeconds: { en: "Termination grace", ru: "Время на остановку", format: "text" },
-  transport: { en: "Transport", ru: "Транспорт", format: "text" },
-  interval: { en: "Interval", ru: "Интервал", format: "text" },
-  retries: { en: "Retries", ru: "Повторы", format: "number" },
-  disable: { en: "Disabled", ru: "Отключена", format: "boolean" },
-  startPeriod: { en: "Start period", ru: "Период запуска", format: "text" },
-  startInterval: { en: "Start interval", ru: "Интервал запуска", format: "text" },
-  heading: { en: "Heading", ru: "Заголовок", format: "text" },
-  folder: { en: "Folder", ru: "Папка", format: "path" },
-  purpose: { en: "Purpose", ru: "Назначение", format: "text" },
-  order: { en: "Order", ru: "Порядок", format: "number" },
-  tools: { en: "Tools", ru: "Инструменты", format: "list" },
-  symptom: { en: "Symptom", ru: "Симптом", format: "text" },
-  fix: { en: "Fix", ru: "Исправление", format: "text" },
-  testKind: { en: "Test kind", ru: "Вид теста", format: "text" },
-  skipped: { en: "Skipped", ru: "Пропущен", format: "boolean" },
-  skipReason: { en: "Skip reason", ru: "Причина пропуска", format: "text" },
-  cases: { en: "Cases", ru: "Случаи", format: "number" },
-  suite: { en: "Suite", ru: "Набор", format: "list" },
-  subject: { en: "Subject", ru: "Тема", format: "text" },
-  authoredAt: { en: "Authored", ru: "Создан", format: "date" },
-  committedAt: { en: "Committed", ru: "Зафиксирован", format: "date" },
-  merge: { en: "Merge commit", ru: "Коммит слияния", format: "boolean" },
-  mergedBranch: { en: "Merged branch", ru: "Слитая ветка", format: "text" },
-  commit: { en: "Commit", ru: "Коммит", format: "text" },
-  commitCount: { en: "Commits", ru: "Коммитов", format: "number" },
-  authors: { en: "Authors", ru: "Авторы", format: "list" },
-  parsed: { en: "Parsed", ru: "Разобран", format: "boolean" },
-  identifier: { en: "Identifier", ru: "Идентификатор", format: "text" },
-  document: { en: "Document", ru: "Документ", format: "path" },
-  framework: { en: "Framework", ru: "Фреймворк", format: "text" },
-  json: { en: "JSON logs", ru: "Журнал JSON", format: "boolean" },
-  middleware: { en: "Middleware", ru: "Промежуточные обработчики", format: "list" },
-  model: { en: "Model", ru: "Модель", format: "text" },
-  timeout: { en: "Timeout", ru: "Таймаут", format: "text" },
-};
-
-/** The properties each kind shows on its page, in the order a reader meets them (madarch-m38l.21). */
-export const DETAILS: Readonly<Record<string, readonly string[]>> = {
-  task: ["status", "question", "answer", "problem", "grounds", "scope", "by", "at", "closed_by", "closed_at", "file"],
-  "problem-dismissal": ["rule", "identity", "place", "dismissal_reason", "by", "at", "file"],
-  question: ["question", "why", "sides", "answer", "type", "status", "about", "asked_in", "asked_at", "resolved_by", "resolved_at", "written_at", "file"],
-  correction: ["statement", "correction_reason", "status", "about", "by", "at", "resolved_by", "resolved_at", "file"],
-  "code.service": ["language", "frameworks", "infrastructure", "testFramework"],
-  "code.package": ["ecosystem", "name", "version", "external", "frameworks", "hasTests", "sourceFiles", "testFiles", "tests", "versionStatus", "standardLibrary"],
-  "code.module": ["role", "kind", "language", "files", "parsedFiles", "packageName"],
-  "code.symbol": ["symbolKind", "qualifiedName", "typeText", "language", "exported", "abstract", "inline", "test", "deadExport", "entryPoint", "entryPoints"],
-  "code.field": ["symbolKind", "qualifiedName", "typeText", "value", "language"],
-  "code.entry-point": ["file", "language", "service", "symbol", "starts"],
-  "code.cycle": ["level", "size"],
-  "code.debt": ["marker", "text", "path", "line"],
-  "code.directory": ["path"],
-  "code.file": ["mode", "blob", "bytes", "lines", "form", "language", "candidates", "commitCount", "authors"],
-  "code.facet": ["language", "role", "authors", "commitCount", "parsed"],
-  "code.input": ["name", "source"],
-  "code.sql-build": [],
-  "code.sql-sink": [],
-  "code.route": ["method", "path", "authGroup", "authAlgorithm", "handler", "handlerPath", "service", "middleware", "ports"],
-  "code.operation": ["method", "path", "operationId", "public", "service", "package", "input", "output", "rpc", "servers", "summary"],
-  "code.contract": ["format", "specVersion", "version", "path"],
-  "code.channel": ["protocol", "contract", "path", "description", "consumerStatus", "consumerFound"],
-  "code.message": ["channel", "eventTypes", "path"],
-  "code.database": ["service", "path", "evidenceKind"],
-  "code.table": ["database", "schema", "unsupported"],
-  "code.column": ["type", "nullable", "default", "primary_key", "unique", "check"],
-  "code.index": ["columns", "unique", "where"],
-  "code.migration": ["ordinal", "path"],
-  "code.env-var": ["required", "default"],
-  "code.env-definition": ["scope"],
-  "code.dependency": ["name", "version", "scope", "exact"],
-  "code.manifest": ["ecosystem", "name", "version", "module", "goVersion", "private"],
-  "code.lockfile": ["format", "lockfileVersion", "modules", "packages", "devOnlyPackages"],
-  "code.dockerfile": ["baseImages", "exposes", "command"],
-  "code.image": ["repository", "tag"],
-  "code.compose-service": ["image", "ports", "dependsOn", "environment"],
-  "code.k8s-deployment": ["image", "replicas", "containerPorts", "probePath", "probePaths", "envFrom"],
-  "code.k8s-service": ["ports"],
-  "code.ci-workflow": ["name", "on"],
-  "code.ci-job": ["workingDirectory", "steps", "uses"],
-  "code.make-target": ["phony", "recipe"],
-  "code.process": ["binary", "command"],
-  "code.port": ["port", "service"],
-  "code.health-endpoint": ["method", "path", "ports", "statusOk", "service"],
-  "code.metric": ["name", "metricType", "help", "labels", "library", "definitionFormat", "service"],
-  "code.broker": ["technology", "source", "addresses"],
-  "code.probe": ["probeType", "container", "path", "port", "resolvedPort", "scheme", "host", "initialDelaySeconds", "periodSeconds", "timeoutSeconds", "successThreshold", "failureThreshold", "terminationGracePeriodSeconds", "transport"],
-  "code.healthcheck": ["service", "test", "interval", "timeout", "retries", "disable", "startPeriod", "startInterval"],
-  "code.document-section": ["heading", "level", "path"],
-  "code.metrics-endpoint": ["method", "path", "ports", "format", "library", "service"],
-  "code.logger": ["library", "model", "service", "json"],
-  "code.newcomer-command": ["command", "folder", "purpose", "order"],
-  "code.newcomer-prerequisites": ["tools"],
-  "code.newcomer-failure": ["symptom", "command", "fix", "port"],
-  "code.test-quarantine": ["test", "task", "quarantine_reason", "since", "latest_result"],
-  "code.test-case": ["name", "testKind", "framework", "language", "path", "skipped", "skipReason", "cases", "suite"],
-  "code.commit": ["author", "authorEmail", "subject", "authoredAt", "committedAt", "merge", "mergedBranch"],
-  "code.snapshot": ["commit"],
-};
-
-const yamlText = (text: string): string => JSON.stringify(text);
-
-/** One property of `PROPERTY_LABELS` as the manifest's flow mapping, its value's keys included. */
-function propertyYaml(label: PropertyLabel): string {
-  const fields = label.fields === undefined ? '' : `, fields: { ${Object.entries(label.fields).map(([key, field]) => `${key}: ${propertyYaml(field)}`).join(', ')} }`;
-  return `{ en: ${yamlText(label.en)}, ru: ${yamlText(label.ru)}, format: ${yamlText(label.format ?? 'text')}${fields} }`;
-}
-
-/**
- * The rules of the Problems page as the starter manifest writes them (madarch-m38l.19, the review's
- * first finding): this is starter content, not engine behaviour. The engine keeps only the
- * predicates these rules name; a product edits, disables or adds a rule in its own manifest.
- */
-export const STARTER_PROBLEM_RULES: readonly RuleSpec[] = [
-  { id: 'dependency.cycle', predicate: 'dependency-cycle', kind: 'dependency-cycle', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency cycle', ru: 'Цикл зависимостей' } },
-  { id: 'security.sql-input', predicate: 'sql-input', kind: 'sql-input', sonar: 'vulnerability', severity: 'blocker', section: 'code', action: 'task', enabled: true, label: { en: 'Untrusted input reaches SQL', ru: 'Внешние данные попадают в SQL' } },
-  { id: 'security.export-route', predicate: 'route-outside-auth', kind: 'route-outside-auth', sonar: 'vulnerability', severity: 'critical', section: 'code', action: 'task', enabled: true, label: { en: 'Route outside the auth group', ru: 'Маршрут вне группы авторизации' } },
-  { id: 'large-file', predicate: 'large-file', kind: 'large-file', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Large file', ru: 'Большой файл' } },
-  { id: 'hotspot', predicate: 'change-hotspot', kind: 'change-hotspot', sonar: 'code-smell', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Change hotspot', ru: 'Горячая точка изменений' } },
-  { id: 'dead-export', predicate: 'dead-export', kind: 'dead-export', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Exported but unused', ru: 'Экспорт без использования' } },
-  { id: 'debt.todo', predicate: 'debt', kind: 'debt-todo', sonar: 'code-smell', severity: 'info', section: 'code', action: 'task', enabled: true, params: { marker: 'TODO' }, label: { en: 'TODO', ru: 'TODO' } },
-  { id: 'debt.fixme', predicate: 'debt', kind: 'debt-fixme', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, params: { marker: 'FIXME' }, label: { en: 'FIXME', ru: 'FIXME' } },
-  { id: 'config.required-dev-value', predicate: 'config-development-value', kind: 'config-development-value', sonar: 'vulnerability', severity: 'critical', section: 'code', action: 'task', enabled: true, params: { secrets: [], developmentValues: [] }, label: { en: 'Required setting has a checked-in value', ru: 'Обязательная настройка задана в репозитории' } },
-  { id: 'dependency.declared-unused', predicate: 'dependency-declared-unused', kind: 'dependency-declared-unused', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency declared but unused', ru: 'Зависимость объявлена, но не используется' } },
-  { id: 'dependency.used-undeclared', predicate: 'dependency-used-undeclared', kind: 'dependency-used-undeclared', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency used but undeclared', ru: 'Зависимость используется, но не объявлена' } },
-  { id: 'contract.operation-without-route', predicate: 'operation-without-route', kind: 'operation-without-route', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Contract operation is not implemented', ru: 'Операция контракта не реализована' } },
-  { id: 'contract.route-without-operation', predicate: 'route-without-operation', kind: 'route-without-operation', sonar: 'bug', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Route is not in the contract', ru: 'Маршрута нет в контракте' } },
-
-  { id: 'document.contradiction', predicate: 'document-contradiction', kind: 'document-contradiction', sonar: 'bug', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Contradiction', ru: 'Противоречие' } },
-  { id: 'document.stale', predicate: 'document-stale', kind: 'document-stale', sonar: 'bug', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Stale statement', ru: 'Устаревшее утверждение' } },
-  { id: 'document.undocumented', predicate: 'document-undocumented', kind: 'document-undocumented', sonar: 'code-smell', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Undocumented behaviour', ru: 'Неописанное поведение' } },
-  { id: 'document.ambiguous-term', predicate: 'document-ambiguous', kind: 'document-ambiguous', sonar: 'code-smell', severity: 'minor', section: 'documents', action: 'task', enabled: true, label: { en: 'Ambiguous term', ru: 'Неоднозначный термин' } },
-
-  { id: 'wiki.correction', predicate: 'wiki', kind: 'correction', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Correction', ru: 'Исправление' } },
-  { id: 'wiki.ground-removed', predicate: 'wiki', kind: 'ground-removed', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Ground removed', ru: 'Основание исчезло' } },
-  { id: 'wiki.broken-link', predicate: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Broken link', ru: 'Ссылка никуда не ведёт' } },
-  { id: 'wiki.unreadable-file', predicate: 'wiki', kind: 'unreadable-file', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unreadable file', ru: 'Файл не читается' } },
-  { id: 'wiki.unplaced', predicate: 'wiki', kind: 'unplaced', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unplaced finding', ru: 'Находка без места' } },
-  { id: 'wiki.manifest', predicate: 'wiki', kind: 'manifest', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Manifest finding', ru: 'Замечание к манифесту' } },
-];
-
-
-/** One rule as a flow mapping of the manifest; `JSON.stringify` quotes every string, the labels included. */
-function ruleYaml(rule: RuleSpec): string {
-  const fields: string[] = [
-    `predicate: ${rule.predicate}`,
-    `kind: ${rule.kind}`,
-    `sonar: ${rule.sonar}`,
-    `severity: ${rule.severity}`,
-    `section: ${rule.section}`,
-    `action: ${rule.action}`,
-    `enabled: ${rule.enabled === false ? 'false' : 'true'}`,
-  ];
-  if (rule.params !== undefined) {
-    const params = Object.entries(rule.params).map(([name, value]) => {
-      if (Array.isArray(value)) return `${name}: [${value.map((entry) => yamlText(String(entry))).join(', ')}]`;
-      if (typeof value === 'string') return `${name}: ${yamlText(value)}`;
-      return `${name}: ${String(value)}`;
-    });
-    fields.push(`params: { ${params.join(', ')} }`);
+/** The metadata a starter selection uses, read from the catalogue's data, not an engine-owned declaration. */
+function catalogMetadata(kinds: readonly CatalogKindData[]): string {
+  const names = new Set(kinds.map((kind) => kind.name));
+  const used = new Set<string>();
+  for (const kind of kinds) {
+    let group: string | undefined = kind.group;
+    while (group !== undefined && !used.has(group)) {
+      used.add(group);
+      group = CATALOG_METADATA.groups[group]?.parent;
+    }
   }
-  fields.push(`label: { en: ${yamlText(rule.label.en)}, ru: ${yamlText(rule.label.ru)} }`);
-  return `{ ${fields.join(', ')} }`;
+  const audiences = new Set(kinds.flatMap((kind) => {
+    const declaration = CATALOG_RAW_KINDS[kind.name]! as {
+      audience?: string[]; facts?: { audience?: string[] }[];
+    };
+    return [...(declaration.audience ?? []), ...(declaration.facts ?? []).flatMap((fact) => fact.audience ?? [])];
+  }));
+  return stringify({
+    ...CATALOG_METADATA,
+    groups: Object.fromEntries(Object.entries(CATALOG_METADATA.groups).filter(([name]) => used.has(name))),
+    documents: { ...CATALOG_METADATA.documents, expect: CATALOG_METADATA.documents.expect.filter((name) => names.has(name)) },
+    roles: Object.fromEntries(Object.entries(CATALOG_METADATA.roles)
+      .map(([name, role]) => [name, { ...role, lead: role.lead.filter((group) => used.has(group)) }] as const)
+      .filter(([name, role]) => role.lead.length > 0 || audiences.has(name))),
+    edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => names.has(name))),
+  });
 }
 
-/**
- * The `madarch/workflows.yaml` the starter set writes (decision 0033, items 1 and 2):
- * the four workflows over the engine's stage ids, in code point order of their names,
- * with the comment block that explains the file to a person editing it.
- */
 function workflowsManifest(): string {
   const lines: string[] = [
     "# The workflows this product runs (decision 0033, items 1 and 2). A workflow is a named set of the engine's stage",
@@ -682,216 +350,12 @@ function workflowsManifest(): string {
   return `${lines.join('\n')}\n`;
 }
 
-function kindsManifest(kindsNamed?: readonly string[]): string {
-  const chosen = kindsNamed === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kindsNamed.includes(kind.name));
-  const names = new Set(chosen.map((kind) => kind.name));
-  // The groups the chosen kinds stand in, and the areas above them: a group no chosen kind uses is not in the manifest.
-  const used = new Set<string>();
-  for (const kind of chosen) {
-    let group: string | undefined = kind.group;
-    while (group !== undefined && !used.has(group)) {
-      used.add(group);
-      group = GROUPS.find((one) => one.name === group)?.parent;
-    }
-  }
-  const groups = GROUPS.filter((group) => used.has(group.name));
-  const lines: string[] = [
-    "# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).",
-    "# Each kind names where its entities come from and the template that draws them:",
-    "#   source: markdown  the entity is a Markdown file of this repository (a folder of them, or one file)",
-    "#   source: graph     the entity is a node of the graph the fill builds from the code repositories",
-    "#   source: document  the entity is a section of a Markdown document of this or a code repository that opens with an",
-    "#                     identifier (`identifier: UC` takes UC-1, UC-2 ...), a bold term of a glossary (`terms: [...]`), or",
-    "#                     that stands under a heading this manifest declares (`headings: [Qualities]` takes the list items",
-    "#                     under `## Qualities`, numbered or not)",
-    "# A document kind may also say what its sections mean: `semantics` names the general kind of a passage (scenario, actor,",
-    "# rule, quality, decision, procedure, term), which the classifier's answer is shown as, and `structure` names the",
-    "# sections it holds (`structure: [Status, Context, Decision, Consequences]`), which a section without them is a finding",
-    "# for. `documents.expect` lists the kinds the documents must hold: one no document section is read as is a finding too,",
-    "# so the wiki says what the documents lack.",
-    "# A kind with `file:` is one page; the first such kind is the home page.",
-    "# `group` puts the kind in a group of the navigation and the catalogue; `labels` and `description` name and explain",
-    "# the kind in each interface language (en, ru); `origin` says how its entities came to be (agent, person, code, history).",
-    "# `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.",
-    "# `card: true` says a ground on one of the kind's entities shows a card of it — its facts, what it is related to",
-    "# and the way to its page — instead of the code it was read from; a kind without it keeps the code excerpt.",
-    "# `history` names the shape of the story the history block tells of the kind's entities: repositories (the",
-    "# product's whole history), author, path, membership (the files a container holds), commit or task. A kind",
-    "# without it gets no history page.",
-    "# The views, listings and places of a kind are its declaration's too, so no screen of the wiki holds a kind of its",
-    "# own. `views` lists the views a page of the kind may draw of its entities: c4-component (its modules) and state (the",
-    "# state machines in its code). `er` says how the ER view reads its entities: tables (the tables the entity holds) or",
-    "# links (the entity as one table and the tables its foreign keys reach). `sequence` says how the",
-    "# end-to-end chain a page draws starts at its entities: route (at the entity) or symbol (at the route that reaches",
-    "# it); a kind without it starts no chain. `system` says the part its entities play in the system view: container",
-    "# (drawn as a box, read as the implementation a domain names, and the folder a treemap covers), data-store or",
-    "# channel. `definition-block` says what the definition block finds in its entities: contract (the file it reads),",
-    "# operation or channel (a row of it). `listing` says the form of its listing page: operations (what declares,",
-    "# serves and calls each one), the plain table of names and places without it. `nav` says where the kind stands in",
-    "# the navigation: own-page (its entities stand at a place of their own) or loop (the loop keeps its place); a",
-    "# kind without it is a page among the pages by kind.",
-    "# `documents.exclude` lists Markdown files that are not product documents (the files that steer a coding agent).",
-    "# `roles` says, per role a reader can read as (product, analyst, architect, developer, operations, tester), which blocks of a",
-    "# template stand open on a page and which groups lead the navigation. A block a role does not open stays on the page, collapsed:",
-    "# one page serves every role. A role left out, and the role \"everything\", open every block in the order above.",
-    "# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it",
-    "# \"Also called\", \"In code\", \"Used in\" and \"Ambiguous\" (decision 0031).",
-    "# `problems.rules` declares every rule the Problems page runs: the engine's predicate it keys to, the kind of",
-    "# finding it makes, its Sonar kind and severity (blocker, critical, major, minor, info), the section it belongs to,",
-    "# what the page offers on it and its label in each interface language. A rule may carry `params` (the marker a",
-    "# debt rule reads, the secret names a product declares) and `enabled`. The engine keeps only the predicates: a rule",
-    "# is run because this manifest declares it, and switching it off here is what stops it. The thresholds say when a",
-    "# file is large or a hotspot.",
-    "# A group is { en: <its name>, ru: <its name> }, and may name the group it is a sub-area of (`parent`) and say it",
-    "# opens on the menu by itself (`open: true`); a group without a parent is an area and a group with one is a subgroup.",
-    "# `catalog` declares the schema of the entity catalog (decision 0033, items 8 to 10) and every kind below declares",
-    "# its row: its concept `id` (one concept has one kind), its subgroup (`group`), its `definition`, the `sources` it was",
-    "# taken from as addresses a person can read, the ways it is `acquisition` (an extractor's mark, or document,",
-    "# conversation, agent-from-graph, live-system, not-implemented), its implementation `status`, the",
-    "# `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member",
-    "# or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.",
-    "groups:",
-    ...groups.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}, short: { en: ${yamlText(group.shortEn)}, ru: ${yamlText(group.shortRu)} }${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
-    "properties:",
-    ...Object.entries(PROPERTY_LABELS).map(([name, label]) => `  ${name}: ${propertyYaml(label)}`),
-    "documents:",
-    "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
-    // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
-    // product without user stories or quality requirements says so instead of showing a smaller wiki (decision 0032, section 4).
-    `  expect: [${chosen.filter((kind) => kind.source === 'document').map((kind) => kind.name).sort(byCodePoint).join(', ')}]`,
-    // A fence, an html comment, a rule line and a link definition are a document's furniture: the product names them as
-    // blocks that hold no meaning of their own, so the reader can ignore them by a rule instead of guessing (decision
-    // 0032 section 4; the review of the eighth pass).
-    "  ignore: [code, html, thematicBreak, definition]",
-    "roles:",
-    // A role leads with the groups it knows, and a group the template does not declare is not one it can lead with.
-    ...ROLES.map((role) => ({ ...role, lead: role.lead.filter((group) => used.has(group)) }))
-      .filter((role) => role.lead.length > 0)
-      .map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
-    "problems:",
-    "  thresholds:",
-    ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
-    "  rules:",
-    ...STARTER_PROBLEM_RULES.map((rule) => `    ${rule.id}: ${ruleYaml(rule)}`),
-    "catalog:",
-    `  subgroup-kind-bound: ${CATALOG_SCHEMA['subgroup-kind-bound']}`,
-    `  attributes: [${CATALOG_SCHEMA.attributes.join(', ')}]`,
-    `  origin-marks: [${CATALOG_SCHEMA['origin-marks'].join(', ')}]`,
-    `  extractor-mark: ${CATALOG_SCHEMA['extractor-mark']}`,
-    `  statuses: [${CATALOG_SCHEMA.statuses.join(', ')}]`,
-    `  template-policies: [${CATALOG_SCHEMA['template-policies'].join(', ')}]`,
-    "  relations:",
-    ...Object.entries(CATALOG_RELATIONS).map(([name, source]) => (source === null ? `    ${name}:` : `    ${name}: ${yamlText(source)}`)),
-    "kinds:",
-  ];
-  for (const kind of chosen) lines.push(...kindLines(kind));
-  // An edge kind stands when a kind its ends name is one the template chose: an end the catalogue does not hold (a
-  // gitlink) is the match's own and never refused here. A tracker declares no code edge at all.
-  const edges = [
-    { ends: ['code.repository', 'code.directory', 'code.file', 'code.gitlink'], line: "  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: disk }" },
-    { ends: ['code.repository', 'code.commit'], line: "  - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }" },
-    { ends: ['code.repository', 'code.commit'], line: "  - { name: code.history, from: [code.repository], to: [code.commit], capability: git }" },
-    { ends: ['code.commit'], line: "  - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }" },
-    { ends: ['code.commit', 'code.file'], line: "  - { name: code.touched, from: [code.commit], to: [code.file], capability: git }" },
-    { ends: ['code.author', 'code.commit'], line: "  - { name: code.authored, from: [code.author], to: [code.commit], capability: git }" },
-    { ends: ['code.file'], line: "  - { name: code.renamed-from, from: [code.file], to: [code.file], repeats: true, discriminator: commit, capability: git }" },
-    // The data entities the db-schema plugin fills: a table holds its columns and its indexes, a column references a
-    // column, and a table is declared in the file that holds its SQL (task madarch-47vw.3).
-    { ends: ['code.test-quarantine', 'code.test-case'], line: "  - { name: quarantines, from: [code.test-quarantine], to: [code.test-case], capability: test-quarantine }" },
-    { ends: ['code.test-quarantine', 'task'], line: "  - { name: fixedBy, from: [code.test-quarantine], to: [task], capability: test-quarantine }" },
-    { ends: ['code.table', 'code.column'], line: "  - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }" },
-    { ends: ['code.table', 'code.index'], line: "  - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }" },
-    { ends: ['code.column'], line: "  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }" },
-    { ends: ['code.table', 'code.file'], line: "  - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }" },
-  ].filter((edge) => edge.ends.some((kind) => names.has(kind))).map((edge) => edge.line);
-  if (edges.length > 0) {
-    lines.push(
-      "# The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and",
-      "# the capability that fills them. A kind with a capability takes that capability's contract for its fields.",
-      "edges:",
-      ...edges,
-    );
-  }
-  // The plugins a release carries are the product's own files from its first commit (decision 0035, items 1 and 3);
-  // a plugin no chosen kind uses is not declared, and a product that is only a tracker holds none (decision 0034).
-  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? chosen.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)));
-  if (plugins.length > 0) {
-    lines.push(
-      "# The plugins the product holds (decision 0035, item 11): a declaration of what each reads and writes and the",
-      "# files of its closure. The lock beside the manifest records the exact version and the closure hash.",
-      "plugins:",
-      ...plugins.map((plugin) => `  - { id: ${plugin.id}, version: ${plugin.version.split('.')[0]}, path: ${plugin.folder}, inputs: [${pluginInputsOf(plugin).join(', ')}], outputs: [${pluginOutputsOf(plugin).join(', ')}], closure: [${plugin.files.map((file) => `${plugin.folder}/${file.path}`).join(', ')}] }`),
-    );
-  }
-  return `${lines.join('\n')}\n`;
-}
-
-/** The declaration of one starter kind, as lines of the manifest; `group: false` leaves the group out (a manifest that declares none). */
-/** What a kind's declaration writes besides its row: a manifest without groups, or one without a catalog, leaves them out. */
-export interface KindLineOptions {
-  readonly group?: boolean;
-  readonly catalog?: boolean;
-}
-
-/**
- * The declaration of one starter kind, as lines of the manifest. `group: false` leaves the group out (a manifest
- * that declares none) and `catalog: false` leaves the catalog's row out (a manifest written before the catalog).
- */
-export function kindLines(kind: CatalogKindData, options: KindLineOptions = {}): string[] {
-  const lines: string[] = [`  ${kind.name}:`];
-  const row = options.catalog !== false;
-  if (row) {
-    lines.push(`    id: ${yamlText(kind.id)}`);
-    if (options.group !== false) lines.push(`    group: ${kind.group}`);
-    lines.push(`    definition: ${yamlText(kind.definition)}`);
-    lines.push(`    sources: [${kind.sources.map(yamlText).join(', ')}]`);
-    lines.push(`    acquisition: [${kind.acquisition.map(yamlText).join(', ')}]`);
-    lines.push(`    status: ${kind.status}`);
-    lines.push(`    relation-constraints: { out: [${kind.out.join(', ')}], in: [${kind.into.join(', ')}] }`);
-    lines.push(`    template-policy: ${kind.policy}`);
-  } else if (options.group !== false) lines.push(`    group: ${kind.group}`);
-  // A kind the engine cannot make yet shows no page: its row is its whole declaration. It may still carry its names,
-  // so the catalog reads in both languages even where the wiki has nothing to show yet (madarch-8bdc.2.5).
-  if (kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined) {
-    lines.push(`    template: templates/${kind.template}`);
-    lines.push(`    source: ${kind.source}`);
-    if (kind.capability !== undefined) lines.push(`    capability: ${kind.capability}`);
-    if (kind.fields !== undefined && kind.fields.length > 0) {
-      lines.push('    fields:');
-      for (const field of kind.fields) {
-        // A field bound to a plugin states the binding; the plugin's own contract states its type.
-        lines.push(field.binding === undefined
-          ? `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, producers: [${field.producers?.join(', ') ?? ''}]${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`
-          : `      - { name: ${field.name}, type: ${field.type}${field.nullable === true ? ', nullable: true' : ''}, binding: ${typeof field.binding === 'string' ? yamlText(field.binding) : `{ agent: ${yamlText(field.binding.agent)} }`}${field.reference === undefined ? '' : `, reference: ${field.reference}`} }`);
-      }
-    }
-    if (kind.key !== undefined && kind.key.length > 0) lines.push(`    key: [${kind.key.join(', ')}]`);
-    if (kind.derivesFrom !== undefined) lines.push(`    derives-from: [${kind.derivesFrom.join(', ')}]`);
-    if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
-    for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
-    if (kind.card === true) lines.push('    card: true');
-    if (kind.history !== undefined) lines.push(`    history: ${kind.history}`);
-    if (kind.views !== undefined) lines.push(`    views: [${kind.views.join(', ')}]`);
-    if (kind.er !== undefined) lines.push(`    er: ${kind.er}`);
-    if (kind.sequence !== undefined) lines.push(`    sequence: ${kind.sequence}`);
-    if (kind.system !== undefined) lines.push(`    system: ${kind.system}`);
-    if (kind.definitionBlock !== undefined) lines.push(`    definition-block: ${kind.definitionBlock}`);
-    if (kind.listing !== undefined) lines.push(`    listing: ${kind.listing}`);
-    if (kind.nav !== undefined) lines.push(`    nav: ${kind.nav}`);
-    const details = DETAILS[kind.name];
-    if (details !== undefined && details.length > 0) lines.push(`    details: [${details.join(', ')}]`);
-  }
-  if (kind.en !== undefined && kind.ru !== undefined) {
-    lines.push('    labels:');
-    lines.push(`      en: { one: ${yamlText(kind.en[0])}, many: ${yamlText(kind.en[1])} }`);
-    lines.push(`      ru: { one: ${yamlText(kind.ru[0])}, many: ${yamlText(kind.ru[1])} }`);
-  }
-  if (kind.describe !== undefined) {
-    lines.push('    description:');
-    lines.push(`      en: ${yamlText(kind.describe[0])}`);
-    lines.push(`      ru: ${yamlText(kind.describe[1])}`);
-  }
-  return lines;
+/** Plugin declarations follow the bundled plugins' own contracts and closures. */
+function pluginManifest(kinds: readonly CatalogKindData[]): Record<string, unknown>[] {
+  const names = new Set(kinds.map((kind) => kind.name));
+  return BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? kinds.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)))
+    .map((plugin) => ({ id: plugin.id, version: Number(plugin.version.split('.')[0]), path: plugin.folder,
+      inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
 }
 
 /** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
@@ -953,7 +417,15 @@ function templatesUsedBy(kindTemplates: readonly string[]): Record<string, strin
 /** The catalogue kinds one template declares, in the catalogue's order; none when it declares no manifest. */
 export function starterKindNames(template: StarterTemplate): readonly string[] {
   if (template.kinds === 'none') return [];
-  return template.kinds === 'all' ? CATALOG_KINDS.map((kind) => kind.name) : template.kinds;
+  if (template.kinds === 'all') return CATALOG_KINDS.map((kind) => kind.name);
+  const names = new Set<string>();
+  for (const selector of template.kinds) {
+    const prefix = selector.replace(/\/$/, '') + '/';
+    const matches = CATALOG_KINDS.filter((kind) => kind.name === selector || CATALOG_KIND_FILES[kind.name]?.startsWith(prefix));
+    if (matches.length === 0) throw new Error(`catalog/templates/${template.id}.yaml:1: unknown kind or folder ${JSON.stringify(selector)}`);
+    for (const kind of matches) names.add(kind.name);
+  }
+  return CATALOG_KINDS.filter((kind) => names.has(kind.name)).map((kind) => kind.name);
 }
 
 /** The kinds one template's manifest shows as pages: the catalogue kinds whose template policy is not `none`. */
@@ -972,7 +444,8 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
   // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
   const workflows = chosen.some((kind) => kind.source === 'graph');
   return [
-    { path: 'madarch/kinds.yaml', content: kindsManifest(kinds) },
+    { path: 'madarch/catalog.yaml', content: catalogMetadata(chosen) + (plugins.length === 0 ? '' : stringify({ plugins: pluginManifest(chosen) })) },
+    ...chosen.map((kind) => ({ path: `madarch/kinds/${CATALOG_KIND_FILES[kind.name]}`, content: CATALOG_FILES[CATALOG_KIND_FILES[kind.name]!]! })),
     ...(plugins.length === 0 ? [] : [{ path: 'madarch/plugins.lock', content: pluginLockText(plugins) }]),
     ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),
     ...bundledPluginFiles()
@@ -993,7 +466,7 @@ export function seedStarterSet(productFolder: string, templateId: string = DEFAU
   const template = starterTemplateOf(templateId, templates);
   if (template === undefined) throw new Error(`src/knowledge/seed.ts:1: no starter template is declared with the id ${JSON.stringify(templateId)}`);
   // The default template's files are the constant the tests and the catalog check read the starter set through.
-  const files = template.id === DEFAULT_STARTER_TEMPLATE ? STARTER_FILES : starterFilesFor(template);
+  const files = templates === undefined && template.id === DEFAULT_STARTER_TEMPLATE ? STARTER_FILES : starterFilesFor(template);
   const written: string[] = [];
   const root = realpathSync(productFolder);
   for (const starter of files) {

@@ -1,0 +1,27 @@
+id: scrum.definition-of-done
+purpose: quality
+audience: [product, product-lead, tester, developer]
+definition: The shared standard an increment must meet to count as done.
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Definition of done
+    many: Definitions of done
+  ru:
+    one: Определение готовности
+    many: Определения готовности
+description:
+  en: The shared standard an increment must meet to count as done.
+  ru: Общий стандарт, которому должен соответствовать инкремент, чтобы считаться готовым.

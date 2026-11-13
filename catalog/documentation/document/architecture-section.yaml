@@ -1,0 +1,27 @@
+id: arc42.section
+purpose: structure
+audience: [architect, developer, analyst]
+definition: One section of an arc42 architecture document, such as the context, the building blocks or the quality tree.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Architecture section
+    many: Architecture sections
+  ru:
+    one: Раздел архитектуры
+    many: Разделы архитектуры
+description:
+  en: One section of an arc42 architecture document, such as the context, the building blocks or the quality tree.
+  ru: 'Один раздел документа архитектуры arc42: контекст, строительные блоки или дерево качества.'

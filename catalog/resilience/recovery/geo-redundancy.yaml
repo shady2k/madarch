@@ -1,0 +1,27 @@
+id: nist800-34.geo-redundancy
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: Copies of a system or its data kept in a second region so the loss of one region is survivable.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - replicates
+  in:
+  - replicates
+template-policy: none
+labels:
+  en:
+    one: Geo-redundancy
+    many: Geo-redundancies
+  ru:
+    one: Геоизбыточность
+    many: Геоизбыточности
+description:
+  en: Copies of a system or its data kept in a second region so the loss of one region is survivable.
+  ru: Копии системы или её данных во втором регионе, чтобы потеря одного региона была переживаема.

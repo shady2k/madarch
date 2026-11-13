@@ -1,0 +1,52 @@
+id: practice.gitlink
+purpose: structure
+audience:
+- developer
+- architect
+definition: A submodule path pinned to another repository commit.
+sources:
+- https://git-scm.com/docs/gitmodules
+acquisition:
+- extractor files
+status: implemented
+relation-constraints:
+  out: []
+  in:
+  - contains
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  producers:
+  - disk
+- name: path
+  type: text
+  producers:
+  - disk
+- name: other_repository
+  type: text
+  nullable: true
+  producers:
+  - disk
+- name: commit_hash
+  type: text
+  nullable: true
+  producers:
+  - disk
+key:
+- repository
+- path
+derives-from:
+- code.repository
+labels:
+  en:
+    one: Submodule
+    many: Submodules
+  ru:
+    one: Подмодуль
+    many: Подмодули
+description:
+  en: A submodule path and its pinned repository commit.
+  ru: Путь подмодуля и его закреплённый коммит.

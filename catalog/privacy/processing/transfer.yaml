@@ -1,0 +1,27 @@
+id: gdpr.transfer
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: A transfer of personal data to a third country or an international organisation, with its safeguard.
+sources:
+- https://gdpr-info.eu/art-30-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Transfer
+    many: Transfers
+  ru:
+    one: Передача
+    many: Передачи
+description:
+  en: A transfer of personal data to a third country or an international organisation, with its safeguard.
+  ru: Передача персональных данных в третью страну или международную организацию с её гарантией.

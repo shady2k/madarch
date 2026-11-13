@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -49,7 +50,7 @@ function fixture(mode: Mode) {
   const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { template: 'templates/item-plain.liquid', source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
   const plugins = [{ id: 'scenarios', version: 1, path: 'plugins/scenarios', inputs: [...new Set(entries.flatMap(([, reads]) => [...reads]))], outputs: entries.map(([kind]) => kind), closure: ['plugins/scenarios/plugin.json', 'plugins/scenarios/contract.json', 'plugins/scenarios/main.js', 'plugins/scenarios/scenario.js'] }];
   if (mode === 'files') plugins.push({ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/plugin.json', 'plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/prompt.md'] });
-  writeFileSync(join(product, 'madarch/kinds.yaml'), stringify({ language: 'en', kinds, plugins }));
+  writeFolderManifest(product, stringify({ language: 'en', kinds, plugins }));
   const releases = plugins.map(({ id, path }) => ({ id, path, version: '1.0.0', closure: closureOf(join(product, path)).hash }));
   writeFileSync(join(product, 'madarch/plugins.lock'), stringify({ plugins: releases }));
   git(product, 'add', '-A'); git(product, '-c', 'user.name=Fixture', '-c', 'user.email=f@example.invalid', 'commit', '-qm', mode);

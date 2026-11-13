@@ -1,0 +1,27 @@
+id: practice.research-finding
+purpose: understand
+audience: [product, analyst, designer]
+definition: What the research established, with the evidence it rests on.
+sources:
+- https://www.nngroup.com/articles/ux-research-cheat-sheet/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Research finding
+    many: Research findings
+  ru:
+    one: Результат исследования
+    many: Результаты исследования
+description:
+  en: What the research established, with the evidence it rests on.
+  ru: То, что установило исследование, с доказательствами, на которых оно держится.

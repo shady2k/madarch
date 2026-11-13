@@ -1,0 +1,28 @@
+id: practice.persona
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: A described kind of user, with the goals and behaviour the research found.
+sources:
+- https://www.nngroup.com/articles/persona/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  - hasPart
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Persona
+    many: Personas
+  ru:
+    one: Персона
+    many: Персоны
+description:
+  en: A described kind of user, with the goals and behaviour the research found.
+  ru: Описанный вид пользователя с целями и поведением, которые нашло исследование.

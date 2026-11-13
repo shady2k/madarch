@@ -33,7 +33,7 @@ function render(calls: { url: string; body: unknown }[], refresh = (): void => {
     if (url.includes('/api/agents')) return Response.json({ agents: [{ id: 'scripted', label: 'Scripted fixture' }], chosen: null });
     if (url.includes('/api/fill-selected')) {
       calls.push({ url, body: JSON.parse(String(init?.body)) });
-      return Response.json({ order: ['base', 'middle', 'leaf'] }, { status: 202 });
+      return Response.json({ runId: 'selection-run', order: ['base', 'middle', 'leaf'] }, { status: 202 });
     }
     throw new Error(`Unexpected request: ${url}`);
   }) as typeof fetch;
@@ -92,6 +92,7 @@ test('selection highlights prerequisites and edges, names plugins, and sends one
   run.click();
   await until(() => refreshed);
   expect(calls).toEqual([{ url: '/api/fill-selected', body: { selected: ['leaf'], agent: 'scripted', tokenCap: null } }]);
+  expect(window.location.pathname).toBe('/fill/runs/selection-run');
 });
 
 test('dependency closure and estimate include transitive kinds once', () => {

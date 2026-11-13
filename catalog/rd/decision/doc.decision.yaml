@@ -1,0 +1,51 @@
+id: practice.decision
+purpose: history
+audience: [product, analyst, architect, developer]
+definition: 'An architecture decision record: what was decided, why, and what follows from it.'
+sources:
+- https://adr.github.io/madr/
+acquisition:
+- document
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - supersedes
+  - appliesTo
+  in:
+  - supersedes
+template-policy: page
+template: templates/entity-text.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+labels:
+  en:
+    one: Decision
+    many: Decisions
+  ru:
+    one: Решение
+    many: Решения
+description:
+  en: 'An architecture decision record (ADR-0001 ...): what was decided and why.'
+  ru: 'Запись об архитектурном решении (ADR-0001 ...): что решили и почему.'
+key: []

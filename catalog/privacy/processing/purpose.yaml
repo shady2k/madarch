@@ -1,0 +1,27 @@
+id: gdpr.purpose
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: The reason a processing activity handles personal data.
+sources:
+- https://gdpr-info.eu/art-5-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Processing purpose
+    many: Processing purposes
+  ru:
+    one: Назначение обработки
+    many: Назначения обработки
+description:
+  en: The reason a processing activity handles personal data.
+  ru: Причина, по которой действие обработки работает с персональными данными.

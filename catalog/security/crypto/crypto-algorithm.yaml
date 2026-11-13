@@ -1,0 +1,27 @@
+id: practice.crypto-algorithm
+purpose: structure
+audience: [security-engineer, architect, developer]
+definition: A named algorithm, such as AES-256-GCM, with its strength and its status.
+sources:
+- https://csrc.nist.gov/projects/cryptographic-standards-and-guidelines
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Cryptographic algorithm
+    many: Cryptographic algorithms
+  ru:
+    one: Криптографический алгоритм
+    many: Криптографические алгоритмы
+description:
+  en: A named algorithm, such as AES-256-GCM, with its strength and its status.
+  ru: Именованный алгоритм, например AES-256-GCM, с его стойкостью и статусом.

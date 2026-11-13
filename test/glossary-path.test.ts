@@ -1,3 +1,4 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The glossary's path end to end (decisions 0034 item 14 and 0035 items 6, 15, 16, 17, 18): a product's manifest
  * declares the term kind's fields as bindings to a plugin's fields, the plugin's own contract states their types, and
@@ -109,8 +110,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     // The debug journal keeps every request the plugin makes, its reads included (stage 2).
-    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
-    writeFileSync(kindsFile, `${readFileSync(kindsFile, 'utf8')}\njournal:\n  debug: true\n`);
+    writeFolderManifest(folder, `${readFolderManifestText(folder)}\njournal:\n  debug: true\n`);
   });
 
   afterAll(async () => {
@@ -121,8 +121,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
 
   test('the starter authored terms do not run an unbound glossary plugin', async () => {
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
-    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
-    const authoredKinds = readFileSync(kindsFile, 'utf8');
+    const authoredKinds = readFolderManifestText(folder);
     useFixturePlugins(folder, ['disk', 'git']);
     commit('A glossary document beside authored terms');
     closePreparation = await prepareTestProduct(folder, join(work, 'home'), join(work, 'store'));
@@ -132,7 +131,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
       expect((await product.glossary()).terms).toEqual([]);
     } finally {
       await product.close();
-      writeFileSync(kindsFile, authoredKinds);
+      writeFolderManifest(folder, authoredKinds);
       useExtractedGlossary(folder);
       useFixturePlugins(folder, ['disk', 'git', 'glossary']);
     }
@@ -229,9 +228,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
   }, 300_000);
 
   test('a kind the manifest no longer declares loses its table', async () => {
-    const file = join(folder, 'madarch', 'kinds.yaml');
+    const file = join(folder, 'madarch', 'catalog.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
-    manifest.deleteIn(['kinds', 'doc.term']);
+    rmSync(join(folder, 'madarch', 'kinds', 'requirements', 'statement', 'doc.term.yaml'));
     const plugins = manifest.get('plugins');
     if (!isSeq(plugins)) throw new Error('the fixture plugin declarations are absent');
     plugins.items = plugins.items.filter((plugin) => !isMap(plugin) || plugin.get('id') !== 'glossary');

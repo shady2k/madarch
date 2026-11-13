@@ -208,7 +208,7 @@ function requireRunContext(value: unknown, runId: string): RunContext {
   if (stored === null || typeof stored !== 'object') raise(`table fill_run, row ${runId}: the context is not an object`);
   if (!isInteger(stored.planningEpoch) || stored.planningEpoch < 0) raise(`table fill_run, row ${runId}: planningEpoch is not a whole number of epochs`);
   if (typeof stored.planningClosed !== 'boolean') raise(`table fill_run, row ${runId}: planningClosed is not a boolean`);
-  return { planningEpoch: stored.planningEpoch, planningClosed: stored.planningClosed };
+  return { planningEpoch: stored.planningEpoch, planningClosed: stored.planningClosed, ...(stored.selection === undefined ? {} : { selection: stored.selection }) };
 }
 
 function requireUnitContext(value: unknown, key: string, generation: number, fence: number): UnitContext {
@@ -328,14 +328,15 @@ export async function advanceChain(database: FillStateDatabase, options: { reado
 }
 
 /** Creates one run in `created`. */
-export async function createRun(database: FillStateDatabase, options: { readonly runId: string; readonly product: string; readonly at: number }): Promise<RunRecord> {
+export async function createRun(database: FillStateDatabase, options: { readonly runId: string; readonly product: string; readonly at: number; readonly selection?: import('./fsm.js').RunSelection }): Promise<RunRecord> {
   const at = here();
+  const context = { ...newRunContext(), ...(options.selection === undefined ? {} : { selection: options.selection }) };
   return run(at, database, `createRun(${options.runId})`, ['fill_run'], async (executor) => {
     await executor.query(
       'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
-      [options.runId, options.product, 'created', json(newRunContext()), options.at],
+      [options.runId, options.product, 'created', json(context), options.at],
     );
-    return { runId: options.runId, product: options.product, state: 'created', context: newRunContext(), createdAt: options.at, updatedAt: options.at };
+    return { runId: options.runId, product: options.product, state: 'created', context, createdAt: options.at, updatedAt: options.at };
   }, 'write');
 }
 
@@ -420,14 +421,28 @@ export async function readLatestRun(database: FillStateDatabase, product: string
   }, 'snapshot');
 }
 
+/** The canonical history of one product, newest first. */
+export async function readRuns(database: FillStateDatabase, product: string): Promise<readonly RunRecord[]> {
+  const at = here();
+  return run(at, database, `readRuns(${product})`, ['fill_run'], async (executor) => {
+    const { rows } = await executor.query<RunRow>(
+      'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC', [product],
+    );
+    return rows.map(runRecord);
+  }, 'snapshot');
+}
+
 /** Takes one step on a run: a refused step writes nothing. */
-export async function advanceRun(database: FillStateDatabase, options: { readonly runId: string; readonly event: RunEvent }): Promise<StoreStep<RunRecord, RunState>> {
+export async function advanceRun(database: FillStateDatabase, options: { readonly runId: string; readonly event: RunEvent; readonly expectedState?: RunState }): Promise<StoreStep<RunRecord, RunState>> {
   const at = here();
   return run(at, database, `advanceRun(${options.runId}, ${options.event.type})`, ['fill_run', 'fill_transition'], async (executor) => {
     const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
     const row = rows[0];
     if (row === undefined) raise(`table fill_run: no run ${options.runId}`);
     const current = runRecord(row);
+    if (options.expectedState !== undefined && current.state !== options.expectedState) {
+      return { ok: false, record: current, refusal: { code: 'fill-run/guard-refused', reason: `${at}: run ${current.runId} is ${current.state}, expected ${options.expectedState}`, state: current.state, event: options.event.type, guard: 'expected-state', guards: ['expected-state'], transitions: runMachine.from(current.state).filter((transition) => transition.event === options.event.type).map((transition) => transition.id) } } as const;
+    }
     const step = runMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
     await executor.query('UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1', [current.runId, step.state, json(step.context), options.event.at]);
@@ -578,6 +593,10 @@ export async function readUnitStates(database: FillStateDatabase): Promise<Map<s
 }
 
 export async function readRunUnits(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
+  return await readRunGenerations(database, runId, true);
+}
+
+async function readRunGenerations(database: FillStateDatabase, runId: string, currentOnly: boolean): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
     // One join and not one query per row: a run of a few thousand units read this way costs three
@@ -590,7 +609,7 @@ export async function readRunUnits(database: FillStateDatabase, runId: string): 
               g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
               g.published_at, g.stale_at, g.updated_at,
               l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
-         FROM fill_unit u LEFT JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+         FROM fill_unit u LEFT JOIN fill_unit_generation g ON g.unit_id = u.unit_id ${currentOnly ? 'AND g.generation = u.generation' : ''}
          LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
         WHERE g.run_id = $1`,
       [runId],
@@ -609,6 +628,11 @@ export async function readRunUnits(database: FillStateDatabase, runId: string): 
     // order is taken here, exactly as `readUnitGenerations` takes it by generation number.
     return records.sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
+}
+
+/** All generations owned by this run, including those later runs replaced. */
+export async function readRunUnitHistory(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
+  return await readRunGenerations(database, runId, false);
 }
 
 /**

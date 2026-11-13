@@ -1,0 +1,28 @@
+id: iso42010.architecture-description
+purpose: understand
+audience: [architect, analyst, developer]
+definition: The organised set of views, models and rationale that expresses an architecture, as ISO/IEC/IEEE 42010 defines
+  it.
+sources:
+- https://www.iso.org/standard/74393.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Architecture description
+    many: Architecture descriptions
+  ru:
+    one: Описание архитектуры
+    many: Описания архитектуры
+description:
+  en: The organised set of views, models and rationale that expresses an architecture, as ISO/IEC/IEEE 42010 defines it.
+  ru: Упорядоченный набор представлений, моделей и обоснований, выражающий архитектуру, как его определяет ISO/IEC/IEEE 42010.

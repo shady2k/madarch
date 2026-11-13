@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { repositoryContract } from './repository-contract-fixture.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
@@ -15,10 +16,10 @@ import { generatedTableName } from '../src/graph/contract.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 
-import { parseKinds } from '../src/product/manifest/kinds.js';
+import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
-import { ensureVertex, publishGraphDrafts, publishOpinion } from '../src/graph/write.js';
+import { ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
 import type { GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
 import { unevidencedOpinions } from '../src/graph/consistency.js';
@@ -46,7 +47,7 @@ function product(): string {
     ] }], edges: [] },
   }));
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: glossary, version: 1.0.0, closure: ${HASH}, path: plugins/glossary }\n`);
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), [
+  writeFolderManifest(folder, [
     'kinds:',
     '  doc.term:',
     '    template: templates/t.liquid',
@@ -65,6 +66,12 @@ function product(): string {
   return folder;
 }
 
+function manifest(folder: string): KindsManifest {
+  const read = readKinds(folder);
+  if (!read.present) throw new Error('fixture manifest is absent');
+  return read.manifest;
+}
+
 let owner: DatabaseOwner;
 let contract: GraphContract;
 let productFolder = '';
@@ -72,7 +79,7 @@ let productFolder = '';
 beforeAll(async () => {
   const folder = product();
   productFolder = folder;
-  const read = parseKinds(await Bun.file(join(folder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', folder);
+  const read = manifest(folder);
   expect(read.findings).toEqual([]);
   contract = manifestContractOf(read);
   owner = await createTestDatabaseOwner({ graphContract: contract });
@@ -121,7 +128,7 @@ describe('a manifest-declared kind is read by prefix, as the Problems page reads
       vertices: [{ kind: 'doc.term', key: { name: 'Zeta' }, values: { definition: 'the last one' }, evidence: [{ type: 'file', repository: 'madarch', commit_or_digest: 'c0ffee', path: 'docs/glossary.md', line_start: 1, line_end: 2 }], producer: 'glossary', producerVersion: '1.0.0' }],
       removals: [],
     }, 1));
-    const read = parseKinds(await Bun.file(join(productFolder, 'madarch', 'kinds.yaml')).text(), 'madarch/kinds.yaml', productFolder);
+    const read = manifest(productFolder);
     const reader = new GraphReader(owner, () => 'now', undefined, undefined, undefined, declaredKindReads(read));
     const found = await reader.byPrefix('doc.term', 'doc.term:', 10);
     expect(found.rows.map((one) => one.key)).toContain('doc.term:Zeta');
@@ -754,6 +761,71 @@ describe('the manifest makes the table and the writer fills it', () => {
     expect(await owner.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: links, removals: [] }))).toBe(0);
     expect(Number((await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0')).toBe(again);
   }, 120_000);
+
+  test('bulk vertices preserve identity, revival, journal and rollback', async () => {
+    const keys = [{ name: 'Batch vertex A' }, { name: 'Batch vertex B' }];
+    await expect(owner.transaction('write', async (tx) => {
+      await (async () => { const made = []; for (const key of keys) made.push(await ensureVertex(tx, contract, { kind: 'doc.term', key })); return made; })();
+      throw new Error('rollback vertices');
+    })).rejects.toThrow('rollback vertices');
+    const journalled = async () => await owner.transaction('write', async (tx) => {
+      const journal = journalFor('vertices@1'); journalOn(tx, journal);
+      const made = await (async () => { const made = []; for (const key of keys) made.push(await ensureVertex(tx, contract, { kind: 'doc.term', key })); return made; })();
+      await writeJournal(tx, journal);
+      return made;
+    });
+    const first = await journalled();
+    expect(first.map((entry) => [entry.created, entry.revived])).toEqual([[true, false], [true, false]]);
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { vertices: any[] } }>("SELECT change FROM operation WHERE author = 'vertices@1' ORDER BY seq"));
+    expect(entries.rows).toHaveLength(1);
+    expect(entries.rows[0]!.change.vertices.map((entry: any) => [entry.uid, entry.key, entry.state])).toEqual(first.map((entry, index) => [entry.uid, keys[index], 'declared']));
+    expect((await journalled()).map((entry) => [entry.nodeId, entry.created, entry.revived])).toEqual(first.map((entry) => [entry.nodeId, false, false]));
+    await owner.transaction('write', async (tx) => { await tx.query('UPDATE node SET removed = true WHERE id = $1::bigint', [first[0]!.nodeId]); });
+    const revived = await journalled();
+    expect(revived.map((entry) => [entry.created, entry.revived])).toEqual([[false, true], [false, false]]);
+    const repeated = await owner.transaction('write', async (tx) => await ensureVertex(tx, contract, { kind: 'doc.term', key: keys[0]! }));
+    expect(repeated).toMatchObject({ nodeId: revived[0]!.nodeId, created: false, revived: false });
+  });
+
+  test('bulk existence opinions retain evidence, journal, idempotence and rollback', async () => {
+    const graph: GraphContract = {
+      vertex: [...contract.vertex, { name: 'doc.page', table: generatedTableName('doc.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'glossary' }],
+      edge: [{ name: 'doc.links', table: generatedTableName('doc.links', 'edge'), from: ['doc.page'], to: ['doc.page'], repeats: false, fields: [], capability: 'glossary' }], dictionary: [],
+    };
+    await prepareStore(owner, { contract: graph });
+    const nodes = await owner.transaction('write', async (tx) => {
+      const from = await ensureVertex(tx, graph, { kind: 'doc.page', key: { title: 'Batch source' } });
+      const to = await ensureVertex(tx, graph, { kind: 'doc.page', key: { title: 'Batch target' } });
+      return { from, to };
+    });
+    const evidence = [{ type: 'file' as const, repository: 'fixture', commit_or_digest: 'abc', path: 'docs/target.md' }];
+    const edges = [{ kind: 'doc.links', from: { kind: 'doc.page', key: { title: 'Batch source' } }, to: { kind: 'doc.page', key: { title: 'Batch target' } }, evidence, producer: 'fixture', producerVersion: '1' }];
+    await expect(owner.transaction('write', async (tx) => {
+      await publishGraphDrafts(tx, graph, { vertices: [], edges, removals: [] });
+      throw new Error('rollback batch');
+    })).rejects.toThrow('rollback batch');
+    const read = async () => await owner.transaction('snapshot', async (tx) => await tx.query<{ id: string; said_by: string; evidence: unknown }>(
+      `SELECT o.id::text AS id, o.said_by, o.evidence FROM ${generatedTableName('doc.links', 'edge')} o JOIN edge e ON e.id = o.edge_id WHERE e.from_node = $1::bigint AND e.to_node = $2::bigint`, [nodes.from.nodeId, nodes.to.nodeId],
+    ));
+    expect((await read()).rows).toEqual([]);
+    const publish = async () => await owner.transaction('write', async (tx) => {
+      return await publishGraphDrafts(tx, graph, { vertices: [], edges: [...edges, ...edges], removals: [] });
+    });
+    expect(await publish()).toBe(1);
+    const rows = (await read()).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ said_by: 'fixture@1', evidence });
+    const entries = await owner.transaction('snapshot', async (tx) => await tx.query<{ change: { edges: any[]; opinions: any[] } }>("SELECT change FROM operation WHERE author = 'fixture@1' ORDER BY seq DESC LIMIT 1"));
+    const entry = entries.rows[0]!.change;
+    expect(entry.edges).toHaveLength(1);
+    expect(entry.edges[0]).toMatchObject({ entity: 'doc.links', state: 'declared', from: nodes.from.uid, to: nodes.to.uid, discriminator: '', context: 1 });
+    expect(entry.opinions).toHaveLength(1);
+    expect(entry.opinions[0]).toMatchObject({ id: rows[0]!.id, entity: 'doc.links', state: 'opened', fields: [], said_by: 'fixture@1', evidence, values: {} });
+    expect(await publish()).toBe(0);
+    expect((await read()).rows).toEqual(rows);
+    const again = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>("SELECT count(*)::text AS n FROM operation WHERE author = 'fixture@1'"));
+    expect(Number(again.rows[0]!.n)).toBe(1);
+  });
 
   test('an agent operation is one entry with its words, and its opinion rests on the conversation', async () => {
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {

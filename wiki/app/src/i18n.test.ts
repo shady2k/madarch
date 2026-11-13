@@ -201,7 +201,9 @@ describe('wiki internationalization', () => {
 });
 
  test('every catalogue relation has a direct nonempty label in both languages', async () => {
-  const { CATALOG_RELATIONS } = await import('../../../src/knowledge/starter-catalog.js');
+  const { CATALOG_FILES } = await import('../../../src/knowledge/catalog-assets.js');
+  const { parseCatalogYaml } = await import('../../../src/product/manifest/kinds.js');
+  const CATALOG_RELATIONS = (parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as { catalog: { relations: Record<string, string | null> } }).catalog.relations;
   for (const labels of Object.values(RELATION_LABELS)) {
     for (const relation of Object.keys(CATALOG_RELATIONS)) {
       expect(labels?.[relation], relation).toBeString();

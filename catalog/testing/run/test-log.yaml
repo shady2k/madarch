@@ -1,0 +1,27 @@
+id: istqb.test-log
+purpose: quality
+audience: [tester, developer]
+definition: The chronological record of what a test run did.
+sources:
+- https://glossary.istqb.org/en_US/term/test-log
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Test log
+    many: Test logs
+  ru:
+    one: Журнал тестирования
+    many: Журналы тестирования
+description:
+  en: The chronological record of what a test run did.
+  ru: Хронологическая запись того, что делал запуск тестов.

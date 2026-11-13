@@ -1,0 +1,27 @@
+id: practice.paas-service
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A platform a supplier runs that the product deploys onto.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - c4.uses
+  in:
+  - c4.uses
+template-policy: none
+labels:
+  en:
+    one: PaaS service
+    many: PaaS services
+  ru:
+    one: Сервис PaaS
+    many: Сервисы PaaS
+description:
+  en: A platform a supplier runs that the product deploys onto.
+  ru: Платформа поставщика, на которую разворачивают продукт.

@@ -1,0 +1,63 @@
+id: spdx.package
+purpose: structure
+audience: [developer, architect]
+definition: The folder a service's manifest sits in, with its tests and its frameworks.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/Package/
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  - hasDependencyManifest
+  in:
+  - partOf
+template-policy: page
+template: templates/package.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read the declared repositories: repository name, or null for the product repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
+- name: state_machines
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
+      use [] when none exist and preserve source positions.'
+key:
+- repository
+- path
+card: true
+history: membership
+views:
+- state
+details:
+- ecosystem
+- name
+- version
+- external
+- frameworks
+- hasTests
+- sourceFiles
+- testFiles
+- tests
+- versionStatus
+- standardLibrary
+labels:
+  en:
+    one: Package
+    many: Packages
+  ru:
+    one: Пакет
+    many: Пакеты
+description:
+  en: The folder a service's manifest sits in, with its tests and frameworks.
+  ru: Папка с манифестом сервиса, его тесты и фреймворки.

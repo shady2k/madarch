@@ -1,0 +1,31 @@
+id: manifest.responsibility
+purpose: structure
+audience: [architect, product-lead]
+definition: The shared part of an authored kind that names the responsible person who answers for an entity and the executor,
+  a person or an agent, who carries the work.
+sources:
+- https://scrumguides.org/scrum-guide.html
+- https://support.atlassian.com/jira-software-cloud/docs/edit-the-assignee-of-an-issue-with-your-keyboard/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - assigns
+  - constrains
+  in:
+  - defines
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Responsibility
+    many: Responsibilities
+  ru:
+    one: Ответственность
+    many: Ответственности
+description:
+  en: The responsible person who answers for an entity and the executor who carries the work.
+  ru: Ответственный человек, который отвечает за сущность, и исполнитель, который выполняет работу.

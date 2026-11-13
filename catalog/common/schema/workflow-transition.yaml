@@ -1,0 +1,30 @@
+id: manifest.transitions
+purpose: structure
+audience: [architect, product-lead]
+definition: An allowed move from one status to another in a workflow, with the event that triggers it and the rule that allows
+  it; its id is its key under transitions.
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/transition-an-issue/
+- https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - triggers
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Transition
+    many: Transitions
+  ru:
+    one: Переход
+    many: Переходы
+description:
+  en: An allowed move from one status to another, with the event that triggers it and the rule that allows it.
+  ru: Допустимый переход из одного статуса в другой с событием, которое его запускает, и правилом, которое его разрешает.

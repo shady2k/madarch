@@ -1,0 +1,27 @@
+id: practice.information-flow
+purpose: structure
+audience: [analyst, architect, security-engineer]
+definition: A movement of information from one place to another, each item it carries named by a glossary term.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Information flow
+    many: Information flows
+  ru:
+    one: Поток информации
+    many: Потоки информации
+description:
+  en: A movement of information from one place to another, each item it carries named by a glossary term.
+  ru: Перемещение информации из одного места в другое, где каждый элемент назван термином глоссария.

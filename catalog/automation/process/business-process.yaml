@@ -1,0 +1,27 @@
+id: practice.business-process
+purpose: operations
+audience: [analyst, platform-devops, operations]
+definition: A sequence of steps the organisation follows to reach an outcome.
+sources:
+- https://www.omg.org/spec/BPMN/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Business process
+    many: Business processes
+  ru:
+    one: Бизнес-процесс
+    many: Бизнес-процессы
+description:
+  en: A sequence of steps the organisation follows to reach an outcome.
+  ru: Последовательность шагов, которые организация выполняет для достижения результата.

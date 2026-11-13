@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The document listing reads the graph's documents, never the first files of a repository (madarch-hsqs stage B
  * review): a repository of more files than the listing's bound still answers every document, and a truncation names
@@ -36,7 +37,7 @@ describe('the documents of a repository larger than the listing bound', () => {
     const draft = createDraft({ home: join(work, 'home'), name: 'bulk-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `kinds:
+    writeFolderManifest(folder, `kinds:
   document:
     template: templates/document.liquid
     source: graph
@@ -71,7 +72,7 @@ describe('the documents of a repository larger than the listing bound', () => {
     expect(product.fillState()).toMatchObject({ state: 'done' });
     // This manifest declares no automatic producer. Its empty fill succeeds; authored documents are explicit structured opinions.
     const read = readKinds(folder);
-    if (!read.present) throw new Error(`${folder}/madarch/kinds.yaml:1: fixture manifest missing`);
+    if (!read.present) throw new Error(`${folder}/madarch/catalog.yaml:1: fixture manifest missing`);
     const manifest = read.manifest;
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))), connectOnly: true });
     try {

@@ -1,0 +1,27 @@
+id: oscal.poam
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: A plan of action and milestones for the weaknesses an assessment found.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Plan of action and milestones
+    many: Plans of action and milestones
+  ru:
+    one: План действий и вех
+    many: Планы действий и вех
+description:
+  en: A plan of action and milestones for the weaknesses an assessment found.
+  ru: План действий и вех для слабостей, найденных оценкой.

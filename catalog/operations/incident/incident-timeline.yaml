@@ -1,0 +1,27 @@
+id: practice.incident-timeline
+purpose: history
+audience: [operations, platform-devops]
+definition: 'The ordered times of an incident: detection, acknowledgement, mitigation and resolution.'
+sources:
+- https://sre.google/workbook/postmortem-culture/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Incident timeline
+    many: Incident timelines
+  ru:
+    one: Хронология инцидента
+    many: Хронологии инцидента
+description:
+  en: 'The ordered times of an incident: detection, acknowledgement, mitigation and resolution.'
+  ru: 'Упорядоченные времена инцидента: обнаружение, подтверждение, смягчение и разрешение.'

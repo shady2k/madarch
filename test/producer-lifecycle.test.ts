@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,7 +44,7 @@ test('scripted Document and Problem producers publish, abstain, fail, retract an
   writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'lifecycle', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: '1.4.2' }, produces: [
     { kind: 'Document', fields: '*' }, { kind: 'Problem', fields: '*', reads: ['Document'] },
   ] }));
-  writeFileSync(join(product, 'madarch', 'kinds.yaml'), `language: en
+  writeFolderManifest(product, `language: en
 kinds:
   Document:
     template: templates/item-plain.liquid

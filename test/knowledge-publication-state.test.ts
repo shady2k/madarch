@@ -47,7 +47,8 @@ test('pending and failed status retain the full unfilled shape without opening t
   expect(status.bounds).toBeDefined();
   expect(status.writer).toBeDefined();
   expect(status.loop).toBeDefined();
-  unlinkSync(join(folder, 'madarch/kinds.yaml'));
+  unlinkSync(join(folder, 'madarch/catalog.yaml'));
+  rmSync(join(folder, 'madarch/kinds'), { recursive: true });
   expect(await product.status()).toMatchObject({ publication: 'pending', manifest: 'no-manifest' });
   setManifestPublicationState(folder, { status: 'failed', message: 'bad schema' });
   expect(await product.status()).toMatchObject({ publication: 'failed', publicationMessage: 'bad schema', fill: { state: 'idle' } });

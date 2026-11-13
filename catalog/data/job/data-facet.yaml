@@ -1,0 +1,27 @@
+id: openlineage.facet
+purpose: structure
+audience: [analyst, developer, operations]
+definition: A piece of metadata attached to a job, a run or a dataset, such as its schema or its column lineage.
+sources:
+- https://openlineage.io/docs/spec/object-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Data facet
+    many: Data facets
+  ru:
+    one: Срез данных
+    many: Срезы данных
+description:
+  en: A piece of metadata attached to a job, a run or a dataset, such as its schema or its column lineage.
+  ru: 'Часть метаданных задачи, запуска или набора данных: схема или происхождение столбцов.'

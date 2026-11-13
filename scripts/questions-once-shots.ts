@@ -128,7 +128,8 @@ try {
     const adapter = join(bin, 'claude-agent-acp');
     writeFileSync(adapter, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(resolve(import.meta.dir, '../test/fixtures/acp-fake-agent/acp-fake-agent.ts'))} --scenario script --script ${JSON.stringify(scriptFile)} --record ${JSON.stringify(join(out, `${language}-acp-requests.jsonl`))}\n`);
     chmodSync(adapter, 0o755);
-    evidence.observe('fixture-inputs-before-server', { language, settings: readFileSync(join(home, 'settings.json'), 'utf8'), scriptSha256: createHash('sha256').update(readFileSync(scriptFile)).digest('hex'), adapterSha256: createHash('sha256').update(readFileSync(adapter)).digest('hex'), manifestSha256: createHash('sha256').update(readFileSync(join(product, 'workspace.yaml'))).digest('hex'), kindsSha256: createHash('sha256').update(readFileSync(join(product, 'madarch/kinds.yaml'))).digest('hex') });
+    const kindFiles = readdirSync(join(product, 'madarch/kinds'), { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name)).sort(compareCodePoint);
+    evidence.observe('fixture-inputs-before-server', { language, settings: readFileSync(join(home, 'settings.json'), 'utf8'), scriptSha256: createHash('sha256').update(readFileSync(scriptFile)).digest('hex'), adapterSha256: createHash('sha256').update(readFileSync(adapter)).digest('hex'), manifestSha256: createHash('sha256').update(readFileSync(join(product, 'workspace.yaml'))).digest('hex'), kinds: hashFiles([join(product, 'madarch/catalog.yaml'), ...kindFiles]) });
     const port = Number(argument('port', '4323'));
     const origin = `http://127.0.0.1:${port}`; const base = `${origin}/products/training-shop`;
     const stablePaths = [join(home, 'settings.json'), adapter, join(product, 'workspace.yaml')];
@@ -177,13 +178,13 @@ try {
     };
     const allIds = onceQuestionIds(language); const pageIds = ['product:training-shop', 'domain:ordering', 'domain:payments'];
     const payment = ONCE_QUESTIONS.find((q) => q.item === 'open.term')!; const slug = questionSlug(payment, language); const keptId = `question:${slug}`;
-    const kindsFile = join(product, 'madarch/kinds.yaml');
+    const kindsFile = join(product, 'madarch/catalog.yaml');
     const kindsBefore = hashFiles([kindsFile]); const kindsValueBefore = parseYaml(readFileSync(kindsFile, 'utf8'));
     await post('/api/product-settings', { language });
     const kindsValueAfter = parseYaml(readFileSync(kindsFile, 'utf8'));
     requireWalk(isDeepStrictEqual({ ...kindsValueBefore, language }, kindsValueAfter), `${kindsFile}: language action changed unexpected manifest fields`);
     let kindsExpected = hashFiles([kindsFile]);
-    const templatePaths = STARTER_FILES.filter((entry) => entry.path !== 'madarch/kinds.yaml').map((entry) => join(product, entry.path));
+    const templatePaths = STARTER_FILES.filter((entry) => entry.path !== 'madarch/catalog.yaml').map((entry) => join(product, entry.path));
     const templatesBefore = hashFiles(templatePaths); evidence.immutable(`${language}-templates-before.json`, templatesBefore);
     inputChecks.push(() => { const after = hashFiles(templatePaths); evidence.immutable(`${language}-templates-after.json`, after); assertHashes(templatesBefore, after, `${language}: held templates`); }); evidence.observe('intentional-kinds-language-transition', { language, before: kindsBefore, after: kindsExpected });
     inputChecks.push(() => { const after = hashFiles([kindsFile]); evidence.immutable(`${language}-kinds-after.json`, after); assertHashes(kindsExpected, after, kindsFile); });

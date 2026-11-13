@@ -1,0 +1,27 @@
+id: helm.release
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A named, deployed instance of a Helm chart in one cluster and namespace.
+sources:
+- https://helm.sh/docs/topics/charts/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Helm release
+    many: Helm releases
+  ru:
+    one: Выпуск Helm
+    many: Выпуски Helm
+description:
+  en: A named, deployed instance of a Helm chart in one cluster and namespace.
+  ru: Именованный развёрнутый экземпляр чарта Helm в кластере и пространстве имён.

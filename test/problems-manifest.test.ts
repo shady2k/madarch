@@ -9,11 +9,12 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseKinds } from '../src/product/manifest/kinds.js';
-import { STARTER_FILES, STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
+import { starterManifestText } from './catalog-folder-fixture.js';
+import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 import { DEFAULT_THRESHOLDS } from '../src/problems/types.js';
 
 const fresh = (): string => mkdtempSync(join(tmpdir(), 'madarch-problems-manifest-'));
-const parse = (text: string) => parseKinds(text, 'madarch/kinds.yaml', fresh());
+const parse = (text: string) => parseKinds(text, 'madarch/catalog.yaml', fresh());
 const rule = (severity = 'minor', patch = ''): string => `{ predicate: large-file, kind: large-file, sonar: code-smell, severity: ${severity}, section: code, action: task, label: { en: "Large file", ru: "Большой файл" }${patch} }`;
 
 describe('the problems block of the manifest', () => {
@@ -84,8 +85,8 @@ problems:
   });
 
   test('the starter manifest writes every rule and the default thresholds, and the engine reads them back', () => {
-    const text = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
-    const read = parseKinds(text, 'madarch/kinds.yaml', fresh());
+    const text = starterManifestText();
+    const read = parseKinds(text, 'madarch/catalog.yaml', fresh());
     const problems = read.findings.filter((finding) => finding.message.startsWith('"problems') || finding.message.startsWith('rule "'));
     expect(problems).toEqual([]);
     expect(Object.keys(read.problems!.rules).sort()).toEqual(STARTER_PROBLEM_RULES.map((rule) => rule.id).sort());

@@ -1,0 +1,27 @@
+id: uml.state
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A situation a state machine holds for a while, with the conditions that hold in it.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: State
+    many: States
+  ru:
+    one: Состояние
+    many: Состояния
+description:
+  en: A situation a state machine holds for a while, with the conditions that hold in it.
+  ru: Ситуация, в которой конечный автомат находится некоторое время, с условиями, которые в ней выполняются.

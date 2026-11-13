@@ -1,0 +1,90 @@
+id: practice.admin-guide
+purpose: operations
+audience: [operations, platform-devops]
+definition: The setup and the operations of the product, written for the person who runs it.
+sources:
+- https://diataxis.fr/
+acquisition:
+- agent-from-graph
+status: implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: page
+template: templates/guide.liquid
+source: graph
+fields:
+- name: title
+  type: text
+  binding:
+    agent: 'Read docs/guides/administrator.md: the page title; use it as the entity label.'
+- name: slug
+  type: text
+  binding:
+    agent: 'Read docs/guides/administrator.md: The stable page slug from its id; identify the entity with its declared page
+      id.'
+- name: body
+  type: text
+  binding:
+    agent: 'Read docs/guides/administrator.md: The complete Markdown body, preserving paragraphs and references.'
+- name: body_line
+  type: integer
+  binding:
+    agent: 'Read docs/guides/administrator.md: The positive source line where the body starts.'
+- name: file
+  type: text
+  binding:
+    agent: 'Read docs/guides/administrator.md: The repository-relative page source path.'
+- name: relates
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: The array of related entity ids.'
+- name: sources
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: The array of source paths.'
+- name: statements
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: Complete statements as [{id,text,digest,labels,mentions,grounds,line,paragraph}],
+      preserving ids and grounds.'
+- name: mentions
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: The array of mentioned entity ids.'
+- name: digest
+  type: text
+  binding:
+    agent: 'Read docs/guides/administrator.md: The body digest identifying this page revision.'
+- name: producer
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read docs/guides/administrator.md: The producer text, or null when absent.'
+- name: links
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: All body links as [{url,line,ground}].'
+- name: findings
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: All page findings as [{file,line,message}].'
+- name: ungrounded
+  type: json
+  binding:
+    agent: 'Read docs/guides/administrator.md: All ungrounded statements as [{text,line}].'
+key:
+- slug
+origin: agent
+labels:
+  en:
+    one: Administrator guide
+    many: Administrator guide
+  ru:
+    one: Руководство администратора
+    many: Руководство администратора
+description:
+  en: Grounded setup and operations, with independent walkthrough status.
+  ru: Запуск и эксплуатация с основаниями в исходниках и независимым статусом прохождения.

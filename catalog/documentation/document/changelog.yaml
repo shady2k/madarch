@@ -1,0 +1,27 @@
+id: practice.changelog
+purpose: history
+audience: [product, analyst, developer, operations]
+definition: The ordered list of what changed in the product between releases.
+sources:
+- https://keepachangelog.com/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Changelog
+    many: Changelogs
+  ru:
+    one: Журнал изменений
+    many: Журналы изменений
+description:
+  en: The ordered list of what changed in the product between releases.
+  ru: Упорядоченный список того, что изменилось в продукте между выпусками.

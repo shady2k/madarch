@@ -1,0 +1,27 @@
+id: openfeature.targeting-rule
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The condition under which one variant of a feature flag is served.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Flag rule
+    many: Flag rules
+  ru:
+    one: Правило флага
+    many: Правила флага
+description:
+  en: The condition under which one variant of a feature flag is served.
+  ru: Условие, при котором выдаётся один вариант флага функции.

@@ -1,0 +1,32 @@
+id: manifest.lifecycle
+purpose: structure
+audience: [architect, product-lead]
+definition: The statuses and transitions an authored kind attaches through the manifest; an entity has one current status,
+  an open question linked to it makes it blocked rather than giving it a status, and a kind the code produces has only its
+  as-is and to-be.
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - constrains
+  in:
+  - defines
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Lifecycle
+    many: Lifecycles
+  ru:
+    one: Жизненный цикл
+    many: Жизненные циклы
+description:
+  en: The statuses and transitions an authored kind attaches; one current status per entity, and an open question blocks it.
+  ru: Статусы и переходы, которые прикрепляет авторский вид; у сущности один текущий статус, а открытый вопрос блокирует её.

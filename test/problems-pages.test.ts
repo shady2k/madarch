@@ -1,3 +1,4 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The Problems page answers in levels (madarch-8bdc.2.5): one row per rule, the sources of a rule, and the items of a
  * source, each a bounded page the server builds. This fixture holds more than one page of sources, so the test walks
@@ -56,11 +57,10 @@ beforeAll(async () => {
   }
   writeFileSync(workspace, workspaceText);
   // Pagination needs repository facts and one rule, not the starter catalogue's hundreds of planned kinds.
-  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
   restrictRepositoryDeclarations(folder);
-  const starter = parse(readFileSync(kindsFile, 'utf8'));
+  const starter = parse(readFolderManifestText(folder));
   starter.problems = { rules: { 'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'] } };
-  writeFileSync(kindsFile, stringify(starter));
+  writeFolderManifest(folder, stringify(starter));
   commitProduct(folder, 'Declare empty repositories for paged problems');
   const app = join(work, 'app');
   mkdirSync(app);

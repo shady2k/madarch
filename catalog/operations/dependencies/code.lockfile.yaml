@@ -1,0 +1,33 @@
+id: practice.lockfile
+purpose: structure
+audience: [developer, architect, platform-devops, security-engineer]
+definition: A file that pins the exact versions of a package's dependencies.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out: []
+  in:
+  - partOf
+  - generates
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- format
+- lockfileVersion
+- modules
+- packages
+- devOnlyPackages
+labels:
+  en:
+    one: Lock file
+    many: Lock files
+  ru:
+    one: Файл блокировки
+    many: Файлы блокировки
+description:
+  en: A file that pins the exact versions of the dependencies.
+  ru: Файл, который закрепляет точные версии зависимостей.

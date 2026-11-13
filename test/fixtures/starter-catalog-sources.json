@@ -1,0 +1,1617 @@
+{
+  "code.gitlink": [
+    "https://git-scm.com/docs/gitmodules"
+  ],
+  "source": [
+    "https://git-scm.com/docs/git-show"
+  ],
+  "template": [
+    "https://liquidjs.com/"
+  ],
+  "problem-dismissal": [
+    "https://arc42.org/overview"
+  ],
+  "product": [
+    "https://arc42.org/overview",
+    "https://backstage.io/docs/features/software-catalog/system-model"
+  ],
+  "domain": [
+    "https://backstage.io/docs/features/software-catalog/system-model"
+  ],
+  "administrator-guide": [
+    "https://diataxis.fr/"
+  ],
+  "user-guide": [
+    "https://diataxis.fr/"
+  ],
+  "question": [
+    "https://arc42.org/overview",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "correction": [
+    "https://arc42.org/overview"
+  ],
+  "task": [
+    "https://scrumguides.org/scrum-guide.html",
+    "https://support.atlassian.com/jira-software-cloud/docs/create-a-work-item-and-a-subtask/"
+  ],
+  "doc.use-case": [
+    "https://arc42.org/overview"
+  ],
+  "doc.rule": [
+    "https://cucumber.io/docs/gherkin/reference/"
+  ],
+  "doc.decision": [
+    "https://adr.github.io/madr/"
+  ],
+  "doc.requirement": [
+    "https://standards.ieee.org/ieee/29148/6937/"
+  ],
+  "enrichment": [
+    "https://arc42.org/overview"
+  ],
+  "doc.term": [
+    "https://arc42.org/overview"
+  ],
+  "code.service": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.package": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/Package/"
+  ],
+  "code.module": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.file": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/File/"
+  ],
+  "code.symbol": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.field": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.entry-point": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.cycle": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+  ],
+  "code.debt": [
+    "https://arc42.org/overview"
+  ],
+  "code.facet": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.input": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "code.sql-build": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "code.sql-sink": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "code.route": [
+    "https://c4model.com/abstractions"
+  ],
+  "code.operation": [
+    "https://spec.openapis.org/oas/v3.1.1.html"
+  ],
+  "code.contract": [
+    "https://spec.openapis.org/oas/v3.1.1.html",
+    "https://www.asyncapi.com/docs/reference/specification/v3.0.0"
+  ],
+  "code.channel": [
+    "https://www.asyncapi.com/docs/reference/specification/v3.0.0"
+  ],
+  "code.message": [
+    "https://www.asyncapi.com/docs/reference/specification/v3.0.0"
+  ],
+  "code.database": [
+    "https://www.postgresql.org/docs/"
+  ],
+  "code.table": [
+    "https://www.postgresql.org/docs/"
+  ],
+  "code.column": [
+    "https://www.postgresql.org/docs/"
+  ],
+  "code.index": [
+    "https://www.postgresql.org/docs/"
+  ],
+  "code.migration": [
+    "https://www.postgresql.org/docs/"
+  ],
+  "code.env-var": [
+    "https://opentelemetry.io/docs/specs/semconv/resource/"
+  ],
+  "code.env-definition": [
+    "https://opentelemetry.io/docs/specs/semconv/resource/"
+  ],
+  "code.dependency": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
+  ],
+  "code.manifest": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/"
+  ],
+  "code.lockfile": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/"
+  ],
+  "code.dockerfile": [
+    "https://github.com/opencontainers/image-spec"
+  ],
+  "code.image": [
+    "https://github.com/opencontainers/image-spec"
+  ],
+  "code.compose-service": [
+    "https://docs.docker.com/compose/"
+  ],
+  "code.k8s-deployment": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "code.k8s-service": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "code.ci-workflow": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/"
+  ],
+  "code.ci-job": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/"
+  ],
+  "code.make-target": [
+    "https://www.gnu.org/software/make/manual/make.html"
+  ],
+  "code.process": [
+    "https://opentelemetry.io/docs/specs/semconv/resource/process/"
+  ],
+  "code.port": [
+    "https://www.rfc-editor.org/rfc/rfc6335.html"
+  ],
+  "code.health-endpoint": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "code.metric": [
+    "https://opentelemetry.io/docs/concepts/signals/metrics/"
+  ],
+  "code.broker": [
+    "https://www.asyncapi.com/docs/reference/specification/v3.0.0"
+  ],
+  "code.probe": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "code.healthcheck": [
+    "https://docs.docker.com/compose/"
+  ],
+  "code.document-section": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/"
+  ],
+  "code.metrics-endpoint": [
+    "https://opentelemetry.io/docs/concepts/signals/metrics/"
+  ],
+  "code.logger": [
+    "https://opentelemetry.io/docs/concepts/signals/logs/"
+  ],
+  "code.newcomer-command": [
+    "https://diataxis.fr/"
+  ],
+  "code.newcomer-prerequisites": [
+    "https://diataxis.fr/"
+  ],
+  "code.newcomer-failure": [
+    "https://diataxis.fr/"
+  ],
+  "code.test-case": [
+    "https://glossary.istqb.org/en_US/term/test-case"
+  ],
+  "code.test-quarantine": [
+    "https://docs.gitlab.com/development/testing_guide/quarantining_tests/",
+    "https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html"
+  ],
+  "code.commit": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "code.author": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "code.snapshot": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "code.task": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "process-gateway": [
+    "https://www.omg.org/spec/BPMN/"
+  ],
+  "process-model": [
+    "https://www.omg.org/spec/BPMN/"
+  ],
+  "state": [
+    "https://www.omg.org/spec/UML/"
+  ],
+  "state-machine": [
+    "https://www.omg.org/spec/UML/"
+  ],
+  "transition": [
+    "https://www.omg.org/spec/UML/"
+  ],
+  "deployment-environment": [
+    "https://c4model.com/diagrams/deployment"
+  ],
+  "deployment-node": [
+    "https://c4model.com/diagrams/deployment"
+  ],
+  "infrastructure-node": [
+    "https://c4model.com/diagrams/deployment"
+  ],
+  "resource": [
+    "https://backstage.io/docs/features/software-catalog/system-model"
+  ],
+  "architecture-description": [
+    "https://www.iso.org/standard/74393.html"
+  ],
+  "architecture-view": [
+    "https://www.iso.org/standard/74393.html"
+  ],
+  "building-block-view": [
+    "https://arc42.org/overview"
+  ],
+  "crosscutting-concept": [
+    "https://arc42.org/overview"
+  ],
+  "deployment-view": [
+    "https://arc42.org/overview"
+  ],
+  "runtime-scenario": [
+    "https://arc42.org/overview"
+  ],
+  "solution-strategy": [
+    "https://arc42.org/overview"
+  ],
+  "aggregate": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "bounded-context": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "context-map": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "context-map-relationship": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "domain-entity": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "domain-event": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "domain-repository": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "domain-service": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "factory": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "subdomain": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "value-object": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "component": [
+    "https://c4model.com/abstractions",
+    "https://backstage.io/docs/features/software-catalog/system-model"
+  ],
+  "software-system": [
+    "https://c4model.com/abstractions"
+  ],
+  "external-interface": [
+    "https://arc42.org/overview"
+  ],
+  "external-system": [
+    "https://c4model.com/abstractions"
+  ],
+  "integration": [
+    "https://c4model.com/abstractions"
+  ],
+  "paas-service": [
+    "https://c4model.com/abstractions"
+  ],
+  "saas-service": [
+    "https://c4model.com/abstractions"
+  ],
+  "technology": [
+    "https://endoflife.date/"
+  ],
+  "business-process": [
+    "https://www.omg.org/spec/BPMN/"
+  ],
+  "process-step": [
+    "https://www.omg.org/spec/BPMN/"
+  ],
+  "workflow": [
+    "https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "code.graphql-operation": [
+    "https://spec.graphql.org/"
+  ],
+  "code.graphql-schema-type": [
+    "https://spec.graphql.org/"
+  ],
+  "code.grpc-method": [
+    "https://protobuf.dev/reference/protobuf/proto3-spec/"
+  ],
+  "code.grpc-service": [
+    "https://protobuf.dev/reference/protobuf/proto3-spec/"
+  ],
+  "code.json-schema": [
+    "https://json-schema.org/specification"
+  ],
+  "code.sse-stream": [
+    "https://html.spec.whatwg.org/multipage/server-sent-events.html"
+  ],
+  "code.webhook": [
+    "https://spec.openapis.org/oas/v3.1.1.html"
+  ],
+  "code.websocket-endpoint": [
+    "https://www.rfc-editor.org/rfc/rfc6455.html"
+  ],
+  "code.directory": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/"
+  ],
+  "cloud-cost": [
+    "https://focus.finops.org/"
+  ],
+  "cost-allocation": [
+    "https://focus.finops.org/"
+  ],
+  "cost-anomaly": [
+    "https://focus.finops.org/"
+  ],
+  "cost-record": [
+    "https://focus.finops.org/"
+  ],
+  "license-cost": [
+    "https://focus.finops.org/"
+  ],
+  "llm-usage": [
+    "https://opentelemetry.io/docs/specs/semconv/gen-ai/"
+  ],
+  "budget": [
+    "https://focus.finops.org/"
+  ],
+  "forecast": [
+    "https://focus.finops.org/"
+  ],
+  "savings-plan": [
+    "https://focus.finops.org/"
+  ],
+  "data-check": [
+    "https://www.w3.org/TR/vocab-dqv/"
+  ],
+  "data-facet": [
+    "https://openlineage.io/docs/spec/object-model"
+  ],
+  "data-job": [
+    "https://openlineage.io/docs/spec/object-model"
+  ],
+  "data-job-run": [
+    "https://openlineage.io/docs/spec/object-model"
+  ],
+  "data-quality-measurement": [
+    "https://www.w3.org/TR/vocab-dqv/"
+  ],
+  "data-catalog-entry": [
+    "https://www.w3.org/TR/vocab-dcat-3/"
+  ],
+  "data-contract": [
+    "https://openlineage.io/docs/spec/object-model"
+  ],
+  "data-entity": [
+    "https://www.domainlanguage.com/ddd/reference/"
+  ],
+  "data-catalog": [
+    "https://www.w3.org/TR/vocab-dcat-3/"
+  ],
+  "data-distribution": [
+    "https://www.w3.org/TR/vocab-dcat-3/"
+  ],
+  "data-service": [
+    "https://www.w3.org/TR/vocab-dcat-3/"
+  ],
+  "desired-deployment": [
+    "https://kubernetes.io/docs/concepts/architecture/controller/",
+    "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+  ],
+  "dataset": [
+    "https://openlineage.io/docs/spec/object-model"
+  ],
+  "provenance-activity": [
+    "https://www.w3.org/TR/prov-o/"
+  ],
+  "provenance-agent": [
+    "https://www.w3.org/TR/prov-o/"
+  ],
+  "provenance-entity": [
+    "https://www.w3.org/TR/prov-o/"
+  ],
+  "data-destruction": [
+    "https://csrc.nist.gov/pubs/sp/800/88/r1/final"
+  ],
+  "decommission-plan": [
+    "https://csrc.nist.gov/pubs/sp/800/88/r1/final"
+  ],
+  "deprecation": [
+    "https://www.rfc-editor.org/rfc/rfc8594.html"
+  ],
+  "retirement-record": [
+    "https://csrc.nist.gov/pubs/sp/800/88/r1/final"
+  ],
+  "build": [
+    "https://slsa.dev/spec/v1.0/provenance"
+  ],
+  "build-artifact": [
+    "https://slsa.dev/spec/v1.0/provenance"
+  ],
+  "build-platform": [
+    "https://slsa.dev/spec/v1.0/provenance"
+  ],
+  "builder": [
+    "https://slsa.dev/spec/v1.0/provenance"
+  ],
+  "byproduct": [
+    "https://slsa.dev/spec/v1.0/provenance"
+  ],
+  "feature-flag": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "flag-evaluation-context": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "flag-provider": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "flag-rule": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "flag-set": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "flag-variant": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "gitops-application": [
+    "https://opengitops.dev/"
+  ],
+  "gitops-reconciliation": [
+    "https://opengitops.dev/"
+  ],
+  "gitops-source": [
+    "https://opengitops.dev/"
+  ],
+  "pipeline-run": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/"
+  ],
+  "runner": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/"
+  ],
+  "change": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/",
+    "https://dora.dev/guides/dora-metrics/"
+  ],
+  "deployment": [
+    "https://dora.dev/guides/dora-metrics/"
+  ],
+  "helm-release": [
+    "https://helm.sh/docs/topics/charts/"
+  ],
+  "release": [
+    "https://helm.sh/docs/topics/charts/",
+    "https://dora.dev/guides/dora-metrics/"
+  ],
+  "release-gate": [
+    "https://dora.dev/guides/dora-metrics/"
+  ],
+  "observed-deployment": [
+    "https://kubernetes.io/docs/concepts/architecture/controller/"
+  ],
+  "rollout": [
+    "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+  ],
+  "tag": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "attestation": [
+    "https://github.com/in-toto/attestation/blob/main/spec/README.md"
+  ],
+  "in-toto-statement": [
+    "https://github.com/in-toto/attestation/blob/main/spec/README.md"
+  ],
+  "provenance": [
+    "https://slsa.dev/spec/v1.0/provenance"
+  ],
+  "accessibility-conformance-report": [
+    "https://www.w3.org/TR/WCAG22/"
+  ],
+  "accessibility-evaluation": [
+    "https://www.w3.org/TR/EARL10-Schema/"
+  ],
+  "accessibility-rule": [
+    "https://www.w3.org/TR/act-rules-format/"
+  ],
+  "accessibility-success-criterion": [
+    "https://www.w3.org/TR/WCAG22/"
+  ],
+  "locale": [
+    "https://unicode.org/reports/tr35/"
+  ],
+  "message": [
+    "https://messageformat.unicode.org/"
+  ],
+  "translation-file": [
+    "https://docs.oasis-open.org/xliff/xliff-core/v2.1/os/xliff-core-v2.1-os.html"
+  ],
+  "asset": [
+    "https://www.w3.org/Graphics/SVG/"
+  ],
+  "frontend-route": [
+    "https://c4model.com/abstractions"
+  ],
+  "screen": [
+    "https://www.nngroup.com/articles/usability-testing-101/"
+  ],
+  "style": [
+    "https://www.w3.org/TR/CSS22/"
+  ],
+  "design-frame": [
+    "https://www.nngroup.com/articles/design-systems-101/"
+  ],
+  "design-system": [
+    "https://www.nngroup.com/articles/design-systems-101/"
+  ],
+  "story": [
+    "https://storybook.js.org/docs/api/csf"
+  ],
+  "ui-component": [
+    "https://storybook.js.org/docs/api/csf"
+  ],
+  "design-token": [
+    "https://www.designtokens.org/TR/2025.10/format/"
+  ],
+  "token-group": [
+    "https://www.designtokens.org/TR/2025.10/format/"
+  ],
+  "token-set": [
+    "https://www.designtokens.org/TR/2025.10/resolver/"
+  ],
+  "usability-finding": [
+    "https://www.nngroup.com/articles/usability-testing-101/"
+  ],
+  "usability-test": [
+    "https://www.nngroup.com/articles/usability-testing-101/"
+  ],
+  "touchpoint": [
+    "https://www.nngroup.com/articles/journey-mapping-101/"
+  ],
+  "user-flow": [
+    "https://www.nngroup.com/articles/journey-mapping-101/"
+  ],
+  "user-journey": [
+    "https://www.nngroup.com/articles/journey-mapping-101/"
+  ],
+  "interview": [
+    "https://www.nngroup.com/articles/user-interviews/"
+  ],
+  "observation": [
+    "https://www.nngroup.com/articles/contextual-inquiry/"
+  ],
+  "research-finding": [
+    "https://www.nngroup.com/articles/ux-research-cheat-sheet/"
+  ],
+  "research-question": [
+    "https://www.nngroup.com/articles/ux-research-cheat-sheet/"
+  ],
+  "survey": [
+    "https://www.nngroup.com/articles/which-ux-research-methods/"
+  ],
+  "api-reference": [
+    "https://spec.openapis.org/oas/v3.1.1.html"
+  ],
+  "architecture-section": [
+    "https://arc42.org/overview"
+  ],
+  "changelog": [
+    "https://keepachangelog.com/"
+  ],
+  "document": [
+    "https://diataxis.fr/"
+  ],
+  "guide": [
+    "https://diataxis.fr/"
+  ],
+  "how-to": [
+    "https://diataxis.fr/"
+  ],
+  "release-notes": [
+    "https://keepachangelog.com/"
+  ],
+  "tutorial": [
+    "https://diataxis.fr/"
+  ],
+  "faq": [
+    "https://diataxis.fr/"
+  ],
+  "known-issue": [
+    "https://glossary.istqb.org/en_US/term/defect"
+  ],
+  "support-answer": [
+    "https://www.atlassian.com/software/jira/service-management"
+  ],
+  "support-request": [
+    "https://www.atlassian.com/software/jira/service-management"
+  ],
+  "troubleshooting-guide": [
+    "https://diataxis.fr/"
+  ],
+  "code.repository": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "remote": [
+    "https://git-scm.com/docs/git-remote"
+  ],
+  "branch": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "pull-request": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "communications-secrecy": [
+    "https://gdpr-info.eu/"
+  ],
+  "information-category": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "information-classification": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "personal-data": [
+    "https://gdpr-info.eu/art-4-gdpr/"
+  ],
+  "special-category-data": [
+    "https://gdpr-info.eu/art-9-gdpr/"
+  ],
+  "trade-secret": [
+    "https://www.wipo.int/en/web/trade-secrets"
+  ],
+  "information-flow": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "information-item": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "cloud-resource": [
+    "https://opentelemetry.io/docs/specs/semconv/resource/"
+  ],
+  "kubernetes-cluster": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "kubernetes-node": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "node-pool": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "server": [
+    "https://opentelemetry.io/docs/specs/semconv/resource/host/"
+  ],
+  "iac-variable": [
+    "https://developer.hashicorp.com/terraform/language/values/variables"
+  ],
+  "terraform-module": [
+    "https://developer.hashicorp.com/terraform/language/modules"
+  ],
+  "terraform-provider": [
+    "https://developer.hashicorp.com/terraform/language/providers"
+  ],
+  "terraform-resource": [
+    "https://developer.hashicorp.com/terraform/language/resources"
+  ],
+  "terraform-state": [
+    "https://developer.hashicorp.com/terraform/language/state"
+  ],
+  "certificate": [
+    "https://www.rfc-editor.org/rfc/rfc5280.html"
+  ],
+  "dns-record": [
+    "https://www.rfc-editor.org/rfc/rfc1035.html"
+  ],
+  "domain-name": [
+    "https://www.rfc-editor.org/rfc/rfc1035.html"
+  ],
+  "firewall-rule": [
+    "https://www.rfc-editor.org/rfc/rfc4949.html"
+  ],
+  "ip-range": [
+    "https://www.rfc-editor.org/rfc/rfc4632.html"
+  ],
+  "load-balancer": [
+    "https://www.rfc-editor.org/rfc/rfc7230.html"
+  ],
+  "network-zone": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "protocol": [
+    "https://www.rfc-editor.org/rfc/rfc791.html"
+  ],
+  "proxy": [
+    "https://www.rfc-editor.org/rfc/rfc9110.html"
+  ],
+  "security-group": [
+    "https://www.rfc-editor.org/rfc/rfc4949.html"
+  ],
+  "waf": [
+    "https://owasp.org/www-project-modsecurity-core-rule-set/"
+  ],
+  "k8s-autoscaler": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-configmap": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-cronjob": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-daemonset": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-ingress": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-job": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-namespace": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-pod": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-secret": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "k8s-statefulset": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "cache": [
+    "https://www.rfc-editor.org/rfc/rfc9111.html"
+  ],
+  "cache-key": [
+    "https://www.rfc-editor.org/rfc/rfc9111.html"
+  ],
+  "cache-policy": [
+    "https://www.rfc-editor.org/rfc/rfc9111.html"
+  ],
+  "subscription": [
+    "https://www.asyncapi.com/docs/reference/specification/v3.0.0"
+  ],
+  "email-message": [
+    "https://www.rfc-editor.org/rfc/rfc5322.html"
+  ],
+  "notification-template": [
+    "https://www.rfc-editor.org/rfc/rfc5322.html"
+  ],
+  "push-message": [
+    "https://www.rfc-editor.org/rfc/rfc8030.html"
+  ],
+  "sms-message": [
+    "https://smpp.org/SMPP_v3_4_Issue1_2.pdf"
+  ],
+  "block-volume": [
+    "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+  ],
+  "bucket": [
+    "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
+  ],
+  "file-share": [
+    "https://www.rfc-editor.org/rfc/rfc7530.html"
+  ],
+  "object-store": [
+    "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
+  ],
+  "sftp-endpoint": [
+    "https://www.rfc-editor.org/rfc/rfc4253.html"
+  ],
+  "evaluation-result": [
+    "https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd",
+    "https://mlflow.org/docs/latest/index.html"
+  ],
+  "evaluation-run": [
+    "https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd",
+    "https://mlflow.org/docs/latest/index.html"
+  ],
+  "ml-model": [
+    "https://cyclonedx.org/docs/1.6/json/",
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/AI/"
+  ],
+  "model-card": [
+    "https://www.nist.gov/itl/ai-risk-management-framework"
+  ],
+  "training-dataset": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Dataset/"
+  ],
+  "training-run": [
+    "https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd",
+    "https://mlflow.org/docs/latest/index.html"
+  ],
+  "ai-impact-assessment": [
+    "https://www.nist.gov/itl/ai-risk-management-framework"
+  ],
+  "ai-incident": [
+    "https://www.nist.gov/itl/ai-risk-management-framework"
+  ],
+  "ai-risk": [
+    "https://www.nist.gov/itl/ai-risk-management-framework"
+  ],
+  "ai-system": [
+    "https://www.nist.gov/itl/ai-risk-management-framework"
+  ],
+  "alert-group": [
+    "https://prometheus.io/docs/alerting/latest/configuration/"
+  ],
+  "alert-notification-target": [
+    "https://prometheus.io/docs/alerting/latest/configuration/"
+  ],
+  "alert-route": [
+    "https://prometheus.io/docs/alerting/latest/configuration/"
+  ],
+  "alert-rule": [
+    "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/"
+  ],
+  "escalation-policy": [
+    "https://sre.google/workbook/on-call/"
+  ],
+  "on-call-schedule": [
+    "https://sre.google/workbook/on-call/"
+  ],
+  "change-record": [
+    "https://dora.dev/guides/dora-metrics/"
+  ],
+  "database-change": [
+    "https://kubernetes.io/docs/concepts/workloads/controllers/job/"
+  ],
+  "maintenance-window": [
+    "https://www.rfc-editor.org/rfc/rfc8594.html"
+  ],
+  "upgrade": [
+    "https://endoflife.date/"
+  ],
+  "action-item": [
+    "https://sre.google/workbook/postmortem-culture/"
+  ],
+  "incident": [
+    "https://sre.google/workbook/postmortem-culture/"
+  ],
+  "incident-timeline": [
+    "https://sre.google/workbook/postmortem-culture/"
+  ],
+  "postmortem": [
+    "https://sre.google/workbook/postmortem-culture/"
+  ],
+  "response-record": [
+    "https://sre.google/workbook/incident-response/"
+  ],
+  "job-result": [
+    "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+  ],
+  "job-run": [
+    "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+  ],
+  "job-schedule": [
+    "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+  ],
+  "scheduled-job": [
+    "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"
+  ],
+  "dashboard": [
+    "https://grafana.com/docs/grafana/latest/dashboards/"
+  ],
+  "dashboard-panel": [
+    "https://grafana.com/docs/grafana/latest/dashboards/"
+  ],
+  "log-record": [
+    "https://opentelemetry.io/docs/concepts/signals/logs/"
+  ],
+  "span": [
+    "https://opentelemetry.io/docs/concepts/signals/traces/"
+  ],
+  "telemetry-pipeline": [
+    "https://opentelemetry.io/docs/concepts/signals/"
+  ],
+  "telemetry-resource": [
+    "https://opentelemetry.io/docs/specs/semconv/resource/"
+  ],
+  "error-budget-policy": [
+    "https://sre.google/workbook/implementing-slos/"
+  ],
+  "sla": [
+    "https://sre.google/sre-book/service-level-objectives/"
+  ],
+  "sli": [
+    "https://sre.google/sre-book/service-level-objectives/"
+  ],
+  "slo": [
+    "https://sre.google/sre-book/service-level-objectives/"
+  ],
+  "accountability": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "business-role": [
+    "https://www.w3.org/TR/vocab-org/"
+  ],
+  "membership": [
+    "https://www.w3.org/TR/vocab-org/"
+  ],
+  "user": [
+    "https://backstage.io/docs/features/software-catalog/well-known-relations"
+  ],
+  "assignment": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "owner": [
+    "https://backstage.io/docs/features/software-catalog/well-known-relations"
+  ],
+  "ownership-assignment": [
+    "https://backstage.io/docs/features/software-catalog/well-known-relations"
+  ],
+  "department": [
+    "https://www.w3.org/TR/vocab-org/"
+  ],
+  "organization": [
+    "https://www.w3.org/TR/vocab-org/"
+  ],
+  "team": [
+    "https://www.w3.org/TR/vocab-org/"
+  ],
+  "assessment-plan": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "assessment-result": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "component-definition": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "control": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "control-catalog": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "poam": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "policy": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "profile": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "system-security-plan": [
+    "https://pages.nist.gov/OSCAL/learn/concepts/layer/"
+  ],
+  "consent": [
+    "https://gdpr-info.eu/art-7-gdpr/"
+  ],
+  "data-subject-category": [
+    "https://gdpr-info.eu/art-30-gdpr/"
+  ],
+  "personal-data-category": [
+    "https://gdpr-info.eu/art-30-gdpr/",
+    "https://w3c.github.io/dpv/2.0/dpv/"
+  ],
+  "processing-activity": [
+    "https://gdpr-info.eu/art-30-gdpr/"
+  ],
+  "purpose": [
+    "https://gdpr-info.eu/art-5-gdpr/"
+  ],
+  "recipient": [
+    "https://gdpr-info.eu/art-30-gdpr/"
+  ],
+  "transfer": [
+    "https://gdpr-info.eu/art-30-gdpr/"
+  ],
+  "actor": [
+    "https://c4model.com/abstractions"
+  ],
+  "persona": [
+    "https://www.nngroup.com/articles/persona/"
+  ],
+  "user-role": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "considered-option": [
+    "https://adr.github.io/madr/"
+  ],
+  "decision-driver": [
+    "https://adr.github.io/madr/"
+  ],
+  "decision-log": [
+    "https://adr.github.io/"
+  ],
+  "a-b-test": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "experiment": [
+    "https://openfeature.dev/specification/glossary"
+  ],
+  "hypothesis": [
+    "https://en.wikipedia.org/wiki/Hypothesis",
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "prototype": [
+    "https://www.nngroup.com/articles/paper-prototyping/"
+  ],
+  "spike": [
+    "https://en.wikipedia.org/wiki/Spike_(software_development)"
+  ],
+  "risk": [
+    "https://arc42.org/overview"
+  ],
+  "technical-debt": [
+    "https://arc42.org/overview"
+  ],
+  "change-request": [
+    "https://glossary.istqb.org/en_US/term/change-request"
+  ],
+  "impact-analysis": [
+    "https://glossary.istqb.org/en_US/term/impact-analysis"
+  ],
+  "requirement-baseline": [
+    "https://www.omg.org/spec/SACM/"
+  ],
+  "requirement-change": [
+    "https://www.omg.org/spec/SACM/"
+  ],
+  "requirements-specification": [
+    "https://standards.ieee.org/ieee/29148/6937/"
+  ],
+  "architecturally-significant-requirement": [
+    "https://adr.github.io/"
+  ],
+  "assurance-argument": [
+    "https://www.omg.org/spec/SACM/"
+  ],
+  "assurance-case": [
+    "https://www.omg.org/spec/SACM/"
+  ],
+  "assurance-claim": [
+    "https://www.omg.org/spec/SACM/"
+  ],
+  "quality-characteristic": [
+    "https://committee.iso.org/standard/78176.html"
+  ],
+  "quality-scenario": [
+    "https://arc42.org/overview"
+  ],
+  "acceptance-criterion": [
+    "https://glossary.istqb.org/en_US/term/acceptance-criteria"
+  ],
+  "user-story": [
+    "https://glossary.istqb.org/en_US/term/user-story"
+  ],
+  "drill": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "drill-result": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "exercise-scenario": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "business-impact-analysis": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "impact-scenario": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "recovery-objective": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "business-continuity-plan": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "contingency-plan": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "disaster-recovery-plan": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "recovery-plan": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "backup": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "backup-policy": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "failover": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "geo-redundancy": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "recovery-point": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "replication": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "restore-test": [
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "code-owner": [
+    "https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners"
+  ],
+  "pull-request-review": [
+    "https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/"
+  ],
+  "review-checklist": [
+    "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests"
+  ],
+  "access-review": [
+    "https://csrc.nist.gov/pubs/sp/800/207/final"
+  ],
+  "iam-account": [
+    "https://csrc.nist.gov/pubs/sp/800/207/final"
+  ],
+  "iam-grant": [
+    "https://csrc.nist.gov/pubs/sp/800/207/final"
+  ],
+  "iam-policy": [
+    "https://csrc.nist.gov/pubs/sp/800/207/final"
+  ],
+  "iam-role": [
+    "https://csrc.nist.gov/pubs/sp/800/207/final"
+  ],
+  "scim-directory": [
+    "https://www.rfc-editor.org/rfc/rfc7644.html"
+  ],
+  "service-account": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "sso-configuration": [
+    "https://docs.oasis-open.org/security/saml/v2.0/"
+  ],
+  "assessment-finding": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "bug-bounty-program": [
+    "https://www.hackerone.com/"
+  ],
+  "dast-scan": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "penetration-test": [
+    "https://owasp.org/www-project-web-security-testing-guide/"
+  ],
+  "sast-scan": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "secret-scan": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "vulnerability-scan": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "audit": [
+    "https://csrc.nist.gov/pubs/sp/800/53/a/final"
+  ],
+  "audit-finding": [
+    "https://csrc.nist.gov/pubs/sp/800/53/a/final"
+  ],
+  "exception": [
+    "https://csrc.nist.gov/pubs/sp/800/53/a/final"
+  ],
+  "protection-profile": [
+    "https://www.iso.org/standard/72891.html"
+  ],
+  "secure-development-practice": [
+    "https://csrc.nist.gov/projects/ssdf"
+  ],
+  "security-control": [
+    "https://github.com/OWASP/ASVS/tree/master/5.0/en"
+  ],
+  "security-target": [
+    "https://www.iso.org/standard/72891.html"
+  ],
+  "crypto-algorithm": [
+    "https://csrc.nist.gov/projects/cryptographic-standards-and-guidelines"
+  ],
+  "cryptographic-asset": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "key-material": [
+    "https://www.rfc-editor.org/rfc/rfc5280.html"
+  ],
+  "disclosure-policy": [
+    "https://www.rfc-editor.org/rfc/rfc9116.html"
+  ],
+  "disclosure-report": [
+    "https://csrc.nist.gov/pubs/sp/800/216/final"
+  ],
+  "security-advisory": [
+    "https://www.rfc-editor.org/rfc/rfc9116.html"
+  ],
+  "indicator": [
+    "https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html"
+  ],
+  "threat-intelligence": [
+    "https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html"
+  ],
+  "secret": [
+    "https://kubernetes.io/docs/reference/kubernetes-api/"
+  ],
+  "secret-reference": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "license": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/"
+  ],
+  "sbom": [
+    "https://cyclonedx.org/docs/1.6/json/",
+    "https://spdx.github.io/spdx-spec/v3.0.1/"
+  ],
+  "sbom-component": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "scorecard-check": [
+    "https://github.com/ossf/scorecard/blob/main/docs/checks.md"
+  ],
+  "mitigation": [
+    "https://community.owasp.org/Threat_Modeling"
+  ],
+  "threat": [
+    "https://community.owasp.org/Threat_Modeling"
+  ],
+  "threat-actor": [
+    "https://www.rfc-editor.org/rfc/rfc9121.html"
+  ],
+  "threat-model": [
+    "https://community.owasp.org/Threat_Modeling"
+  ],
+  "trust-boundary": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "trust-zone": [
+    "https://cyclonedx.org/docs/1.6/json/"
+  ],
+  "finding": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "suppression": [
+    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html"
+  ],
+  "vex-statement": [
+    "https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md"
+  ],
+  "vulnerability": [
+    "https://ossf.github.io/osv-schema/",
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Security/Classes/Vulnerability/"
+  ],
+  "weakness": [
+    "https://cwe.mitre.org/about/new_to_cwe.html"
+  ],
+  "business-capability": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "course-of-action": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "value-stream": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "value-stream-stage": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "assessment": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "constraint": [
+    "https://arc42.org/overview",
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "driver": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "goal": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/",
+    "https://www.omg.org/spec/BMM/"
+  ],
+  "key-result": [
+    "https://www.whatmatters.com/faqs/okr-meaning-definition-example"
+  ],
+  "objective": [
+    "https://www.whatmatters.com/faqs/okr-meaning-definition-example"
+  ],
+  "outcome": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "principle": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "product-goal": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "stakeholder": [
+    "https://pubs.opengroup.org/architecture/archimate32-doc/"
+  ],
+  "vision": [
+    "https://scrumguides.org/scrum-guide.html",
+    "https://www.omg.org/spec/BMM/"
+  ],
+  "backlog-item": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "definition-of-done": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "epic": [
+    "https://glossary.istqb.org/en_US/term/epic",
+    "https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/"
+  ],
+  "feature": [
+    "https://cucumber.io/docs/gherkin/reference/",
+    "https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/"
+  ],
+  "increment": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "job-to-be-done": [
+    "https://en.wikipedia.org/wiki/Jobs_to_be_done"
+  ],
+  "release-plan": [
+    "https://www.atlassian.com/agile/product-management/product-roadmaps"
+  ],
+  "roadmap-item": [
+    "https://www.atlassian.com/agile/product-management/product-roadmaps"
+  ],
+  "sprint": [
+    "https://scrumguides.org/scrum-guide.html"
+  ],
+  "license-agreement": [
+    "https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/"
+  ],
+  "supplier-agreement": [
+    "https://csrc.nist.gov/pubs/sp/800/161/r1/final"
+  ],
+  "subcontractor": [
+    "https://csrc.nist.gov/pubs/sp/800/161/r1/final"
+  ],
+  "supplier": [
+    "https://csrc.nist.gov/pubs/sp/800/161/r1/final"
+  ],
+  "supplier-assessment": [
+    "https://csrc.nist.gov/pubs/sp/800/161/r1/final"
+  ],
+  "supply-chain-risk": [
+    "https://csrc.nist.gov/pubs/sp/800/161/r1/final"
+  ],
+  "coverage-item": [
+    "https://glossary.istqb.org/en_US/term/coverage"
+  ],
+  "test-basis": [
+    "https://glossary.istqb.org/en_US/term/test-basis"
+  ],
+  "test-condition": [
+    "https://glossary.istqb.org/en_US/term/test-condition"
+  ],
+  "test-data": [
+    "https://glossary.istqb.org/en_US/term/test-data"
+  ],
+  "test-double": [
+    "https://glossary.istqb.org/en_US/term/test-double"
+  ],
+  "test-oracle": [
+    "https://glossary.istqb.org/en_US/term/test-oracle"
+  ],
+  "test-procedure": [
+    "https://glossary.istqb.org/en_US/term/test-procedure"
+  ],
+  "test-suite": [
+    "https://glossary.istqb.org/en_US/term/test-suite"
+  ],
+  "defect": [
+    "https://glossary.istqb.org/en_US/term/defect"
+  ],
+  "failure": [
+    "https://glossary.istqb.org/en_US/term/failure"
+  ],
+  "test-charter": [
+    "https://glossary.istqb.org/en_US/term/test-charter"
+  ],
+  "test-environment": [
+    "https://glossary.istqb.org/en_US/term/test-environment"
+  ],
+  "test-objective": [
+    "https://glossary.istqb.org/en_US/term/test-objective"
+  ],
+  "test-plan": [
+    "https://glossary.istqb.org/en_US/term/test-plan"
+  ],
+  "test-session": [
+    "https://glossary.istqb.org/en_US/term/exploratory-testing"
+  ],
+  "flaky-test": [
+    "https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html"
+  ],
+  "mutant": [
+    "https://stryker-mutator.io/docs/"
+  ],
+  "mutation-report": [
+    "https://stryker-mutator.io/docs/"
+  ],
+  "test-log": [
+    "https://glossary.istqb.org/en_US/term/test-log"
+  ],
+  "test-report": [
+    "https://glossary.istqb.org/en_US/term/test-report"
+  ],
+  "test-result": [
+    "https://glossary.istqb.org/en_US/term/test-result"
+  ],
+  "test-run": [
+    "https://glossary.istqb.org/en_US/term/test-run"
+  ],
+  "benchmark": [
+    "https://web.dev/articles/vitals"
+  ],
+  "capacity-test": [
+    "https://glossary.istqb.org/en_US/term/capacity-testing"
+  ],
+  "chaos-experiment": [
+    "https://principlesofchaos.org/"
+  ],
+  "chaos-result": [
+    "https://principlesofchaos.org/"
+  ],
+  "consumer-contract": [
+    "https://docs.pact.io/"
+  ],
+  "contract-test": [
+    "https://docs.pact.io/"
+  ],
+  "load-test": [
+    "https://glossary.istqb.org/en_US/term/load-testing"
+  ],
+  "performance-budget": [
+    "https://web.dev/articles/performance-budgets-101"
+  ],
+  "performance-test": [
+    "https://glossary.istqb.org/en_US/term/performance-testing"
+  ],
+  "provider-verification": [
+    "https://docs.pact.io/"
+  ],
+  "link": [
+    "https://doc.anytype.io/anytype/create/links",
+    "https://support.atlassian.com/jira-software-cloud/docs/link-issues/"
+  ],
+  "comment": [
+    "https://support.atlassian.com/jira-software-cloud/docs/watch-share-and-comment-on-a-work-item/",
+    "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews"
+  ],
+  "time-entry": [
+    "https://support.atlassian.com/jira-software-cloud/docs/log-time-on-an-issue/",
+    "https://support.atlassian.com/jira-service-management-cloud/docs/create-an-sla/",
+    "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/"
+  ],
+  "request": [
+    "https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md",
+    "https://support.atlassian.com/jira-service-management-cloud/docs/what-are-service-requests/"
+  ],
+  "approval": [
+    "https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/",
+    "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "approval-package": [
+    "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests",
+    "https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "external-reference": [
+    "https://support.atlassian.com/jira-software-cloud/docs/link-issues/",
+    "https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue"
+  ],
+  "operation": [
+    "https://hal.inria.fr/inria-00555588/document",
+    "https://martinfowler.com/eaaDev/EventSourcing.html"
+  ],
+  "snapshot": [
+    "https://csrc.nist.gov/pubs/sp/800/209/final",
+    "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  ],
+  "kind": [
+    "https://doc.anytype.io/anytype/organize/types",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md"
+  ],
+  "field-set": [
+    "https://doc.anytype.io/anytype/organize/properties",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md"
+  ],
+  "workflow-status": [
+    "https://support.atlassian.com/jira-software-cloud/docs/create-edit-and-delete-statuses-in-team-managed-projects/",
+    "https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/"
+  ],
+  "workflow-transition": [
+    "https://support.atlassian.com/jira-software-cloud/docs/transition-an-issue/",
+    "https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/"
+  ],
+  "link-type": [
+    "https://support.atlassian.com/jira-software-cloud/docs/link-issues/",
+    "https://doc.anytype.io/anytype/create/links"
+  ],
+  "link-behaviour": [
+    "https://doc.anytype.io/anytype/organize/properties",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md"
+  ],
+  "lifecycle": [
+    "https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "responsibility": [
+    "https://scrumguides.org/scrum-guide.html",
+    "https://support.atlassian.com/jira-software-cloud/docs/edit-the-assignee-of-an-issue-with-your-keyboard/"
+  ],
+  "accounting": [
+    "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/",
+    "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/",
+    "https://openai.github.io/openai-agents-python/tracing/"
+  ],
+  "event": [
+    "https://support.atlassian.com/jira-software-cloud/docs/transition-an-issue/",
+    "https://www.omg.org/spec/BPMN/2.0.2/"
+  ],
+  "milestone": [
+    "https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/about-milestones",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "stage": [
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md",
+    "https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/"
+  ],
+  "bug": [
+    "https://support.atlassian.com/jira-software-cloud/docs/issue-types-how-do-team-managed-and-company-managed-projects-differ/",
+    "https://glossary.istqb.org/en_US/term/defect"
+  ],
+  "lifecycle-step": [
+    "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/",
+    "https://openai.github.io/openai-agents-python/tracing/"
+  ],
+  "reservation": [
+    "https://svnbook.red-bean.com/en/1.8/svn.advanced.locking.html",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "handoff": [
+    "https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users",
+    "https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md"
+  ],
+  "review-finding": [
+    "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews",
+    "https://glossary.istqb.org/en_US/term/review"
+  ],
+  "evidence": [
+    "https://glossary.istqb.org/en_US/term/test-evidence",
+    "https://glossary.istqb.org/en_US/term/acceptance-testing"
+  ],
+  "merge": [
+    "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges",
+    "https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md"
+  ]
+}

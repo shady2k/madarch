@@ -228,7 +228,7 @@ describe('the single start command', () => {
     const record = join(home, '.madarch-daemon.json');
     const pid = (JSON.parse(readFileSync(record, 'utf8')) as { pid: number }).pid;
     const read = readKinds(facts.folder);
-    if (!read.present || read.manifest.catalog === undefined) throw new Error(`${facts.folder}/madarch/kinds.yaml:1: fixture catalogue missing`);
+    if (!read.present || read.manifest.catalog === undefined) throw new Error(`${facts.folder}/madarch/catalog.yaml:1: fixture catalogue missing`);
     const expected = [...read.manifest.catalog.kinds.keys()].sort();
     type RenameStatus = { publication?: string; kinds: { kind: string }[]; filled: boolean; chosenAgent: string | null };
     const statusAt = async (url: string): Promise<RenameStatus> => (await fetch(`${url}api/status`)).json() as Promise<RenameStatus>;
@@ -296,7 +296,7 @@ describe('the single start command', () => {
           expect(run.stderr).toBe('');
           const facts = JSON.parse(run.stdout) as { folder: string; url: string; template: string };
           expect(facts.template).toBe(template ?? 'none');
-          for (const file of ['kinds.yaml', 'workflows.yaml']) expect(existsSync(join(facts.folder, 'madarch', file))).toBe(template !== undefined);
+          for (const file of ['catalog.yaml', 'kinds', 'workflows.yaml']) expect(existsSync(join(facts.folder, 'madarch', file))).toBe(template !== undefined);
           const status = await (await fetch(`${facts.url}api/status`)).json() as { manifest: string };
           expect(status.manifest).toBe(template === undefined ? 'no-manifest' : 'not-filled');
           expect((await fetch(facts.url)).ok).toBeTrue();
@@ -351,7 +351,7 @@ describe('the single start command', () => {
       expect(output).not.toContain('token cap');
       const productFolder = output.match(/ in ([^\r\n]+)/)?.[1];
       expect(productFolder).toBeDefined();
-      expect(existsSync(join(productFolder!, 'madarch', 'kinds.yaml'))).toBeTrue();
+      expect(existsSync(join(productFolder!, 'madarch', 'catalog.yaml'))).toBeTrue();
       expect(existsSync(opened)).toBeTrue();
       const url = readFileSync(opened, 'utf8');
       expect((await fetch(url)).ok).toBeTrue();

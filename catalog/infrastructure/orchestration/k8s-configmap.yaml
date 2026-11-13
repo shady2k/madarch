@@ -1,0 +1,27 @@
+id: kubernetes.configmap
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A Kubernetes object that holds configuration a pod reads.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - configures
+  in:
+  - configures
+template-policy: none
+labels:
+  en:
+    one: ConfigMap
+    many: ConfigMaps
+  ru:
+    one: ConfigMap
+    many: ConfigMaps
+description:
+  en: A Kubernetes object that holds configuration a pod reads.
+  ru: Объект Kubernetes, который хранит настройки, читаемые подом.

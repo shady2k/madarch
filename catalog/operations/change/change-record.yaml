@@ -1,0 +1,27 @@
+id: practice.change-record
+purpose: history
+audience: [operations, platform-devops]
+definition: What was changed in an environment, when, by whom and with what result.
+sources:
+- https://dora.dev/guides/dora-metrics/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Change record
+    many: Change records
+  ru:
+    one: Запись об изменении
+    many: Записи об изменениях
+description:
+  en: What was changed in an environment, when, by whom and with what result.
+  ru: Что изменено в среде, когда, кем и с каким результатом.

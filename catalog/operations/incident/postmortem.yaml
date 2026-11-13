@@ -1,0 +1,27 @@
+id: sre.postmortem
+purpose: history
+audience: [operations, platform-devops]
+definition: 'The written account of an incident: its impact, its causes, its timeline and what follows from it.'
+sources:
+- https://sre.google/workbook/postmortem-culture/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Postmortem
+    many: Postmortems
+  ru:
+    one: Разбор инцидента
+    many: Разборы инцидентов
+description:
+  en: 'The written account of an incident: its impact, its causes, its timeline and what follows from it.'
+  ru: 'Письменный отчёт об инциденте: влияние, причины, хронология и выводы.'

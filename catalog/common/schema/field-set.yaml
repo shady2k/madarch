@@ -1,0 +1,31 @@
+id: manifest.properties
+purpose: structure
+audience: [architect, product-lead]
+definition: A named set of the manifest's fields that kinds compose and share; no kind extends another, and an entity's id
+  is its key under properties.
+sources:
+- https://doc.anytype.io/anytype/organize/properties
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - defines
+  in:
+  - partOf
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Field set
+    many: Field sets
+  ru:
+    one: Набор полей
+    many: Наборы полей
+description:
+  en: A named set of fields that kinds compose and share.
+  ru: Именованный набор полей, который виды составляют и разделяют.

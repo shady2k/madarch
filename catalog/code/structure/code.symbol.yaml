@@ -1,0 +1,67 @@
+id: practice.code-symbol
+purpose: structure
+audience: [developer, architect]
+definition: A function, a class or a constant the code declares, with its callers and its callees.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: page
+template: templates/symbol.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read the declared repositories: repository name, or null for the product repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
+- name: name
+  type: text
+  binding:
+    agent: 'Read the defining source file: fully qualified symbol name, API operation identity (method and route or RPC name),
+      or channel address, unique within this file.'
+- name: state_machines
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
+      use [] when none exist and preserve source positions.'
+key:
+- repository
+- path
+- name
+views:
+- state
+sequence: symbol
+details:
+- symbolKind
+- qualifiedName
+- typeText
+- language
+- exported
+- abstract
+- inline
+- test
+- deadExport
+- entryPoint
+- entryPoints
+labels:
+  en:
+    one: Symbol
+    many: Symbols
+  ru:
+    one: Символ
+    many: Символы
+description:
+  en: A function, class or constant, with its callers and callees.
+  ru: Функция, класс или константа, кто её вызывает и что она вызывает.

@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 
 let endOwner: () => void;
 let ownerDone: Promise<void>;
@@ -40,7 +41,7 @@ function product(home: string, folder: string, id: string): void {
   writeFileSync(join(path, 'workspace.yaml'), `schemaVersion: 1\nid: ${id}\nname: ${folder}\n`);
   writeFileSync(join(path, 'docs', 'vision.md'), `# ${folder} vision\n`);
   mkdirSync(join(path, 'madarch'));
-  writeFileSync(join(path, 'madarch', 'kinds.yaml'), `kinds:
+  writeFolderManifest(path, `kinds:
   document:
     template: templates/document.liquid
     source: graph
@@ -70,7 +71,7 @@ function gitCommit(folder: string): void {
 async function publishDocument(home: string, folder: string, markdown: string): Promise<void> {
   const product = join(home, folder);
   const read = readKinds(product);
-  if (!read.present) throw new Error(`${product}/madarch/kinds.yaml:1: fixture manifest missing`);
+  if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: fixture manifest missing`);
   const contract = graphContractOf(read.manifest);
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
   try {

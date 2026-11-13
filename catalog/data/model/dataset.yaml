@@ -1,0 +1,28 @@
+id: openlineage.dataset
+purpose: structure
+audience: [analyst, architect, developer]
+definition: A discrete collection of data, identified by a namespace and a name.
+sources:
+- https://openlineage.io/docs/spec/object-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - hasInput
+  - hasOutput
+template-policy: none
+labels:
+  en:
+    one: Dataset
+    many: Datasets
+  ru:
+    one: Набор данных
+    many: Наборы данных
+description:
+  en: A discrete collection of data, identified by a namespace and a name.
+  ru: Дискретная коллекция данных с пространством имён и именем.

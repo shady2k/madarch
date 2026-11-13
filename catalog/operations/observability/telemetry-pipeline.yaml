@@ -1,0 +1,27 @@
+id: otel.pipeline
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: The path telemetry takes from the services that emit it to the stores and the tools that read it.
+sources:
+- https://opentelemetry.io/docs/concepts/signals/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Telemetry pipeline
+    many: Telemetry pipelines
+  ru:
+    one: Конвейер телеметрии
+    many: Конвейеры телеметрии
+description:
+  en: The path telemetry takes from the services that emit it to the stores and the tools that read it.
+  ru: Путь телеметрии от сервисов, которые её создают, до хранилищ и инструментов, которые её читают.

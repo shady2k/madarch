@@ -1,0 +1,27 @@
+id: arc42.solution-strategy
+purpose: understand
+audience: [architect, analyst, developer]
+definition: arc42's summary of the decisions and principles that shape the solution.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Solution strategy
+    many: Solution strategies
+  ru:
+    one: Стратегия решения
+    many: Стратегии решения
+description:
+  en: arc42's summary of the decisions and principles that shape the solution.
+  ru: Краткое изложение arc42 решений и принципов, которые формируют решение.

@@ -1,11 +1,15 @@
+import { starterManifestText } from './catalog-folder-fixture.js';
 /** The quarantine catalogue contract survives starter-manifest generation. */
 import { describe, expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
-import { CATALOG_GROUPS, CATALOG_KINDS, CATALOG_RELATIONS } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_GROUPS, CATALOG_KINDS } from '../src/knowledge/catalog-starter.js';
+import { readFileSync } from 'node:fs';
+import { parse as parseCatalogYaml } from 'yaml';
+const CATALOG_RELATIONS = parseCatalogYaml(readFileSync(new URL('../catalog/catalog.yaml', import.meta.url), 'utf8')).catalog.relations as Record<string, string | null>;
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const row = CATALOG_KINDS.find((kind) => kind.name === 'code.test-quarantine')!;
-const manifest = parseYaml(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content);
+const manifest = parseYaml(starterManifestText());
 
 describe('test quarantine in the starter catalogue', () => {
   test('a quarantine is a bilingual page in testing, not a second test case', () => {

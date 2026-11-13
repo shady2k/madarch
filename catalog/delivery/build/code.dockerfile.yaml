@@ -1,0 +1,27 @@
+id: practice.dockerfile
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A recipe that builds a container image.
+sources:
+- https://github.com/opencontainers/image-spec
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+labels:
+  en:
+    one: Dockerfile
+    many: Dockerfiles
+  ru:
+    one: Dockerfile
+    many: Dockerfile
+description:
+  en: A recipe that builds a container image.
+  ru: Рецепт сборки образа контейнера.

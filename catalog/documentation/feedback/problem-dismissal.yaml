@@ -1,0 +1,68 @@
+id: practice.problem-dismissal
+purpose: quality
+audience: [product, analyst, developer, tester]
+definition: A person records why a finding is not a problem, naming its rule and stable identity.
+sources:
+- https://arc42.org/overview
+acquisition:
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: page
+template: templates/dismissal.liquid
+source: graph
+fields:
+- name: rule
+  type: text
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The rule front matter value.
+- name: identity
+  type: text
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The identity front matter value.
+- name: place
+  type: text
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The place front matter value.
+- name: dismissal_reason
+  type: text
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The reason front matter value.
+- name: by
+  type: json
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The by front matter object {name, email, verified}.
+- name: at
+  type: timestamp
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The at front matter timestamp.
+- name: file
+  type: text
+  binding:
+    agent: Read each docs/problems/**/*.md source file as one entity. The repository-relative source file path.
+key:
+- rule
+- identity
+origin: person
+details:
+- rule
+- identity
+- place
+- dismissal_reason
+- by
+- at
+- file
+labels:
+  en:
+    one: Problem dismissal
+    many: Problem dismissals
+  ru:
+    one: Отклонение проблемы
+    many: Отклонения проблем
+description:
+  en: A person records why a finding is not a problem, naming its rule and stable identity.
+  ru: Человек объясняет, почему находка не является проблемой, указывая правило и устойчивый идентификатор.

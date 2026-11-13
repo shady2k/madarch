@@ -1,0 +1,27 @@
+id: oscal.assessment-result
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: What an assessment found for each control, with the evidence it read.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Assessment result
+    many: Assessment results
+  ru:
+    one: Результат оценки
+    many: Результаты оценки
+description:
+  en: What an assessment found for each control, with the evidence it read.
+  ru: То, что оценка нашла по каждому контролю, с прочитанными доказательствами.

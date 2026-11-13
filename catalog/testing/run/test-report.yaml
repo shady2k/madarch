@@ -1,0 +1,27 @@
+id: istqb.test-report
+purpose: quality
+audience: [tester, developer]
+definition: 'The summary of a test run: what passed, what failed and what could not run.'
+sources:
+- https://glossary.istqb.org/en_US/term/test-report
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Test report
+    many: Test reports
+  ru:
+    one: Отчёт о тестировании
+    many: Отчёты о тестировании
+description:
+  en: 'The summary of a test run: what passed, what failed and what could not run.'
+  ru: 'Итог запуска тестов: что прошло, что упало и что не могло выполниться.'

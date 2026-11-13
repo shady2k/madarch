@@ -1,0 +1,27 @@
+id: arc42.deployment-view
+purpose: understand
+audience: [architect, analyst, developer]
+definition: arc42's view of the infrastructure and the mapping of building blocks onto it.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Deployment view
+    many: Deployment views
+  ru:
+    one: Представление развёртывания
+    many: Представления развёртывания
+description:
+  en: arc42's view of the infrastructure and the mapping of building blocks onto it.
+  ru: Представление arc42 инфраструктуры и размещения на ней строительных блоков.

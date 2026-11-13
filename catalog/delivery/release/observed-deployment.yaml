@@ -1,0 +1,28 @@
+id: practice.observed-deployment
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: What actually runs in one environment, as the platform reports it, beside the desired state and the deployment
+  that asked for it.
+sources:
+- https://kubernetes.io/docs/concepts/architecture/controller/
+acquisition:
+- live-system
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Observed deployment
+    many: Observed deployments
+  ru:
+    one: Наблюдаемое развёртывание
+    many: Наблюдаемые развёртывания
+description:
+  en: What actually runs in one environment, as the platform reports it, beside the desired state and the deployment that
+    asked for it.
+  ru: То, что действительно работает в среде, как сообщает платформа, рядом с желаемым состоянием и запросившим развёртыванием.

@@ -1,0 +1,27 @@
+id: practice.notification-template
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
+definition: The text of a notification with its placeholders, kept apart from the code that sends it.
+sources:
+- https://www.rfc-editor.org/rfc/rfc5322.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Notification template
+    many: Notification templates
+  ru:
+    one: Шаблон уведомления
+    many: Шаблоны уведомлений
+description:
+  en: The text of a notification with its placeholders, kept apart from the code that sends it.
+  ru: Текст уведомления с подстановками, хранимый отдельно от кода, который его отправляет.

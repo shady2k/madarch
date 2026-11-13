@@ -1,0 +1,27 @@
+id: gdpr.data-subject-category
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: A kind of person whose data is processed, such as a customer or an employee.
+sources:
+- https://gdpr-info.eu/art-30-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Data-subject category
+    many: Data-subject categories
+  ru:
+    one: Категория субъектов данных
+    many: Категории субъектов данных
+description:
+  en: A kind of person whose data is processed, such as a customer or an employee.
+  ru: 'Вид человека, чьи данные обрабатывают: клиент или сотрудник.'

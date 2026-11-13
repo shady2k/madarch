@@ -1,0 +1,27 @@
+id: practice.license-agreement
+purpose: operations
+audience: [product-lead, operations, security-engineer]
+definition: The terms under which a supplier lets the product use a component or a service.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Licence agreement
+    many: Licence agreements
+  ru:
+    one: Лицензионное соглашение
+    many: Лицензионные соглашения
+description:
+  en: The terms under which a supplier lets the product use a component or a service.
+  ru: Условия, на которых поставщик разрешает продукту использовать компонент или сервис.

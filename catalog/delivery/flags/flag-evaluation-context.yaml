@@ -1,0 +1,27 @@
+id: openfeature.evaluation-context
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The facts about a caller that the rules of a feature flag are evaluated against.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Flag evaluation context
+    many: Flag evaluation contexts
+  ru:
+    one: Контекст оценки флага
+    many: Контексты оценки флага
+description:
+  en: The facts about a caller that the rules of a feature flag are evaluated against.
+  ru: Факты о вызывающем, по которым вычисляют правила флага функции.

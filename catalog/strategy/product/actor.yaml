@@ -1,0 +1,28 @@
+id: c4.person
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: A person who interacts with the system, as C4's person is; an external system is a different kind, outside the
+  boundary.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - c4.uses
+  in:
+  - c4.uses
+template-policy: none
+labels:
+  en:
+    one: Actor
+    many: Actors
+  ru:
+    one: Действующее лицо
+    many: Действующие лица
+description:
+  en: A person who interacts with the system, as C4's person is; an external system is a different kind, outside the boundary.
+  ru: Человек, который взаимодействует с системой, как person в C4; внешняя система — другой вид, вне границы.

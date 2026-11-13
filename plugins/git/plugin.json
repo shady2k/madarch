@@ -33,7 +33,9 @@
       "kind": "code.file",
       "fields": [
         "repository",
-        "path"
+        "path",
+        "last_change",
+        "commit_count"
       ],
       "refines": [
         "disk"

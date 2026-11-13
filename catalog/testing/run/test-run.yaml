@@ -1,0 +1,27 @@
+id: istqb.test-run
+purpose: quality
+audience: [tester, developer]
+definition: One execution of a test suite on one version of the product.
+sources:
+- https://glossary.istqb.org/en_US/term/test-run
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasTest
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Test run
+    many: Test runs
+  ru:
+    one: Запуск тестов
+    many: Запуски тестов
+description:
+  en: One execution of a test suite on one version of the product.
+  ru: Одно выполнение набора тестов на одной версии продукта.

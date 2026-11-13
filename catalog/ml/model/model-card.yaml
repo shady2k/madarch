@@ -1,0 +1,27 @@
+id: practice.model-card
+purpose: understand
+audience: [product, analyst, developer, product-lead]
+definition: The documented purpose, limits and evaluation of a model, written for the people who use it.
+sources:
+- https://www.nist.gov/itl/ai-risk-management-framework
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Model card
+    many: Model cards
+  ru:
+    one: Карточка модели
+    many: Карточки модели
+description:
+  en: The documented purpose, limits and evaluation of a model, written for the people who use it.
+  ru: Описание назначения, ограничений и оценки модели для людей, которые ею пользуются.

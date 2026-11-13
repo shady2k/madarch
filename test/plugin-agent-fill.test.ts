@@ -1,5 +1,5 @@
+import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
-import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
@@ -80,7 +80,7 @@ function fixture(agent: boolean) {
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
-  writeFileSync(join(product, 'madarch/kinds.yaml'), `language: en
+  const manifestText = `language: en
 kinds:
   code.file: { template: templates/file.liquid, source: graph, capability: git }
   code.repository: { template: templates/repository.liquid, source: graph, capability: git }
@@ -88,6 +88,8 @@ kinds:
   probe.summary:
     id: probe.summary
     group: code.structure
+    purpose: structure
+    audience: [developer, architect]
     definition: A summary of the fixture documents.
     sources: ["https://example.test/probe-summary"]
     acquisition: [agent-from-graph]
@@ -112,15 +114,15 @@ edges:
   - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
 plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
-`);
-  const manifestFile = join(product, 'madarch/kinds.yaml');
-  const manifest = parseDocument(readFileSync(manifestFile, 'utf8'));
-  const starter = parseDocument(STARTER_FILES.find(file => file.path === 'madarch/kinds.yaml')!.content).toJS();
-  for (const key of ['catalog', 'groups', 'properties']) manifest.set(key, starter[key]);
+`;
+  writeFolderManifest(product, manifestText);
+  const manifest = parseDocument(readFolderManifestText(product));
+  const starter = parseDocument(starterManifestText()).toJS();
+  for (const key of ['catalog', 'groups', 'properties', 'purposes', 'roles']) manifest.set(key, starter[key]);
   for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) {
     manifest.setIn(['kinds', name], starter.kinds[name]);
   }
-  writeFileSync(manifestFile, manifest.toString());
+  writeFolderManifest(product, manifest.toString());
   const closure = closureOf(folder).hash;
   writeFileSync(join(product, 'madarch/plugins.lock'), `plugins:\n  - { id: probe-summary, version: 1.0.0, closure: ${closure}, path: plugins/probe-summary }\n`);
   useRepositoryPlugins(product);
@@ -132,7 +134,7 @@ plugins:
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'plugin');
   const fake = join(root, 'fake-acp.ts');
   writeFileSync(fake, FAKE);
-  return { root, home, product, repo, closure, fake };
+  return { root, home, product, repo, closure, fake, manifestText };
 }
 
 describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fill', () => {
@@ -165,14 +167,13 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
   test('the bundled general agent refines a declared kind already filled by another plugin', async () => {
     const f = fixture(true);
     writeFileSync(f.fake, FAKE.replace('/repo/private.md', '/repo/absent.md'));
-    const file = join(f.product, 'madarch/kinds.yaml');
-    const manifest = parseDocument(readFileSync(file, 'utf8'));
+    const manifest = parseDocument(readFolderManifestText(f.product));
     manifest.setIn(['plugins'], [...(manifest.getIn(['plugins']) as import('yaml').YAMLSeq).toJSON(), { id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
     manifest.setIn(['kinds', 'probe.summary', 'agent'], { plugin: 'agent-fill', fields: '*', refines: ['probe-summary'] });
     const probe = JSON.parse(readFileSync(join(f.product, 'plugins/probe-summary/plugin.json'), 'utf8'));
     delete probe.agent;
     writeFileSync(join(f.product, 'plugins/probe-summary/plugin.json'), JSON.stringify(probe));
-    writeFileSync(file, manifest.toString());
+    writeFolderManifest(f.product, manifest.toString());
     writeFileSync(join(f.product, 'plugins/probe-summary/main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async()=>(${JSON.stringify(answer)})});\n`);
     const probeClosure = closureOf(join(f.product, 'plugins/probe-summary')).hash;
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
@@ -205,12 +206,11 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
   test('the packaged agent fills a novel unbound declared kind', async () => {
     const f = fixture(true);
     writeFileSync(f.fake, FAKE.replace('/repo/private.md', '/repo/absent.md'));
-    const file = join(f.product, 'madarch/kinds.yaml');
-    const manifest = parseDocument(readFileSync(file, 'utf8'));
+    const manifest = parseDocument(readFolderManifestText(f.product));
     manifest.setIn(['plugins'], [{ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
     manifest.setIn(['kinds', 'probe.summary', 'fields'], [{ name: 'id', type: 'text' }, { name: 'title', type: 'text' }]);
     manifest.setIn(['kinds', 'probe.summary', 'agent'], { plugin: 'agent-fill', fields: '*' });
-    writeFileSync(file, manifest.toString());
+    writeFolderManifest(f.product, manifest.toString());
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
     writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:
   - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }

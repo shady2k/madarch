@@ -32,7 +32,7 @@ const GLOSSARY = `# Glossary
 
 - **Manifest** - The file that tells the wiki which kinds a product has.
   - Also called: manifests, kinds file
-  - In code: \`madarch/kinds.yaml\`
+  - In code: \`madarch/catalog.yaml\`
   - Used in: [the reference](madarch:doc:docs/reference.md#manifest)
 - **Payment token** - The proof a provider returns when it captured money.
   - Ambiguous: the documents also use it for the vault reference; see [the open question](madarch:doc:docs/reference.md#question)

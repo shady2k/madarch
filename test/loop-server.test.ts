@@ -94,7 +94,7 @@ for (const path of retiredReads) {
     const before = revision();
     const response = await fetch(`${base}${path}`);
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining(`${join(folder, 'madarch/kinds.yaml')}:1:`) } });
+    expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining(`${join(folder, 'madarch/catalog.yaml')}:1:`) } });
     noMarkdownWrites(before);
   });
 }
@@ -103,7 +103,7 @@ for (const [path, body] of retiredWrites) {
     const before = revision();
     const response = await send(path, body);
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining(`${join(folder, 'madarch/kinds.yaml')}:1:`) } });
+    expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining(`${join(folder, 'madarch/catalog.yaml')}:1:`) } });
     noMarkdownWrites(before);
   });
 }
@@ -123,7 +123,7 @@ test('retired task execution refuses without starting a fill', async () => {
   const before = revision();
   const response = await send('/task-run', { id: 'discount' });
   expect(response.status).toBe(409);
-  expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining(`${join(folder, 'madarch/kinds.yaml')}:1:`) } });
+  expect(await response.json()).toMatchObject({ error: { message: expect.stringContaining(`${join(folder, 'madarch/catalog.yaml')}:1:`) } });
   noMarkdownWrites(before);
 });
 

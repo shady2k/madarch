@@ -1,0 +1,31 @@
+id: practice.feature
+purpose: understand
+audience: [developer, product, product-lead, tester]
+definition: A service the product offers that fulfils a stakeholder need, refined by stories and requirements.
+sources:
+- https://cucumber.io/docs/gherkin/reference/
+- https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - refines
+  - realises
+  in:
+  - hasPart
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Feature
+    many: Features
+  ru:
+    one: Возможность
+    many: Возможности
+description:
+  en: A service the product offers that fulfils a stakeholder need.
+  ru: Услуга продукта, которая удовлетворяет потребность заинтересованной стороны.

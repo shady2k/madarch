@@ -1,0 +1,27 @@
+id: ddd.context-map-relationship
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A named relationship between two bounded contexts, such as partnership, shared kernel or anticorruption layer.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Context-map relationship
+    many: Context-map relationships
+  ru:
+    one: Связь контекстов
+    many: Связи контекстов
+description:
+  en: A named relationship between two bounded contexts, such as partnership, shared kernel or anticorruption layer.
+  ru: 'Именованная связь двух ограниченных контекстов: партнёрство, общее ядро или слой изоляции.'

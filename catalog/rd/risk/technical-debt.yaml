@@ -1,0 +1,27 @@
+id: practice.technical-debt
+purpose: quality
+audience: [developer, architect, product-lead]
+definition: A known weakness of the implementation that will cost more to fix later than now.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Technical debt
+    many: Technical debts
+  ru:
+    one: Технический долг
+    many: Технические долги
+description:
+  en: A known weakness of the implementation that will cost more to fix later than now.
+  ru: Известная слабость реализации, исправление которой позже будет стоить дороже, чем сейчас.

@@ -1,0 +1,28 @@
+id: iso29148.information-item
+purpose: understand
+audience: [product, analyst, tester, architect]
+definition: A document that states the requirements in the form ISO/IEC/IEEE 29148 prescribes.
+sources:
+- https://standards.ieee.org/ieee/29148/6937/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  - hasRequirement
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Requirements specification
+    many: Requirements specifications
+  ru:
+    one: Спецификация требований
+    many: Спецификации требований
+description:
+  en: A document that states the requirements in the form ISO/IEC/IEEE 29148 prescribes.
+  ru: Документ, который излагает требования в форме, предписанной ISO/IEC/IEEE 29148.

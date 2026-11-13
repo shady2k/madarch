@@ -1,0 +1,28 @@
+id: iso42010.view
+purpose: understand
+audience: [architect, analyst, developer]
+definition: A representation of the architecture from one set of concerns, made of a viewpoint and a model.
+sources:
+- https://www.iso.org/standard/74393.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - refines
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Architecture view
+    many: Architecture views
+  ru:
+    one: Представление архитектуры
+    many: Представления архитектуры
+description:
+  en: A representation of the architecture from one set of concerns, made of a viewpoint and a model.
+  ru: Изображение архитектуры для одного круга вопросов, состоящее из точки зрения и модели.

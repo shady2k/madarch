@@ -1,0 +1,28 @@
+id: dtcg.design-token
+purpose: structure
+audience: [designer, developer]
+definition: A named design value, such as a colour or a spacing, that the product's styles refer to instead of repeating it.
+sources:
+- https://www.designtokens.org/TR/2025.10/format/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - refines
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Design token
+    many: Design tokens
+  ru:
+    one: Токен дизайна
+    many: Токены дизайна
+description:
+  en: A named design value, such as a colour or a spacing, that the product's styles refer to instead of repeating it.
+  ru: Именованное значение дизайна, например цвет или отступ, на которое ссылаются стили продукта вместо повторения.

@@ -1,0 +1,27 @@
+id: practice.design-system
+purpose: understand
+audience: [designer, developer, architect]
+definition: The tokens, components and rules a product draws its interface from.
+sources:
+- https://www.nngroup.com/articles/design-systems-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - uses
+template-policy: none
+labels:
+  en:
+    one: Design system
+    many: Design systems
+  ru:
+    one: Дизайн-система
+    many: Дизайн-системы
+description:
+  en: The tokens, components and rules a product draws its interface from.
+  ru: Токены, компоненты и правила, из которых продукт строит интерфейс.

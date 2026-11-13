@@ -78,7 +78,7 @@ test('a live template edit publishes without Fill and an invalid edit retains th
   const template = join(product, 'templates', 'file.liquid');
   const original = await Bun.file(template).text();
   const manifest = readKinds(product);
-  if (!manifest.present) throw new Error(`${product}/madarch/kinds.yaml:1: fixture manifest absent`);
+  if (!manifest.present) throw new Error(`${product}/madarch/catalog.yaml:1: fixture manifest absent`);
   const graph = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, declaredKindReads(manifest.manifest));
   const until = async (ready: () => Promise<boolean>): Promise<void> => {
     const deadline = Date.now() + 10_000;
@@ -150,11 +150,11 @@ test('startup refuses an invalid template with its full file path and line befor
 }, 120_000);
 
 test('legacy explicit agent bindings for templates retain manifest-owned schema without scheduling agent work', () => {
-  const file = join(product, 'madarch', 'kinds.yaml');
+  const file = join(product, 'madarch', 'kinds', 'common', 'schema', 'template.yaml');
   // The old product-owned form must remain readable, but it must not schedule an agent for deterministic templates.
   const text = readFileSync(file, 'utf8');
   const yaml = parseDocument(text);
-  yaml.setIn(['kinds', 'template', 'fields'], [
+  yaml.set('fields', [
     { name: 'path', type: 'text', binding: { agent: 'Read templates/**/*.liquid paths' } },
     { name: 'template_parts', type: 'json', binding: { agent: 'Interpret templates/**/*.liquid into structured parts' } },
   ]);
@@ -176,7 +176,7 @@ test('publication retires legacy agent template opinions and then remains idempo
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
   try {
     const read = readKinds(product);
-    if (!read.present) throw new Error(`${product}/madarch/kinds.yaml:1: fixture manifest absent`);
+    if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: fixture manifest absent`);
     const contract = graphContractOf(read.manifest);
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('agent@1');

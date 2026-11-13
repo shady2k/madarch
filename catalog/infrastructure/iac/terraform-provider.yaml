@@ -1,0 +1,27 @@
+id: terraform.provider
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: The plugin that lets Terraform manage the resources of one platform.
+sources:
+- https://developer.hashicorp.com/terraform/language/providers
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Terraform provider
+    many: Terraform providers
+  ru:
+    one: Провайдер Terraform
+    many: Провайдеры Terraform
+description:
+  en: The plugin that lets Terraform manage the resources of one platform.
+  ru: Плагин, который позволяет Terraform управлять ресурсами одной платформы.

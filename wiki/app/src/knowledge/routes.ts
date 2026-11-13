@@ -17,6 +17,7 @@ export type WikiRoute =
   | { name: 'settings' }
   | { name: 'journal'; id: string; run: string | null }
   | { name: 'fill' }
+  | { name: 'fill-run'; run: string }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const WIKI_KIT = '/kit';
@@ -33,6 +34,7 @@ export function addressOfJournal(id: string, run?: string): string {
 }
 /** Where the fill stands, page by page, while it writes and after it ends (madarch-m38l.23). */
 export const WIKI_FILL = '/fill';
+export const addressOfFillRun = (run: string): string => `/fill/runs/${encodeURIComponent(run)}`;
 /** The newest run's trace, step by step: its wall clock, its memory and its slowest names (madarch-8bdc.2.5, item 4). */
 export const WIKI_RUN = '/run';
 
@@ -67,6 +69,7 @@ export const addressOfKind = (kind: string): string => `/kind/${addressName(kind
 
 /** The API the app reads: one address per answer. */
 export const API = {
+  facts: '/api/facts',
   product: '/api/product',
   status: '/api/status',
   catalog: '/api/catalog',
@@ -84,6 +87,7 @@ export const API = {
   products: '/api/products',
   fill: '/api/fill',
   fillSelected: '/api/fill-selected',
+  fillRuns: '/api/fill-runs',
   pause: '/api/pause',
   stop: '/api/stop',
   agents: '/api/agents',
@@ -119,6 +123,10 @@ export function wikiRouteOf(pathname: string, search = ''): WikiRoute | null {
   if (path === '/problems' || path === '/problems/') return { name: 'problems' };
   if (path === '/settings' || path === '/settings/') return { name: 'settings' };
   if (path === '/fill' || path === '/fill/') return { name: 'fill' };
+  if (path.startsWith('/fill/runs/')) {
+    try { return { name: 'fill-run', run: decodeURIComponent(path.slice('/fill/runs/'.length)) }; }
+    catch { return { name: 'fill' }; }
+  }
   if (path === '/journal') {
     const query = new URLSearchParams(search);
     const id = query.get('id');

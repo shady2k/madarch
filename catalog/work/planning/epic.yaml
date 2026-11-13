@@ -1,0 +1,30 @@
+id: practice.epic
+purpose: understand
+audience: [developer, product, product-lead, tester]
+definition: A stakeholder need larger than one iteration, which features and stories refine.
+sources:
+- https://glossary.istqb.org/en_US/term/epic
+- https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - refines
+  in:
+  - partOf
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Epic
+    many: Epics
+  ru:
+    one: Эпик
+    many: Эпики
+description:
+  en: A stakeholder need larger than one iteration, refined by features and stories.
+  ru: Потребность заинтересованной стороны больше одной итерации, уточняемая возможностями и историями.

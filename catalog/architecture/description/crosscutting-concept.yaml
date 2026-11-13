@@ -1,0 +1,27 @@
+id: arc42.crosscutting-concept
+purpose: understand
+audience: [architect, analyst, developer]
+definition: arc42's view of a principle or pattern that applies across building blocks, such as logging or persistence.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - appliesTo
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: Cross-cutting concept
+    many: Cross-cutting concepts
+  ru:
+    one: Сквозное понятие
+    many: Сквозные понятия
+description:
+  en: arc42's view of a principle or pattern that applies across building blocks, such as logging or persistence.
+  ru: Представление arc42 принципа или образца, действующего во всех строительных блоках, например журналирования или хранения.

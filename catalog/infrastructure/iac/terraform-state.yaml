@@ -1,0 +1,27 @@
+id: terraform.state
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: The record Terraform keeps of the resources it created and their last known attributes.
+sources:
+- https://developer.hashicorp.com/terraform/language/state
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Terraform state
+    many: Terraform states
+  ru:
+    one: Состояние Terraform
+    many: Состояния Terraform
+description:
+  en: The record Terraform keeps of the resources it created and their last known attributes.
+  ru: Запись, которую Terraform хранит о созданных ресурсах и их последних известных атрибутах.

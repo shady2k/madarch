@@ -1,0 +1,27 @@
+id: nist-ai-rmf.risk
+purpose: quality
+audience: [security-engineer, product-lead, analyst]
+definition: A way an AI system may harm people or the organisation, with its likelihood and its effect.
+sources:
+- https://www.nist.gov/itl/ai-risk-management-framework
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - threatens
+  in:
+  - threatens
+template-policy: none
+labels:
+  en:
+    one: AI risk
+    many: AI risks
+  ru:
+    one: Риск ИИ
+    many: Риски ИИ
+description:
+  en: A way an AI system may harm people or the organisation, with its likelihood and its effect.
+  ru: Способ, которым система ИИ может навредить людям или организации, с вероятностью и последствием.

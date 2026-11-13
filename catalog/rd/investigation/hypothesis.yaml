@@ -1,0 +1,28 @@
+id: practice.hypothesis
+purpose: understand
+audience: [product, analyst, designer]
+definition: A stated expectation about a benefit, which an experiment is meant to confirm or refute.
+sources:
+- https://en.wikipedia.org/wiki/Hypothesis
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Hypothesis
+    many: Hypotheses
+  ru:
+    one: Гипотеза
+    many: Гипотезы
+description:
+  en: A stated expectation about a benefit, which an experiment is meant to confirm or refute.
+  ru: Заявленное ожидание выгоды, которое эксперимент должен подтвердить или опровергнуть.

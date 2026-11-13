@@ -1,3 +1,4 @@
+import { starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The catalog check of the starter set (decision 0033, items 8 to 10): `bun run check:catalog` checks the
  * entity catalog `madarch init` writes, and refuses a kind that leaves a field out, a subgroup above its
@@ -6,7 +7,7 @@
  * and the kind. A kind the catalog marks with the template policy `none` is catalogue data only: the wiki
  * shows no page for it. Fixtures only: the starter set written into a temporary product.
  */
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
@@ -14,7 +15,7 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-catalog.ts');
-const MANIFEST = STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content;
+const MANIFEST = starterManifestText();
 
 const made: string[] = [];
 afterAll(() => {
@@ -28,7 +29,10 @@ function product(manifest?: string): string {
   for (const file of STARTER_FILES) {
     const path = join(folder, file.path);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, file.path === 'madarch/kinds.yaml' && manifest !== undefined ? manifest : file.content);
+    writeFileSync(path, file.bytes ?? file.content);
+  }
+  if (manifest !== undefined) {
+    writeFolderManifest(folder, manifest);
   }
   return folder;
 }
@@ -92,21 +96,21 @@ describe('the catalog check over the starter set', () => {
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
     expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 520 kinds (75 with a page of their own or a member\'s row)');
-    expect(done.out).toContain(join('madarch', 'kinds.yaml'));
+    expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 
   test('a kind that leaves a field out is refused, naming the file, the line and the kind', () => {
     const folder = product(editField(MANIFEST, 'code.service', 'status', null));
     const done = run(folder);
     expect(done.code).toBe(1);
-    const file = join(folder, 'madarch', 'kinds.yaml');
-    const line = readFileSync(file, 'utf8').split('\n').findIndex((text) => text.startsWith('  code.service:')) + 1;
+    const file = join(folder, 'madarch/kinds/code/structure/code.service.yaml');
+    const line = 1;
     expect(done.err).toContain(`${file}:${line}: kind "code.service": "status" is one of implemented, partial, not-implemented`);
   }, 30_000);
 
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
     const manifest = editField(MANIFEST, 'code.service', 'status', null);
-    const read = parseKinds(manifest, 'madarch/kinds.yaml', product());
+    const read = parseKinds(manifest, 'madarch/catalog.yaml', product());
     expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
     // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
     expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
@@ -128,7 +132,9 @@ describe('the catalog check over the starter set', () => {
     const twice = appended(MANIFEST, 'tests.duplicate', { id: 'c4.container', group: 'code.schema', acquisition: '["conversation", "not-implemented"]' });
     const done = run(product(twice));
     expect(done.code).toBe(1);
-    expect(done.err).toContain('kind "tests.duplicate": the concept id "c4.container" is the id of kind "code.service"');
+    expect(done.err).toContain('the concept id "c4.container"');
+    expect(done.err).toContain('"code.service"');
+    expect(done.err).toContain('"tests.duplicate"');
   }, 30_000);
 
   test('a value the catalog marks as an attribute, declared as a kind, is refused', () => {
@@ -162,7 +168,7 @@ describe('the catalog check over the starter set', () => {
   }, 30_000);
 
   test('a kind the catalog marks with the template policy none is catalogue data only: the wiki shows no page for it', () => {
-    const read = parseKinds(MANIFEST, 'madarch/kinds.yaml', product());
+    const read = parseKinds(MANIFEST, 'madarch/catalog.yaml', product());
     expect(read.findings).toEqual([]);
     expect(read.catalog!.kinds.get('firewall-rule')).toMatchObject({ templatePolicy: 'none', status: 'not-implemented', subgroup: 'infrastructure.network', area: 'infrastructure' });
     expect(read.kinds.has('firewall-rule')).toBe(false);

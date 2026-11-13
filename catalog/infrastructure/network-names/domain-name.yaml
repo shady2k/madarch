@@ -1,0 +1,27 @@
+id: practice.domain-name
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A name the product answers to on the network, with the zone that holds it.
+sources:
+- https://www.rfc-editor.org/rfc/rfc1035.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Domain name
+    many: Domain names
+  ru:
+    one: Доменное имя
+    many: Доменные имена
+description:
+  en: A name the product answers to on the network, with the zone that holds it.
+  ru: Имя, по которому продукт отвечает в сети, и зона, которая его держит.

@@ -1,0 +1,27 @@
+id: istqb.test-environment
+purpose: quality
+audience: [tester, developer]
+definition: The hardware, the services and the tools a test needs to run as it is meant to.
+sources:
+- https://glossary.istqb.org/en_US/term/test-environment
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - hasHost
+template-policy: none
+labels:
+  en:
+    one: Test environment
+    many: Test environments
+  ru:
+    one: Тестовая среда
+    many: Тестовые среды
+description:
+  en: The hardware, the services and the tools a test needs to run as it is meant to.
+  ru: Оборудование, сервисы и инструменты, нужные тесту, чтобы работать как задумано.

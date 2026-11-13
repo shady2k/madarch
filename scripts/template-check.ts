@@ -30,7 +30,7 @@ export function checkStarterTemplate(template: StarterTemplate): TemplateCheck {
       return { ok: problems.length === 0, problems, kinds: [] };
     }
     if (!read.present) {
-      problems.push(`${join(folder, 'madarch', 'kinds.yaml')}:1: the template ${template.id} wrote no manifest`);
+      problems.push(`${join(folder, 'madarch', 'catalog.yaml')}:1: the template ${template.id} wrote no manifest`);
       return { ok: false, problems, kinds: [] };
     }
     const wanted = [...starterPageKindNames(template)].sort();

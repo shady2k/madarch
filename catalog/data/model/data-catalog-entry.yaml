@@ -1,0 +1,30 @@
+id: dcat.catalog-record
+purpose: structure
+audience: [analyst, architect, developer]
+definition: A dataset's entry in a data catalog, with its description, its owner and where it can be found; the dataset itself
+  is one kind, wherever it is described.
+sources:
+- https://www.w3.org/TR/vocab-dcat-3/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Catalog entry
+    many: Catalog entries
+  ru:
+    one: Запись каталога
+    many: Записи каталога
+description:
+  en: A dataset's entry in a data catalog, with its description, its owner and where it can be found; the dataset itself is
+    one kind, wherever it is described.
+  ru: Запись набора данных в каталоге с описанием, владельцем и местом, где его найти; сам набор данных — один вид, где бы
+    его ни описывали.

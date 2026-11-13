@@ -1,0 +1,27 @@
+id: practice.sql-sink
+purpose: structure
+audience: [developer, architect]
+definition: A call that runs SQL text as it is.
+sources:
+- https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: page
+template: templates/item.liquid
+source: graph
+labels:
+  en:
+    one: SQL sink
+    many: SQL sinks
+  ru:
+    one: Выполнение SQL
+    many: Места выполнения SQL
+description:
+  en: A call that runs SQL text as it is.
+  ru: Вызов, который выполняет текст SQL как есть.

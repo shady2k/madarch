@@ -1,0 +1,27 @@
+id: archimate.stakeholder
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: A person or group with an interest in the product and a concern that shapes it.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Stakeholder
+    many: Stakeholders
+  ru:
+    one: Заинтересованная сторона
+    many: Заинтересованные стороны
+description:
+  en: A person or group with an interest in the product and a concern that shapes it.
+  ru: Человек или группа, заинтересованные в продукте и влияющие на него своим интересом.

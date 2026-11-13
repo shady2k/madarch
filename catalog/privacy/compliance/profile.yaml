@@ -1,0 +1,27 @@
+id: oscal.profile
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: A selection of controls from one or more catalogs, tailored for a purpose, as OSCAL defines it.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Profile
+    many: Profiles
+  ru:
+    one: Профиль
+    many: Профили
+description:
+  en: A selection of controls from one or more catalogs, tailored for a purpose, as OSCAL defines it.
+  ru: Выбор контролей из одного или нескольких каталогов, приспособленный для цели, как определяет OSCAL.

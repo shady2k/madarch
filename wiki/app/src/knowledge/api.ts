@@ -1,8 +1,12 @@
+import type { FactsView } from './types.js';
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, Block, CatalogKindView, CatalogSummaryView, CatalogView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, SearchView, SourceFile, StatementModel, UserSettings, WikiStatus, WriterState } from './types.js';
+import type { SelectionRun, AgentChoices, AgentOffer, Block, CatalogKindView, CatalogSummaryView, CatalogView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, SearchView, SourceFile, StatementModel, UserSettings, WikiStatus } from './types.js';
+
+/** Graph facts in manifest order for the reader's current role. */
+export const getFacts = (lang: string, signal?: AbortSignal): Promise<FactsView> => readJson<FactsView>('read the facts', `${API.facts}?lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
@@ -23,7 +27,7 @@ export const getSearch = (query: string, lang: string, signal?: AbortSignal): Pr
 export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string, after?: string | null): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `${API.page}?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${after === null || after === undefined ? '' : `&after=${encodeURIComponent(after)}`}${historyQuery()}`, signal, compose);
 
 /** The statement view of one sentence of a page. */
-export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `${API.statement}?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
+export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal, lang = 'en'): Promise<StatementModel> => readJson<StatementModel>('read the statement', `${API.statement}?lang=${lang === 'ru' ? 'ru' : 'en'}&id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
 
 /** One page of a kind's entities. */
 export function getEntities(kind: string, options: { q?: string; after?: string } = {}, signal?: AbortSignal): Promise<EntityListing> {
@@ -97,38 +101,6 @@ export async function chooseModelRole(role: ModelRoleId, agent: string | null, o
   return ((await response.json()) as { roles: ModelRoleView }).roles;
 }
 
-/** Starts the fill; the answer is the server's refusal in words when it cannot start. */
-export async function startFill(agent?: string | null, language?: string): Promise<void> {
-  let response: Response;
-  try {
-    // The press names the agent it was made for; the server refuses it when another tab saved a different choice meanwhile.
-    response = await fetch(appPath(API.fill), agent === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, ...(language === undefined ? {} : { language }) }) });
-  } catch (error) {
-    throw new RequestError('start the fill', `the request failed (${error instanceof Error ? error.message : String(error)})`);
-  }
-  if (response.ok) return;
-  let reason = `the server answered ${response.status}`;
-  try {
-    const body = (await response.json()) as { message?: unknown };
-    if (typeof body.message === 'string') reason = body.message;
-  } catch {
-    // the status stands
-  }
-  throw new RequestError('start the fill', reason, response.status);
-}
-
-/**
- * A person's «Пауза» (madarch-m38l.17): the page and the commit in progress are finished and the run ends before the next
- * one. The answer is the run's state as the server keeps it, and the server's words when there is nothing to pause.
- */
-export const pauseRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('pause the run', API.pause, {});
-
-/**
- * A person's «Остановить»: the run ends now, and the pages it already rewrote stand. The press that ends it is the second
- * one; the first answer is the server's refusal, naming the pages this run rewrote and that they stay.
- */
-export const stopRun = (): Promise<{ fill: FillState; writer: WriterState }> => post<{ fill: FillState; writer: WriterState }>('stop the run', API.stop, { confirm: true });
-
 /** The newest run's trace: per step its wall clock, its peak memory and its slowest names. */
 export const getRun = (run: string | null, signal?: AbortSignal): Promise<{ run: FillRunView }> =>
   readJson('read the run', `${API.run}${run === null ? '' : `?run=${encodeURIComponent(run)}`}`, signal);
@@ -173,7 +145,7 @@ export async function saveGraphVerdictBudgets(itemsPerRun: number, modelCallsPer
 }
 
 /** Starts the fill the page asked for: the selected kinds, their dependencies added by the engine, in order. */
-export const fillSelected = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ order: string[] }> => post<{ fill: FillState; order: string[] }>('fill the selected entities', API.fillSelected, selection);
+export const fillSelected = (selection: { selected: string[]; agent: string | null; tokenCap: number | null }): Promise<{ runId: string; order: string[] }> => post<{ runId: string; fill: FillState; order: string[] }>('fill the selected entities', API.fillSelected, selection);
 
 export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null; editorialRequestsPerPage?: number }): Promise<ProductSettings> => post<ProductSettings>('save the settings', API.productSettings, settings);
 
@@ -281,3 +253,7 @@ export const getViews = (query: string, lang: string, signal?: AbortSignal): Pro
 
 /** Where the frame of a view in the LikeC4 or archify renderer is served (the app's base is added). */
 export const viewFrameAddress = (query: string, renderer: 'likec4' | 'archify', lang: string): string => appPath(`${API.viewFrame}?${query}&renderer=${renderer}&lang=${lang === 'ru' ? 'ru' : 'en'}`);
+
+export const getFillRuns = (signal?: AbortSignal): Promise<{ runs: SelectionRun[] }> => readJson('list the fill runs', API.fillRuns, signal);
+export const getFillRun = (run: string, signal?: AbortSignal): Promise<{ run: SelectionRun }> => readJson('read the fill run', `${API.fillRuns}?${new URLSearchParams({ run })}`, signal);
+export const controlFillRun = (run: string, action: 'pause' | 'stop'): Promise<unknown> => post(`${action} the fill run`, `${API[action]}?${new URLSearchParams({ run })}`, { confirm: true });

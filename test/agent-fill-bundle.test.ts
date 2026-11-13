@@ -1,3 +1,4 @@
+import { starterManifestText } from './catalog-folder-fixture.js';
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +14,7 @@ describe('the bundled general agent producer', () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-fill-key-'));
     try {
       seedStarterSet(root);
-      const file = join(root, 'madarch/kinds.yaml');
+      const file = join(root, 'madarch/catalog.yaml');
       const text = `kinds:
   example.keyless:
     template: templates/entity.liquid
@@ -33,7 +34,7 @@ plugins:
     const root = mkdtempSync(join(tmpdir(), 'agent-fill-contract-'));
     try {
       seedStarterSet(root);
-      const document = parse(readFileSync(join(root, 'madarch/kinds.yaml'), 'utf8'));
+      const document = parse(starterManifestText());
       const { terms: _terms, semantics: _semantics, ...base } = document.kinds['doc.term'];
       document.kinds['example.topic'] = {
         ...base, id: 'example.topic', definition: 'A topic supported by graph evidence.',
@@ -50,7 +51,7 @@ plugins:
         template: 'templates/entity.liquid', source: 'graph', capability: 'git',
         fields: [{ name: 'name', type: 'text', binding: { agent: 'A name.' } }], key: ['name'],
       };
-      const manifest = parseKinds(stringify(document), 'madarch/kinds.yaml', root);
+      const manifest = parseKinds(stringify(document), 'madarch/catalog.yaml', root);
       expect(manifest.findings).toEqual([]);
       const plugin = manifest.plugins?.get('agent-fill');
       expect(plugin?.outputs).toContain('example.topic');
@@ -85,7 +86,7 @@ plugins:
       expect(readFileSync(join(folder, manifest.agent!.prompt), 'utf8').length).toBeGreaterThan(0);
       const lock = parse(readFileSync(join(root, 'madarch/plugins.lock'), 'utf8')) as { plugins: { id: string; closure: string }[] };
       expect(lock.plugins.find((plugin) => plugin.id === bundled.id)?.closure).toBe(closureOf(folder).hash);
-      const kinds = parse(readFileSync(join(root, 'madarch/kinds.yaml'), 'utf8')) as { plugins: { id: string; inputs: string[]; outputs: string[] }[] };
+      const kinds = parse(readFileSync(join(root, 'madarch/catalog.yaml'), 'utf8')) as { plugins: { id: string; inputs: string[]; outputs: string[] }[] };
       expect(kinds.plugins.find((plugin) => plugin.id === bundled.id)).toMatchObject({ inputs: [], outputs: [] });
     } finally {
       rmSync(root, { recursive: true, force: true });

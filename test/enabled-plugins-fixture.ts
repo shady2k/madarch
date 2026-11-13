@@ -1,3 +1,4 @@
+import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
@@ -5,8 +6,8 @@ import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
 
 /** Keeps only exercised plugins; excluded bindings become passive provenance, with every field retained. */
 export function useFixturePlugins(folder: string, ids: readonly string[]): void {
-  const file = join(folder, 'madarch', 'kinds.yaml');
-  const manifest = parseDocument(readFileSync(file, 'utf8'));
+  const file = join(folder, 'madarch', 'catalog.yaml');
+  const manifest = parseDocument(readFolderManifestText(folder));
   const body = manifest.toJS();
   const plugins = (body.plugins ?? []) as { id: string }[];
   for (const id of ids) {
@@ -30,16 +31,19 @@ export function useFixturePlugins(folder: string, ids: readonly string[]): void 
     }
   }
   manifest.set('plugins', plugins.filter(plugin => ids.includes(plugin.id)));
-  writeFileSync(file, manifest.toString());
+  writeFolderManifest(folder, manifest.toString());
 }
 
 /** Declares repository fact inputs for fixtures that previously relied on native stages. */
 export function useRepositoryPlugins(folder: string): void {
-  const hadManifest = existsSync(join(folder, 'madarch', 'kinds.yaml'));
+  const hadManifest = existsSync(join(folder, 'madarch', 'catalog.yaml'));
+  const previous = hadManifest ? readFolderManifestText(folder) : undefined;
   seedStarterSet(folder);
-  const file = join(folder, 'madarch', 'kinds.yaml');
-  const manifest = parseDocument(readFileSync(file, 'utf8'));
-  const starter = parseDocument(STARTER_FILES.find(file => file.path === 'madarch/kinds.yaml')!.content).toJS();
+  const manifest = parseDocument(previous ?? readFolderManifestText(folder));
+  const starter = parseDocument(starterManifestText()).toJS();
+  for (const key of ['purposes', 'roles']) {
+    manifest.set(key, { ...starter[key], ...(manifest.toJS()[key] ?? {}) });
+  }
   const body = manifest.toJS();
   const repositoryKinds = ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author'];
   for (const name of repositoryKinds) {
@@ -61,7 +65,7 @@ export function useRepositoryPlugins(folder: string): void {
     else edges[existing] = { ...edges[existing], ...edge };
   }
   manifest.set('edges', edges);
-  writeFileSync(file, manifest.toString());
+  writeFolderManifest(folder, manifest.toString());
   const lockFile = join(folder, 'madarch', 'plugins.lock');
   const lock = parseDocument(readFileSync(lockFile, 'utf8'));
   const starterLock = parseDocument(STARTER_FILES.find(file => file.path === 'madarch/plugins.lock')!.content).toJS();

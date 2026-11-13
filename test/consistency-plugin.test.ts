@@ -1,3 +1,4 @@
+import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
@@ -15,7 +16,7 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
 import { parseDocument } from 'yaml';
-import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
@@ -109,13 +110,12 @@ problems:
     removed-end: { predicate: findings, kind: removed-end, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: Edge ends at a removed vertex, ru: Ребро ведёт к удалённой вершине } }
     unevidenced-opinion: { predicate: findings, kind: unevidenced-opinion, sonar: bug, severity: minor, section: code, action: task, enabled: true, label: { en: Opinion without evidence, ru: Утверждение без основания } }
 `;
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest);
+  writeFolderManifest(folder, manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   useRepositoryPlugins(folder);
-  const kindsFile = join(folder, 'madarch', 'kinds.yaml');
-  const declared = parseDocument(readFileSync(kindsFile, 'utf8'));
-  const starter = parseDocument(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content).toJS();
-  for (const section of ['catalog', 'properties', 'groups']) declared.set(section, starter[section]);
+  const declared = parseDocument(readFolderManifestText(folder));
+  const starter = parseDocument(starterManifestText()).toJS();
+  for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
   for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
     template: 'templates/item-plain.liquid', source: 'graph', key: ['repository', 'path'],
@@ -130,7 +130,7 @@ problems:
   for (const [name, description] of Object.entries(descriptions)) {
     declared.setIn(['kinds', name], {
       ...declared.toJS().kinds[name],
-      id: name, definition: description.en, description,
+      id: name, definition: description.en, description, purpose: 'quality', audience: ['developer', 'architect'],
       sources: ['https://www.w3.org/TR/prov-dm/'],
       acquisition: ['agent-from-graph'], status: 'implemented',
       'template-policy': 'page', group: starter.kinds['code.file'].group,
@@ -141,7 +141,7 @@ problems:
       } } : {}),
     });
   }
-  writeFileSync(kindsFile, declared.toString());
+  writeFolderManifest(folder, declared.toString());
   return closure;
 }
 

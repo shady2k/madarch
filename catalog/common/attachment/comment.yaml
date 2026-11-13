@@ -1,0 +1,28 @@
+id: practice.comment
+purpose: history
+audience: [product-lead, analyst, developer]
+definition: A person's or an agent's remark attached to any entity, kept with its author and time.
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/watch-share-and-comment-on-a-work-item/
+- https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Comment
+    many: Comments
+  ru:
+    one: Комментарий
+    many: Комментарии
+description:
+  en: A remark attached to any entity, with its author and time.
+  ru: Замечание, приложенное к любой сущности, с его автором и временем.

@@ -21,7 +21,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const within = (path: string): boolean => inputs.paths === undefined || inputs.paths.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
     for (const file of tree.files.filter(file => within(file.path))) {
       const entity = { kind: 'code.file', key: { repository: pin.repository, path: file.path } };
-      vertices.push({ ...entity, values: { mode: file.mode, blob: file.blob, bytes: file.bytes, form: file.form, lines: file.lines, content: file.content, language: file.language, languages: file.candidates }, evidence: { ...evidence, path: file.path } });
+      vertices.push({ ...entity, values: { directory: file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.', mode: file.mode, blob: file.blob, bytes: file.bytes, form: file.form, lines: file.lines, content: file.content, language: file.language, languages: file.candidates }, evidence: { ...evidence, path: file.path } });
       const parent = file.path.includes('/') ? { kind: 'code.directory', key: { repository: pin.repository, path: file.path.slice(0, file.path.lastIndexOf('/')) } } : repository;
       edges.push({ kind: 'code.contains', from: parent, to: entity, evidence });
       let folder = file.path.slice(0, file.path.lastIndexOf('/'));

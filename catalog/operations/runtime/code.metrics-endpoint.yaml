@@ -1,0 +1,34 @@
+id: practice.metrics-endpoint
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: The route that serves a service's metrics.
+sources:
+- https://opentelemetry.io/docs/concepts/signals/metrics/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - providesApi
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- method
+- path
+- ports
+- format
+- library
+- service
+labels:
+  en:
+    one: Metrics endpoint
+    many: Metrics endpoints
+  ru:
+    one: Выдача метрик
+    many: Выдачи метрик
+description:
+  en: The route that serves a service's metrics.
+  ru: Маршрут, по которому сервис отдаёт метрики.

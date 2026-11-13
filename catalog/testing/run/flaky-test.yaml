@@ -1,0 +1,27 @@
+id: practice.flaky-test
+purpose: quality
+audience: [tester, developer]
+definition: A test whose result differs between runs of the same code.
+sources:
+- https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Flaky test
+    many: Flaky tests
+  ru:
+    one: Нестабильный тест
+    many: Нестабильные тесты
+description:
+  en: A test whose result differs between runs of the same code.
+  ru: Тест, результат которого различается между запусками одного и того же кода.

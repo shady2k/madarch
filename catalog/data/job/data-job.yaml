@@ -1,0 +1,28 @@
+id: openlineage.job
+purpose: operations
+audience: [analyst, developer, operations]
+definition: A unit of work that consumes or produces datasets, identified by a namespace and a name.
+sources:
+- https://openlineage.io/docs/spec/object-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasInput
+  - hasOutput
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Data job
+    many: Data jobs
+  ru:
+    one: Задача обработки данных
+    many: Задачи обработки данных
+description:
+  en: A unit of work that consumes or produces datasets, identified by a namespace and a name.
+  ru: Единица работы, которая читает или создаёт наборы данных и имеет пространство имён и имя.

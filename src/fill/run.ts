@@ -124,7 +124,7 @@ export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
   // the run stands up, so an older one is refused with the version found and the one needed (item 6).
   assertFillGitVersion();
   const product = resolve(options.product);
-  if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${resolve(product, 'madarch/kinds.yaml')}:1: token cap must be a positive integer`);
+  if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${resolve(product, 'madarch/catalog.yaml')}:1: token cap must be a positive integer`);
   const runId = options.runId ?? `fill-${String(Date.now())}`;
   const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
   const traced = openTrace({ store, runId, keep: traceKeepOf(process.env as Record<string, string | undefined>) });

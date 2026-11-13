@@ -1,0 +1,27 @@
+id: otel.resource
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: The entity that emitted a piece of telemetry, described by its attributes such as service name and host.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/resource/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Telemetry resource
+    many: Telemetry resources
+  ru:
+    one: Ресурс телеметрии
+    many: Ресурсы телеметрии
+description:
+  en: The entity that emitted a piece of telemetry, described by its attributes such as service name and host.
+  ru: 'Объект, создавший часть телеметрии, описанный атрибутами: именем сервиса и хостом.'

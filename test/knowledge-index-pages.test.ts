@@ -4,7 +4,7 @@ import { graphKnowledgePages } from '../src/knowledge/index/index.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 import type { GraphReader } from '../src/knowledge/graph-read.js';
 
-const manifest = { file: 'madarch/kinds.yaml', kinds: new Map([['domain', { name: 'domain', fields: [{ name: 'body' }] }]]) } as unknown as KindsManifest;
+const manifest = { file: 'madarch/catalog.yaml', kinds: new Map([['domain', { name: 'domain', fields: [{ name: 'body' }] }]]) } as unknown as KindsManifest;
 const graph = (properties: Record<string, unknown>): Pick<GraphReader, 'list'> => ({ list: async () => ({ rows: [{ key: 'domain:payments', kind: 'domain', label: 'Payments', properties, nodeIds: [], scope: '' }], next: null, total: 1 }) }) as Pick<GraphReader, 'list'>;
 
 test('page identity, written basis, statements, grounds and mentions remain the producer opinions', async () => {

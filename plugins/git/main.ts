@@ -10,11 +10,11 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const known = new Set(files.map(file => `${String(file.key['repository'])}\0${String(file.key['path'])}`));
   const authors = new Set<string>();
   const paths = new Set<string>();
-  const fileIdentity = (repository: string, path: string, commit: string): void => {
+  const fileIdentity = (repository: string, path: string, commit: string, values: { commit_count: number; last_change: string | null }): void => {
     const identity = JSON.stringify([repository, path]);
     if (paths.has(identity)) return;
     paths.add(identity);
-    vertices.push({ kind: 'code.file', key: { repository, path }, evidence: { repository, path, commitOrDigest: commit } });
+    vertices.push({ kind: 'code.file', key: { repository, path }, values, evidence: { repository, path, commitOrDigest: commit } });
   };
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('git extraction cancelled');
@@ -29,7 +29,20 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       continue;
     }
     const history = await readRepositoryHistory(pin, { touched: unit.kind !== 'code.author', counts: unit.kind === 'code.commit' });
-    for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit);
+    // Count exact-path changes once per non-merge commit; a rename does not transfer the old path's history.
+    const changes = new Map<string, { commit_count: number; last_change: string | null }>();
+    for (const held of history.commits) {
+      if (held.parents.length > 1) continue;
+      const date = new Date(held.commitDate).toISOString();
+      for (const path of new Set(held.touched.map(touched => touched.path))) {
+        const facts = changes.get(path) ?? { commit_count: 0, last_change: null };
+        facts.commit_count += 1;
+        if (facts.last_change === null || date > facts.last_change) facts.last_change = date;
+        changes.set(path, facts);
+      }
+    }
+    const factsOf = (path: string) => changes.get(path) ?? { commit_count: 0, last_change: null };
+    for (const file of files) if (file.key['repository'] === pin.repository) fileIdentity(pin.repository, String(file.key['path']), pin.commit, factsOf(String(file.key['path'])));
     vertices.push({ ...repository, values: { history_shallow: history.gaps.some(gap => gap.reason === 'shallow-history') }, evidence });
     const hashes = inputs.keys === undefined ? undefined : new Set(inputs.keys.map(key => key.hash));
     for (const [walk, held] of history.commits.entries()) {
@@ -46,8 +59,8 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       held.parents.forEach((hash, position) => edges.push({ kind: 'code.parent', from: commit, to: { kind: 'code.commit', key: { hash } }, values: { position }, evidence }));
       for (const touched of held.touched) {
         const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
-        fileIdentity(pin.repository, touched.path, held.hash);
-        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, held.hash);
+        fileIdentity(pin.repository, touched.path, pin.commit, factsOf(touched.path));
+        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
         edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
         if (touched.previousPath !== undefined) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
       }

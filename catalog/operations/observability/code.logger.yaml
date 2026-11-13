@@ -1,0 +1,32 @@
+id: practice.logger
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: Where a service sets up its logging.
+sources:
+- https://opentelemetry.io/docs/concepts/signals/logs/
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - configures
+  in:
+  - configures
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- library
+- model
+- service
+- json
+labels:
+  en:
+    one: Logger
+    many: Loggers
+  ru:
+    one: Логгер
+    many: Логгеры
+description:
+  en: Where a service sets up its logging.
+  ru: Место, где сервис настраивает журнал.

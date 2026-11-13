@@ -35,7 +35,7 @@ test('final 1: route entry uses actual handled-by; callback references stay unor
   link('code.references', registrar, unrelated, {}, '90');
   link('code.calls', callback, target);
   const graph = fake.reader();
-  const manifest = parseKinds('kinds: {}', 'kinds.yaml', '.');
+  const manifest = parseKinds('kinds: {}', 'catalog.yaml', '.');
   const ctx: RenderContext = { productFolder: '.', manifest, graph, markdown: new Map(), language: 'en', repositories: [], commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined, resolver: new Resolver({ graph, markdown: new Map(), declared: () => true, documentKinds: [], repositories: () => [], locate: () => undefined }) };
   const [registered] = await graph.find('code.route:services/api/main.ts#GET:/healthz');
   const [setup] = await graph.find('code.symbol:services/api/main.ts#setup');

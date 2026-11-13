@@ -3,7 +3,6 @@ import { forwardRef, type HTMLAttributes, type ButtonHTMLAttributes, type Anchor
 import { cn } from '@/lib/utils.js';
 import { SheetContent } from './sheet.js';
 import { Skeleton } from './skeleton.js';
-import { CardContent } from './card.js';
 import { DropdownMenuContent } from './dropdown-menu.js';
 import type { ComponentProps } from 'react';
 import { Button, type ButtonProps } from './button.js';
@@ -28,23 +27,12 @@ export function ShellRoleButton(props: ButtonProps) { return <Button variant="gh
 export function ShellRoleLabel(props: HTMLAttributes<HTMLSpanElement>) { return <span className="hidden text-small sm:inline" {...props} />; }
 export function ShellError(props: HTMLAttributes<HTMLDivElement>) { return <div className="grid min-h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]" {...props} />; }
 
-export const ShellStatusButton = forwardRef<HTMLButtonElement, ButtonProps & { compact?: boolean }>(function ShellStatusButton({ compact, ...props }, ref) { return <Button ref={ref} size="content" className={cn('fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink', compact && 'fill-chip-writing')} {...props} />; });
-export const ShellStatusWrap = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ShellStatusWrap(props, ref) { return <div ref={ref} className="relative" {...props} />; });
-export function ShellStatusLabel(props: HTMLAttributes<HTMLSpanElement>) { return <span className="fill-chip-label" {...props} />; }
-export function ShellStatusWords(props: HTMLAttributes<HTMLSpanElement>) { return <span className="fill-chip-words" {...props} />; }
-export function ShellStatusCount({ narrow, ...props }: HTMLAttributes<HTMLSpanElement> & { narrow?: boolean }) { return <span className={cn('fill-chip-count', narrow && 'fill-chip-count-narrow')} {...props} />; }
-export function ShellStatusBody(props: HTMLAttributes<HTMLDivElement>) { return <div className="px-2 pb-2 text-small" {...props} />; }
-export function ShellStatusLine({ inset, ...props }: HTMLAttributes<HTMLParagraphElement> & { inset?: boolean }) { return <p className={cn('m-0 mt-1 break-words text-small', inset && 'px-2 pb-2')} {...props} />; }
-export function ShellStatusMessage(props: HTMLAttributes<HTMLDivElement>) { return <div className="m-0 px-2 pb-2 text-small" {...props} />; }
-export function ShellStatusDot({ state, ...props }: HTMLAttributes<HTMLSpanElement> & { state: 'up-to-date' | 'stale' | 'running' | 'failed' }) { return <span className="fill-dot mr-1.5 inline-block size-2 shrink-0 rounded-full align-middle" {...props}><span aria-hidden="true" className={cn('block size-full rounded-full', state === 'up-to-date' || state === 'running' ? 'bg-current' : 'border border-current', state === 'running' && 'animate-pulse motion-reduce:animate-none')} /></span>; }
 
 export function ShellBrandMark() { return <svg aria-hidden="true" className="size-10 shrink-0 text-ink" viewBox="0 0 50 32"><text x="0" y="25" fill="currentColor" fontFamily="Inter, sans-serif" fontSize="31" fontWeight="750" letterSpacing="-4">m<tspan fill="var(--text)">·</tspan></text></svg>; }
 
 export function ShellProductMenu(props: ComponentProps<typeof DropdownMenuContent>) { return <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]" {...props} />; }
 export function ShellProductLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="flex items-center gap-2 no-underline" {...props} />; }
 export function ShellLanguageButton(props: ButtonProps) { return <Button variant="ghost" size="icon" className="shell-language size-9" {...props} />; }
-export function ShellFillContent(props: ComponentProps<typeof CardContent>) { return <CardContent className="grid gap-2 p-3" {...props} />; }
-export function ShellFillChoice(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="rounded px-2 py-2 text-small text-ink hover:bg-chrome" {...props} />; }
 export function ShellHomeLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="text-muted no-underline hover:text-ink" {...props} />; }
 export function ShellAnswersLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="answers-waiting no-underline" {...props} />; }
 export function ShellAnswersWords(props: HTMLAttributes<HTMLSpanElement>) { return <span className="answers-waiting-words" {...props} />; }

@@ -1,0 +1,29 @@
+id: gdpr.processing-activity
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: One purpose for which personal data is processed, with its data, its recipients and its time limits, as GDPR article
+  30 records it.
+sources:
+- https://gdpr-info.eu/art-30-gdpr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Processing activity
+    many: Processing activities
+  ru:
+    one: Действие обработки
+    many: Действия обработки
+description:
+  en: One purpose for which personal data is processed, with its data, its recipients and its time limits, as GDPR article
+    30 records it.
+  ru: Одна цель обработки персональных данных с её данными, получателями и сроками, как записывает статья 30 GDPR.

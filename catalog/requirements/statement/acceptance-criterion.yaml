@@ -1,0 +1,27 @@
+id: istqb.acceptance-criterion
+purpose: quality
+audience: [product, analyst, tester, developer, architect]
+definition: A condition a work product must meet to be accepted by its stakeholders.
+sources:
+- https://glossary.istqb.org/en_US/term/acceptance-criteria
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Acceptance criterion
+    many: Acceptance criteria
+  ru:
+    one: Критерий приёмки
+    many: Критерии приёмки
+description:
+  en: A condition a work product must meet to be accepted by its stakeholders.
+  ru: Условие, которому должна удовлетворять работа, чтобы её приняли заинтересованные стороны.

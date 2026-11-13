@@ -1,4 +1,4 @@
-import { STARTER_PROBLEM_RULES } from '../src/knowledge/seed.js';
+import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 import { DEFAULT_THRESHOLDS } from '../src/problems/types.js';
 /**
  * The wiki section of the Problems page (madarch-m38l.19): the findings the
@@ -19,7 +19,7 @@ import { workingTreeFiles } from '../src/plugin/product-files.js';
 const folder = (): string => mkdtempSync(join(tmpdir(), 'madarch-problems-wiki-'));
 const resolve = async (): Promise<Resolution> => ({ state: 'ok', target: 'x', kind: 'entity', label: 'x', href: null });
 const input = (productFolder: string, extra: Partial<Parameters<typeof listProblems>[0]> = {}) => ({
-  productFolder, graph: { list: async () => ({ rows: [], next: null, total: 0 }) }, owner: {} as DatabaseOwner, files: workingTreeFiles(productFolder), manifest: { file: 'madarch/kinds.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] }, resolve, findings: [], settings: { rules: Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting])), thresholds: { ...DEFAULT_THRESHOLDS } }, ...extra,
+  productFolder, graph: { list: async () => ({ rows: [], next: null, total: 0 }) }, owner: {} as DatabaseOwner, files: workingTreeFiles(productFolder), manifest: { file: 'madarch/catalog.yaml', roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] }, resolve, findings: [], settings: { rules: Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting])), thresholds: { ...DEFAULT_THRESHOLDS } }, ...extra,
 });
 
 describe('the wiki section', () => {
@@ -29,9 +29,9 @@ describe('the wiki section', () => {
     }));
     expect(listing.problems).toHaveLength(1);
     expect(listing.problems[0]).toMatchObject({
-      id: 'wiki.manifest\u0000madarch/kinds.yaml:8:manifest:kind "question": "group" names a group of "groups" but has the wrong shape, got "product"',
+      id: 'wiki.manifest\u0000madarch/catalog.yaml:8:manifest:kind "question": "group" names a group of "groups" but has the wrong shape, got "product"',
       section: 'wiki', rule: 'wiki.manifest', kind: 'manifest', sonar: 'bug', severity: 'major', fixer: 'person',
-      file: KINDS_FILE, line: 8, scope: { type: 'file', path: KINDS_FILE }, place: { label: 'madarch/kinds.yaml:8', href: '/src?path=madarch%2Fkinds.yaml&line=8' },
+      file: KINDS_FILE, line: 8, scope: { type: 'file', path: KINDS_FILE }, place: { label: 'madarch/catalog.yaml:8', href: '/src?path=madarch%2Fcatalog.yaml&line=8' },
     });
     expect(listing.sections).toEqual({ code: 0, documents: 0, wiki: 1 });
   });

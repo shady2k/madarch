@@ -1,0 +1,27 @@
+id: practice.known-issue
+purpose: quality
+audience: [operations, product, developer]
+definition: A defect or a limitation the people who use the product are told about.
+sources:
+- https://glossary.istqb.org/en_US/term/defect
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Known issue
+    many: Known issues
+  ru:
+    one: Известная проблема
+    many: Известные проблемы
+description:
+  en: A defect or a limitation the people who use the product are told about.
+  ru: Дефект или ограничение, о котором сообщают людям, пользующимся продуктом.

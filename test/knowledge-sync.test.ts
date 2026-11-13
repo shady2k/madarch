@@ -77,9 +77,9 @@ Checkout asks the payment service to take the card's amount.[^1]
 `);
   // A page's title comes from its kind (`title: name`), never from the label: a symbol labelled `PaymentService.pay`
   // is called `pay`, and the changed-page list must say what its page says.
-  const kindsFile = join(folder, 'madarch/kinds.yaml');
+  const kindsFile = join(folder, 'madarch/kinds/code/structure/code.symbol.yaml');
   const kinds = readFileSync(kindsFile, 'utf8');
-  writeFileSync(kindsFile, kinds.replace('  code.symbol:\n    template: templates/symbol.md\n', '  code.symbol:\n    template: templates/symbol.md\n    title: name\n'));
+  writeFileSync(kindsFile, kinds.replace('template: templates/symbol.md\n', 'template: templates/symbol.md\ntitle: name\n'));
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');

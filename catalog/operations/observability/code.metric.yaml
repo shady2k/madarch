@@ -1,0 +1,35 @@
+id: otel.metric-instrument
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: A declared counter, gauge or histogram and the code that updates it.
+sources:
+- https://opentelemetry.io/docs/concepts/signals/metrics/
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- name
+- metricType
+- help
+- labels
+- library
+- definitionFormat
+- service
+labels:
+  en:
+    one: Metric
+    many: Metrics
+  ru:
+    one: Метрика
+    many: Метрики
+description:
+  en: A declared counter, gauge or histogram and the code that updates it.
+  ru: Объявленный счётчик, шкала или гистограмма и код, который меняет её.

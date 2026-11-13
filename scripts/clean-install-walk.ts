@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -168,14 +168,17 @@ async function serveCheck(): Promise<void> {
       await new Promise((done) => setTimeout(done, 250));
     }
     if (state.manifest !== 'not-filled') throw new Error(`npx madarch init: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
-    if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/kinds.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/kinds.yaml: ${last}`);
+    if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/catalog.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/catalog.yaml: ${last}`);
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
-    // out of this fixture, not out of the engine. With no producer or agent, Fill completes without file opinions.
-    const manifest = join(facts.folder, 'madarch', 'kinds.yaml');
-    writeFileSync(manifest, 'kinds:\n  code.file: { template: templates/file.liquid, source: graph }\n');
+    // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
+    const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
+    rmSync(join(facts.folder, 'madarch/kinds'), { recursive: true });
+    mkdirSync(join(facts.folder, 'madarch/kinds/code/files'), { recursive: true });
+    writeFileSync(manifest, 'groups:\n  code: { en: Code, ru: Код }\n  files: { en: Files, ru: Файлы, parent: code }\n');
+    writeFileSync(join(facts.folder, 'madarch/kinds/code/files/code.file.yaml'), 'template: templates/file.liquid\nsource: graph\n');
     console.log(`${manifest}:1: store acceptance fixture: code.file only, no plugins (Windows has no plugin sandbox)`);
-    for (const parameters of [['add', 'madarch/kinds.yaml'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
+    for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if (run('git', parameters, facts.folder, env) !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
     // This is the first write and MUST open the installed store, even when the unfilled status is folder-only.

@@ -1,0 +1,27 @@
+id: practice.threat-actor
+purpose: quality
+audience: [security-engineer, architect]
+definition: A person or a group whose capabilities and intentions the threat model reasons about.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9121.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - threatens
+  in:
+  - threatens
+template-policy: none
+labels:
+  en:
+    one: Threat actor
+    many: Threat actors
+  ru:
+    one: Субъект угрозы
+    many: Субъекты угрозы
+description:
+  en: A person or a group whose capabilities and intentions the threat model reasons about.
+  ru: Человек или группа, чьи возможности и намерения рассматривает модель угроз.

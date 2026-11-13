@@ -1,0 +1,32 @@
+id: practice.dependency
+purpose: structure
+audience: [developer, architect, platform-devops, security-engineer]
+definition: A library a service declares, with its version and where it is used.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- name
+- version
+- scope
+- exact
+labels:
+  en:
+    one: Dependency
+    many: Dependencies
+  ru:
+    one: Зависимость
+    many: Зависимости
+description:
+  en: A library a service declares, with its version and where it is used.
+  ru: Библиотека, которую объявляет сервис, её версия и где она используется.

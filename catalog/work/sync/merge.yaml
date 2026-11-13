@@ -1,0 +1,29 @@
+id: practice.merge
+purpose: history
+audience: [developer, tester, product-lead]
+definition: The integration of a branch or a pull request, with the lane it went through (C, B or A) and who allowed it.
+sources:
+- https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges
+- https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+  - approves
+template-policy: none
+labels:
+  en:
+    one: Merge
+    many: Merges
+  ru:
+    one: Слияние
+    many: Слияния
+description:
+  en: A branch or pull request integrated through a lane, with who allowed it.
+  ru: Ветка или пул-реквест, влитые через полосу, с тем, кто это разрешил.

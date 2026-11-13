@@ -1,0 +1,30 @@
+id: practice.snapshot
+purpose: history
+audience: [architect, platform-devops, operations]
+definition: A full restore point of the graph at a time; the journal holds the increments from which the rest is rebuilt.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/209/final
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  - restores
+  in:
+  - partOf
+  - restores
+template-policy: none
+labels:
+  en:
+    one: Snapshot
+    many: Snapshots
+  ru:
+    one: Снимок
+    many: Снимки
+description:
+  en: A full restore point of the graph at a time, with the journal holding the increments after it.
+  ru: Полная точка восстановления графа на момент времени; журнал хранит приращения после неё.

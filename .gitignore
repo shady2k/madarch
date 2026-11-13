@@ -1,4 +1,6 @@
 build/
+!catalog/delivery/build/
+!catalog/delivery/build/*.yaml
 dist/
 node_modules/
 .repowise/

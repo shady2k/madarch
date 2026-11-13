@@ -1,0 +1,27 @@
+id: istqb.test-plan
+purpose: quality
+audience: [tester, developer]
+definition: The objectives, the means and the schedule of the testing for a product or a change.
+sources:
+- https://glossary.istqb.org/en_US/term/test-plan
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Test plan
+    many: Test plans
+  ru:
+    one: План тестирования
+    many: Планы тестирования
+description:
+  en: The objectives, the means and the schedule of the testing for a product or a change.
+  ru: Цели, средства и расписание тестирования продукта или изменения.

@@ -97,6 +97,13 @@ function fills(plugin: PluginDecl, kind: KindDecl): boolean {
   return plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === kind.name) === true;
 }
 
+/** The declaration-owned producer plugins of one kind, using the same matcher as turn planning. */
+export function pluginsFillingKind(manifest: KindsManifest, kindName: string): string[] {
+  const kind = manifest.kinds.get(kindName);
+  return kind === undefined ? [] : [...(manifest.plugins?.values() ?? [])].filter((plugin) => fills(plugin, kind)).map((plugin) => plugin.id).sort(byCodePoint);
+}
+
+/** The plugin's kinds in the manifest, the earliest in the dependency order first. */
 function outputKindsOf(manifest: KindsManifest, plugin: PluginDecl): KindDecl[] {
   const rank = new Map(kindsInDependencyOrder(manifest).map((name, at) => [name, at] as const));
   return [...manifest.kinds.values()].filter((kind) => fills(plugin, kind))

@@ -1,0 +1,27 @@
+id: kubernetes.node-pool
+purpose: structure
+audience: [operations, platform-devops, architect]
+definition: A group of cluster nodes with the same shape, scaled together.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Node pool
+    many: Node pools
+  ru:
+    one: Пул узлов
+    many: Пулы узлов
+description:
+  en: A group of cluster nodes with the same shape, scaled together.
+  ru: Группа узлов кластера одинаковой формы, которая масштабируется вместе.

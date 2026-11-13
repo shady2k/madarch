@@ -1,0 +1,53 @@
+id: iso29148.requirement
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
+definition: A provision the product must fulfil, read from the document section that states it; its type is an attribute.
+sources:
+- https://standards.ieee.org/ieee/29148/6937/
+acquisition:
+- document
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - refines
+  - satisfies
+  in:
+  - refines
+template-policy: page
+template: templates/entity-text.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+labels:
+  en:
+    one: Requirement
+    many: Requirements
+  ru:
+    one: Требование
+    many: Требования
+description:
+  en: 'Another item of the documents: a requirement, a story, a feature, numbered (FR-1, NFR-2, REQ-3, US-4 ...) or not, as
+    in an unnumbered Qualities section.'
+  ru: 'Другой пункт документов: требование, история, возможность; пронумерованный (FR-1, NFR-2, REQ-3, US-4 ...) или нет,
+    как в разделе Qualities без номеров.'
+key: []

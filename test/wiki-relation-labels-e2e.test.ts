@@ -6,11 +6,14 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import puppeteer, { type Browser } from 'puppeteer';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
-import { CATALOG_RELATIONS } from '../src/knowledge/starter-catalog.js';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
+import { parseCatalogYaml } from '../src/product/manifest/kinds.js';
 import { RELATION_LABELS } from '../src/knowledge/relation-labels.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { fillStatePaths, type FillRun } from '../src/product/fill-runtime.js';
+
+const CATALOG_RELATIONS = (parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as { catalog: { relations: Record<string, string | null> } }).catalog.relations;
 
 const APP = new URL('../wiki/app/dist', import.meta.url).pathname;
 const runDescribe = process.env.MADARCH_WIKI_E2E === '1' ? describe.serial : describe.skip;

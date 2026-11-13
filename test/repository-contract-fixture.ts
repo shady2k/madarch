@@ -1,7 +1,6 @@
+import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /** Ordinary starter declarations used by graph mechanism tests; no built-in repository schema. */
 import { parseDocument } from 'yaml';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf, declaredKindReads, declaredEdgeReads } from '../src/fill/stages/plugin-contract.js';
@@ -19,12 +18,11 @@ function repositoryDeclarations(text: string): string {
 }
 
 export function restrictRepositoryDeclarations(folder: string): void {
-  const file = join(folder, 'madarch', 'kinds.yaml');
-  writeFileSync(file, repositoryDeclarations(readFileSync(file, 'utf8')));
+  writeFolderManifest(folder, repositoryDeclarations(readFolderManifestText(folder)));
 }
 
 const files = new Map(STARTER_FILES.map(file => [file.path, file]));
-export const repositoryManifest = parseKinds(repositoryDeclarations(files.get('madarch/kinds.yaml')!.content), 'madarch/kinds.yaml', '/fixture', {
+export const repositoryManifest = parseKinds(repositoryDeclarations(starterManifestText()), 'madarch/catalog.yaml', '/fixture', {
   has: path => files.has(path),
   text: path => files.get(path)?.content,
   size: path => files.get(path)?.bytes?.length ?? files.get(path)?.content.length ?? null,

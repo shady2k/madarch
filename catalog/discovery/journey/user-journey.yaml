@@ -1,0 +1,27 @@
+id: practice.user-journey
+purpose: understand
+audience: [product, analyst, designer]
+definition: A person's experience of reaching an outcome over time, including the moments outside the product.
+sources:
+- https://www.nngroup.com/articles/journey-mapping-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: User journey
+    many: User journeys
+  ru:
+    one: Путь пользователя
+    many: Пути пользователя
+description:
+  en: A person's experience of reaching an outcome over time, including the moments outside the product.
+  ru: Опыт человека на пути к результату во времени, включая моменты вне продукта.

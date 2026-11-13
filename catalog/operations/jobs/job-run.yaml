@@ -1,0 +1,27 @@
+id: practice.job-run
+purpose: history
+audience: [operations, platform-devops]
+definition: One execution of a scheduled job, with its result and how long it took.
+sources:
+- https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Job run
+    many: Job runs
+  ru:
+    one: Запуск задачи
+    many: Запуски задачи
+description:
+  en: One execution of a scheduled job, with its result and how long it took.
+  ru: Одно выполнение задачи по расписанию с результатом и длительностью.

@@ -1,0 +1,27 @@
+id: practice.data-entity
+purpose: structure
+audience: [analyst, architect, developer]
+definition: A thing of the domain as it is stored, with the attributes and the identity it keeps.
+sources:
+- https://www.domainlanguage.com/ddd/reference/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Data entity
+    many: Data entities
+  ru:
+    one: Сущность данных
+    many: Сущности данных
+description:
+  en: A thing of the domain as it is stored, with the attributes and the identity it keeps.
+  ru: Объект предметной области в том виде, как он хранится, с атрибутами и идентичностью.

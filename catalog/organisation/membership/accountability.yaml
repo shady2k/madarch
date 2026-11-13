@@ -1,0 +1,27 @@
+id: scrum.accountability
+purpose: history
+audience: [product-lead, product, architect]
+definition: What a role answers for, as the Scrum Guide states the accountabilities of a Scrum team.
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Accountability
+    many: Accountabilities
+  ru:
+    one: Ответственность
+    many: Ответственности
+description:
+  en: What a role answers for, as the Scrum Guide states the accountabilities of a Scrum team.
+  ru: То, за что отвечает роль, как Scrum Guide описывает ответственности команд Scrum.

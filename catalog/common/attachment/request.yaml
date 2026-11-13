@@ -1,0 +1,31 @@
+id: practice.request
+purpose: understand
+audience: [product-lead, analyst, developer]
+definition: One person's utterance kept verbatim, which may change any entity; many requests belong to a piece of work, the
+  agent processes each, and the responsible person approves the result.
+sources:
+- https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md
+- https://support.atlassian.com/jira-service-management-cloud/docs/what-are-service-requests/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  - evidences
+  in:
+  - approves
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Request
+    many: Requests
+  ru:
+    one: Запрос
+    many: Запросы
+description:
+  en: One person's words kept as they were said, which the agent processes and a responsible person approves.
+  ru: Слова человека, сохранённые дословно; агент их обрабатывает, а ответственный человек согласует результат.

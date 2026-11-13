@@ -1,0 +1,27 @@
+id: practice.ai-incident
+purpose: operations
+audience: [security-engineer, product-lead, analyst]
+definition: A harm or a near miss an AI system caused, kept so it can be answered and learned from.
+sources:
+- https://www.nist.gov/itl/ai-risk-management-framework
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: AI incident
+    many: AI incidents
+  ru:
+    one: Инцидент ИИ
+    many: Инциденты ИИ
+description:
+  en: A harm or a near miss an AI system caused, kept so it can be answered and learned from.
+  ru: Вред или его предотвращение, вызванные системой ИИ, сохранённые, чтобы на них ответить и извлечь урок.

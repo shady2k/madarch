@@ -1,0 +1,32 @@
+id: practice.message-schema
+purpose: structure
+audience: [developer, architect, analyst, tester]
+definition: The shape of a message sent over a channel.
+sources:
+- https://www.asyncapi.com/docs/reference/specification/v3.0.0
+acquisition:
+- extractor contracts
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+card: true
+details:
+- channel
+- eventTypes
+- path
+labels:
+  en:
+    one: Event
+    many: Events
+  ru:
+    one: Событие
+    many: События
+description:
+  en: A kind of message sent over a channel.
+  ru: Вид сообщения, которое передают по каналу.

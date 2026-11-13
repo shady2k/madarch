@@ -131,6 +131,13 @@
             "meaning": "The languages read from the pinned repository.",
             "example": [],
             "required": false
+          },
+          {
+            "name": "directory",
+            "type": "text",
+            "meaning": "The parent directory of the pinned file path, or . for a root file.",
+            "example": "src",
+            "required": false
           }
         ]
       },

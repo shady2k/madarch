@@ -1,0 +1,28 @@
+id: mlmd.execution
+purpose: history
+audience: [developer, architect, product-lead]
+definition: One training of a model, with its parameters, its data and its output.
+sources:
+- https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd
+- https://mlflow.org/docs/latest/index.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Training run
+    many: Training runs
+  ru:
+    one: Запуск обучения
+    many: Запуски обучения
+description:
+  en: One training of a model, with its parameters, its data and its output.
+  ru: Одно обучение модели с его параметрами, данными и результатом.

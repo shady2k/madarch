@@ -1,0 +1,31 @@
+id: practice.broker
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
+definition: A message broker declared by a deployment or by connection settings.
+sources:
+- https://www.asyncapi.com/docs/reference/specification/v3.0.0
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - dependsOn
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- technology
+- source
+- addresses
+labels:
+  en:
+    one: Message broker
+    many: Message brokers
+  ru:
+    one: Брокер сообщений
+    many: Брокеры сообщений
+description:
+  en: A broker declared by deployment or connection settings.
+  ru: Брокер, объявленный в развёртывании или настройках подключения.

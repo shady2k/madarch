@@ -1,0 +1,30 @@
+id: otel.cicd-pipeline
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A continuous integration workflow file and the triggers it runs on.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - defines
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- name
+- 'on'
+labels:
+  en:
+    one: CI workflow
+    many: CI workflows
+  ru:
+    one: Процесс CI
+    many: Процессы CI
+description:
+  en: A continuous-integration workflow file.
+  ru: Файл процесса непрерывной интеграции.

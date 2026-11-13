@@ -1,3 +1,4 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The db-schema path end to end (decision 0035, items 6, 7, 15, 17 and 18; task madarch-47vw.3): the plugin reads the SQL
  * its TypeScript literals hold with parsers — a TypeScript parser for the literals, libpg_query for the SQL — and answers
@@ -265,14 +266,13 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     mkdirSync(join(code, 'fixtures'), { recursive: true });
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
     useFixturePlugins(folder, ['disk', 'git', 'db-schema']);
-    const kindsPath = join(folder, 'madarch', 'kinds.yaml');
-    const kinds = parseDocument(readFileSync(kindsPath, 'utf8'));
+    const kinds = parseDocument(readFolderManifestText(folder));
     for (const output of ['code.database', 'code.table', 'code.column', 'code.index']) {
       expect(kinds.hasIn(['kinds', output])).toBe(true);
       kinds.setIn(['kinds', output, 'terms'], ['src/**/*.ts']);
     }
     kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, binding: { agent: 'The structured source excerpt a page shows.' } });
-    writeFileSync(kindsPath, kinds.toString());
+    writeFolderManifest(folder, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
     git(code, 'add', '-A');
     git(code, 'commit', '--quiet', '-m', 'First commit');

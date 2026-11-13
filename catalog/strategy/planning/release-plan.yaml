@@ -1,0 +1,27 @@
+id: practice.release-plan
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: What a release is meant to contain, and when it is expected.
+sources:
+- https://www.atlassian.com/agile/product-management/product-roadmaps
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Release plan
+    many: Release plans
+  ru:
+    one: План выпуска
+    many: Планы выпуска
+description:
+  en: What a release is meant to contain, and when it is expected.
+  ru: Что должен содержать выпуск и когда его ждут.

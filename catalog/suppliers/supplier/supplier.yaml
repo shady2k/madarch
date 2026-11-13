@@ -1,0 +1,27 @@
+id: practice.supplier
+purpose: operations
+audience: [product-lead, operations, security-engineer]
+definition: An organisation the product depends on for a service, a component or a platform.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/161/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Supplier
+    many: Suppliers
+  ru:
+    one: Поставщик
+    many: Поставщики
+description:
+  en: An organisation the product depends on for a service, a component or a platform.
+  ru: Организация, от которой продукт зависит в сервисе, компоненте или платформе.

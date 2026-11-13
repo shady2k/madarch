@@ -1,0 +1,27 @@
+id: practice.iam-grant
+purpose: operations
+audience: [security-engineer, architect]
+definition: One permission given to a subject over a resource.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/207/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - grants
+  in:
+  - grants
+template-policy: none
+labels:
+  en:
+    one: IAM grant
+    many: IAM grants
+  ru:
+    one: Разрешение IAM
+    many: Разрешения IAM
+description:
+  en: One permission given to a subject over a resource.
+  ru: Одно право, данное субъекту на ресурс.

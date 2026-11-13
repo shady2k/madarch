@@ -288,6 +288,8 @@ export type KindSummary = {
   single: boolean;
   group?: string;
   origins: Origin[];
+  audience?: readonly string[];
+  purpose?: string;
   descriptions?: Record<string, string>;
   labels?: Record<string, { one: string; many: string }>;
   /** The form the kind's listing page takes; absent for the plain table of names and places. */
@@ -421,6 +423,7 @@ export type FillProgressView = {
 export type FillErrorView = { message: string; file?: string; line?: number; path?: string };
 
 export type FillState = {
+  runId?: string;
   rebuilt?: 'extractors-changed';
   /** `paused` and `stopped` are a person's press (madarch-m38l.17): a paused run ends at the next page boundary and is
    * taken up where it stopped; a stopped one ends now and the pages it rewrote stand. */
@@ -512,6 +515,7 @@ export type WikiStatus = {
   findingCount: number;
   kinds: KindSummary[];
   groups: GroupSummary[];
+  purposes?: { id: string; labels: Record<string, string>; order: number; kinds: string[] }[];
   repositories: { name: string; filled: boolean }[];
   filled: boolean;
   incomplete: boolean;
@@ -618,7 +622,35 @@ export type GroundView = { url: string; resolution: Resolution; excerpt: Excerpt
 
 type RelyingRef = { page: string; pageTitle: string; text: string; line: number; file: string; how: 'grounds' | 'mentions'; ground: string; sentence?: string; turn?: number };
 
+
+/** Manifest facts computed from the graph for the reader's role. */
+export type FactGround = {
+  value: number | null;
+  rows: { label: string; value: number; entity?: string }[];
+  kind: string;
+  measure: string;
+  field?: string;
+  buckets?: readonly number[];
+  limit?: number;
+  total: number;
+  missing: number;
+  entities: string[];
+  computedAt: string;
+};
+export type FactStatement = {
+  id: string;
+  label: string;
+  display: 'number' | 'bar' | 'treemap' | 'timeline';
+  measure: string;
+  value: number | null;
+  rows: { label: string; value: number; entity?: string }[];
+  ground: FactGround;
+  statement: StatementModel;
+};
+export type FactsView = { role: string; kinds: { kind: string; label: string; statements: FactStatement[] }[] };
+
 export type StatementModel = {
+  aggregate?: FactGround;
   page: EntityRef;
   /** The statement's name on its page: what a correction names it by. */
   name: string | null;
@@ -890,3 +922,24 @@ export type ContractReason =
   | {code: 'selectionNotRendered'};
 export type ContractDiagnostic = { path: string; line: number; fullPath: string; code: string; detail: string; reason?: ContractReason; technicalDetail?: string };
 type ProtoDocumentation = { services: {name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[]}[]; messages: {name: string; fields: {name: string; type: string; id: number; rule: string; oneof?: string}[]; values?: {name: string; id: number}[]}[] };
+
+/** A persisted fill run, independent of the currently selected product run. */
+export type SelectionRun = {
+  summary?: FillRunView;
+  runId: string;
+  state: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  elapsedMs: number;
+  remainingMs: number | null;
+  selected: string[] | null;
+  order: string[] | null;
+  vertex: string | null;
+  units: { unitId: string; stage: string; scope: string; status: string; generation: number; attempts: number }[];
+  events: { seq: number; at: string; stage: string; unitId: string | null; type: string; summary: string }[];
+  records: number;
+  publishedUnits: number;
+  groups: { kind: string; group: string | null; plugin: string; done: number; total: number; state: string }[];
+  agentUsage: AgentUsageReport | null;
+};

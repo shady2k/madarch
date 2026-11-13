@@ -1,0 +1,27 @@
+id: practice.cache-policy
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
+definition: The rule that decides when a cached value is written, reused and dropped.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9111.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Cache policy
+    many: Cache policies
+  ru:
+    one: Политика кэша
+    many: Политики кэша
+description:
+  en: The rule that decides when a cached value is written, reused and dropped.
+  ru: Правило, которое решает, когда закэшированное значение записывают, переиспользуют и удаляют.

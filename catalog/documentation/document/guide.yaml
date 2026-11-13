@@ -1,0 +1,27 @@
+id: practice.guide
+purpose: understand
+audience: [product, analyst, developer, operations]
+definition: A written walkthrough that takes a person through a task to an outcome.
+sources:
+- https://diataxis.fr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Guide
+    many: Guides
+  ru:
+    one: Руководство
+    many: Руководства
+description:
+  en: A written walkthrough that takes a person through a task to an outcome.
+  ru: Написанное прохождение, которое ведёт человека через задачу к результату.

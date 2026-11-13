@@ -1,0 +1,27 @@
+id: slsa.builder
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The service that ran a build, as the provenance records it.
+sources:
+- https://slsa.dev/spec/v1.0/provenance
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - usesTool
+  in:
+  - usesTool
+template-policy: none
+labels:
+  en:
+    one: Build platform
+    many: Build platforms
+  ru:
+    one: Платформа сборки
+    many: Платформы сборки
+description:
+  en: The service that ran a build, as the provenance records it.
+  ru: Сервис, на котором шла сборка, как его записывает происхождение.

@@ -1,0 +1,27 @@
+id: istqb.performance-test
+purpose: quality
+audience: [tester, developer]
+definition: A test that measures how the product responds and how much it can carry.
+sources:
+- https://glossary.istqb.org/en_US/term/performance-testing
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Performance test
+    many: Performance tests
+  ru:
+    one: Тест производительности
+    many: Тесты производительности
+description:
+  en: A test that measures how the product responds and how much it can carry.
+  ru: Тест, который измеряет, как отвечает продукт и сколько он может выдержать.

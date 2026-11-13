@@ -1,0 +1,27 @@
+id: practice.frontend-route
+purpose: structure
+audience: [designer, developer]
+definition: A client-side address that renders a screen and calls the operations it needs.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Frontend route
+    many: Frontend routes
+  ru:
+    one: Маршрут интерфейса
+    many: Маршруты интерфейса
+description:
+  en: A client-side address that renders a screen and calls the operations it needs.
+  ru: Клиентский адрес, который рисует экран и вызывает нужные операции.

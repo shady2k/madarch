@@ -123,7 +123,7 @@ function indexOfDataset(): { extensions: Map<string, string[]>; names: Map<strin
  * (`h.in` before `in`), and `unknown` where the dataset names neither. Several candidates are the
  * ambiguity itself: `ambiguous` with them, never one of them picked.
  */
-export function languageOfPath(path: string): { language: string; candidates: readonly string[] } {
+export function languageOfPath(path: string, content?: string): { language: string; candidates: readonly string[] } {
   const index = indexOfDataset();
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   const held = index.names.get(name);
@@ -135,7 +135,15 @@ export function languageOfPath(path: string): { language: string; candidates: re
     const found = index.extensions.get(extension);
     if (found !== undefined && extension.length > bestLength) { best = found; bestLength = extension.length; }
   }
-  if (best === undefined) return { language: 'unknown', candidates: ['unknown'] };
+  if (best === undefined) {
+    if (content !== undefined) {
+      try {
+        JSON.parse(content);
+        return { language: 'JSON', candidates: ['JSON'] };
+      } catch { /* Not JSON: the parser supplies no language opinion. */ }
+    }
+    return { language: 'unknown', candidates: ['unknown'] };
+  }
   return best.length === 1 ? { language: best[0]!, candidates: best } : { language: 'ambiguous', candidates: best };
 }
 
@@ -282,7 +290,13 @@ export async function readRepositoryTree(pin: RepositoryAt, options: { readonly 
   }
   // The text files' bytes, once per blob: two files with the same bytes share one row in the store (item 9).
   const contents = options.fileFacts === false ? new Map<string, string | null>() : await blobContents(pin.root, files.filter((file) => file.form === 'text').map((file) => file.blob));
-  for (const file of files) if (file.form === 'text') (file as { content: string | null }).content = contents.get(file.blob) ?? null;
+  for (const file of files) if (file.form === 'text') {
+    const content = contents.get(file.blob) ?? null;
+    (file as { content: string | null }).content = content;
+    if (file.language === 'unknown' && content !== null && !overrides.has(file.path)) {
+      Object.assign(file, languageOfPath(file.path, content));
+    }
+  }
   files.sort((left, right) => byCodePoint(left.path, right.path));
   gitlinks.sort((left, right) => byCodePoint(left.path, right.path));
   // The repository's web address is its remote, read here (the files producer alone reads the source filesystem): a

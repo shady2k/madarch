@@ -1,0 +1,69 @@
+id: practice.product-task
+purpose: operations
+audience: [developer, product, product-lead, tester]
+definition: A scoped change a person plans, with the pages and the statements it affects; it is the work item for work with
+  no entity of its own; its plan and done criterion are parts of it and its executor is a property.
+sources:
+- https://scrumguides.org/scrum-guide.html
+- https://support.atlassian.com/jira-software-cloud/docs/create-a-work-item-and-a-subtask/
+acquisition:
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - hasPart
+  - refines
+  in:
+  - partOf
+  - refines
+template-policy: page
+template: templates/task.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+import-folder: docs/tasks
+nav: own-page
+details:
+- status
+- question
+- answer
+- problem
+- grounds
+- scope
+- by
+- at
+- closed_by
+- closed_at
+- file
+labels:
+  en:
+    one: Task
+    many: Tasks
+  ru:
+    one: Задача
+    many: Задачи
+description:
+  en: A scoped change the person plans, with the pages and statements it affects; it is the work item for work with no entity
+    of its own. Its plan and done criterion are parts of it, and its executor is a property.
+  ru: Запланированное изменение с указанной областью, затронутыми страницами и утверждениями; это рабочий элемент для работы
+    без собственной сущности. План и критерий готовности — его части, а исполнитель — свойство.
+key: []

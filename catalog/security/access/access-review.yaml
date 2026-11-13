@@ -1,0 +1,27 @@
+id: practice.access-review
+purpose: quality
+audience: [security-engineer, operations, product-lead]
+definition: A periodic check that every account still needs the access it has.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/207/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Access review
+    many: Access reviews
+  ru:
+    one: Проверка доступа
+    many: Проверки доступа
+description:
+  en: A periodic check that every account still needs the access it has.
+  ru: Периодическая проверка того, что каждой учётной записи всё ещё нужен её доступ.

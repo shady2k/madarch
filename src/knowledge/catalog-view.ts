@@ -9,6 +9,7 @@
  * leaves out stays absent and its finding names the file and line; the app marks the kind untranslated rather than
  * showing an English name to a reader of another language.
  */
+import { dirname, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import type { RenderContext } from './blocks.js';
 import type { CatalogEntry } from './catalog.js';
@@ -123,7 +124,7 @@ export async function catalogKinds(ctx: RenderContext, turns: {
     return {
       kind, subgroup,
       ...(decl === undefined ? {} : requirementOf([kind])),
-      declaration: { file: ctx.manifest.file, line: decl?.line ?? entry!.line },
+      declaration: { file: ctx.manifest.kindFiles?.has(kind) ? resolve(dirname(ctx.manifest.file), '..', ctx.manifest.kindFiles.get(kind)!) : ctx.manifest.file, line: decl?.line ?? entry!.line },
       fields: (decl?.details ?? []).flatMap((name) => {
         const property = ctx.manifest.properties.get(name);
         if (property === undefined) return [];

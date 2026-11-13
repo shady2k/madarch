@@ -10,7 +10,7 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
  * The case holds the graph's tables in one connection, so the verdict's snapshot has to wait, and asks whether
  * `close()` returns while the verdict's own `DatabaseOwner` is still open. It must not: `close()` waits for the run.
  */
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -130,9 +130,13 @@ test('a standalone fill does not start validation, while an explicit request sti
     expect(judgeCalls).toBe(0);
     expect(existsSync(file)).toBe(false);
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
-    const verdict = await product.graphVerdicts();
-    expect(verdict.rows.length).toBeGreaterThan(0);
-    expect(existsSync(file)).toBe(true);
+    const context = spyOn(product, 'context');
+    try {
+      const verdict = await product.graphVerdicts();
+      expect(verdict.rows.length).toBeGreaterThan(0);
+      expect(existsSync(file)).toBe(true);
+      expect(context).toHaveBeenCalledTimes(1);
+    } finally { context.mockRestore(); }
   } finally {
     await product?.close();
     rmSync(work, { recursive: true, force: true });

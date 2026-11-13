@@ -982,6 +982,18 @@ export async function readRunPublicationCount(database: OrchestratorDatabase, ru
   }, 'snapshot');
 }
 
+/** Facts applied by this run's publications, not a count of publication units. */
+export async function readRunPublicationFacts(database: OrchestratorDatabase, runId: string): Promise<number> {
+  const at = here();
+  return run(at, database, `readRunPublicationFacts(${runId})`, ['fill_publication'], async (executor) => {
+    const { rows } = await executor.query<{ facts: unknown }>(
+      `SELECT COALESCE(SUM(p.facts), 0) AS facts FROM fill_publication p
+       JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1`, [runId],
+    );
+    return millis(rows[0]?.facts ?? 0);
+  }, 'snapshot');
+}
+
 /**
  * One unit generation's place in the plan that created it: which stage it
  * belongs to, where that stage stands in the derived order, where the stage's
@@ -1074,14 +1086,14 @@ export async function readUnitPlan(database: OrchestratorDatabase, unitId: strin
 }
 
 /** Every unit of one run with the place in the plan it was created at, in code point order of the unit ids. */
-export async function readRunPlans(database: OrchestratorDatabase, runId: string): Promise<readonly UnitPlanRecord[]> {
+export async function readRunPlans(database: OrchestratorDatabase, runId: string, options: { readonly history?: boolean } = {}): Promise<readonly UnitPlanRecord[]> {
   const at = here();
   return run(at, database, `readRunPlans(${runId})`, ['fill_unit_plan'], async (executor) => {
     // The generation in force only: a unit replaced inside one run has two plan rows, and the one the
     // run works is the one its own unit row names. The join also fixes the order the ids are read in.
     const { rows } = await executor.query<UnitPlanRow>(
       `SELECT p.unit_id, p.generation, p.run_id, p.stage_id, p.stage_unit_id, p.scope, p.stage_position, p.plan_position, p.planned_at, p.cache_versions
-         FROM fill_unit_plan p JOIN fill_unit u ON u.unit_id = p.unit_id AND u.generation = p.generation
+         FROM fill_unit_plan p ${options.history === true ? '' : 'JOIN fill_unit u ON u.unit_id = p.unit_id AND u.generation = p.generation'}
         WHERE p.run_id = $1`,
       [runId],
     );

@@ -1,0 +1,30 @@
+id: practice.code-input
+purpose: structure
+audience: [developer, architect]
+definition: A value that enters the code from outside, such as a query parameter.
+sources:
+- https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- name
+- source
+labels:
+  en:
+    one: Input
+    many: Inputs
+  ru:
+    one: Входные данные
+    many: Входные данные
+description:
+  en: A value that enters the code from outside, such as a query parameter.
+  ru: Значение, которое попадает в код снаружи, например параметр запроса.

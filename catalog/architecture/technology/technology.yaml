@@ -1,0 +1,30 @@
+id: practice.technology
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A language, framework, runtime or platform the product builds on; its version and its end of life are attributes,
+  not kinds.
+sources:
+- https://endoflife.date/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: Technology
+    many: Technologies
+  ru:
+    one: Технология
+    many: Технологии
+description:
+  en: A language, framework, runtime or platform the product builds on; its version and its end of life are attributes, not
+    kinds.
+  ru: Язык, фреймворк, среда выполнения или платформа, на которых строится продукт; версия и срок поддержки — атрибуты, а
+    не виды.

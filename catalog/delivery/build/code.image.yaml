@@ -1,0 +1,27 @@
+id: practice.container-image
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A container image a deployment runs, named by its repository and its tag.
+sources:
+- https://github.com/opencontainers/image-spec
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+labels:
+  en:
+    one: Image
+    many: Images
+  ru:
+    one: Образ
+    many: Образы
+description:
+  en: A container image a deployment runs.
+  ru: Образ контейнера, который запускает развёртывание.

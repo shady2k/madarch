@@ -1,0 +1,27 @@
+id: practice.protocol
+purpose: structure
+audience: [developer, architect, operations, platform-devops]
+definition: An agreed set of rules two parties speak, such as HTTP or SMTP.
+sources:
+- https://www.rfc-editor.org/rfc/rfc791.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - appliesTo
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: Protocol
+    many: Protocols
+  ru:
+    one: Протокол
+    many: Протоколы
+description:
+  en: An agreed set of rules two parties speak, such as HTTP or SMTP.
+  ru: Согласованный набор правил, на котором говорят две стороны, например HTTP или SMTP.

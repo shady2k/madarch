@@ -1,0 +1,27 @@
+id: earl.evaluation
+purpose: quality
+audience: [designer, tester, developer]
+definition: A recorded evaluation of a resource against a criterion, with its result and the tool that made it.
+sources:
+- https://www.w3.org/TR/EARL10-Schema/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Accessibility evaluation
+    many: Accessibility evaluations
+  ru:
+    one: Оценка доступности
+    many: Оценки доступности
+description:
+  en: A recorded evaluation of a resource against a criterion, with its result and the tool that made it.
+  ru: Записанная оценка ресурса по критерию с результатом и инструментом, который её сделал.

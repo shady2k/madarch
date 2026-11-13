@@ -1,0 +1,32 @@
+id: practice.setup-command
+purpose: operations
+audience: [developer, platform-devops]
+definition: A command the README tells a newcomer to run.
+sources:
+- https://diataxis.fr/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- command
+- folder
+- purpose
+- order
+labels:
+  en:
+    one: Setup command
+    many: Setup commands
+  ru:
+    one: Команда запуска
+    many: Команды запуска
+description:
+  en: A command the README tells a newcomer to run.
+  ru: Команда, которую README велит выполнить новичку.

@@ -120,16 +120,16 @@ describe('an empty product', () => {
     // which file it lacks (decision 0034, item 24).
     expect(bare.body).toMatchObject({ manifest: 'no-manifest', filled: false, home: null, kinds: [] });
     // The state names the file it lacks, and the wiki's page links the guide that writes one.
-    expect(String(bare.body.manifestFile)).toBe(join(home, 'bare', 'madarch', 'kinds.yaml'));
+    expect(String(bare.body.manifestFile)).toBe(join(home, 'bare', 'madarch', 'catalog.yaml'));
     expect(bare.body.seeded).toBeUndefined();
     expect(readKinds(join(home, 'bare')).present).toBe(false);
     const refused = await fetch(`${server.url}/products/bare/api/fill`, { method: 'POST' });
     expect(refused.status).toBe(409);
-    expect(JSON.stringify(await refused.json())).toContain('madarch/kinds.yaml');
+    expect(JSON.stringify(await refused.json())).toContain('madarch/catalog.yaml');
     // Validated declarations are published to the graph without filling repository content.
     const tiny = await get('/products/tiny/api/status');
     expect(tiny.body).toMatchObject({ manifest: 'not-filled', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
-    expect(String(tiny.body.manifestFile)).toBe(join(home, 'tiny', 'madarch', 'kinds.yaml'));
+    expect(String(tiny.body.manifestFile)).toBe(join(home, 'tiny', 'madarch', 'catalog.yaml'));
     expect(tiny.body.kinds.length).toBeGreaterThan(0);
     const catalogue = await get('/products/tiny/api/catalog');
     expect(catalogue.status).toBe(200);
@@ -172,7 +172,7 @@ describe('an empty product', () => {
     // starter set: 28 areas and 106 subgroups, 519 kinds), as main's `test/catalog-read.test.ts` reads the same manifest.
     // A starter set that grows moves this case with it instead of leaving a number here to edit.
     const read = readKinds(join(home, 'bare'));
-    if (!read.present) throw new Error('the server seeded no madarch/kinds.yaml into the bare product');
+    if (!read.present) throw new Error('the server seeded no madarch/catalog.yaml into the bare product');
 
     const seeded = read.manifest;
     expect(seeded.catalog).toBeDefined();
@@ -359,9 +359,9 @@ describe('the fill the reader watches', () => {
     expect(unknownRepository.body.error.message).toContain('unknown for other at 2026-03-02');
     expect(unknownRepository.body.text).toBeUndefined();
     // The product repository's own files open too, its git folder and dotfiles never.
-    const manifest = await get('/products/tiny/api/source?path=madarch%2Fkinds.yaml');
+    const manifest = await get('/products/tiny/api/source?path=madarch%2Fcatalog.yaml');
     expect(manifest.status).toBe(200);
-    expect(manifest.body).toMatchObject({ repo: null, path: 'madarch/kinds.yaml', language: 'yaml', commit: null });
+    expect(manifest.body).toMatchObject({ repo: null, path: 'madarch/catalog.yaml', language: 'yaml', commit: null });
     expect((await get('/products/tiny/api/source?path=.git%2Fconfig')).status).toBe(404);
     expect((await get('/products/tiny/api/source?path=.gitignore')).status).toBe(404);
     // The gitignored checkouts are read as the repository the graph was filled from, at that commit, never as the product's own files.

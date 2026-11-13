@@ -1,0 +1,27 @@
+id: unicode-mf2.message
+purpose: structure
+audience: [designer, developer]
+definition: A user-facing text with its placeholders, defined once and translated per language.
+sources:
+- https://messageformat.unicode.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - uses
+template-policy: none
+labels:
+  en:
+    one: Message
+    many: Messages
+  ru:
+    one: Сообщение
+    many: Сообщения
+description:
+  en: A user-facing text with its placeholders, defined once and translated per language.
+  ru: Текст для пользователя с подстановками, заданный один раз и переведённый на каждый язык.

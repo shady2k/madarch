@@ -1,3 +1,4 @@
+import { starterManifestText } from './catalog-folder-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,7 +21,7 @@ for (const file of STARTER_FILES) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, file.bytes ?? file.content);
 }
-const manifest = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', folder);
+const manifest = parseKinds(starterManifestText(), 'madarch/catalog.yaml', folder);
 
 test('the loop kinds declare complete authored contracts and explicit import locations', () => {
   expect(manifest.findings).toEqual([]);

@@ -1,3 +1,4 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The tree and history passes publish the mechanism entries always and only the entities the product's manifest
  * declares (madarch-hsqs stage C): a manifest declaring code.file and not code.repository fills, and one declaring
@@ -35,8 +36,7 @@ const errors: string[] = [];
 function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
-  const file = join(draft.folder, 'madarch', 'kinds.yaml');
-  const manifest = parse(readFileSync(file, 'utf8')) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: { id: string; outputs: string[] }[] };
+  const manifest = parse(readFolderManifestText(draft.folder)) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: { id: string; outputs: string[] }[] };
   const declared = [...kinds, 'template'];
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
@@ -60,7 +60,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   writeFileSync(join(draft.folder, 'madarch', 'plugins.lock'), stringify({ plugins: [{
     id: 'disk', version: declaration.version, path: 'plugins/disk', closure: closureOf(pluginFolder).hash,
   }] }));
-  writeFileSync(file, stringify(manifest));
+  writeFolderManifest(draft.folder, stringify(manifest));
   writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
@@ -138,7 +138,7 @@ describe('a manifest declares one code kind and not the other', () => {
     // did not make (madarch-hsqs stage C: the declared contract, not a caught 42P01).
     // A file the fill read, by its entity id; the listing itself is the tree's (`code.contains`), which this manifest
     // does not declare, so the direct page is what proves the file page renders from the one declared kind.
-    const page = await fetch(`${server!.url}/products/files-only/api/page?id=${encodeURIComponent('code.file:files-only/madarch/kinds.yaml')}&full=1`, { headers: { accept: 'application/json' } });
+    const page = await fetch(`${server!.url}/products/files-only/api/page?id=${encodeURIComponent('code.file:files-only/madarch/catalog.yaml')}&full=1`, { headers: { accept: 'application/json' } });
     expect(page.status, JSON.stringify({ body: await page.clone().text(), errors })).toBe(200);
     for (const path of ['/api/status', '/api/catalog', '/api/glossary', '/api/documents']) {
       expect((await fetch(`${server!.url}/products/files-only${path}`, { headers: { accept: 'application/json' } })).status, path).toBe(200);

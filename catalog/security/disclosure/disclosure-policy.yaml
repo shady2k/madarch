@@ -1,0 +1,27 @@
+id: practice.disclosure-policy
+purpose: quality
+audience: [security-engineer, architect]
+definition: The published rules by which a researcher tells the product team about a vulnerability.
+sources:
+- https://www.rfc-editor.org/rfc/rfc9116.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Disclosure policy
+    many: Disclosure policies
+  ru:
+    one: Политика раскрытия
+    many: Политики раскрытия
+description:
+  en: The published rules by which a researcher tells the product team about a vulnerability.
+  ru: Опубликованные правила, по которым исследователь сообщает команде продукта об уязвимости.

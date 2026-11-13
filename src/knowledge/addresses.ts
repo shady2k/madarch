@@ -78,7 +78,7 @@ export function wikiPageAddresses(): string[] {
 /** Whether the app answers this path itself, rather than the server naming it unknown. */
 export function isWikiPagePath(pathname: string): boolean {
   const path = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-  return WIKI_PAGE_PATHS.includes(path) || WIKI_PAGE_FAMILIES.some((family) => pathname.startsWith(family));
+  return WIKI_PAGE_PATHS.includes(path) || /^\/fill\/runs\/[^/]+$/u.test(path) || WIKI_PAGE_FAMILIES.some((family) => pathname.startsWith(family));
 }
 
 /** The API the wiki answers, one address per answer. */
@@ -90,6 +90,7 @@ export const API = {
   page: '/api/page',
   block: '/api/block',
   statement: '/api/statement',
+  facts: '/api/facts',
   entities: '/api/entities',
   kindUsage: '/api/kind-usage',
   authored: '/api/authored',
@@ -102,6 +103,7 @@ export const API = {
   products: '/api/products',
   fill: '/api/fill',
   fillSelected: '/api/fill-selected',
+  fillRuns: '/api/fill-runs',
   pause: '/api/pause',
   stop: '/api/stop',
   agents: '/api/agents',
