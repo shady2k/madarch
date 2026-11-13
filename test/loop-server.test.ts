@@ -130,7 +130,7 @@ test('retired task execution refuses without starting a fill', async () => {
 test('a dismissal for a missing generic problem is refused without writing files', async () => {
   const before = revision();
   const response = await send('/problem-dismiss', { id: 'missing-problem', reason: 'Not a problem.' });
-  expect(response.status).toBe(404);
+  expect(response.status, await response.clone().text()).toBe(404);
   expect(await response.json()).toMatchObject({ error: { field: 'id' } });
   noMarkdownWrites(before);
 });

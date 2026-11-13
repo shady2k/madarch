@@ -82,7 +82,7 @@ afterAll(async () => {
 describe('the Problems page in levels', () => {
   test('the categories count every rule, and the status count is their open sum', async () => {
     const categories = await get('/api/problems');
-    expect(categories.status).toBe(200);
+    expect(categories.status, JSON.stringify(categories.body)).toBe(200);
     expect(categories.body.categories.some((category: { rule: string }) => category.rule === 'wiki.unreadable-file')).toBe(true);
     const unreadable = categories.body.categories.find((category: { rule: string }) => category.rule === 'wiki.unreadable-file');
     expect(unreadable.count).toBeGreaterThanOrEqual(EMPTY_REPOSITORIES);
