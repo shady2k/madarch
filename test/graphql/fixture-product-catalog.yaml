@@ -33,3 +33,10 @@ edges:
   - name: mentions
     from: [any]
     to: [any]
+    repeats: true
+    discriminator: place
+  - name: demo.sized
+    from: [demo.repository]
+    to: [demo.file]
+    fields:
+      - { name: weight, type: integer, producers: [agent] }

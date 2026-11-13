@@ -7,12 +7,13 @@
  * nothing else writes.
  */
 import { generatedTableName, type FieldContract, type GraphContract, type VertexContract } from './contract.js';
-import type { EdgeDraft, EvidenceDraft, EntityRefDraft, KeyValueDraft, VertexDraft, VertexRemovalDraft, EdgeRemovalDraft } from './contract.js';
+import type { EdgeDraft, EvidenceDraft, EvidenceEntry, EntityRefDraft, KeyValueDraft, VertexDraft, VertexRemovalDraft, EdgeRemovalDraft } from './contract.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { publishGraphDrafts } from './write.js';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 
 /** A refused write: the tool answers its message, naming the field when one is at fault. */
@@ -59,9 +60,9 @@ function instantOf(value: unknown, what: string): string {
 }
 
 /** One evidence entry, checked and made what the writer stores: every write rests on at least one. */
-export function evidenceOf(input: unknown): EvidenceDraft[] {
+export function evidenceOf(input: unknown): EvidenceEntry[] {
   if (!Array.isArray(input) || input.length === 0) throw new WriteRefusal('evidence is required: a file line, a conversation or an outside address, at least one', 'evidence');
-  const out: EvidenceDraft[] = [];
+  const out: EvidenceEntry[] = [];
   for (const [at, raw] of input.entries()) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new WriteRefusal(`evidence[${String(at)}] is an object: a file line, a conversation or an outside address`, 'evidence');
     const held = raw as Record<string, unknown>;
@@ -175,6 +176,9 @@ export function entityDraft(contract: GraphContract, input: { kind: string; key:
 export function edgeDraft(contract: GraphContract, input: { kind: string; from: EntityRefDraft; to: EntityRefDraft; discriminator?: string; values?: unknown }, source: WriteSource, evidence: EvidenceDraft[]): EdgeDraft {
   const edge = contract.edge.find((one) => one.name === input.kind);
   if (edge === undefined) throw new WriteRefusal(`edge kind ${JSON.stringify(input.kind)}: the graph holds no table for it`, 'kind');
+  // An end is one of the kinds the edge kind declares, or `any`.
+  if (!edge.from.includes('any') && !edge.from.includes(input.from.kind)) throw new WriteRefusal(`the from of the edge ${JSON.stringify(input.kind)} is one of the kinds ${edge.from.join(', ')}, got ${JSON.stringify(input.from.kind)}`, 'from');
+  if (!edge.to.includes('any') && !edge.to.includes(input.to.kind)) throw new WriteRefusal(`the to of the edge ${JSON.stringify(input.kind)} is one of the kinds ${edge.to.join(', ')}, got ${JSON.stringify(input.to.kind)}`, 'to');
   if (edge.repeats && (input.discriminator === undefined || input.discriminator === '')) throw new WriteRefusal(`edge ${JSON.stringify(input.kind)} repeats between the same ends, so the write names its discriminator`, 'discriminator');
   if (!edge.repeats && input.discriminator !== undefined && input.discriminator !== '') throw new WriteRefusal(`edge ${JSON.stringify(input.kind)} does not repeat between the same ends, so it takes no discriminator`, 'discriminator');
   const values: Record<string, unknown> = {};
@@ -183,7 +187,9 @@ export function edgeDraft(contract: GraphContract, input: { kind: string; from: 
     for (const [name, value] of Object.entries(input.values as Record<string, unknown>)) {
       const field = edge.fields.find((one) => one.name === name);
       if (field === undefined) throw new WriteRefusal(`field ${JSON.stringify(name)} is not an attribute of the edge ${JSON.stringify(input.kind)}: its attributes are ${edge.fields.map((one) => one.name).join(', ') || 'none'}`, name);
-      if (value !== null && !fits(field, value)) throw new WriteRefusal(`field ${JSON.stringify(name)} is ${typeName(field)}, got ${JSON.stringify(value)}`, name);
+      if (value === null) {
+        if (field.nullable !== true) throw new WriteRefusal(`field ${JSON.stringify(name)} is ${typeName(field)} and not nullable`, name);
+      } else if (!fits(field, value)) throw new WriteRefusal(`field ${JSON.stringify(name)} is ${typeName(field)}, got ${JSON.stringify(value)}`, name);
       values[name] = value;
     }
   }
@@ -247,12 +253,12 @@ async function manifestOf(tx: Parameters<Parameters<DatabaseOwner['transaction']
   return manifest;
 }
 
-/** The uid of the node the producer's newest open opinion is about: what a keyless entity's write answers. */
-async function producerNodeOf(tx: Parameters<Parameters<DatabaseOwner['transaction']>[1]>[0], vertex: VertexContract, producer: string): Promise<string | undefined> {
+/** The uid of the node a key names: the entity a keyed write made or restated. */
+async function nodeUidOfKey(tx: Parameters<Parameters<DatabaseOwner['transaction']>[1]>[0], vertex: VertexContract, key: Readonly<Record<string, unknown>>): Promise<string | undefined> {
   return (await tx.query<{ uid: string }>(
-    `SELECT n.uid::text AS uid FROM "${vertex.table}" t JOIN node n ON n.id = t.node_id
-     WHERE split_part(t.said_by, '@', 1) = $1 AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id DESC LIMIT 1`,
-    [producer],
+    `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id
+     WHERE e.name = $1 AND n.key = $2::jsonb AND n.context_id = 1 LIMIT 1`,
+    [vertex.name, JSON.stringify(key)],
   )).rows[0]?.uid;
 }
 
@@ -281,9 +287,11 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
       if (input.key === undefined) throw new WriteRefusal('the entity is named by key or by id', 'key');
       key = keyOfKind(vertex, input.key);
     }
+    // A keyless creation names its uid here, so the answer is always the entity this write made or restated.
+    if (vertex.key.length === 0 && writeUid === undefined) writeUid = randomUUID();
     const { draft } = entityDraft(contract, { kind: input.kind, key, values: input.values, ...(writeUid === undefined ? {} : { uid: writeUid }) }, source, evidence);
     const written = await publishGraphDrafts(tx, contract, { vertices: [draft], removals: [] }, 1, { author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
-    const uid = await producerNodeOf(tx, vertex, source.producer);
+    const uid = writeUid ?? await nodeUidOfKey(tx, vertex, draft.key as Record<string, unknown>);
     return { kind: input.kind, key: draft.key as Record<string, unknown>, ...(uid === undefined ? {} : { uid }), written };
   });
 }
@@ -293,16 +301,18 @@ async function edgeEndOf(tx: Parameters<Parameters<DatabaseOwner['transaction']>
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new WriteRefusal(`the ${side} of the edge is {kind, key} or {kind, id}`, side);
   const held = input as Record<string, unknown>;
   if (typeof held['kind'] !== 'string' || held['kind'] === '') throw new WriteRefusal(`the ${side} of the edge names its kind`, side);
-  const vertex = vertexOfKind(contract, held['kind']);
+  // A read names a catalogue entity `catalogue`; the storage names its kind `manifest.kind`. One name, both sides.
+  const kind = held['kind'] === 'catalogue' ? 'manifest.kind' : held['kind'];
+  const vertex = vertexOfKind(contract, kind);
   if (held['id'] !== undefined) {
     const rows = await tx.query<{ key: Record<string, unknown> }>(
       `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
-      [held['id'], held['kind']],
+      [held['id'], kind],
     );
-    if (rows.rows[0] === undefined) throw new WriteRefusal(`the ${side} id ${JSON.stringify(held['id'])}: no entity of the kind ${JSON.stringify(held['kind'])} has it`, side, 404);
-    return { kind: held['kind'], key: rows.rows[0].key as Record<string, KeyValueDraft>, uid: String(held['id']) };
+    if (rows.rows[0] === undefined) throw new WriteRefusal(`the ${side} id ${JSON.stringify(held['id'])}: no entity of the kind ${JSON.stringify(kind)} has it`, side, 404);
+    return { kind, key: rows.rows[0].key as Record<string, KeyValueDraft>, uid: String(held['id']) };
   }
-  return { kind: held['kind'], key: keyOfKind(vertex, held['key']) };
+  return { kind, key: keyOfKind(vertex, held['key']) };
 }
 
 /** Puts the agent's opinion of an edge and its attributes. */
@@ -322,7 +332,9 @@ export async function putEdgeOpinion(owner: DatabaseOwner, source: WriteSource, 
 }
 
 /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */
-export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly words?: string }): Promise<WriteAnswer> {
+export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+  // Why it is withdrawn is evidence too: a withdrawal names its grounds like every other write.
+  const evidence = evidenceOf(input.evidence);
   return await owner.transaction('write', async (tx) => {
     const manifest = await manifestOf(tx);
     const contract = writeContractOf(manifest);
@@ -351,7 +363,7 @@ export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, 
       const fields = Array.isArray(held['fields']) ? held['fields'].filter((one): one is string => typeof one === 'string') : undefined;
       if (held['fields'] !== undefined && (fields === undefined || fields.length !== (held['fields'] as unknown[]).length)) throw new WriteRefusal('retract.entity.fields is a list of field names', 'fields');
       const draft = entityRetraction(vertex, key, fields, source, uid);
-      const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [draft] }, 1, { author, ...(input.words === undefined ? {} : { words: input.words }) });
+      const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [draft] }, 1, { author, ...(input.words === undefined ? {} : { words: input.words }), withdrawal: { entity: String(held['kind']), ...(fields === undefined ? {} : { fields }), evidence } });
       return { kind: held['kind'], retracted: written > 0 };
     }
     if (input.edge === null || typeof input.edge !== 'object' || Array.isArray(input.edge)) throw new WriteRefusal('retract.edge is {kind, from, to, discriminator?}', 'edge');
@@ -360,7 +372,7 @@ export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, 
     const from = await edgeEndOf(tx, contract, 'from', held['from']);
     const to = await edgeEndOf(tx, contract, 'to', held['to']);
     const removal = edgeRetraction(contract, { kind: held['kind'], from, to, ...(typeof held['discriminator'] === 'string' ? { discriminator: held['discriminator'] } : {}) }, source);
-    const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edgeRemovals: [removal] }, 1, { author, ...(input.words === undefined ? {} : { words: input.words }) });
+    const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edgeRemovals: [removal] }, 1, { author, ...(input.words === undefined ? {} : { words: input.words }), withdrawal: { edge: held['kind'], evidence } });
     return { kind: held['kind'], retracted: written > 0 };
   });
 }

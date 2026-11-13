@@ -13,6 +13,9 @@ import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
 import { TEMPLATE_CONTRACT, interpretTemplateDeclarations } from '../plugin/template-declarations.js';
+import { publishedManifestOf } from '../graphql/manifest.js';
+import { graphqlSchemaOf } from '../graphql/schema.js';
+import { SchemaRefusal } from '../graphql/names.js';
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -45,6 +48,16 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   const read = readKindsFrom(files, folder);
   const workflow = readWorkflowsFrom(files, folder);
   const findings: Finding[] = read.present ? [...read.manifest.findings] : [];
+  // The names the schema derives are the manifest check's too (decision 0036, section 1): a reserved name, or two
+  // declarations that encode to one, refuse the manifest here and name both.
+  if (read.present && read.manifest.findings.length === 0) {
+    try {
+      graphqlSchemaOf(publishedManifestOf(read.manifest));
+    } catch (error) {
+      if (!(error instanceof SchemaRefusal)) throw error;
+      findings.push({ file: join(folder, KINDS_FILE), line: 1, message: error.message });
+    }
+  }
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);

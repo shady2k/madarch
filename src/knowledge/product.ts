@@ -606,7 +606,7 @@ export class KnowledgeProduct {
   }
 
   /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */
-  async retract(source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly words?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
+  async retract(source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
     const owner = await this.open();
     await this.followStoreFill();
     return await retractOpinion(owner, source, input);

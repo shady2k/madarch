@@ -9,7 +9,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
-import { generatedTableName } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
@@ -58,11 +57,8 @@ beforeAll(async () => {
   if (!read.present) throw new Error('the fixture product holds no manifest');
   if (read.manifest.findings.length > 0) throw new Error(read.manifest.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
   manifest = read.manifest;
-  const declared = graphContractOf(manifest);
-  contract = withManifestContract({ ...declared, edge: [...declared.edge, {
-    name: 'demo.contains', table: generatedTableName('demo.contains', 'edge'), from: ['demo.repository'], to: ['demo.file'],
-    repeats: false, fields: [{ name: 'position', type: 'integer', nullable: true }], capability: 'fixture',
-  }] });
+  // Every declared edge kind has its table (owner's rule): the manifest's own declaration is the contract.
+  contract = withManifestContract(graphContractOf(manifest));
   owner = await createTestDatabaseOwner({ graphContract: contract });
   const validation = validateProductManifests(folder);
   if (!validation.ok) throw new Error(validation.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
@@ -116,7 +112,7 @@ describe('the agent writes the graph', () => {
   });
 
   test('retract closes only the agent\'s own open opinions', async () => {
-    const retracted = await retractOpinion(owner, agent, { entity: { kind: 'demo.repository', key: { name: 'r1' }, fields: ['description'] } });
+    const retracted = await retractOpinion(owner, agent, { entity: { kind: 'demo.repository', key: { name: 'r1' }, fields: ['description'] }, evidence: [{ type: 'conversation', id: 'conversation-10', at: '2026-11-13T12:00:00Z', words: 'withdraw the description' }] });
     expect(retracted.retracted).toBe(true);
     const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { ... on DemoRepository { description contested descriptionOpinions { producer } } } } } }`);
     const node = (data['allDemoRepository'] as Record<string, any>).edges[0].node;
@@ -212,6 +208,7 @@ describe('the agent writes the graph', () => {
     });
     const edge = await putEdgeOpinion(owner, agent, {
       kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: { kind: 'demo.repository', key: { name: 'r1' } },
+      discriminator: 'docs/glossary.md:25:1',
       evidence: [{ type: 'file', path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25 }],
     });
     expect(edge.written).toBeGreaterThan(0);
@@ -224,5 +221,163 @@ describe('the agent writes the graph', () => {
     const node = inverse['entity'] as Record<string, any>;
     expect(node.mentionsOf.edges[0].node.node.title).toBe('Mentioned');
     expect(node.backlinks.edges.some((one: any) => one.node.relation === 'mentionsOf')).toBe(true);
+  });
+  test('an edge end must be a kind the edge declares, and a non-nullable attribute takes no null', async () => {
+    const repositoryKey = { name: 'r1' };
+    const fileKey = { repository: { kind: 'demo.repository', key: repositoryKey }, path: 'a.ts' };
+    const reversed = await putEdgeOpinion(owner, agent, {
+      kind: 'demo.contains', from: { kind: 'demo.file', key: fileKey }, to: { kind: 'demo.repository', key: repositoryKey },
+      evidence: [{ type: 'url', url: 'https://example.test/x', at: '2026-11-13T12:00:00Z' }],
+    }).catch((error: unknown) => error);
+    expect(reversed).toBeInstanceOf(WriteRefusal);
+    expect((reversed as WriteRefusal).message).toContain('the from of the edge');
+    const nullAttribute = await putEdgeOpinion(owner, agent, {
+      kind: 'demo.sized', from: { kind: 'demo.repository', key: repositoryKey }, to: { kind: 'demo.file', key: fileKey },
+      values: { weight: null }, evidence: [{ type: 'url', url: 'https://example.test/x', at: '2026-11-13T12:00:00Z' }],
+    }).catch((error: unknown) => error);
+    expect(nullAttribute).toBeInstanceOf(WriteRefusal);
+    expect((nullAttribute as WriteRefusal).message).toContain('not nullable');
+    const sized = await putEdgeOpinion(owner, agent, {
+      kind: 'demo.sized', from: { kind: 'demo.repository', key: repositoryKey }, to: { kind: 'demo.file', key: fileKey },
+      values: { weight: 3 }, evidence: [{ type: 'url', url: 'https://example.test/x', at: '2026-11-13T12:00:00Z' }],
+    });
+    expect(sized.written).toBeGreaterThan(0);
+  });
+
+  test('the answer uid is always the entity written, and a keyless entity is written again by id', async () => {
+    const first = await putEntityOpinion(owner, agent, { kind: 'demo.note', values: { label: 'first' }, evidence: [{ type: 'url', url: 'https://example.test/1', at: '2026-11-13T12:00:00Z' }] });
+    const second = await putEntityOpinion(owner, agent, { kind: 'demo.note', values: { label: 'second' }, evidence: [{ type: 'url', url: 'https://example.test/2', at: '2026-11-13T12:00:00Z' }] });
+    expect(first.uid).toBeDefined();
+    expect(second.uid).toBeDefined();
+    expect(first.uid).not.toBe(second.uid);
+    const again = await putEntityOpinion(owner, agent, { kind: 'demo.note', id: first.uid, values: { label: 'first' }, evidence: [{ type: 'url', url: 'https://example.test/1', at: '2026-11-13T12:00:00Z' }] });
+    expect(again.uid).toBe(first.uid);
+    const corrected = await putEntityOpinion(owner, agent, { kind: 'demo.note', id: first.uid, values: { label: 'first, corrected' }, evidence: [{ type: 'url', url: 'https://example.test/3', at: '2026-11-13T12:00:00Z' }] });
+    expect(corrected.uid).toBe(first.uid);
+    const read = await graphql(`query ($id: ID!) { entity(id: $id) { label } }`, { id: first.uid });
+    expect((read['entity'] as Record<string, any>).label).toBe('first, corrected');
+    // The same for a keyed kind: two entities, one restated, answer their own uid.
+    const a = await putEntityOpinion(owner, agent, { kind: 'demo.repository', key: { name: 'u1' }, values: { description: 'a' }, evidence: [{ type: 'url', url: 'https://example.test/4', at: '2026-11-13T12:00:00Z' }] });
+    const b = await putEntityOpinion(owner, agent, { kind: 'demo.repository', key: { name: 'u2' }, values: { description: 'b' }, evidence: [{ type: 'url', url: 'https://example.test/5', at: '2026-11-13T12:00:00Z' }] });
+    const restated = await putEntityOpinion(owner, agent, { kind: 'demo.repository', key: { name: 'u1' }, values: { description: 'a' }, evidence: [{ type: 'url', url: 'https://example.test/4', at: '2026-11-13T12:00:00Z' }] });
+    expect(restated.uid).toBe(a.uid);
+    expect(a.uid).not.toBe(b.uid);
+  });
+
+  test('a retraction names its evidence, and the journal keeps why', async () => {
+    const missing = await retractOpinion(owner, agent as WriteSource, { entity: { kind: 'demo.repository', key: { name: 'u1' }, fields: ['description'] }, evidence: [] }).catch((error: unknown) => error);
+    expect(missing).toBeInstanceOf(WriteRefusal);
+    expect((missing as WriteRefusal).message).toContain('evidence is required');
+    const done = await retractOpinion(owner, agent, { entity: { kind: 'demo.repository', key: { name: 'u1' }, fields: ['description'] }, evidence: [{ type: 'conversation', id: 'conversation-11', at: '2026-11-13T12:00:00Z', words: 'withdraw it' }] });
+    expect(done.retracted).toBe(true);
+    const journal = await owner.run(async (tx) => (await tx.query<{ change: Record<string, unknown> }>('SELECT change FROM operation ORDER BY seq DESC LIMIT 1')).rows[0]);
+    expect(JSON.stringify(journal?.change)).toContain('withdrawals');
+    expect(JSON.stringify(journal?.change)).toContain('conversation-11');
+  });
+
+  test('an edge retraction keeps another producer\'s opinion and the edge', async () => {
+    await owner.transaction('write', async (tx) => {
+      await publishGraphDrafts(tx, contract, {
+        vertices: [],
+        edges: [{ kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } }, values: { position: 7 }, producer: 'disk', producerVersion: '1' }],
+        removals: [],
+      }, 1, { author: 'disk@1' });
+    });
+    const fileKey = { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } };
+    await putEdgeOpinion(owner, agent, {
+      kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: fileKey, values: { position: 8 },
+      evidence: [{ type: 'url', url: 'https://example.test/e', at: '2026-11-13T12:00:00Z' }],
+    });
+    const retracted = await retractOpinion(owner, agent, {
+      edge: { kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: fileKey },
+      evidence: [{ type: 'url', url: 'https://example.test/withdraw', at: '2026-11-13T12:00:00Z' }],
+    });
+    expect(retracted.retracted).toBe(true);
+    const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(where: { position: { _gt: 0 } }, first: 10) { edges { node { position opinions { producer } } } } } } }`, { id: repository.edges[0].node.id });
+    const edges = ((data['entity'] as Record<string, any>).demoContains.edges).map((one: any) => one.node);
+    const kept = edges.find((one: any) => one.position === 7);
+    expect(kept).toBeDefined();
+    expect(kept.opinions.map((one: any) => one.producer)).toEqual(['disk']);
+  });
+
+  test('an entity retraction keeps an incident edge another producer states', async () => {
+    const repoKey = { name: 'keep-edge' };
+    const fileKey = { repository: { kind: 'demo.repository', key: repoKey }, path: 'x.ts' };
+    await putEntityOpinion(owner, agent, { kind: 'demo.repository', key: repoKey, values: { description: 'agent only' }, evidence: [{ type: 'url', url: 'https://example.test/1', at: '2026-11-13T12:00:00Z' }] });
+    await putEntityOpinion(owner, agent, { kind: 'demo.file', key: fileKey, values: { lines: 1 }, evidence: [{ type: 'url', url: 'https://example.test/2', at: '2026-11-13T12:00:00Z' }] });
+    await owner.transaction('write', async (tx) => {
+      await publishGraphDrafts(tx, contract, {
+        vertices: [],
+        edges: [{ kind: 'demo.contains', from: { kind: 'demo.repository', key: repoKey }, to: { kind: 'demo.file', key: fileKey }, values: { position: 1 }, producer: 'disk', producerVersion: '1' }],
+        removals: [],
+      }, 1, { author: 'disk@1' });
+    });
+    const retracted = await retractOpinion(owner, agent, { entity: { kind: 'demo.repository', key: repoKey }, evidence: [{ type: 'url', url: 'https://example.test/withdraw', at: '2026-11-13T12:00:00Z' }] });
+    expect(retracted.retracted).toBe(true);
+    const listed = await graphql(`{ allDemoRepository(where: { name: { _eq: "keep-edge" } }, first: 1) { edges { node { id name demoContains(first: 5) { totalCount } } } } }`);
+    const node = (listed['allDemoRepository'] as Record<string, any>).edges[0]?.node;
+    expect(node).toBeDefined();
+    expect(node.demoContains.totalCount).toBe(1);
+    const detail = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(first: 5) { edges { node { opinions { producer } } } } } } }`, { id: node.id });
+    const edges = (detail['entity'] as Record<string, any>).demoContains.edges;
+    expect(edges[0].node.opinions.map((one: any) => one.producer)).toEqual(['disk']);
+  });
+
+  test('a catalogue identity a read returns is accepted as an edge end', async () => {
+    const catalogue = (await graphql(`{ catalogueEntity(name: "demo.repository") { id } }`))['catalogueEntity'] as Record<string, any>;
+    expect(catalogue.id).toBeDefined();
+    const term = await putEntityOpinion(owner, agent, { kind: 'doc.term', values: { title: 'Catalogue mention' }, evidence: [{ type: 'url', url: 'https://example.test/t', at: '2026-11-13T12:00:00Z' }] });
+    const edge = await putEdgeOpinion(owner, agent, {
+      kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: { kind: 'catalogue', id: catalogue.id },
+      discriminator: 'docs/glossary.md:25:1',
+      evidence: [{ type: 'file', path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25 }],
+    });
+    expect(edge.written).toBeGreaterThan(0);
+    const read = await graphql(`{ catalogueEntity(name: "demo.repository") { mentionsOf(first: 5) { totalCount } } }`);
+    expect((read['catalogueEntity'] as Record<string, any>).mentionsOf.totalCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('an unknown tool argument and non-text words are refused at the tool boundary', async () => {
+    const stub = { putEntity: async () => ({ kind: 'doc.term' }) } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
+    const unknown = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], valuess: 1 });
+    expect(unknown.isError).toBe(true);
+    expect((unknown.answer as Record<string, any>).error.message).toContain('valuess');
+    const words = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], words: ['x'] });
+    expect(words.isError).toBe(true);
+    expect((words.answer as Record<string, any>).error.message).toContain('words');
+  });
+  test('two mentions of one entity stay apart by their places, and a retraction closes one', async () => {
+    const term = await putEntityOpinion(owner, agent, { kind: 'doc.term', values: { title: 'Occurrences' }, evidence: [{ type: 'url', url: 'https://example.test/o', at: '2026-11-13T12:00:00Z' }] });
+    const repository = { kind: 'demo.repository', key: { name: 'r1' } };
+    const evidence = [{ type: 'file', path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 3 }];
+    await putEdgeOpinion(owner, agent, { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:3:1', evidence });
+    await putEdgeOpinion(owner, agent, { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:9:1', evidence });
+    const both = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
+    const mentions = (both['entity'] as Record<string, any>).mentions;
+    expect(mentions.totalCount).toBe(2);
+    expect(mentions.edges.map((one: any) => one.node.discriminator).sort()).toEqual(['docs/glossary.md:3:1', 'docs/glossary.md:9:1']);
+    const retracted = await retractOpinion(owner, agent, {
+      edge: { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: repository, discriminator: 'docs/glossary.md:3:1' },
+      evidence: [{ type: 'url', url: 'https://example.test/withdraw', at: '2026-11-13T12:00:00Z' }],
+    });
+    expect(retracted.retracted).toBe(true);
+    const left = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 10) { totalCount edges { node { discriminator } } } } } }`, { id: term.uid });
+    const after = (left['entity'] as Record<string, any>).mentions;
+    expect(after.totalCount).toBe(1);
+    expect(after.edges[0].node.discriminator).toBe('docs/glossary.md:9:1');
+  });
+  test('a mention to a catalogue entity is retracted by the identity the read returned', async () => {
+    const catalogue = (await graphql(`{ catalogueEntity(name: "demo.file") { id } }`))['catalogueEntity'] as Record<string, any>;
+    const term = await putEntityOpinion(owner, agent, { kind: 'doc.term', values: { title: 'Catalogue retract' }, evidence: [{ type: 'url', url: 'https://example.test/r', at: '2026-11-13T12:00:00Z' }] });
+    await putEdgeOpinion(owner, agent, {
+      kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: { kind: 'catalogue', id: catalogue.id }, discriminator: 'docs/r.md:1:1',
+      evidence: [{ type: 'url', url: 'https://example.test/r', at: '2026-11-13T12:00:00Z' }],
+    });
+    const retracted = await retractOpinion(owner, agent, {
+      edge: { kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: { kind: 'catalogue', id: catalogue.id }, discriminator: 'docs/r.md:1:1' },
+      evidence: [{ type: 'url', url: 'https://example.test/w', at: '2026-11-13T12:00:00Z' }],
+    });
+    expect(retracted.retracted).toBe(true);
   });
 });

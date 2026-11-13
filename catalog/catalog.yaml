@@ -528,6 +528,6 @@ edges:
   - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }
   # The relations any entity may state (decision 0036, section 3): an agent's mention of one entity in another,
   # a link between two of them, and a statement's ground. `any` is every entity the schema holds, both ways.
-  - { name: mentions, from: [any], to: [any] }
-  - { name: linksTo, from: [any], to: [any] }
-  - { name: grounds, from: [any], to: [any] }
+  - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place }
+  - { name: linksTo, from: [any], to: [any], repeats: true, discriminator: place }
+  - { name: grounds, from: [any], to: [any], repeats: true, discriminator: place }

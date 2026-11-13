@@ -333,21 +333,22 @@ class Builder {
       // `any` ends stand on the Entity interface, so every entity type — the catalogue's too — declares them.
       const everyEntity = ['Entity', 'CatalogueEntity', ...this.kindTypes.values()];
       const addEverywhere = (fieldName: string, declaration: string, inverse: boolean): void => {
+        // No silent skip: a kind that declares a field of this name is a collision the manifest check refuses,
+        // naming both declarations (decision 0036, section 1).
         for (const type of everyEntity) {
-          if (this.types.get(type)?.fields.some((field) => field.name === fieldName) === true) continue;
           if (inverse) this.registry.claimGeneratedField(type, fieldName, declaration);
           else this.registry.claimField(type, fieldName, declaration);
           this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
         }
       };
-      for (const from of edge.from) {
+      for (const from of edge.from.includes('any') ? ['any'] : edge.from) {
         const fieldName = fieldNameOf(edge.name);
         if (from === 'any') { addEverywhere(fieldName, `the edge "${edge.name}"`, false); continue; }
         const type = this.kindTypes.get(from)!;
         this.registry.claimField(type, fieldName, `the edge "${edge.name}"`);
         this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
       }
-      for (const to of edge.to) {
+      for (const to of edge.to.includes('any') ? ['any'] : edge.to) {
         const fieldName = `${fieldNameOf(edge.name)}Of`;
         if (to === 'any') { addEverywhere(fieldName, `the inverse of the edge "${edge.name}"`, true); continue; }
         const type = this.kindTypes.get(to)!;

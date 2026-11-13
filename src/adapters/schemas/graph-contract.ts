@@ -122,13 +122,8 @@ async function makeTable(tx: OuterTransaction, table: string, fields: readonly F
         await tx.query(`ALTER TABLE ${name} ALTER COLUMN ${quote(field.name, 'field')} TYPE ${sqlType(field)} USING NULL::${sqlType(field)}`);
       }
     }
-    const wanted = new Set(columnsOfKind.map((field) => field.name));
-    for (const column of [...columns.keys()].sort(byCodePoint)) {
-      if (column === owner || (OPINION_FIELDS as readonly string[]).includes(column) || wanted.has(column)) continue;
-      const values = await valuesOf(tx, table, column);
-      if (values > 0) throw new Error(`${import.meta.path}:129: the kind ${JSON.stringify(kind)} no longer declares the field ${JSON.stringify(column)}; ${String(values)} non-null values would be lost from ${table}: the change is refused`);
-      await tx.query(`ALTER TABLE ${name} DROP COLUMN ${quote(column, 'column')}`);
-    }
+    // A field the contract no longer declares is resolved after every table stands: its mentions become edges, and
+    // any other value closes with a journal entry (owner's rule, 2026-11-13: no store refuses to open).
   }
   // The opinions resting on one path are found without a scan: the evidence list is indexed as a document.
   await tx.query(`CREATE INDEX IF NOT EXISTS ${quote(`${table}_owner`, 'index')} ON ${name} (${quote(owner, 'column')}, "state", "id")`);
@@ -346,6 +341,100 @@ export async function createContractTablesIn(tx: OuterTransaction, contract: Gra
   for (const edge of contract.edge) await makeTable(tx, tableOf(edge, 'edge'), edge.fields, [], 'edge_id', edge.name, edge.checks ?? [], edge.indexes ?? []);
   await registerKinds(tx, contract);
   await keyIndexes(tx, contract);
+  await resolveRemovedColumns(tx, contract);
   await pruneKinds(tx, contract);
   await tx.query("INSERT INTO madarch_meta.schema_stamp (name, stamp) VALUES ('graph-constraints', $1) ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, created_at = now()", [constraints]);
+}
+
+/**
+ * The fields a contract no longer declares, resolved so that a populated store still opens: a page's `mentions` values
+ * become `mentions` edges (each occurrence place kept as `migrated:<row>:<index>`), and any other value closes with a
+ * journal entry naming what went. The column is dropped afterwards; the store never refuses to open.
+ */
+async function resolveRemovedColumns(tx: OuterTransaction, contract: GraphContract): Promise<void> {
+  for (const vertex of contract.vertex) {
+    await resolveTable(tx, contract, generatedTableName(vertex.name, 'vertex'), vertex.name, vertex.fields.map((field) => field.name), 'node_id');
+  }
+  for (const edge of contract.edge) {
+    await resolveTable(tx, contract, generatedTableName(edge.name, 'edge'), edge.name, edge.fields.map((field) => field.name), 'edge_id');
+  }
+}
+
+async function resolveTable(tx: OuterTransaction, contract: GraphContract, table: string, kind: string, declared: readonly string[], owner: 'node_id' | 'edge_id'): Promise<void> {
+  const columns = await columnsOf(tx, table);
+  const wanted = new Set(declared);
+  for (const column of [...columns.keys()].sort(byCodePoint)) {
+    if (column === owner || (OPINION_FIELDS as readonly string[]).includes(column) || wanted.has(column)) continue;
+    const values = await valuesOf(tx, table, column);
+    let migrated = 0;
+    if (values > 0) migrated = column === 'mentions' && owner === 'node_id' ? await migrateMentions(tx, contract, table, kind) : 0;
+    if (values > 0 && migrated === 0) await recordClosedColumn(tx, kind, column, values);
+    await tx.query(`ALTER TABLE ${quote(table, 'table')} DROP COLUMN ${quote(column, 'column')}`);
+  }
+}
+
+/** One entity the store names, from a value a removed page stated: a uid, or `kind:<uid prefix>`. */
+async function mentionedNodeOf(tx: OuterTransaction, value: unknown): Promise<string | undefined> {
+  if (typeof value !== 'string' || value === '') return undefined;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)) {
+    return (await tx.query<{ id: string }>('SELECT id::text AS id FROM node WHERE uid = $1::uuid AND NOT removed LIMIT 1', [value])).rows[0]?.id;
+  }
+  const cut = value.lastIndexOf(':');
+  if (cut <= 0) return undefined;
+  const kind = value.slice(0, cut);
+  const prefix = value.slice(cut + 1);
+  if (!/^[0-9a-f]{4,}$/iu.test(prefix)) return undefined;
+  return (await tx.query<{ id: string }>(
+    `SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id
+     WHERE e.name = $1 AND n.uid::text LIKE $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
+    [kind, `${prefix.toLowerCase()}%`],
+  )).rows[0]?.id;
+}
+
+/** A page's `mentions` values become `mentions` edges, one per occurrence value, through the one graph store. */
+async function migrateMentions(tx: OuterTransaction, contract: GraphContract, table: string, kind: string): Promise<number> {
+  const edge = contract.edge.find((one) => one.name === 'mentions');
+  if (edge === undefined || edge.table === undefined) return 0;
+  const entity = await tx.query<{ id: string }>(
+    `INSERT INTO entity (name, sort, repeats, discriminator) VALUES ('mentions', 'edge', true, 'place')
+     ON CONFLICT (name) DO UPDATE SET sort = 'edge', repeats = true, discriminator = 'place' RETURNING id::text AS id`,
+  );
+  const entityId = entity.rows[0]?.id;
+  if (entityId === undefined) return 0;
+  const rows = await tx.query<{ opinion_id: string; node_id: string; mentions: unknown; context_id: string }>(
+    `SELECT id::text AS opinion_id, node_id::text AS node_id, mentions, context_id::text AS context_id FROM ${quote(table, 'table')} WHERE mentions IS NOT NULL`,
+  );
+  let migrated = 0;
+  for (const row of rows.rows) {
+    const mentions = Array.isArray(row.mentions) ? row.mentions : [];
+    for (const [index, value] of mentions.entries()) {
+      const to = await mentionedNodeOf(tx, value);
+      if (to === undefined) continue;
+      const discriminator = `migrated:${row.opinion_id}:${String(index)}`;
+      const made = await tx.query<{ id: string }>(
+        `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)
+         ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id`,
+        [entityId, row.node_id, to, discriminator, row.context_id],
+      );
+      if (made.rows[0] === undefined) continue;
+      await tx.query(`INSERT INTO ${quote(edge.table, 'table')} (edge_id, said_by, evidence, context_id) VALUES ($1::bigint, 'migration@1', '[]'::jsonb, $2::bigint)`, [made.rows[0].id, row.context_id]);
+      migrated += 1;
+    }
+  }
+  if (migrated > 0) await recordMigration(tx, `${String(migrated)} mentions of the kind ${JSON.stringify(kind)} became mentions edges`);
+  return migrated;
+}
+
+/** A journal entry for a migration, in the same transaction and through the same table as every other operation. */
+async function recordMigration(tx: OuterTransaction, words: string, change: Record<string, unknown> = {}): Promise<void> {
+  await tx.query(`INSERT INTO operation (author, words, change) VALUES ('migration@1', $1, $2::jsonb)`, [words, JSON.stringify(change)]);
+}
+
+/** A removed field whose values could not become edges: they close, and the journal says what went. */
+async function recordClosedColumn(tx: OuterTransaction, kind: string, column: string, values: number): Promise<void> {
+  await recordMigration(
+    tx,
+    `the field ${JSON.stringify(column)} of the kind ${JSON.stringify(kind)} was removed by a contract change; ${String(values)} values closed`,
+    { closed: [{ kind, field: column, values }] },
+  );
 }

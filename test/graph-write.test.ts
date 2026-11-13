@@ -341,27 +341,46 @@ describe('the manifest makes the table and the writer fills it', () => {
     } finally { await durable.close(); }
   });
 
-  test('destructive changes name historical non-null value counts and retain closed removed opinions', async () => {
-    const durable = await createTestDatabaseOwner();
-    const table = contract.vertex[0]!.table;
-    try {
-      await prepareStore(durable, { contract: contract });
+  test('a removed field closes with a journal entry, a retyped one with values refuses, and authored history stays', async () => {
+    const seeded = async () => {
+      const durable = await createTestDatabaseOwner();
+      await prepareStore(durable, { contract });
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('History', 'first')], removals: [] }, 1, { author: 'person:reader' }));
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [term('History', 'second')], removals: [] }, 1, { author: 'person:reader' }));
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, contract, { vertices: [], removals: [{ kind: 'doc.term', key: { name: 'History' }, producer: 'glossary', withdrawAll: true }] }, 1, { author: 'person:reader' }));
-      const dropped = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.filter((field) => field.name !== 'definition') })) };
-      const retyped = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.map((field) => field.name === 'definition' ? { ...field, type: 'integer' as const } : field) })) };
-      for (const changed of [dropped, retyped, { ...contract, vertex: [] }]) {
-        await expect(prepareStore(durable, { contract: changed })).rejects.toThrow(new RegExp(`${join(import.meta.dir, '../src/adapters/schemas/graph-contract.ts').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}:\\d+:.*kind "doc.term".*field "definition".*2 non-null values`));
-        const kept = await durable.run((tx) => tx.query<{ definition: string; state: string; removed: boolean }>(`SELECT o.definition, o.state, n.removed FROM ${table} o JOIN node n ON n.id = o.node_id ORDER BY o.id`));
-        expect(kept.rows).toEqual([{ definition: 'first', state: 'closed', removed: true }, { definition: 'second', state: 'closed', removed: true }]);
-      }
-      // An all-null historical field can be removed or retyped without losing a value.
+      return durable;
+    };
+    const table = contract.vertex[0]!.table;
+    // A removed field's values close, and the store opens: the journal names the field and the count.
+    const dropped = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.filter((field) => field.name !== 'definition') })) };
+    const forDrop = await seeded();
+    try {
+      expect(await prepareStore(forDrop, { contract: dropped })).toEqual({ reset: false });
+      const columns = await forDrop.run((tx) => tx.query<{ column_name: string }>(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1`, [table]));
+      expect(columns.rows.map((row) => row.column_name)).not.toContain('definition');
+      const kept = await forDrop.run((tx) => tx.query<{ state: string }>(`SELECT state FROM ${table} ORDER BY id`));
+      expect(kept.rows).toEqual([{ state: 'closed' }, { state: 'closed' }]);
+      const journal = await forDrop.run((tx) => tx.query<{ author: string; words: string }>(`SELECT author, words FROM operation WHERE author = 'migration@1' ORDER BY seq`));
+      expect(journal.rows.some((row) => row.words.includes('"definition"') && row.words.includes('2 values closed'))).toBe(true);
+    } finally { await forDrop.close(); }
+    // A retyped field with values still refuses, naming the kind, the field and the count.
+    const retyped = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.map((field) => field.name === 'definition' ? { ...field, type: 'integer' as const } : field) })) };
+    const forRetype = await seeded();
+    try {
+      await expect(prepareStore(forRetype, { contract: retyped })).rejects.toThrow(new RegExp(`${join(import.meta.dir, '../src/adapters/schemas/graph-contract.ts').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}:\\d+:.*kind "doc.term".*field "definition".*2 non-null values`));
+    } finally { await forRetype.close(); }
+    // Authored history refuses the kind's removal.
+    const forRemoval = await seeded();
+    try {
+      await expect(prepareStore(forRemoval, { contract: { ...contract, vertex: [] } })).rejects.toThrow(/kind "doc.term".*field "definition".*2 non-null values/);
+    } finally { await forRemoval.close(); }
+    // An all-null historical field can be removed without a loss.
+    const forEmpty = await seeded();
+    try {
       const withoutEmpty = { ...contract, vertex: contract.vertex.map((kind) => ({ ...kind, fields: kind.fields.filter((field) => field.name !== 'strict') })) };
-      expect(await prepareStore(durable, { contract: withoutEmpty })).toEqual({ reset: false });
-    } finally { await durable.close(); }
+      expect(await prepareStore(forEmpty, { contract: withoutEmpty })).toEqual({ reset: false });
+    } finally { await forEmpty.close(); }
   });
-
   test('schema reconciliation refuses removal of authored natural-key history', async () => {
     const durable = await createTestDatabaseOwner();
     const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'name', type: 'text' }, { name: 'value', type: 'text', nullable: true }], key: ['name'], capability: 'fixture' }], edge: [], dictionary: [] };
@@ -583,21 +602,22 @@ describe('the manifest makes the table and the writer fills it', () => {
       expect(await snapshot()).toEqual(before);
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }));
       const after = await snapshot();
-      expect(after.edges).toEqual([before.edges[2]!]);
-      expect(after.vertices).toEqual([{ removed: true }, { removed: false }, { removed: false }]);
-      expect(after.opinions).toEqual([before.opinions[2]!]);
+      // The incident edges keep every opinion another producer states, and the vertex stays as their end.
+      expect(after.edges).toEqual(before.edges);
+      expect(after.vertices).toEqual([{ removed: false }, { removed: false }, { removed: false }]);
+      expect(after.opinions).toEqual(before.opinions);
       const vertexHistory = await durable.run((tx) => tx.query<{ name: string; state: string }>(`SELECT n.key->>'name' AS name, o.state FROM ${vertexTable} o JOIN node n ON n.id = o.node_id ORDER BY n.id`));
       expect(vertexHistory.rows).toEqual([{ name: 'Center', state: 'closed' }, { name: 'Left', state: 'open' }, { name: 'Right', state: 'open' }]);
       const history = await durable.run((tx) => tx.query<{ change: { edges: { edge: string; from: string; to: string; state: string }[]; opinions: { id: string; state: string }[] } }>('SELECT change FROM operation ORDER BY seq'));
-      const declared = history.rows.flatMap((one) => one.change.edges).filter((one) => one.state === 'declared');
       const opened = history.rows.flatMap((one) => one.change.opinions).filter((one) => one.state === 'opened');
       expect(before.opinions.every((opinion) => opened.some((one) => one.id === opinion.id))).toBe(true);
       const entry = await durable.run((tx) => tx.query<{ change: { edges: { edge: string; state: string }[]; opinions: { id: string; state: string; said_by: string }[] } }>('SELECT change FROM operation ORDER BY seq DESC LIMIT 1'));
-      expect(entry.rows[0]!.change.edges.map((one) => [one.edge, one.state])).toEqual(before.edges.slice(0, 2).map((one) => [one.id, 'removed']));
-      expect(history.rows.at(-1)!.change.edges).toEqual(declared.slice(0, 2).map((one) => ({ ...one, state: 'removed' })));
+      // No edge is removed and no vertex is journaled as removed: the incident edges belong to other producers.
+      expect(entry.rows[0]!.change.edges).toEqual([]);
+      expect(history.rows.at(-1)!.change.edges).toEqual([]);
+      expect(history.rows.flatMap((one) => (one.change as { vertices?: { state: string }[] }).vertices ?? []).some((one) => one.state === 'removed')).toBe(false);
       const closed = entry.rows[0]!.change.opinions.filter((one) => one.state === 'closed');
-      expect(closed.map((one) => one.said_by).sort()).toEqual(['first@1', 'first@1', 'second@2', 'source@1']);
-      expect(closed.filter((one) => before.opinions.some((opinion) => opinion.id === one.id))).toHaveLength(3);
+      expect(closed.map((one) => one.said_by).sort()).toEqual(['source@1']);
       expect(await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }))).toBe(0);
       expect(await snapshot()).toEqual(after);
     } finally { await durable.close(); }

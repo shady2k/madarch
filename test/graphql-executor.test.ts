@@ -12,7 +12,6 @@ import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-o
 import { publishGraphDrafts } from '../src/graph/write.js';
 import type { EdgeDraft, VertexDraft } from '../src/graph/contract.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
-import { generatedTableName } from '../src/graph/contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -80,16 +79,9 @@ beforeAll(async () => {
   if (!read.present) throw new Error('the fixture product holds no manifest');
   if (read.manifest.findings.length > 0) throw new Error(read.manifest.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
   manifest = read.manifest as never;
-  // The graph contract takes each edge's table like a capability's: the manifest declares the edge and its attributes.
-  const declared = graphContractOf(read.manifest);
-  const edge = (name: string, from: string, to: string, fields: { name: string; type: 'text' | 'integer' | 'bigint' | 'timestamp' | 'boolean' | 'json'; nullable?: boolean }[], repeats = false, discriminator?: string) => ({
-    name, table: generatedTableName(name, 'edge'), from: [from], to: [to], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, capability: 'fixture',
-  });
-  contract = withManifestContract({ ...declared, edge: [...declared.edge,
-    edge('demo.contains', 'demo.repository', 'demo.file', [{ name: 'position', type: 'integer', nullable: true }]),
-    edge('demo.touched', 'demo.file', 'demo.file', [{ name: 'changed_at', type: 'timestamp', nullable: true }, { name: 'weight', type: 'bigint', nullable: true }], true, 'path'),
-    edge('demo.related', 'demo.file', 'demo.file', []),
-  ] });
+  // Every declared edge kind has its table (owner's rule): the manifest's own declaration is the contract.
+  contract = withManifestContract(graphContractOf(read.manifest));
+
   owner = await createTestDatabaseOwner({ graphContract: contract });
   const repository = (name: string) => ({ kind: 'demo.repository', key: { name } });
   const file = (path: string) => ({ kind: 'demo.file', key: { repository: repository('r1'), path } });

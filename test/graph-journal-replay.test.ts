@@ -14,7 +14,7 @@ import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { repositoryContract, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
-import { canonicalJson, ensureVertex, journalFor, journalOn, publishOpinion, removeEdgeById, removeEntity, writeJournal } from '../src/graph/write.js';
+import { canonicalJson, ensureVertex, journalFor, journalOn, publishOpinion, removeEntity, withdrawEdge, writeJournal } from '../src/graph/write.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -144,7 +144,7 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
       const journal = journalFor('pass@1');
       journalOn(tx, journal);
       const held = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge ORDER BY id LIMIT 1');
-      if (held.rows[0] !== undefined) await removeEdgeById(tx, repositoryContract, GIT_KINDS.renamedFrom, held.rows[0].id);
+      if (held.rows[0] !== undefined) await withdrawEdge(tx, repositoryContract, GIT_KINDS.renamedFrom, held.rows[0].id, 'git');
       await writeJournal(tx, journal);
     });
     return;

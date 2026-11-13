@@ -95,8 +95,9 @@ const WRITE_TOOLS: readonly McpToolDefinition[] = [
         type: 'object', additionalProperties: false, required: ['kind', 'from', 'to'],
         properties: { kind: { type: 'string' }, from: END, to: END, discriminator: { type: 'string' } },
       },
+      evidence: EVIDENCE,
       words: { type: 'string' },
-    }, []),
+    }, ['evidence']),
   },
 ];
 
@@ -110,6 +111,16 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
       if (!PRODUCT_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no tool of this server: the tools are ${PRODUCT_TOOLS.map((tool) => tool.name).join(', ')}`);
       if (input !== null && (typeof input !== 'object' || Array.isArray(input))) throw new WriteRefusal('the arguments are one object');
       const args = (input ?? {}) as Record<string, unknown>;
+      // The declared schema is the boundary: an argument no tool names is refused, and words is the agent's text.
+      const allowed: Record<string, readonly string[]> = {
+        graph_schema: [], graph_query: ['query', 'variables', 'operationName', 'lang'],
+        put_entity: ['kind', 'key', 'id', 'values', 'evidence', 'words'],
+        put_edge: ['kind', 'from', 'to', 'discriminator', 'values', 'evidence', 'words'],
+        retract: ['entity', 'edge', 'evidence', 'words'],
+      };
+      const unknown = Object.keys(args).filter((key) => !(allowed[name] ?? []).includes(key));
+      if (unknown.length > 0) throw new WriteRefusal(`${JSON.stringify(unknown[0])} is not an argument of ${name}: its arguments are ${(allowed[name] ?? []).join(', ') || 'none'}`, unknown[0]);
+      if ('words' in args && typeof args['words'] !== 'string') throw new WriteRefusal('words is the agent\'s exact words, as text', 'words');
       if (name === 'graph_schema') return { answer: { schema: await product.graphqlSchema() }, isError: false };
       if (name === 'graph_query') {
         const query = args['query'];
@@ -154,6 +165,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
       const answer = await product.retract(source, {
         ...(args['entity'] === undefined ? {} : { entity: args['entity'] }),
         ...(args['edge'] === undefined ? {} : { edge: args['edge'] }),
+        evidence: args['evidence'],
         ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
       });
       return { answer, isError: false };

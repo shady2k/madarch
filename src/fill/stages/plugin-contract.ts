@@ -43,9 +43,8 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
       fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
     }
-    // The field that names the page: a kind whose declaration leaves it out still states it as an opinion.
-    const label = kind.title ?? 'label';
-    if (!fields.some((held) => held.name === label)) fields.push({ name: label, type: 'text', nullable: true });
+    // A kind that declares no field still has a table, and it holds the label its page is named by.
+    if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
     // A key field a declaration leaves out of its fields is stated as text: the table's first duty is its key.
     for (const name of keyFields) if (!fields.some((held) => held.name === name)) fields.push({ name, type: 'text' });
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });

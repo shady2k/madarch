@@ -72,3 +72,5 @@ edges:
   - name: mentions
     from: [any]
     to: [any]
+    repeats: true
+    discriminator: place
