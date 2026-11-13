@@ -67,7 +67,7 @@ test('disk publishes root and nested directories as selected ordinary fields wit
   });
 }, 60_000);
 
-test('git file facts count exact non-merge touches at the pin and take the maximum date', async () => {
+test('git file facts count the commits the touched edges hold, merge commits included', async () => {
   await fixture(async ({ root, git, commit }) => {
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'old.txt'), 'old\n');
@@ -101,7 +101,7 @@ test('git file facts count exact non-merge touches at the pin and take the maxim
       added_at: '2026-01-06T00:00:00.000Z', added_in: renamed, removed_at: null, removed_in: null,
     });
     expect(vertices.get('src/file.txt')?.values).toEqual({
-      commit_count: 2, last_change: '2026-01-10T00:00:00.000Z',
+      commit_count: 3, last_change: '2026-01-20T00:00:00.000Z',
       added_at: '2026-01-10T00:00:00.000Z', added_in: base, removed_at: null, removed_in: null,
     });
     expect(vertices.get('main.txt')?.values).toEqual({

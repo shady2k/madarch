@@ -46,7 +46,7 @@ facts:
   display: bar
   where: { removed_at: null }
 - id: most-changed
-  labels: { en: Most changed files (dated non-merge commits), ru: Чаще изменяемые файлы (датированные немержевые коммиты) }
+  labels: { en: "Most changed files (commits, merge commits included)", ru: "Чаще изменяемые файлы (коммиты, включая слияния)" }
   measure: top-n
   field: commit_count
   limit: 10
