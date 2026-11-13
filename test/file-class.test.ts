@@ -44,6 +44,8 @@ beforeAll(() => {
   writeFileSync(join(REPOSITORY, 'docs', 'guide.md'), '# Guide\n');
   writeFileSync(join(REPOSITORY, 'node_modules', 'pkg', 'index.js'), 'module.exports = {};\n');
   writeFileSync(join(REPOSITORY, 'dist', 'bundle.min.js'), 'var a=1;\n');
+  writeFileSync(join(REPOSITORY, 'bun.lock'), '{}\n');
+  writeFileSync(join(REPOSITORY, 'go.sum'), 'example.test/mod v1.0.0 h1:abc=\n');
   git('init', '-q', '-b', 'main');
   git('add', '-f', '-A');
   git('commit', '-qm', 'one file of each class');
@@ -74,8 +76,10 @@ test('a file of each class is classified, and node_modules is a dependency', asy
   expect(answer.end?.state).toBe('complete');
   const classes = Object.fromEntries((answer.vertices ?? []).map((vertex) => [String(vertex.key['path']), vertex.values?.['class']]));
   expect(classes).toEqual({
+    'bun.lock': 'generated',
     'dist/bundle.min.js': 'generated',
     'docs/guide.md': 'documentation',
+    'go.sum': 'generated',
     'node_modules/pkg/index.js': 'dependency',
     'src/app.ts': 'code',
     'test/unit/app.ts': 'test',

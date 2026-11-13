@@ -180,12 +180,17 @@ classes:
   - "**/*.pb.go"
   - "**/*.pb.ts"
   - "**/*_pb2.py"
+  - "**/*.lock"
+  - "**/bun.lock"
+  - "**/bun.lockb"
   - "**/package-lock.json"
   - "**/yarn.lock"
-  - "**/bun.lockb"
   - "**/pnpm-lock.yaml"
   - "**/composer.lock"
   - "**/Cargo.lock"
+  - "**/go.sum"
+  - "**/gradle.lockfile"
+  - "**/packages.lock.json"
 - name: test
   paths:
   - "**/test/**"
