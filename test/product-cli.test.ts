@@ -228,7 +228,7 @@ describe('the single start command', () => {
     const record = join(home, '.madarch-daemon.json');
     const pid = (JSON.parse(readFileSync(record, 'utf8')) as { pid: number }).pid;
     const read = readKinds(facts.folder);
-    if (!read.present || read.manifest.catalog === undefined) throw new Error(`${facts.folder}/madarch/kinds.yaml:1: fixture catalogue missing`);
+    if (!read.present || read.manifest.catalog === undefined) throw new Error(`${facts.folder}/madarch/catalog.yaml:1: fixture catalogue missing`);
     const expected = [...read.manifest.catalog.kinds.keys()].sort();
     type RenameStatus = { publication?: string; kinds: { kind: string }[]; filled: boolean; chosenAgent: string | null };
     const statusAt = async (url: string): Promise<RenameStatus> => (await fetch(`${url}api/status`)).json() as Promise<RenameStatus>;
