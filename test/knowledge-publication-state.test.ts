@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
-import { chmodSync, existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
@@ -20,8 +20,11 @@ function fixture() {
   folders.push(work);
   const draft = createDraft({ home: join(work, 'home'), name: 'publication-shop', gitEnv: gitEnv(IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
+  // The bundled agent advertises capability; this kind explicitly opts into its participation.
+  const kind = join(draft.folder, 'madarch/kinds/documentation/document/user-guide.yaml');
+  writeFileSync(kind, readFileSync(kind, 'utf8') + '\nagent: { plugin: agent-fill, fields: "*" }\n');
   setManifestPublicationState(draft.folder, { status: 'pending' });
-  // These presses select a fixture adapter: admission sees the agent the default manifest requires, but the queue spy
+  // These presses select a fixture adapter: admission sees the agent this fixture requires, but the queue spy
   // keeps publication tests from starting it. A launch would leave evidence and fail the assertion below.
   const launched = join(work, 'agent-launched');
   const adapter = join(work, 'claude-agent-acp');
