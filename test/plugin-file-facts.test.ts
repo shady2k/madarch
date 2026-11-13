@@ -89,7 +89,7 @@ test('git file facts count exact non-merge touches at the pin and take the maxim
     commit('outside pin', '2026-02-01T00:00:00Z');
     const result = await gitExtract(unit(root, pin, gitContract.outputs), context(['renamed.txt', 'src/file.txt', 'main.txt', 'untouched.txt']));
     expect(result.end?.state).toBe('complete');
-    const vertices = new Map(result.vertices?.map(vertex => [vertex.key['path'], vertex]));
+    const vertices = new Map(result.vertices?.map(vertex => [String(vertex.key['path']), vertex]));
     expect(vertices.get('old.txt')?.values).toEqual({ commit_count: 2, last_change: '2026-01-10T00:00:00.000Z' });
     expect(vertices.get('renamed.txt')?.values).toEqual({ commit_count: 1, last_change: '2026-01-06T00:00:00.000Z' });
     expect(vertices.get('src/file.txt')?.values).toEqual({ commit_count: 2, last_change: '2026-01-10T00:00:00.000Z' });
