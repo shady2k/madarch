@@ -134,6 +134,10 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     if (referenceProblem !== undefined) return referenceProblem;
     const fieldProblem = checkFields(declaration, vertex, where);
     if (fieldProblem !== undefined) return fieldProblem;
+    // An identity-only vertex is an edge's end, never an opinion: the graph creates the entity and states nothing of it.
+    if (vertex.identityOnly === true && (vertex.values !== undefined || vertex.evidence !== undefined)) {
+      return refuse('malformed-result', where, `the ${vertex.kind} vertex ${canonicalKey(vertex.key ?? {})} states an opinion and identityOnly: an identity-only vertex carries neither values nor evidence`);
+    }
     const identity = `${vertex.kind}\u0000${canonicalKey(vertex.key ?? {})}`;
     if (seenVertices.has(identity)) return refuse('duplicate-vertex', where, `the kind "${vertex.kind}" with key ${canonicalKey(vertex.key ?? {})} stands twice in one answer`);
     seenVertices.add(identity);

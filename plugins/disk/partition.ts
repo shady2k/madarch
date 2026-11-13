@@ -18,18 +18,27 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
     const identity = JSON.stringify([unit.kind, inputs]);
     if (held?.identity === identity) return held;
     const result = await extractOutput({ ...unit, inputs }, context);
-    const byKey = new Map<string, { key: KeyValues; bytes: number }>();
-    for (const vertex of result.vertices ?? []) byKey.set(keyOf(vertex.key), { key: vertex.key, bytes: bytesOf(vertex) });
+    // An identity-only vertex is not a partition of its own: it travels with the edge that names it. An edge whose
+    // anchor is such an identity (a rename between historical paths) still makes one partition, so the edge is not lost.
+    const byKey = new Map<string, { key: KeyValues; bytes: number; identityOnly: boolean; anchored: boolean }>();
+    for (const vertex of result.vertices ?? []) {
+      const identity = keyOf(vertex.key);
+      const row = byKey.get(identity);
+      if (row === undefined) byKey.set(identity, { key: vertex.key, bytes: bytesOf(vertex), identityOnly: vertex.identityOnly === true, anchored: false });
+      else { row.bytes += bytesOf(vertex); row.identityOnly = false; }
+    }
     for (const edge of result.edges ?? []) {
       const key = anchor(edge, unit.kind);
       const identity = keyOf(key);
-      const row = byKey.get(identity);
-      if (row === undefined) throw new Error(`partition edge has no output identity: ${identity}`);
+      const row = byKey.get(identity) ?? { key, bytes: 0, identityOnly: false, anchored: false };
+      byKey.set(identity, row);
+      row.anchored = true;
       row.bytes += bytesOf(edge);
     }
     const groups: KeyValues[][] = [];
     let group: KeyValues[] = [], bytes = 0;
     for (const [_, row] of [...byKey].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+      if (row.identityOnly && !row.anchored) continue;
       if (group.length > 0 && bytes + row.bytes > GROUP_BYTES) { groups.push(group); group = []; bytes = 0; }
       group.push(row.key); bytes += row.bytes;
     }
@@ -57,7 +66,10 @@ export function partitioned(extractOutput: (unit: Unit, context: ExtractContext)
       const result = await extractOutput(unit, context);
       if (inputs.keys === undefined) return result;
       const selected = new Set(inputs.keys.map(keyOf));
-      return { ...result, vertices: result.vertices?.filter(vertex => selected.has(keyOf(vertex.key))), edges: result.edges?.filter(edge => selected.has(keyOf(anchor(edge, unit.kind)))) };
+      const edges = result.edges?.filter(edge => selected.has(keyOf(anchor(edge, unit.kind))));
+      // An identity-only end of a selected edge travels with it: the edge's other end may stand in another partition.
+      const endpoints = new Set((edges ?? []).flatMap(edge => [keyOf(edge.from.key), keyOf(edge.to.key)]));
+      return { ...result, vertices: result.vertices?.filter(vertex => selected.has(keyOf(vertex.key)) || (vertex.identityOnly === true && endpoints.has(keyOf(vertex.key)))), edges };
     },
   };
 }

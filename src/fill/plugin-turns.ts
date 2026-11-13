@@ -325,6 +325,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>
     edgeOutputs.some((held) => held.kind === edge.kind && held.from === edge.from.kind && held.to === edge.to.kind);
   const unitEdges = new Set(edgeOutputs.map((edge) => edge.kind));
+  // An edge's other end may be a path the history alone names: an identity-only vertex of that kind belongs to the unit
+  // the edge belongs to, even though the unit states no opinion of it.
+  const identityKinds = [...new Set(edgeOutputs.flatMap((edge) => [edge.from, edge.to]).filter((kind) => kind !== unit.kind.name))];
   const file = unit.plugin.declarationFile ?? join(wiring.productFolder, unit.plugin.path ?? '', 'plugin.json');
   const location = `${file}:${pluginManifestLine(unit.plugin.declarationText ?? '{}', ['produces'])}`;
   const reads = declarationPlan.readsFor(unit.plugin.id, unit.kind.name);
@@ -351,7 +354,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
     location, plugin: unit.plugin.id, output: unit.kind.name, fields: allowedFields, reads,
-    fileKind: 'code.file', edges: [...unitEdges], snapshots,
+    fileKind: 'code.file', edges: [...unitEdges], identityKinds, snapshots,
   });
   const outputs = {
     vertices: (unit.plugin.contract?.vertices ?? []).filter((vertex) => vertex.kind === unit.kind.name).map((vertex) => ({ ...vertex, key: [...vertex.key], fields: vertex.fields.filter((field) => vertex.key.includes(field.name) || allowedFields.includes(field.name)).map((field) => {
@@ -424,7 +427,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       for (const edge of outcome.result.edges) if (!ownsEdge(edge)) throw new Error(`${location}: plugin ${unit.plugin.id} output ${unit.kind.name}: write of unselected edge endpoints ${edge.kind} ${edge.from.kind} -> ${edge.to.kind}`);
       const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
       if (partitionKeys !== undefined) {
-        for (const vertex of [...outcome.result.vertices, ...outcome.result.removals]) if (!partitionKeys.has(canonicalKey(vertex.key))) throw new Error(`${location}: output outside selected partition keys`);
+        // An identity-only vertex travels with the edge that names it, so it carries the edge's anchor, not its own key.
+        for (const vertex of [...outcome.result.vertices, ...outcome.result.removals]) if (!(('identityOnly' in vertex && vertex.identityOnly === true)) && !partitionKeys.has(canonicalKey(vertex.key))) throw new Error(`${location}: output outside selected partition keys`);
         for (const edge of outcome.result.edges) if (!partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge outside selected partition keys`);
       }
       if (outcome.result.end.state === 'partial') {
@@ -447,8 +451,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
       const answered = new Map<string, Set<string>>();
       for (const vertex of outcome.result.vertices) {
-        if (!vertexKinds.has(vertex.kind)) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}, and its contract declares ${[...vertexKinds].join(', ') || 'none'}`);
-        if (!selectedKinds.has(vertex.kind) || (only !== undefined && entityIdOf(wiring, vertex.kind, vertex.key) !== only)) continue;
+        const identity = vertex.identityOnly === true && identityKinds.includes(vertex.kind);
+        if (!vertexKinds.has(vertex.kind) && !identity) throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} answered the kind ${JSON.stringify(vertex.kind)} in the turn of ${JSON.stringify(unit.kind.name)}, and its contract declares ${[...vertexKinds].join(', ') || 'none'}`);
+        if ((!selectedKinds.has(vertex.kind) || (only !== undefined && entityIdOf(wiring, vertex.kind, vertex.key) !== only)) && !identity) continue;
         const allowed = declarationPlan.outputs.get(unit.plugin.id)?.get(vertex.kind) ?? [];
         for (const field of Object.keys(vertex.values ?? {})) if (!allowed.includes(field)) {
           const file = unit.plugin.declarationFile ?? join(wiring.productFolder, unit.plugin.path ?? '', 'plugin.json');
@@ -459,6 +464,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         answered.set(vertex.kind, held);
         draft.write({ kind: 'vertex', evidence: vertex.kind, value: {
           kind: vertex.kind, key: vertex.key,
+          ...(vertex.identityOnly === undefined ? {} : { identityOnly: vertex.identityOnly }),
           selectedFields: allowedFields,
           ...(vertex.values === undefined ? {} : { values: vertex.values }),
           ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
