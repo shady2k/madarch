@@ -564,16 +564,15 @@ export class KnowledgeProduct {
    * line that declares it, never served as a smaller schema.
    */
   async graphqlSchema(): Promise<string> {
-    // The schema is the product's own contract, and the manifest is its file: it answers before the graph holds one.
-    const read = readKinds(this.options.productFolder);
+    // What the graph holds, never the checkout: an edit start has not published is no schema this product serves, and
+    // the SDL answers the very schema POST /graphql reads.
+    const owner = await this.open();
+    await this.followStoreFill();
+    const manifest = await owner.transaction('snapshot', async (tx) => await readPublishedManifest(tx));
     const file = join(this.options.productFolder, KINDS_FILE);
-    if (!read.present) throw new WikiReadError(`${file}:1: the product holds no manifest to derive a GraphQL schema from`);
-    if (read.manifest.findings.length > 0) {
-      const first = read.manifest.findings[0]!;
-      throw new WikiReadError(`${resolve(this.options.productFolder, first.file)}:${String(first.line)}: ${first.message}`);
-    }
+    if (manifest === undefined) throw new WikiReadError(`${file}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
     try {
-      return graphqlSchemaOf(publishedManifestOf(read.manifest));
+      return graphqlSchemaOf(publishedManifestOf(manifest));
     } catch (error) {
       if (error instanceof SchemaRefusal) throw new WikiReadError(`${file}:1: the manifest's names cannot make a schema: ${error.message}`);
       throw error;
@@ -587,15 +586,8 @@ export class KnowledgeProduct {
   async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }): Promise<{ readonly status: number; readonly body: MessageBody }> {
     const owner = await this.open();
     await this.followStoreFill();
-    const read = await this.manifestRead(this.options.productFolder);
-    const file = join(this.options.productFolder, KINDS_FILE);
-    if (!read.present) throw new WikiReadError(`${file}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
-    if (read.manifest.findings.length > 0) {
-      const first = read.manifest.findings[0]!;
-      throw new WikiReadError(`${resolve(this.options.productFolder, first.file)}:${String(first.line)}: ${first.message}`);
-    }
-    // The manifest the operation reads is the one the graph held when its snapshot opened: the executor owns the read.
-    return await executeGraphql(owner, { manifest: read.manifest, folder: this.options.productFolder }, operation);
+    // The executor reads the published manifest inside its own snapshot: the schema and the rows answer one revision.
+    return await executeGraphql(owner, { folder: this.options.productFolder }, operation);
   }
 
   async declaredRoles(): Promise<string[]> {

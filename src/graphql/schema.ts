@@ -44,17 +44,20 @@ interface EnumDef {
 
 /** The operators one scalar's filter keeps (the narrowed set of the contract's first step: eq, in, contains, lt and gt). */
 const WHERE_OPERATORS: Readonly<Record<FieldType, readonly string[]>> = {
-  text: ['_eq', '_in', '_contains', '_lt', '_gt'],
-  integer: ['_eq', '_in', '_lt', '_gt'],
-  bigint: ['_eq', '_in', '_lt', '_gt'],
-  boolean: ['_eq'],
-  timestamp: ['_eq', '_in', '_lt', '_gt'],
-  json: ['_eq'],
+  text: ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'],
+  integer: ['_eq', '_neq', '_in', '_nin', '_lt', '_lte', '_gt', '_gte', '_is_null'],
+  bigint: ['_eq', '_neq', '_in', '_nin', '_lt', '_lte', '_gt', '_gte', '_is_null'],
+  boolean: ['_eq', '_neq', '_is_null'],
+  timestamp: ['_eq', '_neq', '_in', '_nin', '_lt', '_lte', '_gt', '_gte', '_is_null'],
+  json: ['_eq', '_neq', '_is_null'],
 };
 
 /** The filter input's field type for one operator. */
 function operatorType(operator: string, scalar: string): string {
-  return operator === '_in' ? `[${scalar}!]` : scalar;
+  if (operator === '_in' || operator === '_nin') return `[${scalar}!]`;
+  if (operator === '_is_null') return 'Boolean';
+  if (operator === '_like') return 'String';
+  return scalar;
 }
 
 /** The fields every entity answers: the interface of section 1. */
