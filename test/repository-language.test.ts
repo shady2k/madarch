@@ -14,6 +14,9 @@ test('an ambiguous extension is decided by its content, then by the extension\'s
   expect(languageOfPath('Makefile', '{}')).toEqual({ language: 'Makefile', candidates: ['Makefile'] });
   expect(languageOfPath('src/example.ts', 'export const a = 1;\n')).toEqual({ language: 'TypeScript', candidates: ['TypeScript', 'XML'] });
   expect(languageOfPath('src/translations.ts', '<?xml version="1.0" encoding="utf-8"?><TS></TS>\n')).toEqual({ language: 'XML', candidates: ['TypeScript', 'XML'] });
+  // A TypeScript file that mentions the XML element inside its own text stays TypeScript: the XML rule is anchored.
+  expect(languageOfPath('src/reader.ts', 'export const tag = "<TS";\n')).toEqual({ language: 'TypeScript', candidates: ['TypeScript', 'XML'] });
+  expect(languageOfPath('src/view.tsx', 'export const View = () => <TS />;\n')).toEqual({ language: 'TSX', candidates: ['TSX', 'XML'] });
   expect(languageOfPath('doc.md', '# A document\n')).toEqual({ language: 'Markdown', candidates: ['GCC Machine Description', 'Markdown'] });
   expect(languageOfPath('machine.md', '(define_insn "add"\n  [(set (match_operand:SI 0 "register_operand" "")\n        (plus:SI (match_operand:SI 1 "register_operand" "")\n                 (match_operand:SI 2 "register_operand" "")))]\n  "" "")\n')).toEqual({ language: 'GCC Machine Description', candidates: ['GCC Machine Description', 'Markdown'] });
   expect(languageOfPath('config.yaml', 'name: example\n')).toEqual({ language: 'YAML', candidates: ['MiniYAML', 'OASv2-yaml', 'OASv3-yaml', 'YAML'] });
