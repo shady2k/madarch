@@ -26,6 +26,7 @@ import { removedEdgeEnds, unresolvedReferences, unevidencedOpinions } from '../s
 import { parsePluginLock } from '../src/plugin/lock.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { closureOf } from '../src/plugin/closure.js';
+import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'plugin-consistency');
 let root = '';
@@ -188,10 +189,10 @@ describe('a declared fixture plugin reads consistency records through the host',
     if (owner === undefined) throw new Error('the store was not opened');
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state).toBe('succeeded');
+    expect(run.state, JSON.stringify(run)).toBe('succeeded');
     // The check declares its finding output and uses the ordinary plugin stage.
     expect(run.units.filter((unit) => unit.unitId.includes('plugin-consistency:probe.finding'))).toHaveLength(1);
     expect(run.units.some((unit) => unit.unitId.startsWith('disk:'))).toBe(true);
@@ -210,10 +211,10 @@ describe('a declared fixture plugin reads consistency records through the host',
     }, 1));
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state).toBe('succeeded');
+    expect(run.state, JSON.stringify(run)).toBe('succeeded');
     const found = (await findings()).filter((one) => one.rule === 'unevidenced-opinion');
     expect(found.map((one) => one.target.split(':')[1]).sort()).toEqual(['first', 'second']);
     expect(new Set(found.map((one) => one.target)).size).toBe(2);
@@ -247,7 +248,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['code.contains']);
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const alone = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const alone = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(alone.ok).toBe(true);
     if (!alone.ok) return;
     expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:probe.finding')]);
@@ -273,7 +274,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     git(repositoryFolder, 'add', '-A');
     git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
-    const fixed = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const fixed = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(fixed.ok).toBe(true);
     if (!fixed.ok) return;
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);
@@ -285,7 +286,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(after.generation).toBeGreaterThan(before.generation);
     expect(['completed', 'empty']).toContain(after.outcome);
 
-    const unchanged = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'], runId: 'unchanged', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const unchanged = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'unchanged', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(unchanged.ok).toBe(true);
     if (unchanged.ok) expect(unchanged.units).toEqual([]);
     // Give the remaining check input its missing evidence, then run the scripted producer again.
@@ -294,7 +295,7 @@ describe('a declared fixture plugin reads consistency records through the host',
         evidence: [{ repository: 'repo', path: 'docs/glossary.md', commit: 'evidenced-input', lineStart: 1, lineEnd: 1 }],
         producer: 'plugin-consistency', producerVersion: '1.0.0' }], removals: [],
     }, 1));
-    const clean = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['plugin-turns'],
+    const clean = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'],
       targets: { kinds: ['probe.finding'] }, runId: 'zero-problems', home: join(root, 'home'),
       prepareContract: async (held) => { await prepareStore(preparedOwner, { contract: held }); } });
     expect(clean.ok).toBe(true);
@@ -411,8 +412,12 @@ describe('a declared fixture plugin reads consistency records through the host',
     };
     const whole = await planPluginTurns(wiring);
     const targeted = await planPluginTurns({ ...wiring, targets: { kinds: ['probe.finding'], vertex: 'probe.finding:A' } });
-    expect(whole[0]?.id).not.toBe(targeted[0]?.id);
-    expect(targeted[0]?.id).toContain('@probe.finding:A');
+    const wholeFinding = whole.find((unit) => unit.id.includes('plugin-consistency:probe.finding'));
+    const targetedFinding = targeted.find((unit) => unit.id.includes('plugin-consistency:probe.finding'));
+    expect(wholeFinding).toBeDefined();
+    expect(targetedFinding).toBeDefined();
+    expect(wholeFinding!.id).not.toBe(targetedFinding!.id);
+    expect(targetedFinding!.id).toContain('@probe.finding:A');
   }, 120_000);
 
 });
