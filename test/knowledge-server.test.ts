@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { activateTestProduct, startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, makeProduct, recordKey, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
@@ -85,6 +85,7 @@ beforeAll(async () => {
   home = join(work, 'home');
   mkdirSync(home);
   const tiny = makeProduct(home, 'tiny', repository, 'tiny');
+  withRepositoryPluginsOnly(tiny);
   writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(tiny, 'add', '-A');
   git(tiny, 'commit', '--quiet', '-m', 'Fill native inventory and history in the fixture');
@@ -143,6 +144,7 @@ describe('an empty product', () => {
     // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
     // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
     seedStarterSet(join(home, 'bare'));
+    withRepositoryPluginsOnly(join(home, 'bare'));
     writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
     git(join(home, 'bare'), 'add', '-A');
     git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
