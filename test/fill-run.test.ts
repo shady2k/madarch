@@ -13,14 +13,13 @@ import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { listFiles, repositoryFacts } from '../src/graph/index.js';
 import { runFill } from '../src/fill/run.js';
-import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { readFillEnd } from '../src/fill/orchestrator-store.js';
 import { readRun } from '../src/fill/state-store.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { fillSteps } from '../src/fill/steps.js';
-import { useFixturePlugins, useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 let root = '';
 let product = '';
@@ -46,9 +45,8 @@ beforeAll(async () => {
   writeFileSync(join(product, 'workspace.yaml'), [
     'schemaVersion: 1', 'id: 5c2e8a52-9c3e-4f7a-8b21-6d2e9c0a5b41', 'name: run-product', 'repos:', '  - name: repo', '    url: file:///repo', '',
   ].join('\n'));
-  useRepositoryPlugins(product);
-  useFixturePlugins(product, ['disk', 'git']);
-  writeFirstFillWorkflow(product);
+  // The selected starter files already include the canonical first-fill workflow.
+  seedRepositoryPlugins(product);
   git('init', '-q');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.invalid');
