@@ -298,7 +298,8 @@ class Builder {
   private buildEdges(): void {
     for (const edge of this.edges) {
       for (const end of [...edge.from, ...edge.to]) {
-        if (!this.kinds.has(end)) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${end}", and the manifest declares no such kind: declare it or change the edge's ends`);
+        // `any` is every entity the schema holds: the edge stands on the Entity interface itself, both ways.
+        if (end !== 'any' && !this.kinds.has(end)) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${end}", and the manifest declares no such kind: declare it or change the edge's ends`);
       }
       const record = `${typeNameOf(edge.name)}Edge`;
       const wrapper = `${typeNameOf(edge.name)}ConnectionEdge`;
@@ -329,15 +330,27 @@ class Builder {
       this.type(wrapper, [{ name: 'cursor', type: 'String!' }, { name: 'node', type: `${record}!` }]);
       this.type(connection, connectionFields(wrapper));
       this.buildWhereAndOrder(edge.name, record, edge.fields);
+      // `any` ends stand on the Entity interface, so every entity type — the catalogue's too — declares them.
+      const everyEntity = ['Entity', 'CatalogueEntity', ...this.kindTypes.values()];
+      const addEverywhere = (fieldName: string, declaration: string, inverse: boolean): void => {
+        for (const type of everyEntity) {
+          if (this.types.get(type)?.fields.some((field) => field.name === fieldName) === true) continue;
+          if (inverse) this.registry.claimGeneratedField(type, fieldName, declaration);
+          else this.registry.claimField(type, fieldName, declaration);
+          this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
+        }
+      };
       for (const from of edge.from) {
-        const type = this.kindTypes.get(from)!;
         const fieldName = fieldNameOf(edge.name);
+        if (from === 'any') { addEverywhere(fieldName, `the edge "${edge.name}"`, false); continue; }
+        const type = this.kindTypes.get(from)!;
         this.registry.claimField(type, fieldName, `the edge "${edge.name}"`);
         this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
       }
       for (const to of edge.to) {
-        const type = this.kindTypes.get(to)!;
         const fieldName = `${fieldNameOf(edge.name)}Of`;
+        if (to === 'any') { addEverywhere(fieldName, `the inverse of the edge "${edge.name}"`, true); continue; }
+        const type = this.kindTypes.get(to)!;
         this.registry.claimGeneratedField(type, fieldName, `the inverse of the edge "${edge.name}"`);
         this.addField(type, { name: fieldName, type: `${connection}!`, args: connectionArgs(this.whereOf.get(record), this.orderOf.get(record)) });
       }

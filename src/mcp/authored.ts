@@ -37,8 +37,27 @@ const END = {
   properties: { kind: { type: 'string', description: 'The kind of this end.' }, key: { type: 'object', description: 'The key fields of the entity.' }, id: { type: 'string', description: 'The stable uid, instead of a key.' } },
 };
 
-/** The tools this server serves, in the order a writer asks them. */
-export const AGENT_WRITE_TOOLS: readonly McpToolDefinition[] = [
+/** The read tools: the schema and one operation, through the same executor the wiki's POST /graphql runs. */
+const READ_TOOLS: readonly McpToolDefinition[] = [
+  {
+    name: 'graph_schema',
+    description: 'The product GraphQL schema (decision 0036): the SDL its published manifest derives, the same schema POST /graphql reads through. Reads the published manifest in a snapshot.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'graph_query',
+    description: 'Runs one GraphQL operation against the product graph through the same executor the wiki uses: an entity by id, a kind list filtered, ordered and paged, an edge both ways, backlinks, opinions, catalogue entities. Answers the GraphQL result, or its errors with their codes (LIMIT_DEPTH, LIMIT_NODES, LIMIT_ALIASES, TIMEOUT, TOO_LARGE).',
+    inputSchema: object({
+      query: { type: 'string', description: 'The GraphQL operation text; graph_schema gives the SDL it must satisfy.' },
+      variables: { type: 'object', description: 'The operation variables, keyed by name.' },
+      operationName: { type: 'string', description: 'Which operation to run when the text holds several.' },
+      lang: { type: 'string', description: 'The reader language for text fields.' },
+    }, ['query']),
+  },
+];
+
+/** The write tools: the agent's opinions and retractions. */
+const WRITE_TOOLS: readonly McpToolDefinition[] = [
   {
     name: 'put_entity',
     description: 'State the agent\'s opinion of the given fields of an entity of any kind of the published manifest, created when its key names none. Evidence is required. An unknown field is refused by name.',
@@ -81,13 +100,35 @@ export const AGENT_WRITE_TOOLS: readonly McpToolDefinition[] = [
   },
 ];
 
-/** One tool call, its refusal answered as the tool's own content. */
-export async function callAgentWriteTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown): Promise<UnitToolAnswer> {
-  return await withSpan('mcp.write', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
+/** Every tool of the one product session: the schema, one query, and the agent's writes. */
+export const PRODUCT_TOOLS: readonly McpToolDefinition[] = [...READ_TOOLS, ...WRITE_TOOLS];
+
+/** One tool call of the product session, its refusal answered as the tool's own content. */
+export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown): Promise<UnitToolAnswer> {
+  return await withSpan('mcp.product', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
     try {
-      if (!AGENT_WRITE_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no write tool of this server: the tools are ${AGENT_WRITE_TOOLS.map((tool) => tool.name).join(', ')}`);
-      if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new WriteRefusal('the arguments are one object');
-      const args = input as Record<string, unknown>;
+      if (!PRODUCT_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no tool of this server: the tools are ${PRODUCT_TOOLS.map((tool) => tool.name).join(', ')}`);
+      if (input !== null && (typeof input !== 'object' || Array.isArray(input))) throw new WriteRefusal('the arguments are one object');
+      const args = (input ?? {}) as Record<string, unknown>;
+      if (name === 'graph_schema') return { answer: { schema: await product.graphqlSchema() }, isError: false };
+      if (name === 'graph_query') {
+        const query = args['query'];
+        if (typeof query !== 'string' || query.trim() === '') throw new WriteRefusal('"query" is the GraphQL operation text', 'query');
+        const variables = args['variables'];
+        if (variables !== undefined && variables !== null && (typeof variables !== 'object' || Array.isArray(variables))) throw new WriteRefusal('"variables" is an object of the operation\'s variables', 'variables');
+        const operationName = args['operationName'];
+        if (operationName !== undefined && operationName !== null && typeof operationName !== 'string') throw new WriteRefusal('"operationName" is the name of the operation to run', 'operationName');
+        const lang = args['lang'];
+        if (lang !== undefined && typeof lang !== 'string') throw new WriteRefusal('"lang" is the reader language', 'lang');
+        const answer = await product.graphql({
+          query,
+          ...(variables === undefined || variables === null ? {} : { variables: variables as Record<string, unknown> }),
+          ...(operationName === undefined ? {} : { operationName: operationName as string | null }),
+          ...(lang === undefined ? {} : { lang }),
+        });
+        const body = answer.body as Record<string, unknown>;
+        return { answer: body, isError: Array.isArray(body['errors']) && body['errors'].length > 0 };
+      }
       if (name === 'put_entity') {
         const answer = await product.putEntity(source, {
           kind: String(args['kind'] ?? ''),
@@ -136,10 +177,10 @@ export async function serveProductMcp(options: {
   let client = 'mcp-client';
   try {
     await serveUnitMcp({
-      tools: AGENT_WRITE_TOOLS,
+      tools: PRODUCT_TOOLS,
       info: { name: 'madarch', version: runningVersion() },
       onClientInfo: (info) => { client = info.name; },
-      call: (name, args) => callAgentWriteTool(product, agentSource(client, session), name, args),
+      call: (name, args) => callProductTool(product, agentSource(client, session), name, args),
       streams: { input: options.input ?? process.stdin, write: (text) => { (options.output ?? process.stdout).write(text); } },
     });
     return 0;

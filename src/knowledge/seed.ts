@@ -322,7 +322,8 @@ function catalogMetadata(kinds: readonly CatalogKindData[]): string {
     roles: Object.fromEntries(Object.entries(CATALOG_METADATA.roles)
       .map(([name, role]) => [name, { ...role, lead: role.lead.filter((group) => used.has(group)) }] as const)
       .filter(([name, role]) => role.lead.length > 0 || audiences.has(name))),
-    edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => names.has(name))),
+    // An edge with an `any` end stands on every entity, so the starter set keeps it whatever kinds it holds.
+    edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => name === 'any' || names.has(name))),
   });
 }
 

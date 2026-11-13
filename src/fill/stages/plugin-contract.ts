@@ -31,21 +31,23 @@ function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: 
 export function manifestContractOf(manifest: KindsManifest): GraphContract {
   const vertex: VertexContract[] = [];
   for (const kind of manifest.kinds.values()) {
-    // A kind with no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
-    if (kind.fields === undefined) continue;
+    // Every kind the product takes has its table (owner's rule, 2026-11-13): the agent through MCP is a producer of
+    // any kind, so a kind that declares no fields still holds its key and the label its page is named by. A kind with
+    // no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
     const keyFields = kind.key ?? [];
     const fields: FieldContract[] = [];
-    let bound = false;
     let capability = '';
-    for (const field of kind.fields) {
+    for (const field of kind.fields ?? []) {
       const held = resolved(field);
       if (held === undefined) continue;
-      bound = true;
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
       fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
     }
-    // A kind whose key has no declaration makes no table: a producer must be able to name the entity it writes about.
-    if (!bound || !keyFields.every((field) => fields.some((held) => held.name === field))) continue;
+    // The field that names the page: a kind whose declaration leaves it out still states it as an opinion.
+    const label = kind.title ?? 'label';
+    if (!fields.some((held) => held.name === label)) fields.push({ name: label, type: 'text', nullable: true });
+    // A key field a declaration leaves out of its fields is stated as text: the table's first duty is its key.
+    for (const name of keyFields) if (!fields.some((held) => held.name === name)) fields.push({ name, type: 'text' });
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
   return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
@@ -59,11 +61,13 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
 function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
   const edges: EdgeContract[] = [];
   for (const edge of [...(manifest.edges?.values() ?? [])].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
-    if (edge.capability === undefined) continue;
-    const plugin = manifest.plugins?.get(edge.capability);
+    // Every declared edge kind has its table (owner's rule, 2026-11-13): a plugin's contract supplies the attributes it
+    // fills, and an edge no plugin fills keeps the attributes its own declaration names.
+    const plugin = edge.capability === undefined ? undefined : manifest.plugins?.get(edge.capability);
     const declared = plugin?.contract?.edges.find((one) => one.kind === edge.name);
-    if (declared === undefined) continue;
-    const fields: FieldContract[] = declared.fields?.map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) })) ?? [];
+    const fields: FieldContract[] = declared !== undefined
+      ? (declared.fields ?? []).map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) }))
+      : edge.fields.map((field) => ({ name: field.name, type: field.type, ...(field.nullable === true ? { nullable: true } : {}), ...(field.reference === undefined ? {} : { reference: field.reference }) }));
     edges.push({
       // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
       // the edge exists and who made it, which is what a complete answer is compared with and removed by.
@@ -74,7 +78,7 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
       repeats: edge.repeats,
       ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
       fields,
-      capability: edge.capability,
+      capability: edge.capability ?? 'manifest',
     });
   }
   return edges;

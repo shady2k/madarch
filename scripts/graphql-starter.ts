@@ -63,7 +63,7 @@ export function starterSchema(): StarterSchema {
   const held = new Set(kinds.map((kind) => kind.name));
   const edges: PublishedEdge[] = [];
   for (const edge of manifest.edges) {
-    const lost = [...edge.from, ...edge.to].find((end) => !held.has(end));
+    const lost = [...edge.from, ...edge.to].find((end) => end !== 'any' && !held.has(end));
     if (lost !== undefined) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${lost}", which the schema left out: the starter catalogue and the schema's names disagree about it`);
     edges.push(edge);
   }

@@ -303,19 +303,23 @@ export class ReadContext {
       this.fieldsByType.set(type, new Map(kind.fields.map((field) => [fieldNameOf(field.name), field])));
       this.titles.set(kind.name, manifest.kinds.get(kind.name)?.title ?? 'label');
     }
+    const everyType = ['CatalogueEntity', ...[...this.kindByType.keys()]];
     for (const edge of published.edges) {
       this.edgeTable.set(edge.name, generatedTableName(edge.name, 'edge'));
+      // An `any` end stands on the Entity interface: the field answers on every entity, the catalogue's too.
       for (const from of edge.from) {
-        const type = typeNameOf(from);
-        const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
-        held.set(fieldNameOf(edge.name), { edge, side: 'from' });
-        this.relationByType.set(type, held);
+        for (const type of from === 'any' ? everyType : [typeNameOf(from)]) {
+          const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
+          held.set(fieldNameOf(edge.name), { edge, side: 'from' });
+          this.relationByType.set(type, held);
+        }
       }
       for (const to of edge.to) {
-        const type = typeNameOf(to);
-        const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
-        held.set(`${fieldNameOf(edge.name)}Of`, { edge, side: 'to' });
-        this.relationByType.set(type, held);
+        for (const type of to === 'any' ? everyType : [typeNameOf(to)]) {
+          const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
+          held.set(`${fieldNameOf(edge.name)}Of`, { edge, side: 'to' });
+          this.relationByType.set(type, held);
+        }
       }
     }
     for (const kind of published.kinds) {
@@ -425,13 +429,23 @@ export class ReadContext {
   }
 
   private async labelOf(entity: EntityValue): Promise<string> {
-    const title = this.titles.get(entity.kind);
-    const field = title === undefined ? undefined : this.fieldsByType.get(entity.typeName)?.get(fieldNameOf(title));
+    const title = this.titles.get(entity.kind) ?? 'label';
+    const field = this.fieldsByType.get(entity.typeName)?.get(fieldNameOf(title));
     if (field !== undefined) {
       if (field.type === 'text' && entity.key[field.name] !== undefined) return String(entity.key[field.name]);
       const read = await this.fieldRead(entity, field);
       if (typeof read.value === 'string' && read.value !== '') return read.value;
       if (read.value !== null && read.value !== undefined) return String(read.value);
+    } else {
+      // A kind that declares no fields still states its label: the field is storage the schema does not publish
+      // (the interface's own `label` is the reader's view of it).
+      await this.ensureFields(entity.kind, entity.nodeId, [title]);
+      const rows = (this.fieldCache.get(entity.kind)?.get(entity.nodeId)?.rows ?? []).filter((row) => row.values[title] !== null && row.values[title] !== undefined);
+      const inLang = rows.filter((row) => row.lang === (entity.lang ?? this.lang));
+      const fallback = rows.filter((row) => row.lang === this.fallbackLang);
+      const chosen = inLang.length > 0 ? inLang : fallback.length > 0 ? fallback : rows.filter((row) => row.lang === null);
+      const value = agreedValue(chosen.length > 0 ? chosen : rows, title);
+      if (typeof value === 'string' && value !== '') return value;
     }
     for (const value of Object.values(entity.key)) if (typeof value === 'string' && value !== '') return value;
     return entity.uid;
@@ -600,11 +614,13 @@ export class ReadContext {
         sql.params,
       );
       const opinionRows = await this.fetchEdgeOpinions(edge, [...new Set(answer.rows.map((row) => String(row['id'])))]);
+      // A relation may reach a catalogue entity: its values come from the manifest the start published.
+      if (answer.rows.some((row) => String(row['other_entity']) === 'manifest.kind')) await this.catalogueData();
       const batches = new Map<string, EdgeBatch>();
       for (const row of answer.rows) {
         const parent = String(row['parent']);
-        const entityName = String(row['other_entity']);
-        const node: EntityValue = { nodeId: String(row['other_id']), uid: String(row['other_uid']), kind: entityName, key: row['other_key'] as Record<string, unknown>, typeName: typeNameOf(entityName), ...(lang === undefined ? {} : { lang }) };
+        const node = this.entityFromRow({ node_id: row['other_id'], uid: row['other_uid'], key: row['other_key'], entity: row['other_entity'] }, lang);
+        if (node === undefined) continue;
         const values: Record<string, unknown> = {};
         for (const attribute of edge.fields) values[fieldNameOf(attribute.name)] = row[`attr_out_${attribute.name}`] ?? null;
         const orderValues = order.keys.map((one) => row[one.column] ?? null);
@@ -1138,6 +1154,10 @@ export class ReadContext {
     if (name === 'fields') return value.fields;
     if (name === 'derivesFrom') return this.catalogueLinks(value.derivesFrom, args, lang);
     if (name === 'derivedBy') return this.catalogueLinks(value.derivedBy, args, lang);
+    const relation = this.relationByType.get('CatalogueEntity')?.get(name);
+    if (relation !== undefined) return this.relation({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, relation.edge, relation.side, args);
+    const inverse = this.referenceInverseByType.get('CatalogueEntity')?.get(name);
+    if (inverse !== undefined) return this.referenceInverse({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) }, inverse.source, inverse.field, args);
     return null;
   }
 

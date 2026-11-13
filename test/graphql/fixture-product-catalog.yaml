@@ -30,3 +30,6 @@ edges:
   - name: demo.related
     from: [demo.file]
     to: [demo.file]
+  - name: mentions
+    from: [any]
+    to: [any]

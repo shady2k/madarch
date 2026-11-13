@@ -1,0 +1,17 @@
+# The fixture's kind that declares no fields: the agent still writes it, and its table holds its label.
+id: practice.note
+purpose: structure
+definition: A note of the demo, with no declared field but its label.
+sources: [https://example.test/standard]
+acquisition: [conversation]
+status: implemented
+relation-constraints: { out: [], in: [] }
+template-policy: page
+template: templates/entity.yaml
+source: graph
+origin: person
+labels:
+  en: { one: Note, many: Notes }
+  ru: { one: Заметка, many: Заметки }
+description: { en: A note of the demo., ru: Заметка демо. }
+key: []

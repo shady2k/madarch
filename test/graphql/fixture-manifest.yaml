@@ -69,3 +69,6 @@ edges:
   - name: demo.authored
     from: [demo.author]
     to: [demo.commit]
+  - name: mentions
+    from: [any]
+    to: [any]

@@ -77,6 +77,9 @@ describe('the schema of a published manifest', () => {
 
   test('shows the catalogue as an entity type with its own roots', () => {
     const sdl = graphqlSchemaOf(publishedManifestOf(fixtureManifest()));
+    expect(sdl).toContain('mentions(first: Int, after: String): MentionsConnection!');
+    expect(sdl).toContain('mentionsOf(first: Int, after: String): MentionsConnection!');
+    expect(sdl).toContain('type MentionsEdge {');
     expect(sdl).toContain('type CatalogueEntity implements Entity {');
     expect(sdl).toContain('catalogueEntity(name: String!, lang: String): CatalogueEntity');
     expect(sdl).toContain('allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!');

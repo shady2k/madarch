@@ -152,7 +152,7 @@ export function valuesOfKind(vertex: VertexContract, values: unknown): Record<st
 }
 
 /** The draft one put_entity call writes: the agent's opinion of the given fields. */
-export function entityDraft(contract: GraphContract, input: { kind: string; key: Record<string, unknown>; values: unknown }, source: WriteSource, evidence: EvidenceDraft[]): { draft: VertexDraft; vertex: VertexContract } {
+export function entityDraft(contract: GraphContract, input: { kind: string; key: Record<string, unknown>; values: unknown; uid?: string }, source: WriteSource, evidence: EvidenceDraft[]): { draft: VertexDraft; vertex: VertexContract } {
   const vertex = vertexOfKind(contract, input.kind);
   const key = keyOfKind(vertex, input.key);
   const values = valuesOfKind(vertex, input.values);
@@ -161,6 +161,7 @@ export function entityDraft(contract: GraphContract, input: { kind: string; key:
     draft: {
       kind: input.kind,
       key,
+      ...(input.uid === undefined ? {} : { uid: input.uid }),
       values,
       selectedFields: Object.keys(values),
       evidence,
@@ -264,14 +265,15 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
     const contract = writeContractOf(manifest);
     const vertex = vertexOfKind(contract, input.kind);
     let key: Record<string, unknown>;
+    let writeUid: string | undefined;
     if (input.id !== undefined) {
-      if (vertex.key.length === 0) throw new WriteRefusal(`kind ${JSON.stringify(input.kind)} has no natural key: an entity is addressed by its uid alone and cannot be written again`, 'id');
       const rows = await tx.query<{ key: Record<string, unknown> }>(
         `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
         [input.id, input.kind],
       );
       if (rows.rows[0] === undefined) throw new WriteRefusal(`id ${JSON.stringify(input.id)}: no entity of the kind ${JSON.stringify(input.kind)} has it`, 'id', 404);
       key = rows.rows[0].key;
+      if (vertex.key.length === 0) writeUid = input.id;
     } else if (input.key === undefined && vertex.key.length === 0) {
       // A keyless kind is created by the write and answered by the uid of the opinion it just made.
       key = {};
@@ -279,7 +281,7 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
       if (input.key === undefined) throw new WriteRefusal('the entity is named by key or by id', 'key');
       key = keyOfKind(vertex, input.key);
     }
-    const { draft } = entityDraft(contract, { kind: input.kind, key, values: input.values }, source, evidence);
+    const { draft } = entityDraft(contract, { kind: input.kind, key, values: input.values, ...(writeUid === undefined ? {} : { uid: writeUid }) }, source, evidence);
     const written = await publishGraphDrafts(tx, contract, { vertices: [draft], removals: [] }, 1, { author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
     const uid = await producerNodeOf(tx, vertex, source.producer);
     return { kind: input.kind, key: draft.key as Record<string, unknown>, ...(uid === undefined ? {} : { uid }), written };
@@ -298,7 +300,7 @@ async function edgeEndOf(tx: Parameters<Parameters<DatabaseOwner['transaction']>
       [held['id'], held['kind']],
     );
     if (rows.rows[0] === undefined) throw new WriteRefusal(`the ${side} id ${JSON.stringify(held['id'])}: no entity of the kind ${JSON.stringify(held['kind'])} has it`, side, 404);
-    return { kind: held['kind'], key: rows.rows[0].key as Record<string, KeyValueDraft> };
+    return { kind: held['kind'], key: rows.rows[0].key as Record<string, KeyValueDraft>, uid: String(held['id']) };
   }
   return { kind: held['kind'], key: keyOfKind(vertex, held['key']) };
 }

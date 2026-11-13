@@ -336,6 +336,10 @@ function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefi
 /** One entity a draft's reference names, as the node that holds it, or undefined when no vertex does. */
 async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
   const vertex = contract.vertex.find((held) => held.name === ref.kind);
+  if (ref.uid !== undefined) {
+    const found = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed`, [ref.uid, ref.kind]);
+    return found.rows[0]?.id;
+  }
   const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
   const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
   const found = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
@@ -403,7 +407,7 @@ async function declareVertices(executor: SqlExecutor, contract: GraphContract, d
     const prepared = batch.map(draft => {
       const vertex = vertexOf(contract, draft.kind);
       const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-      const uid = vertex.key.length === 0 ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]);
+      const uid = draft.uid ?? (vertex.key.length === 0 ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]));
       return { draft, key, uid };
     });
     const entityIds = new Map<string, string>();
@@ -828,6 +832,7 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
     while (end < drafts.length && end - at < PUBLICATION_ROWS && drafts[end]!.kind === firstKind) {
       const draft = drafts[end]!;
       const endpointUid = (ref: EntityRefDraft): string => {
+        if (ref.uid !== undefined) return ref.uid;
         const target = contract.vertex.find(kind => kind.name === ref.kind);
         const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `an endpoint of ${JSON.stringify(draft.kind)}`);
         return keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]);
@@ -843,8 +848,8 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
     const refs = batch.map(draft => (['from', 'to'] as const).map(field => {
       const ref = draft[field];
       const target = contract.vertex.find(kind => kind.name === ref.kind);
-      const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
-      return { ref, key, uid: keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
+      const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key ?? {}), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
+      return { ref, key, uid: ref.uid ?? keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
     }));
     const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
     const byUid = new Map(nodes.rows.map(node => [node.uid, node.id]));

@@ -129,6 +129,8 @@ export type EvidenceDraft = ClaimEvidenceDraft | EvidenceEntry;
 export interface EntityRefDraft {
   readonly kind: string;
   readonly key: Readonly<Record<string, KeyValueDraft>>;
+  /** The stable uid, for an entity a key cannot name (a keyless kind's entity). */
+  readonly uid?: string;
 }
 
 /** One key field's value: text, a number, a boolean, or the entity a reference field names. */
@@ -143,6 +145,8 @@ export type KeyValueDraft = string | number | boolean | EntityRefDraft;
 export interface VertexDraft {
   /** Replace only these fields; fields outside the scope keep their prior opinions. */
   readonly selectedFields?: readonly string[];
+  /** The stable uid of a keyless entity written again; absent, the writer makes a new one. */
+  readonly uid?: string;
   readonly kind: string;
   /** The entity's natural key values, by the kind's key fields; a reference is its entity's kind and key. */
   readonly key: Readonly<Record<string, KeyValueDraft>>;

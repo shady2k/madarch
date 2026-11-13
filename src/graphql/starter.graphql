@@ -35,9 +35,6 @@ type AdministratorGuide implements Entity {
   statements: JSON
   statementsOpinions: [Opinion!]!
   statementsOpinionsCount: Int!
-  mentions: JSON
-  mentionsOpinions: [Opinion!]!
-  mentionsOpinionsCount: Int!
   digest: String
   digestOpinions: [Opinion!]!
   digestOpinionsCount: Int!
@@ -53,6 +50,12 @@ type AdministratorGuide implements Entity {
   ungrounded: JSON
   ungroundedOpinions: [Opinion!]!
   ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type AdministratorGuideConnection {
@@ -115,6 +118,12 @@ type CatalogueEntity implements Entity {
   fields: [CatalogueField!]!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CatalogueEntityConnection {
@@ -168,6 +177,12 @@ type CodeAuthor implements Entity {
   emailOpinions: [Opinion!]!
   emailOpinionsCount: Int!
   codeAuthored(first: Int, after: String): CodeAuthoredConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeAuthorConnection {
@@ -206,6 +221,12 @@ type CodeBroker implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeBrokerConnection {
@@ -244,6 +265,12 @@ type CodeChannel implements Entity {
   directionStatus: String
   directionStatusOpinions: [Opinion!]!
   directionStatusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeChannelConnection {
@@ -264,6 +291,12 @@ type CodeCiJob implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeCiJobConnection {
@@ -284,6 +317,12 @@ type CodeCiWorkflow implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeCiWorkflowConnection {
@@ -331,6 +370,12 @@ type CodeColumn implements Entity {
   codeForeignKey(where: CodeForeignKeyEdgeWhere, orderBy: [CodeForeignKeyEdgeOrder!], first: Int, after: String): CodeForeignKeyConnection!
   codeForeignKeyOf(where: CodeForeignKeyEdgeWhere, orderBy: [CodeForeignKeyEdgeOrder!], first: Int, after: String): CodeForeignKeyConnection!
   codeHasColumnOf(first: Int, after: String): CodeHasColumnConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeColumnConnection {
@@ -378,6 +423,12 @@ type CodeCommit implements Entity {
   codeParent(where: CodeParentEdgeWhere, orderBy: [CodeParentEdgeOrder!], first: Int, after: String): CodeParentConnection!
   codeParentOf(where: CodeParentEdgeWhere, orderBy: [CodeParentEdgeOrder!], first: Int, after: String): CodeParentConnection!
   codeTouched(where: CodeTouchedEdgeWhere, orderBy: [CodeTouchedEdgeOrder!], first: Int, after: String): CodeTouchedConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
   sinceOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
 }
 
@@ -399,6 +450,12 @@ type CodeComposeService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeComposeServiceConnection {
@@ -446,6 +503,12 @@ type CodeContract implements Entity {
   definition: JSON
   definitionOpinions: [Opinion!]!
   definitionOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeContractConnection {
@@ -466,6 +529,12 @@ type CodeCycle implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeCycleConnection {
@@ -492,6 +561,12 @@ type CodeDatabase implements Entity {
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeDatabaseConnection {
@@ -512,6 +587,12 @@ type CodeDebt implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeDebtConnection {
@@ -550,6 +631,12 @@ type CodeDependency implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeDependencyConnection {
@@ -578,6 +665,12 @@ type CodeDirectory implements Entity {
   pathOpinionsCount: Int!
   codeContains(first: Int, after: String): CodeContainsConnection!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeDirectoryConnection {
@@ -598,6 +691,12 @@ type CodeDockerfile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeDockerfileConnection {
@@ -618,6 +717,12 @@ type CodeDocumentSection implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeDocumentSectionConnection {
@@ -638,6 +743,12 @@ type CodeEntryPoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeEntryPointConnection {
@@ -658,6 +769,12 @@ type CodeEnvDefinition implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeEnvDefinitionConnection {
@@ -678,6 +795,12 @@ type CodeEnvVar implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeEnvVarConnection {
@@ -698,6 +821,12 @@ type CodeFacet implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeFacetConnection {
@@ -718,6 +847,12 @@ type CodeField implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeFieldConnection {
@@ -800,6 +935,12 @@ type CodeFile implements Entity {
   codeRenamedFrom(first: Int, after: String): CodeRenamedFromConnection!
   codeRenamedFromOf(first: Int, after: String): CodeRenamedFromConnection!
   codeTouchedOf(where: CodeTouchedEdgeWhere, orderBy: [CodeTouchedEdgeOrder!], first: Int, after: String): CodeTouchedConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeFileConnection {
@@ -860,6 +1001,12 @@ type CodeGitlink implements Entity {
   commitHashOpinions: [Opinion!]!
   commitHashOpinionsCount: Int!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeGitlinkConnection {
@@ -916,6 +1063,12 @@ type CodeHealthEndpoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeHealthEndpointConnection {
@@ -936,6 +1089,12 @@ type CodeHealthcheck implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeHealthcheckConnection {
@@ -977,6 +1136,12 @@ type CodeImage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeImageConnection {
@@ -1013,6 +1178,12 @@ type CodeIndex implements Entity {
   whereOpinions: [Opinion!]!
   whereOpinionsCount: Int!
   codeHasIndexOf(first: Int, after: String): CodeHasIndexConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeIndexConnection {
@@ -1033,6 +1204,12 @@ type CodeInput implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeInputConnection {
@@ -1053,6 +1230,12 @@ type CodeK8sDeployment implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeK8sDeploymentConnection {
@@ -1073,6 +1256,12 @@ type CodeK8sService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeK8sServiceConnection {
@@ -1093,6 +1282,12 @@ type CodeLockfile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeLockfileConnection {
@@ -1113,6 +1308,12 @@ type CodeLogger implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeLoggerConnection {
@@ -1133,6 +1334,12 @@ type CodeMakeTarget implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeMakeTargetConnection {
@@ -1153,6 +1360,12 @@ type CodeManifest implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeManifestConnection {
@@ -1173,6 +1386,12 @@ type CodeMessage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeMessageConnection {
@@ -1193,6 +1412,12 @@ type CodeMetric implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeMetricConnection {
@@ -1213,6 +1438,12 @@ type CodeMetricsEndpoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeMetricsEndpointConnection {
@@ -1233,6 +1464,12 @@ type CodeMigration implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeMigrationConnection {
@@ -1262,6 +1499,12 @@ type CodeModule implements Entity {
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeModuleConnection {
@@ -1282,6 +1525,12 @@ type CodeNewcomerCommand implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeNewcomerCommandConnection {
@@ -1302,6 +1551,12 @@ type CodeNewcomerFailure implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeNewcomerFailureConnection {
@@ -1322,6 +1577,12 @@ type CodeNewcomerPrerequisites implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeNewcomerPrerequisitesConnection {
@@ -1354,6 +1615,12 @@ type CodeOperation implements Entity {
   definition: JSON
   definitionOpinions: [Opinion!]!
   definitionOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeOperationConnection {
@@ -1383,6 +1650,12 @@ type CodePackage implements Entity {
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodePackageConnection {
@@ -1424,6 +1697,12 @@ type CodePort implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodePortConnection {
@@ -1444,6 +1723,12 @@ type CodeProbe implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeProbeConnection {
@@ -1464,6 +1749,12 @@ type CodeProcess implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeProcessConnection {
@@ -1517,6 +1808,12 @@ type CodeRepository implements Entity {
   codeAsIs(first: Int, after: String): CodeAsIsConnection!
   codeContains(first: Int, after: String): CodeContainsConnection!
   codeHistory(where: CodeHistoryEdgeWhere, orderBy: [CodeHistoryEdgeOrder!], first: Int, after: String): CodeHistoryConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeRepositoryConnection {
@@ -1537,6 +1834,12 @@ type CodeRoute implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeRouteConnection {
@@ -1566,6 +1869,12 @@ type CodeService implements Entity {
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeServiceConnection {
@@ -1586,6 +1895,12 @@ type CodeSnapshot implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeSnapshotConnection {
@@ -1606,6 +1921,12 @@ type CodeSqlBuild implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeSqlBuildConnection {
@@ -1626,6 +1947,12 @@ type CodeSqlSink implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeSqlSinkConnection {
@@ -1658,6 +1985,12 @@ type CodeSymbol implements Entity {
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeSymbolConnection {
@@ -1693,6 +2026,12 @@ type CodeTable implements Entity {
   codeDeclaredIn(first: Int, after: String): CodeDeclaredInConnection!
   codeHasColumn(first: Int, after: String): CodeHasColumnConnection!
   codeHasIndex(first: Int, after: String): CodeHasIndexConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeTableConnection {
@@ -1713,6 +2052,12 @@ type CodeTask implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CodeTaskConnection {
@@ -1733,6 +2078,12 @@ type CodeTestCase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
   quarantinesOf(first: Int, after: String): QuarantinesConnection!
   testOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
 }
@@ -1780,6 +2131,12 @@ type CodeTestQuarantine implements Entity {
   latestResultOpinions: [Opinion!]!
   latestResultOpinionsCount: Int!
   fixedBy(first: Int, after: String): FixedByConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
   quarantines(first: Int, after: String): QuarantinesConnection!
 }
 
@@ -1840,6 +2197,12 @@ type Correction implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CorrectionConnection {
@@ -1872,6 +2235,12 @@ type DocDecision implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DocDecisionConnection {
@@ -1904,6 +2273,12 @@ type DocRequirement implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DocRequirementConnection {
@@ -1936,6 +2311,12 @@ type DocRule implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DocRuleConnection {
@@ -1983,6 +2364,12 @@ type DocTerm implements Entity {
   usages: JSON
   usagesOpinions: [Opinion!]!
   usagesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DocTermConnection {
@@ -2015,6 +2402,12 @@ type DocUseCase implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DocUseCaseConnection {
@@ -2053,6 +2446,12 @@ type Document implements Entity {
   links: JSON
   linksOpinions: [Opinion!]!
   linksOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DocumentConnection {
@@ -2097,9 +2496,6 @@ type Domain implements Entity {
   statements: JSON
   statementsOpinions: [Opinion!]!
   statementsOpinionsCount: Int!
-  mentions: JSON
-  mentionsOpinions: [Opinion!]!
-  mentionsOpinionsCount: Int!
   digest: String
   digestOpinions: [Opinion!]!
   digestOpinionsCount: Int!
@@ -2115,6 +2511,12 @@ type Domain implements Entity {
   ungrounded: JSON
   ungroundedOpinions: [Opinion!]!
   ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DomainConnection {
@@ -2159,9 +2561,6 @@ type Enrichment implements Entity {
   statements: JSON
   statementsOpinions: [Opinion!]!
   statementsOpinionsCount: Int!
-  mentions: JSON
-  mentionsOpinions: [Opinion!]!
-  mentionsOpinionsCount: Int!
   digest: String
   digestOpinions: [Opinion!]!
   digestOpinionsCount: Int!
@@ -2177,6 +2576,12 @@ type Enrichment implements Entity {
   ungrounded: JSON
   ungroundedOpinions: [Opinion!]!
   ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type EnrichmentConnection {
@@ -2197,6 +2602,12 @@ interface Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type EntityConnection {
@@ -2235,6 +2646,60 @@ type FixedByConnectionEdge {
 }
 
 type FixedByEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type GroundsConnection {
+  edges: [GroundsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type GroundsConnectionEdge {
+  cursor: String!
+  node: GroundsEdge!
+}
+
+type GroundsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type LinksToConnection {
+  edges: [LinksToConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type LinksToConnectionEdge {
+  cursor: String!
+  node: LinksToEdge!
+}
+
+type LinksToEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type MentionsConnection {
+  edges: [MentionsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type MentionsConnectionEdge {
+  cursor: String!
+  node: MentionsEdge!
+}
+
+type MentionsEdge {
   id: ID!
   discriminator: String!
   opinions: [Opinion!]!
@@ -2288,6 +2753,12 @@ type ProblemDismissal implements Entity {
   file: String
   fileOpinions: [Opinion!]!
   fileOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type ProblemDismissalConnection {
@@ -2332,9 +2803,6 @@ type Product implements Entity {
   statements: JSON
   statementsOpinions: [Opinion!]!
   statementsOpinionsCount: Int!
-  mentions: JSON
-  mentionsOpinions: [Opinion!]!
-  mentionsOpinionsCount: Int!
   digest: String
   digestOpinions: [Opinion!]!
   digestOpinionsCount: Int!
@@ -2350,6 +2818,12 @@ type Product implements Entity {
   ungrounded: JSON
   ungroundedOpinions: [Opinion!]!
   ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type ProductConnection {
@@ -2400,6 +2874,12 @@ type Question implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type QuestionConnection {
@@ -2432,6 +2912,12 @@ type Source implements Entity {
   commit: String
   commitOpinions: [Opinion!]!
   commitOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type SourceConnection {
@@ -2465,6 +2951,12 @@ type Task implements Entity {
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
   fixedByOf(first: Int, after: String): FixedByConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
   taskOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
 }
 
@@ -2492,6 +2984,12 @@ type Template implements Entity {
   templateParts: JSON
   templatePartsOpinions: [Opinion!]!
   templatePartsOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type TemplateConnection {
@@ -2536,9 +3034,6 @@ type UserGuide implements Entity {
   statements: JSON
   statementsOpinions: [Opinion!]!
   statementsOpinionsCount: Int!
-  mentions: JSON
-  mentionsOpinions: [Opinion!]!
-  mentionsOpinionsCount: Int!
   digest: String
   digestOpinions: [Opinion!]!
   digestOpinionsCount: Int!
@@ -2554,6 +3049,12 @@ type UserGuide implements Entity {
   ungrounded: JSON
   ungroundedOpinions: [Opinion!]!
   ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type UserGuideConnection {
@@ -2717,12 +3218,6 @@ input AdministratorGuideLinksFilter {
   _is_null: Boolean
 }
 
-input AdministratorGuideMentionsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input AdministratorGuideOrder {
   field: AdministratorGuideOrderField!
   direction: OrderDirection
@@ -2804,7 +3299,6 @@ input AdministratorGuideWhere {
   relates: AdministratorGuideRelatesFilter
   sources: AdministratorGuideSourcesFilter
   statements: AdministratorGuideStatementsFilter
-  mentions: AdministratorGuideMentionsFilter
   digest: AdministratorGuideDigestFilter
   producer: AdministratorGuideProducerFilter
   links: AdministratorGuideLinksFilter
@@ -4965,12 +5459,6 @@ input DomainLinksFilter {
   _is_null: Boolean
 }
 
-input DomainMentionsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input DomainOrder {
   field: DomainOrderField!
   direction: OrderDirection
@@ -5052,7 +5540,6 @@ input DomainWhere {
   relates: DomainRelatesFilter
   sources: DomainSourcesFilter
   statements: DomainStatementsFilter
-  mentions: DomainMentionsFilter
   digest: DomainDigestFilter
   producer: DomainProducerFilter
   links: DomainLinksFilter
@@ -5121,12 +5608,6 @@ input EnrichmentFindingsFilter {
 }
 
 input EnrichmentLinksFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input EnrichmentMentionsFilter {
   _eq: JSON
   _neq: JSON
   _is_null: Boolean
@@ -5213,7 +5694,6 @@ input EnrichmentWhere {
   relates: EnrichmentRelatesFilter
   sources: EnrichmentSourcesFilter
   statements: EnrichmentStatementsFilter
-  mentions: EnrichmentMentionsFilter
   digest: EnrichmentDigestFilter
   producer: EnrichmentProducerFilter
   links: EnrichmentLinksFilter
@@ -5391,12 +5871,6 @@ input ProductLinksFilter {
   _is_null: Boolean
 }
 
-input ProductMentionsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input ProductOrder {
   field: ProductOrderField!
   direction: OrderDirection
@@ -5478,7 +5952,6 @@ input ProductWhere {
   relates: ProductRelatesFilter
   sources: ProductSourcesFilter
   statements: ProductStatementsFilter
-  mentions: ProductMentionsFilter
   digest: ProductDigestFilter
   producer: ProductProducerFilter
   links: ProductLinksFilter
@@ -5774,12 +6247,6 @@ input UserGuideLinksFilter {
   _is_null: Boolean
 }
 
-input UserGuideMentionsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input UserGuideOrder {
   field: UserGuideOrderField!
   direction: OrderDirection
@@ -5861,7 +6328,6 @@ input UserGuideWhere {
   relates: UserGuideRelatesFilter
   sources: UserGuideSourcesFilter
   statements: UserGuideStatementsFilter
-  mentions: UserGuideMentionsFilter
   digest: UserGuideDigestFilter
   producer: UserGuideProducerFilter
   links: UserGuideLinksFilter
@@ -5878,7 +6344,6 @@ enum AdministratorGuideOrderField {
   relates
   sources
   statements
-  mentions
   digest
   producer
   links
@@ -6124,7 +6589,6 @@ enum DomainOrderField {
   relates
   sources
   statements
-  mentions
   digest
   producer
   links
@@ -6141,7 +6605,6 @@ enum EnrichmentOrderField {
   relates
   sources
   statements
-  mentions
   digest
   producer
   links
@@ -6178,7 +6641,6 @@ enum ProductOrderField {
   relates
   sources
   statements
-  mentions
   digest
   producer
   links
@@ -6221,7 +6683,6 @@ enum UserGuideOrderField {
   relates
   sources
   statements
-  mentions
   digest
   producer
   links

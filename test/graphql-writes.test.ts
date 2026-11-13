@@ -16,7 +16,8 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
-import { agentSource, callAgentWriteTool } from '../src/mcp/authored.js';
+import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
+import { isRecordTool } from '../src/mcp/records.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -49,6 +50,7 @@ beforeAll(async () => {
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.repository.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.repository.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/doc.term.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-doc.term.yaml'), 'utf8'));
+  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.note.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.note.yaml'), 'utf8'));
   execFileSync('git', ['init', '-q'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
@@ -168,11 +170,59 @@ describe('the agent writes the graph', () => {
     const stub = {
       putEntity: async (source: WriteSource) => { seen = source; return { kind: 'doc.term', uid: 'uid-1' }; },
     } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
-    const answer = await callAgentWriteTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'Kind' }, evidence: [{ type: 'url', url: 'https://example.test', at: '2026-11-13T12:00:00Z' }] });
+    const answer = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'Kind' }, evidence: [{ type: 'url', url: 'https://example.test', at: '2026-11-13T12:00:00Z' }] });
     expect(answer.isError).toBe(false);
     expect(seen).toEqual({ producer: 'agent:codex', version: 's1' });
-    const refused = await callAgentWriteTool(stub, agentSource('codex', 's1'), 'write_anything', {});
+    const refused = await callProductTool(stub, agentSource('codex', 's1'), 'write_anything', {});
     expect(refused.isError).toBe(true);
-    expect((refused.answer as Record<string, any>).error.message).toContain('no write tool');
+    expect((refused.answer as Record<string, any>).error.message).toContain('is no tool');
+  });
+  test('one product session serves the schema, the query and the writes', async () => {
+    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'put_entity', 'put_edge', 'retract']);
+    // The record surface no longer carries the graph read tools: there is one session.
+    expect(isRecordTool('graph_schema')).toBe(false);
+    expect(isRecordTool('graph_query')).toBe(false);
+    const stub = {
+      graphqlSchema: async () => 'scalar BigInt\ntype Query { bootstrap: String }',
+      graphql: async (operation: { query: string }) => ({ status: 200, body: { data: { echoed: operation.query } } }),
+    } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
+    const schema = await callProductTool(stub, agentSource('codex', 's1'), 'graph_schema', {});
+    expect(schema.isError).toBe(false);
+    expect((schema.answer as Record<string, unknown>)['schema']).toContain('scalar BigInt');
+    const query = await callProductTool(stub, agentSource('codex', 's1'), 'graph_query', { query: '{ bootstrap }' });
+    expect(query.isError).toBe(false);
+    expect(query.answer).toEqual({ data: { echoed: '{ bootstrap }' } });
+  });
+  test('a taken kind with no fields and no plugin producer accepts put_entity and reads back its label', async () => {
+    const written = await putEntityOpinion(owner, agent, {
+      kind: 'demo.note',
+      values: { label: 'A note the agent wrote' },
+      evidence: [{ type: 'conversation', id: 'conversation-8', at: '2026-11-13T12:00:00Z', words: 'write a note' }],
+    });
+    expect(written.uid).toBeDefined();
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind label } }`, { id: written.uid });
+    const note = data['entity'] as Record<string, any>;
+    expect(note.kind).toBe('demo.note');
+    expect(note.label).toBe('A note the agent wrote');
+  });
+  test('an any-end edge stands on the Entity interface and answers both ways with a backlink', async () => {
+    const term = await putEntityOpinion(owner, agent, {
+      kind: 'doc.term', values: { title: 'Mentioned' },
+      evidence: [{ type: 'conversation', id: 'conversation-9', at: '2026-11-13T12:00:00Z', words: 'mention the repository' }],
+    });
+    const edge = await putEdgeOpinion(owner, agent, {
+      kind: 'mentions', from: { kind: 'doc.term', id: term.uid }, to: { kind: 'demo.repository', key: { name: 'r1' } },
+      evidence: [{ type: 'file', path: 'docs/glossary.md', commit: '0123456789abcdef', lineStart: 25 }],
+    });
+    expect(edge.written).toBeGreaterThan(0);
+    const forward = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DocTerm { mentions(first: 5) { edges { node { node { ... on DemoRepository { name } } } } } } } }`, { id: term.uid });
+    const mentioned = ((forward['entity'] as Record<string, any>).mentions.edges[0].node.node);
+    expect(mentioned.name).toBe('r1');
+    const repository = (await graphql(`{ allDemoRepository(where: { name: { _eq: "r1" } }, first: 1) { edges { node { id } } } }`))['allDemoRepository'] as Record<string, any>;
+    const rid = repository.edges[0].node.id;
+    const inverse = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { mentionsOf(first: 5) { edges { node { node { ... on DocTerm { title } } } } } backlinks(first: 20) { edges { node { relation from { kind } } } } } } }`, { id: rid });
+    const node = inverse['entity'] as Record<string, any>;
+    expect(node.mentionsOf.edges[0].node.node.title).toBe('Mentioned');
+    expect(node.backlinks.edges.some((one: any) => one.node.relation === 'mentionsOf')).toBe(true);
   });
 });

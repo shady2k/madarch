@@ -53,6 +53,8 @@ type CatalogueEntity implements Entity {
   fields: [CatalogueField!]!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type CatalogueEntityConnection {
@@ -91,6 +93,8 @@ type DemoAuthor implements Entity {
   commitsOpinions: [Opinion!]!
   commitsOpinionsCount: Int!
   demoAuthored(first: Int, after: String): DemoAuthoredConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DemoAuthorConnection {
@@ -143,6 +147,8 @@ type DemoCommit implements Entity {
   changedLinesOpinionsCount: Int!
   demoAuthoredOf(first: Int, after: String): DemoAuthoredConnection!
   demoTouched(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DemoCommitConnection {
@@ -210,6 +216,8 @@ type DemoFile implements Entity {
   facetsOpinionsCount: Int!
   demoContainsOf(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
   demoTouchedOf(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type DemoFileConnection {
@@ -252,6 +260,8 @@ type DemoRepository implements Entity {
   sizeOpinions: [Opinion!]!
   sizeOpinionsCount: Int!
   demoContains(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
   repositoryOfDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String): DemoFileConnection!
 }
 
@@ -312,6 +322,8 @@ interface Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
 }
 
 type EntityConnection {
@@ -336,6 +348,24 @@ type Evidence {
   url: String
   at: String
   words: String
+}
+
+type MentionsConnection {
+  edges: [MentionsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type MentionsConnectionEdge {
+  cursor: String!
+  node: MentionsEdge!
+}
+
+type MentionsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type Opinion {
