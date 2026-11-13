@@ -58,13 +58,17 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const byHash = new Map(history.commits.map((held) => [held.hash, held]));
     const firstParent: typeof history.commits[number][] = [];
     for (let held = byHash.get(pin.commit); held !== undefined; held = held.parents[0] === undefined ? undefined : byHash.get(held.parents[0]!)) firstParent.push(held);
+    // A shallow clone's oldest available commit is diffed against an empty tree, so every file it holds looks added.
+    // That addition may lie beyond the history the clone holds: the period stays unknown, and history_shallow says why.
+    const shallow = history.gaps.some((gap) => gap.reason === 'shallow-history');
+    const boundary = shallow ? firstParent.at(-1)?.hash : undefined;
     const periods = new Map<string, { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>();
     const emptyPeriod = () => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
     for (const held of firstParent.reverse()) {
       const at = new Date(held.commitDate).toISOString();
       for (const touched of held.touched) {
         if (touched.change === 'added' || touched.change === 'renamed') {
-          periods.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
+          if (held.hash !== boundary) periods.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
         } else if (touched.change === 'deleted') {
           periods.set(touched.path, { ...(periods.get(touched.path) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
         }

@@ -244,3 +244,25 @@ test('a deletion discarded by a merge is no removal', async () => {
   expect(file?.values).toMatchObject({ added_in: added, removed_in: null, removed_at: null });
   expect(file?.values?.['removed_in']).not.toBe(discarded);
 });
+
+
+test('a shallow boundary does not fabricate an addition, and the repository says it is shallow', async () => {
+  const origin = join(ROOT, 'shallow-origin');
+  mkdirSync(origin);
+  git(origin, ONE, 'init', '-q', '-b', 'main');
+  git(origin, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(origin, 'a.txt'), 'a\n');
+  commit(origin, ONE, 'add a');
+  writeFileSync(join(origin, 'b.txt'), 'b\n');
+  const tip = commit(origin, TWO, 'add b');
+  const clone = join(ROOT, 'shallow-clone');
+  execFileSync('git', ['clone', '-q', '--depth', '1', `file://${origin}`, clone], { env: { ...process.env, ...ONE } });
+  expect(current(clone)).toEqual(['a.txt', 'b.txt']);
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(clone, 'shallow', tip)), context(current(clone)));
+  for (const path of ['a.txt', 'b.txt']) {
+    const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === path);
+    expect(file?.values).toMatchObject({ added_at: null, added_in: null, removed_at: null, removed_in: null });
+  }
+  const repository = await gitExtract(unit('code.repository', [], pin(clone, 'shallow', tip)), context([]));
+  expect(repository.vertices?.find((vertex) => vertex.kind === 'code.repository' && vertex.key['name'] === 'shallow')?.values).toMatchObject({ history_shallow: true });
+});
