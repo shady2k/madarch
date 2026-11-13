@@ -33,6 +33,8 @@ import { byCodePoint } from '../../../src/model/order.js';
 export const ARCHITECTURE_RULES = [
   'graph-single-writer',
   'graph-writes-in-writer',
+  'graphql-only-reads',
+  'no-kind-names',
   'no-retired-surfaces',
   'no-unreachable-code',
   'one-fill-entry',
@@ -48,7 +50,7 @@ export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
  * The rules that take no baseline: a violation they find is fixed, never written
  * into the list, and no commit's owner decision may keep one there.
  */
-export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['no-unreachable-code', 'schema-preparation-only', 'starter-data-when-copying'];
+export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-kind-names', 'no-unreachable-code', 'schema-preparation-only', 'starter-data-when-copying'];
 
 /**
  * One violation as a rule found it.

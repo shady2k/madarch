@@ -535,3 +535,54 @@ describe('the base guard', () => {
     expect(() => baseGuard({ root })).toThrow(/origin\/main/);
   });
 });
+
+describe('the reads and names of decision 0036, section 8', () => {
+  /** The fixture with a route table and the API map a route is written through. */
+  function readFixture(): string {
+    const root = fixtureProject();
+    writeModule(root, 'src/knowledge/addresses.ts', [
+      '/** The API the wiki answers, one address per answer. */',
+      'export const API = {',
+      "  status: '/api/status',",
+      "  page: '/api/page',",
+      '} as const;',
+      '',
+    ]);
+    return root;
+  }
+
+  test('a read route outside /graphql and the kept list fails, naming the route; a kept route passes', async () => {
+    const root = readFixture();
+    const routes = (planted: string): string[] => [
+      '/** The one way in. */',
+      "import { API } from '../knowledge/addresses.js';",
+      '',
+      'export const routes = [',
+      "  { method: 'GET', path: '/graphql/schema' },",
+      "  { method: 'GET', path: API.status },",
+      planted,
+      '];',
+      '',
+    ];
+    writeModule(root, 'src/server/http.ts', routes("  { method: 'GET', path: API.page },"));
+    const found = architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toStartWith(`${join(root, 'src/server/http.ts')}:7: graphql-only-reads: `);
+    expect(found[0]).toContain('answers the route /api/page');
+    writeModule(root, 'src/server/http.ts', routes("  { method: 'GET', path: '/api/kind-usage' },"));
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }))).toEqual([]);
+  });
+
+  test('a kind name in the server layer fails, and the catalogue written as data does not', async () => {
+    const root = readFixture();
+    writeModule(root, 'catalog/code/structure/code.file.yaml', ['id: code.file', '']);
+    const planted = ['/** The server names a kind. */', "export const PAGE_KIND = 'code.file';", ''];
+    writeModule(root, 'src/server/pages.ts', planted);
+    const found = architectureProblemLines(await architectureCheck({ root, rules: ['no-kind-names'] }));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toStartWith(`${join(root, 'src/server/pages.ts')}:2: no-kind-names: `);
+    expect(found[0]).toContain('names the kind code.file');
+    rmSync(join(root, 'src/server/pages.ts'));
+    expect(architectureProblemLines(await architectureCheck({ root, rules: ['no-kind-names'] }))).toEqual([]);
+  });
+});

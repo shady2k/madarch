@@ -14,7 +14,7 @@ export async function graphKnowledgePages(graph: Pick<GraphReader, 'list'>, mani
       id: entity.id, kind: entity.kind, title: entity.title, file: entity.file,
       relates: entity.relates, sources: entity.sources, producer: entity.producer,
       writtenAt: writtenAt(entity.front['written-at'], entity.id),
-      statements: entity.indexedStatements, mentions: entity.mentions, digest: entity.digest,
+      statements: entity.indexedStatements, digest: entity.digest,
     })),
     findings: read.findings,
   };
