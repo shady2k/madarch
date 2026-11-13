@@ -300,9 +300,19 @@ describe('a declared fixture plugin reads consistency records through the host',
       targets: { kinds: ['probe.finding'] }, runId: 'zero-problems', home: join(root, 'home'),
       prepareContract: async (held) => { await prepareStore(preparedOwner, { contract: held }); } });
     expect(clean.ok).toBe(true);
+    if (!clean.ok) return;
+    expect(clean.state, JSON.stringify(clean)).toBe('succeeded');
     expect(await findings()).toEqual([]);
-    expect(await readProducerOutcomes(owner, { runId: 'zero-problems' })).toEqual([
+    const cleanOutcomes = await readProducerOutcomes(owner, { runId: 'zero-problems' });
+    expect(cleanOutcomes.filter((one) => one.plugin === 'plugin-consistency')).toEqual([
       expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'empty', produced: 0 }),
+    ]);
+    expect(cleanOutcomes.filter((one) => one.plugin !== 'plugin-consistency').map(({ plugin, kind, outcome }) => ({ plugin, kind, outcome }))).toEqual([
+      { plugin: 'disk', kind: 'code.directory', outcome: 'unchanged' },
+      { plugin: 'disk', kind: 'code.file', outcome: 'unchanged' },
+      { plugin: 'disk', kind: 'code.repository', outcome: 'unchanged' },
+      { plugin: 'git', kind: 'code.file', outcome: 'unchanged' },
+      { plugin: 'git', kind: 'code.repository', outcome: 'unchanged' },
     ]);
     const retained = await readProducerOutcomes(owner, { runId: 'alone' });
     expect(retained).toEqual(beforeOutcomes);
