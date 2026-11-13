@@ -1,8 +1,6 @@
 /** Reads of ordinary published graph facts. */
 export {
-  RecordGap, commitFacts, commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles,
-  graphKindCounts, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts,
-  repositoryFileIndex, productFileIndex,
-  type FileDate, type FileHistoryRow, type FileRecord,
+  commitFacts, fileFacts, graphKindCounts, listFiles, listRepositories, repositoryFacts, productFileIndex,
+  type FileDate, type FileRecord,
 } from './records.js';
 export { removedEdgeEnds, unevidencedOpinions, unresolvedReferences, type EvidenceDeclaration } from './consistency.js';

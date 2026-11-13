@@ -433,15 +433,31 @@ export class ReadContext {
     // The label is the field the manifest's `title:` names (decision 0036, section 1): a key field answers its own
     // value, any other field its agreed opinion. A kind that names no title is labelled by the first text of its key.
     const title = this.titles.get(entity.kind);
-    const field = title === undefined ? undefined : this.fieldsByType.get(entity.typeName)?.get(fieldNameOf(title));
+    const typeFields = this.fieldsByType.get(entity.typeName);
+    const field = title === undefined ? undefined : typeFields?.get(fieldNameOf(title));
     if (field !== undefined) {
       if (field.type === 'text' && entity.key[field.name] !== undefined) return String(entity.key[field.name]);
       const read = await this.fieldRead(entity, field);
       if (typeof read.value === 'string' && read.value !== '') return read.value;
       if (read.value !== null && read.value !== undefined) return String(read.value);
+    } else if (typeFields === undefined || typeFields.size === 0) {
+      // A kind that declares no field still states its label: the writer holds it in the storage column the schema does
+      // not publish, and a store whose table has no such column answers its key instead.
+      const value = await this.storageLabel(entity).catch(() => undefined);
+      if (typeof value === 'string' && value !== '') return value;
     }
     for (const value of Object.values(entity.key)) if (typeof value === 'string' && value !== '') return value;
     return entity.uid;
+  }
+
+  /** The label a kind that declares no field keeps in its own table. */
+  private async storageLabel(entity: EntityValue): Promise<unknown> {
+    await this.ensureFields(entity.kind, entity.nodeId, ['label']);
+    const rows = (this.fieldCache.get(entity.kind)?.get(entity.nodeId)?.rows ?? []).filter((row) => row.values['label'] !== null && row.values['label'] !== undefined);
+    const inLang = rows.filter((row) => row.lang === (entity.lang ?? this.lang));
+    const fallback = rows.filter((row) => row.lang === this.fallbackLang);
+    const chosen = inLang.length > 0 ? inLang : fallback.length > 0 ? fallback : rows.filter((row) => row.lang === null);
+    return agreedValue(chosen.length > 0 ? chosen : rows, 'label');
   }
 
   /**

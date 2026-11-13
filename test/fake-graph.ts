@@ -4,7 +4,7 @@
  * rendering is judged on the entities and edges a test declares. The fake
  * answers the same methods the real reader does, in the same order.
  */
-import type { GraphReader, GraphEntity, HistoryEvidence, NeighborEdge, NeighborGroup, RelationEdge, SourceSpan } from '../src/knowledge/graph-read.js';
+import type { GraphReader, GraphEntity, NeighborEdge, RelationEdge, SourceSpan } from '../src/knowledge/graph-read.js';
 import { byCodePoint } from '../src/model/order.js';
 
 interface FakeNode {
@@ -102,27 +102,6 @@ class FakeReader {
     return groups.sort((a, b) => byCodePoint(a.kind, b.kind));
   }
 
-  async neighbors(entity: GraphEntity, options: { relations?: readonly string[]; direction?: 'out' | 'in' | 'both'; limit: number }): Promise<NeighborGroup[]> {
-    const directions: ('out' | 'in')[] = options.direction === 'out' ? ['out'] : options.direction === 'in' ? ['in'] : ['out', 'in'];
-    const groups: NeighborGroup[] = [];
-    for (const direction of directions) {
-      const byRelation = new Map<string, Map<string, number>>();
-      for (const edge of this.graph.allEdges()) {
-        if (options.relations !== undefined && !options.relations.includes(edge.relation)) continue;
-        const [self, far] = direction === 'out' ? [edge.from, edge.to] : [edge.to, edge.from];
-        if (self !== entity.key) continue;
-        const held = byRelation.get(edge.relation) ?? new Map<string, number>();
-        held.set(far, (held.get(far) ?? 0) + 1);
-        byRelation.set(edge.relation, held);
-      }
-      for (const [relation, byOther] of [...byRelation].sort((a, b) => byCodePoint(a[0], b[0]))) {
-        const rows = [...byOther].map(([key, edges]) => ({ entity: this.entity(this.graph.node(key)!), edges })).sort((a, b) => byCodePoint(a.entity.key, b.entity.key));
-        groups.push({ relation, direction, total: rows.length, edges: [...byOther.values()].reduce((sum, n) => sum + n, 0), rows: rows.slice(0, options.limit) });
-      }
-    }
-    return groups;
-  }
-
   async edgesOf(entity: GraphEntity, relation: string, direction: 'out' | 'in', limit: number): Promise<{ total: number; rows: NeighborEdge[] }> {
     const rows: NeighborEdge[] = [];
     const seen = new Set<string>();
@@ -139,35 +118,6 @@ class FakeReader {
     return { total: rows.length, rows: rows.slice(0, limit) };
   }
 
-  async containers(entity: GraphEntity, relation: string, limit = 8): Promise<GraphEntity[]> {
-    const chain: GraphEntity[] = [];
-    let current = entity;
-    const seen = new Set<string>([entity.key]);
-    for (let step = 0; step < limit; step += 1) {
-      const edge = this.graph.allEdges().find((one) => one.relation === relation && one.to === current.key);
-      if (edge === undefined) break;
-      const node = this.graph.node(edge.from);
-      if (node === undefined || seen.has(node.key)) break;
-      seen.add(node.key);
-      const next = this.entity(node);
-      chain.push(next);
-      current = next;
-    }
-    return chain;
-  }
-
-  async reach(entity: GraphEntity, relation: string, depth: number, limit: number): Promise<{ total: number; rows: { entity: GraphEntity; hops: number }[] }> {
-    const reached = new Map<string, number>();
-    let frontier = [entity.key];
-    for (let hop = 1; hop <= depth; hop += 1) {
-      const next: string[] = [];
-      for (const from of frontier) for (const edge of this.graph.allEdges()) if (edge.relation === relation && edge.from === from && !reached.has(edge.to) && edge.to !== entity.key) { reached.set(edge.to, hop); next.push(edge.to); }
-      frontier = next;
-    }
-    const rows = [...reached].flatMap(([key, hops]) => { const node = this.graph.node(key); return node === undefined ? [] : [{ entity: this.entity(node), hops }]; }).sort((a, b) => a.hops - b.hops || byCodePoint(a.entity.key, b.entity.key));
-    return { total: rows.length, rows: rows.slice(0, limit) };
-  }
-
   async byPrefix(kind: string, prefix: string, limit: number): Promise<{ total: number; rows: GraphEntity[] }> {
     const all = this.ofKind(kind).filter((entity) => entity.key.startsWith(prefix));
     return { total: all.length, rows: all.slice(0, limit) };
@@ -181,23 +131,6 @@ class FakeReader {
       return from === undefined || to === undefined ? [] : [{ discriminator: edge.discriminator, from: { key: from.key, kind: from.kind, label: from.label }, to: { key: to.key, kind: to.kind, label: to.label }, properties: edge.properties }];
     });
     return { total: rows.length, rows: rows.slice(0, limit) };
-  }
-
-  async inDegrees(relation: string, keys: readonly string[]): Promise<Map<string, number>> {
-    const counts = new Map<string, number>(keys.map((key) => [key, 0]));
-    for (const edge of this.graph.allEdges()) if (edge.relation === relation && counts.has(edge.to)) counts.set(edge.to, (counts.get(edge.to) ?? 0) + 1);
-    return counts;
-  }
-
-  async historyEvidenceFor(entity: GraphEntity, _shape: 'path' | 'author', _limit: number): Promise<HistoryEvidence> {
-    return await this.historyEvidence(entity.scope);
-  }
-
-  async historyEvidence(scope: string): Promise<HistoryEvidence> {
-    const entities = this.graph.allNodes().filter((node) => node.scope === scope || node.key === scope).map((node) => this.entity(node));
-    const keys = new Set(entities.map((entity) => entity.key));
-    const edges = this.graph.allEdges().filter((edge) => keys.has(edge.from) && keys.has(edge.to)).map((edge) => ({ from: edge.from, to: edge.to, relation: edge.relation, properties: edge.properties }));
-    return { entities, edges };
   }
 
   async repositories(): Promise<{ nodeId: string; path: string }[]> {

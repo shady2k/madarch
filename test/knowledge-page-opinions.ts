@@ -6,7 +6,10 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { PAYMENTS_SERVICE, PAY } from './knowledge-fixture.js';
 
-/** Publish explicit fixture opinions; no fixture parser infers a page from file bytes. */
+/**
+ * Publish explicit fixture opinions; no fixture parser infers a page from file bytes. A page's mentions are edges
+ * (decision 0036, section 3): the publisher states the page's values and no `mentions` field.
+ */
 export async function publishFixtureOpinions(folder: string, knowledgeRoot: string, opinions: readonly { kind: string; key: Record<string, KeyValueDraft>; values: Record<string, unknown> }[]): Promise<void> {
   const read = readKinds(folder);
   if (!read.present) throw new Error(`${folder}/madarch/catalog.yaml:1: fixture kinds are absent`);
@@ -34,6 +37,6 @@ export async function publishSamplePageOpinions(folder: string, knowledgeRoot: s
   ];
   await publishFixtureOpinions(folder, knowledgeRoot, pages.map((page) => ({
     kind: page.kind, key: { slug: page.slug },
-    values: { title: page.title, file: page.file, body: page.body, relates: page.relates, sources: page.sources, body_line: 1, producer: 'fixture', statements: [], mentions: [], digest: 'fixture', links: [], findings: [], ungrounded: [] },
+    values: { title: page.title, file: page.file, body: page.body, relates: page.relates, sources: page.sources, body_line: 1, producer: 'fixture', statements: [], digest: 'fixture', links: [], findings: [], ungrounded: [] },
   })));
 }

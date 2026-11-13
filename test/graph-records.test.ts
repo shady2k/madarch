@@ -10,8 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { fileFacts, listDirectories, listFiles, repositoryFacts } from '../src/graph/index.js';
-import { commitWithPaths as commitFacts } from '../src/graph/records.js';
+import { commitFacts, fileFacts, listFiles, repositoryFacts } from '../src/graph/index.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
 import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
@@ -305,9 +304,20 @@ describe('the two passes over one fixture', () => {
     expect((await repositoryFacts(owner!, 'fixture'))?.historyShallow).toBe(false);
   }, 120_000);
 
+  /** Every folder vertex with the folder it hangs from, read from the graph's own tables. */
+  const listDirectories = async (repository = 'fixture'): Promise<readonly { path: string; parent: string }[]> => {
+    const found = await owner!.transaction('snapshot', async (tx) => await tx.query<{ path: string; parent: string }>(
+      `SELECT DISTINCT (n.key->>'path') AS path, coalesce(pn.key->>'path', '') AS parent FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = 'code.directory'
+       LEFT JOIN edge ed ON ed.to_node = n.id AND ed.entity_id = (SELECT id FROM entity WHERE name = 'code.contains')
+       LEFT JOIN node pn ON pn.id = ed.from_node WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed`,
+      [repository],
+    ));
+    return found.rows;
+  };
+
   test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const directories = await listDirectories(owner, 'fixture');
+    const directories = await listDirectories();
     const byPath = new Map(directories.map((row) => [row.path, row.parent]));
     expect(byPath.has('src')).toBe(true);
     expect(byPath.has('docs')).toBe(true);
@@ -321,12 +331,12 @@ describe('the two passes over one fixture', () => {
        LEFT JOIN node pn ON pn.id = e.from_node`,
     ));
     expect(parents.rows.length).toBeGreaterThan(0);
-    for (const row of parents.rows as { child: string; parent: string }[]) {
+    for (const row of parents.rows as unknown as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
       expect({ child: row.child, parent: row.parent }).toEqual({ child: row.child, parent: folder });
     }
     const facts = await repositoryFacts(owner, 'fixture');
-    expect(facts?.directoryCount).toBe(directories.length);
+    expect(facts?.directoryCount).toBe(new Set(directories.map((row) => row.path)).size);
   }, 120_000);
 
   test('take a folder away when its last file goes', async () => {
@@ -335,11 +345,11 @@ describe('the two passes over one fixture', () => {
     writeFileSync(join(repository, 'only', 'deep', 'x.txt'), 'x\n');
     commitAll('four');
     await fillRepository();
-    expect((await listDirectories(owner, 'fixture')).map((row) => row.path)).toContain('only/deep');
+    expect((await listDirectories()).map((row) => row.path)).toContain('only/deep');
     git(['rm', '-q', '-r', 'only']);
     commitAll('five');
     await fillRepository();
-    const again = (await listDirectories(owner, 'fixture')).map((row) => row.path);
+    const again = (await listDirectories()).map((row) => row.path);
     expect(again).not.toContain('only/deep');
     expect(again).not.toContain('only');
   }, 120_000);
@@ -393,7 +403,6 @@ test('an empty disk-only tree is available from its successful inventory publica
     expect(facts).toMatchObject({ hasTree: true, asIsCommit: null, fileCount: 0, directoryCount: 0, commitCount: 0 });
     const reader = new GraphReader(inventory, () => '', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
     expect((await reader.repository('empty-tree'))?.steps).toEqual({ tree: true, history: false });
-    expect(await reader.folder('empty-tree', '', undefined, 10)).toMatchObject({ folders: [], files: [] });
   } finally {
     await inventory.close();
   }
