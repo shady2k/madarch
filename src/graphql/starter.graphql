@@ -771,6 +771,9 @@ type CodeFile implements Entity {
   languages: JSON
   languagesOpinions: [Opinion!]!
   languagesOpinionsCount: Int!
+  class: String
+  classOpinions: [Opinion!]!
+  classOpinionsCount: Int!
   directory: String
   directoryOpinions: [Opinion!]!
   directoryOpinionsCount: Int!
@@ -780,6 +783,18 @@ type CodeFile implements Entity {
   commitCount: Int
   commitCountOpinions: [Opinion!]!
   commitCountOpinionsCount: Int!
+  addedAt: DateTime
+  addedAtOpinions: [Opinion!]!
+  addedAtOpinionsCount: Int!
+  addedIn: String
+  addedInOpinions: [Opinion!]!
+  addedInOpinionsCount: Int!
+  removedAt: DateTime
+  removedAtOpinions: [Opinion!]!
+  removedAtOpinionsCount: Int!
+  removedIn: String
+  removedInOpinions: [Opinion!]!
+  removedInOpinionsCount: Int!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
   codeDeclaredInOf(first: Int, after: String): CodeDeclaredInConnection!
   codeRenamedFrom(first: Int, after: String): CodeRenamedFromConnection!
@@ -3362,6 +3377,32 @@ input CodeDirectoryWhere {
   path: CodeDirectoryPathFilter
 }
 
+input CodeFileAddedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeFileAddedInFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input CodeFileBlobFilter {
   _eq: String
   _neq: String
@@ -3385,6 +3426,20 @@ input CodeFileBytesFilter {
   _lte: BigInt
   _gt: BigInt
   _gte: BigInt
+  _is_null: Boolean
+}
+
+input CodeFileClassFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
   _is_null: Boolean
 }
 
@@ -3520,6 +3575,32 @@ input CodeFilePathFilter {
   _is_null: Boolean
 }
 
+input CodeFileRemovedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeFileRemovedInFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input CodeFileRepositoryFilter {
   _eq: String
   _neq: String
@@ -3552,9 +3633,14 @@ input CodeFileWhere {
   content: CodeFileContentFilter
   language: CodeFileLanguageFilter
   languages: CodeFileLanguagesFilter
+  class: CodeFileClassFilter
   directory: CodeFileDirectoryFilter
   lastChange: CodeFileLastChangeFilter
   commitCount: CodeFileCommitCountFilter
+  addedAt: CodeFileAddedAtFilter
+  addedIn: CodeFileAddedInFilter
+  removedAt: CodeFileRemovedAtFilter
+  removedIn: CodeFileRemovedInFilter
 }
 
 input CodeForeignKeyEdgeColumnFilter {
@@ -5869,9 +5955,14 @@ enum CodeFileOrderField {
   content
   language
   languages
+  class
   directory
   lastChange
   commitCount
+  addedAt
+  addedIn
+  removedAt
+  removedIn
 }
 
 enum CodeForeignKeyEdgeOrderField {
