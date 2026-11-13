@@ -1615,8 +1615,34 @@ export class GraphReader {
         );
       const nodeIds = new Set<string>(subject.nodeIds);
       for (const row of edgeRows.rows) { nodeIds.add(row['from_node'] as string); nodeIds.add(row['to_node'] as string); }
+      const scope = subject.scope === '' ? null : subject.scope;
+      const byId = new Map<string, GraphEntity>();
+      const fileDeclaration = shape === 'author' ? this.generated?.get(GIT_KINDS.file) : undefined;
+      if (fileDeclaration !== undefined) {
+        // Counts use every touched file, but only the displayed files need opinions and source locations.
+        const fileIds = [...new Set(edgeRows.rows.filter((row) => row['relation'] === GIT_KINDS.touched).map((row) => String(row['to_node'])))];
+        const files = await tx.query<Raw>(
+          `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key FROM node n
+           WHERE n.id = ANY($1::bigint[]) AND n.entity_id = (SELECT id FROM entity WHERE name = $2)
+             AND n.context_id = 1 AND NOT n.removed
+             AND EXISTS (SELECT 1 FROM ${fileDeclaration.table} t WHERE t.node_id = n.id AND t.state = 'open' AND t.context_id = 1)`,
+          [`{${fileIds.join(',')}}`, fileDeclaration.kind],
+        );
+        for (const entity of await this.generatedEntities(tx, fileDeclaration, files.rows, [])) {
+          byId.set(entity.nodeIds[0]!, scope === null ? entity : { ...entity, scope });
+        }
+        const changes = new Map<string, Set<string>>();
+        for (const row of edgeRows.rows) if (row['relation'] === GIT_KINDS.touched) {
+          const file = byId.get(String(row['to_node']));
+          if (file === undefined) continue;
+          const commits = changes.get(file.key) ?? new Set<string>();
+          commits.add(String(row['from_node'])); changes.set(file.key, commits);
+        }
+        const shown = new Set([...changes].sort(([a, ac], [b, bc]) => bc.size - ac.size || byCodePoint(a, b)).slice(0, limit).map(([key]) => key));
+        for (const [id, file] of byId) if (!shown.has(file.key)) nodeIds.delete(id);
+      }
       // Path history needs the commits' subject and clock, not their complete changed-path lists.
-      const byId = await this.entitiesOfIds(tx, [...nodeIds], subject.scope === '' ? null : subject.scope);
+      for (const [id, entity] of await this.entitiesOfIds(tx, [...nodeIds], scope)) byId.set(id, entity);
       const entities = [...byId.values()];
       const couplingTotal = edgeRows.rows.find((row) => row['coupling_total'] !== undefined)?.['coupling_total'];
       return {
