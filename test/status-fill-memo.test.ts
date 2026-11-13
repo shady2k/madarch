@@ -1,7 +1,7 @@
-/** A completed fill changes live status even when the cached manifest body has the same key. */
-import { expect, spyOn, test } from 'bun:test';
+/** A completed fill changes the status a poll states: the manifest is ok and the graph is filled together. */
+import { expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -12,7 +12,7 @@ import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { prepareTestProduct } from './prepared-server.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 
-test('a cached status says manifest ok and filled together after a real successful fill', async () => {
+test('a poll says not-filled before a real successful fill and ok with filled after it', async () => {
   const work = mkdtempSync(join(tmpdir(), 'madarch-status-fill-memo-'));
   const home = join(work, 'products');
   const storeRoot = join(work, 'store');
@@ -22,11 +22,8 @@ test('a cached status says manifest ok and filled together after a real successf
     const env = gitEnv(SAMPLE_IDENTITY);
     const draft = createDraft({ home, name: 'tracker', gitEnv: env });
     if (draft.outcome !== 'created') throw new Error(`cannot create fixture: ${JSON.stringify(draft)}`);
-    mkdirSync(join(draft.folder, 'templates'), { recursive: true });
-    writeFileSync(join(draft.folder, 'templates', 'idea.liquid'), '{{ page.title }}\n');
     writeFolderManifest(draft.folder, `kinds:
   idea:
-    template: templates/idea.liquid
     source: graph
     origin: person
     fields:
@@ -41,19 +38,13 @@ test('a cached status says manifest ok and filled together after a real successf
     execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'Declare tracker fixture'], { cwd: draft.folder, env });
     release = await prepareTestProduct(draft.folder, home, storeRoot);
     reader = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
-    // Isolate the terminal-state refresh from graph/file cache invalidation. The fill and its persisted result are real.
-    const key = spyOn(reader as unknown as { statusKey(revision?: string): Promise<string> }, 'statusKey').mockResolvedValue('unchanged-status-key');
-    try {
-      expect(await reader.status()).toMatchObject({ manifest: 'not-filled', filled: false });
-      const result = await fillInProcess(draft.folder, home, storeRoot);
-      expect(result.ok).toBe(true);
-      if (!result.ok) throw new Error('the fixture fill was refused');
-      expect(result.state).toBe('succeeded');
-      const status = await reader.status();
-      expect({ manifest: status.manifest, filled: status.filled }).toEqual({ manifest: 'ok', filled: true });
-    } finally {
-      key.mockRestore();
-    }
+    expect(await reader.status()).toMatchObject({ manifest: 'not-filled', filled: false, kinds: [{ kind: 'idea', count: 0 }] });
+    const result = await fillInProcess(draft.folder, home, storeRoot);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('the fixture fill was refused');
+    expect(result.state).toBe('succeeded');
+    const status = await reader.status();
+    expect({ manifest: status.manifest, filled: status.filled, kinds: status.kinds }).toEqual({ manifest: 'ok', filled: true, kinds: [{ kind: 'idea', count: 0 }] });
   } finally {
     await reader?.close();
     await release?.();

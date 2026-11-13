@@ -10,10 +10,12 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { entityAddress } from '../knowledge/resolve.js';
-import { isTestPath } from '../knowledge/diagrams.js';
 import type { GraphEntity, GraphReader, RelationEdge } from '../knowledge/graph-read.js';
 import { ruleSpecs } from './rules.js';
 import type { ProblemDraft, ProblemLink, ProblemNote, ProblemScope, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
+
+/** A path a test file of a repository stands at: the rules read tests differently from code. */
+const isTestPath = (path: string): boolean => /(^|\/)(tests?|__tests__)\//.test(path) || /\.(test|spec)\.[a-z]+$/.test(path) || /_test\.go$/.test(path);
 
 /** Everything the code rules read, loaded once so each rule is a function of facts alone. */
 export interface CodeSnapshot {

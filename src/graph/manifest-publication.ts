@@ -12,7 +12,6 @@ import { KINDS_FILE, readKindsFrom, type Finding, type KindsFileSource, type Kin
 import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
-import { TEMPLATE_CONTRACT, interpretTemplateDeclarations } from '../plugin/template-declarations.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { SchemaRefusal } from '../graphql/names.js';
@@ -61,16 +60,17 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
-  const templates = read.present ? interpretTemplateDeclarations(files, read.manifest) : { vertices: [], findings: [], paths: [] };
-  findings.push(...templates.findings);
+  // Templates are the product's `templates/` files, served as the bootstrap's PageTemplate list (section 6), not
+  // declarations this publication interprets: the Liquid compiler and its `template` kind are deleted with the page layer.
+  const templatePaths: string[] = [];
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));
-  if (findings.length > 0) return { ok: false, findings, templatePaths: templates.paths };
+  if (findings.length > 0) return { ok: false, findings, templatePaths };
   if (!read.present) return { ok: true, value: undefined };
   const manifest = read.manifest;
   const vertices: VertexDraft[] = [];
   const head = commit === undefined ? headCommitOf(folder) : { commit };
-  if (head === undefined) return { ok: false, templatePaths: templates.paths, findings: [{ file: join(folder, '.git', 'HEAD'), line: 1, message: 'the product repository holds no commit: manifest opinions require its checkout commit' }] };
+  if (head === undefined) return { ok: false, templatePaths, findings: [{ file: join(folder, '.git', 'HEAD'), line: 1, message: 'the product repository holds no commit: manifest opinions require its checkout commit' }] };
   const evidence = (path: string, line: number) => [{ repository: folder, path, lineStart: line, lineEnd: line, commit: head.commit }];
   const add = (category: string, name: string, declaration: unknown, path: string, line: number): void => {
     vertices.push({ kind: `manifest.${category}`, key: { name }, values: { declaration: encode(declaration) },
@@ -96,9 +96,8 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     const graph = workflowDependencies(entry.stages);
     for (const edge of graph) add('dependency', JSON.stringify(['workflow', name, edge.from, edge.to, edge.via]), { workflow: name, ...edge }, WORKFLOWS_FILE, entry.stageLines.get(edge.to) ?? entry.line);
   }
-  for (const template of templates.vertices) vertices.push({ ...template, evidence: templates.paths.map((path) => evidence(path, 1)[0]!) });
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(JSON.stringify(left.key), JSON.stringify(right.key)));
-  return { ok: true, value: { folder, manifest, vertices, templatePaths: templates.paths } };
+  return { ok: true, value: { folder, manifest, vertices, templatePaths } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -116,13 +115,6 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
     const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
     const wanted = new Set(validated.vertices.map((one) => identity(one.kind, one.key)));
     const removals: VertexRemovalDraft[] = held.rows.filter((one) => !wanted.has(identity(one.kind, one.key))).map((one) => ({ kind: one.kind, key: one.key, producer: 'manifest' }));
-    // Template declarations replace the retired content-fill producer through the same graph writer.
-    for (const declaration of TEMPLATE_CONTRACT.vertex) {
-      const retired = await tx.query<{ key: Record<string, string>; producer: string }>(`SELECT DISTINCT n.key, split_part(p.said_by, '@', 1) AS producer
-        FROM "${declaration.table}" p JOIN node n ON n.id = p.node_id
-        WHERE p.context_id = 1 AND p.state = 'open' AND split_part(p.said_by, '@', 1) <> 'manifest'`);
-      for (const one of retired.rows) removals.push({ kind: declaration.name, key: one.key, producer: one.producer });
-    }
     // Compare every value and its grounds, so identical refreshes publish no new opinions.
     const published = await tx.query<{ kind: string; key: Record<string, string>; values: unknown; evidence: unknown }>(MANIFEST_CONTRACT.vertex.map((kind) => {
       const columns = kind.fields.filter((field) => !kind.key.includes(field.name));
@@ -146,12 +138,6 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 
 
 /** Explicit dependency opinions, already derived and validated at publication. */
-export async function readPublishedDependencies(tx: SqlExecutor): Promise<readonly { from: string; to: string; via: string; workflow?: string }[]> {
-  const table = MANIFEST_CONTRACT.vertex.find((one) => one.name === 'manifest.dependency')!.table;
-  const rows = await tx.query<{ declaration: { from: string; to: string; via: string; workflow?: string } }>(`SELECT p.declaration FROM "${table}" p JOIN node n ON n.id = p.node_id WHERE NOT n.removed AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest' ORDER BY n.key->>'name' COLLATE "C"`);
-  return rows.rows.map((one) => one.declaration).sort((left, right) => byCodePoint(left.workflow ?? '', right.workflow ?? '') || byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.via, right.via));
-}
-
 /** The complete validated metadata, never a read of the checkout or a fallback to it. */
 export async function readPublishedManifest(tx: SqlExecutor): Promise<KindsManifest | undefined> {
   const table = MANIFEST_CONTRACT.vertex.find((one) => one.name === 'manifest.catalogue')!.table;

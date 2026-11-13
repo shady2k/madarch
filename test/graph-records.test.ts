@@ -23,7 +23,6 @@ import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
-import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
@@ -287,13 +286,9 @@ describe('the two passes over one fixture', () => {
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.url).toBe('https://example.test/fixture.git');
     const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
-    // The repository block renders the graph\'s own repository read: its data carries the clean address.
+    // The graph\'s own repository read carries the clean address, and the credential stands in no opinion.
     const held = await reader.repository('fixture');
     expect(held?.url).toBe('https://example.test/fixture.git');
-    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:fixture', kind: 'code.repository', label: 'fixture', properties: { name: 'fixture' }, nodeIds: [], scope: '' } };
-    const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/catalog.yaml', 1);
-    if (block.type !== 'repository') throw new Error(`the repository block answered ${block.type}: ${block.type === 'problem' ? block.message : ''}`);
-    expect(block.data.url).toBe('https://example.test/fixture.git');
     // The credential stands nowhere in the store.
     // The tree states the address; the history's own opinion of the repository states only its shallow fact, so its
     // url column is null — and the credential stands in neither.
@@ -360,21 +355,18 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     execFileSync('git', ['clone', '--depth=1', `file://${repository}`, shallow]);
     await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
-    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:shallow', kind: 'code.repository', label: 'shallow', properties: { name: 'shallow' }, nodeIds: [], scope: '' } };
-    const wireBlock = async () => {
+    const wireRead = async () => {
       const reader = new GraphReader(owner!, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
-      const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/catalog.yaml', 1);
-      if (block.type !== 'repository') throw new Error(`expected repository, got ${block.type}`);
-      return JSON.parse(JSON.stringify(block)).data;
+      return JSON.parse(JSON.stringify(await reader.repository('shallow')));
     };
-    expect((await wireBlock()).historyShallow).toBe(true);
-    expect(await wireBlock()).not.toHaveProperty('gaps');
+    expect((await wireRead()).historyShallow).toBe(true);
+    expect(await wireRead()).not.toHaveProperty('gaps');
     // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
     execFileSync('git', ['fetch', '--unshallow'], { cwd: shallow });
     await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
-    expect((await wireBlock()).historyShallow).toBe(false);
-    expect(await wireBlock()).not.toHaveProperty('gaps');
+    expect((await wireRead()).historyShallow).toBe(false);
+    expect(await wireRead()).not.toHaveProperty('gaps');
     const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git' AND (n.key->>'name') = 'shallow'`,
     ));

@@ -14,7 +14,6 @@ relation-constraints:
   in:
   - documents
 template-policy: page
-template: templates/item-plain.liquid
 source: graph
 fields:
 - name: commit

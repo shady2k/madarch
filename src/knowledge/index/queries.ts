@@ -8,33 +8,6 @@
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
 type DigestMethod = 'section' | 'span' | 'object' | 'none';
 
-export interface RelyingStatement {
-  readonly page: string;
-  readonly pageTitle: string;
-  readonly pageKind: string;
-  readonly file: string;
-  readonly statement: string;
-  readonly text: string;
-  readonly line: number;
-  readonly how: 'grounds' | 'mentions';
-}
-
-/** The statements that rely on a key: no stage writes one yet, so there are none. */
-export async function statementsRelyingOn(_owner: DatabaseOwner, _key: string): Promise<RelyingStatement[]> {
-  return [];
-}
-
-export interface KindCount {
-  readonly kind: string;
-  readonly pages: number;
-  readonly statements: number;
-}
-
-/** Pages and statements per page kind: no stage writes one yet, so there are none. */
-export async function indexCounts(_owner: DatabaseOwner): Promise<KindCount[]> {
-  return [];
-}
-
 export type GroundStatus = 'changed' | 'unchanged' | 'removed' | 'unknown';
 
 export interface GroundChange {

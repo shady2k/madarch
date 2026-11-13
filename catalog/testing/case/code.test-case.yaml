@@ -14,7 +14,6 @@ relation-constraints:
   in:
   - hasTest
 template-policy: page
-template: templates/item.liquid
 source: graph
 details:
 - name

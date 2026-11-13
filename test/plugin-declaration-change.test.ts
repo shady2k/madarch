@@ -88,13 +88,16 @@ async function fill(folder: string, storeRoot: string): Promise<FillRunAnswer & 
   return answer;
 }
 
-/** The terms the graph holds of the kind, as the wiki's glossary reads them and nothing else. */
+/** The terms the graph holds of the kind, as a page reads them through `/graphql` and nothing else. */
 async function terms(folder: string, storeRoot: string): Promise<string[]> {
-  const wiki = new KnowledgeProduct({ productFolder: folder, storeRoot });
+  const product = new KnowledgeProduct({ productFolder: folder, storeRoot });
   try {
-    return (await wiki.glossary()).terms.map((term) => term.title).sort();
+    const answer = await product.graphql({ query: '{ allDocTerm(first: 200) { edges { node { label } } } }' });
+    const body = answer.body as { data?: { allDocTerm?: { edges: { node: { label: string } }[] } }; errors?: unknown };
+    if (body.data?.allDocTerm === undefined) throw new Error(`the graph refused the term listing: ${JSON.stringify(body.errors)}`);
+    return body.data.allDocTerm.edges.map(({ node }) => node.label).sort();
   } finally {
-    await wiki.close();
+    await product.close();
   }
 }
 

@@ -17,33 +17,7 @@ export const GIT_TABLES = {
   renamed_from: generatedTableName('code.renamed-from', 'edge'),
 } as const;
 
-export const GIT_WIKI = {
-  repository: 'code.repository',
-  directory: 'code.directory',
-  file: 'code.file',
-  commit: 'code.commit',
-  author: 'code.author',
-  touched: 'code.touched',
-  authored: 'code.authored',
-  parent: 'code.parent',
-  renamedFrom: 'code.renamed-from',
-  contains: 'code.contains',
-} as const;
-
-/** The contract's field names the history readers use. */
-export const GIT_FIELDS = {
-  change: 'change',
-  added: 'added',
-  removed: 'removed',
-  hash: 'hash',
-  effectiveAt: 'effectiveAt',
-  committedAt: 'committedAt',
-  position: 'position',
-  name: 'name',
-  walk: 'walk',
-} as const;
-
-/** The graph kind names the git reader and the pages use, kept apart from the engine's mechanism. */
+/** The graph kind names the git reader reads, kept apart from the engine's mechanism. */
 export const GIT_KINDS = {
   repository: 'code.repository',
   directory: 'code.directory',

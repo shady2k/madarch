@@ -17,7 +17,6 @@ relation-constraints:
   - partOf
   - refines
 template-policy: page
-template: templates/task.liquid
 source: graph
 fields:
 - name: legacy_id

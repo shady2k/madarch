@@ -15,7 +15,6 @@ relation-constraints:
   - uses
 template-policy: page
 title: title
-template: templates/term.liquid
 source: graph
 fields:
 - name: legacy_id

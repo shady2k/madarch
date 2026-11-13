@@ -55,14 +55,16 @@ async function fillCommand(...args: readonly string[]): Promise<{ code: number; 
   return { code, stdout, stderr };
 }
 
-/** The glossary as the wiki reads it from the graph: each term's definition, by title. */
+/** The terms the graph holds, as a page reads them through `/graphql`: each one's title and definition. */
 async function terms(): Promise<Record<string, string>> {
-  const wiki = new KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
+  const product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
   try {
-    const listed = await wiki.glossary();
-    return Object.fromEntries(listed.terms.map((term) => [term.title, term.definition]));
+    const answer = await product.graphql({ query: '{ allDocTerm(first: 200) { edges { node { label definition } } } }' });
+    const body = answer.body as { data?: { allDocTerm?: { edges: { node: { label: string; definition: string | null } }[] } }; errors?: unknown };
+    if (body.data?.allDocTerm === undefined) throw new Error(`the graph refused the term listing: ${JSON.stringify(body.errors)}`);
+    return Object.fromEntries(body.data.allDocTerm.edges.map(({ node }) => [node.label, node.definition ?? '']));
   } finally {
-    await wiki.close();
+    await product.close();
   }
 }
 

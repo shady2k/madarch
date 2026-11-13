@@ -9,7 +9,6 @@
  */
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import type { LandmarkPlan } from './history-landmarks.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
 import { RecordGap, commitFacts, commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts, repositoryFileIndex, productFileIndex } from '../graph/index.js';
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
@@ -398,10 +397,6 @@ export class GraphReader {
   /** The manifest-declared kind a key or a listing names, when the product's tables hold it. */
   private generatedKind(kind: string): GeneratedKindRead | undefined {
     return this.generated?.get(kind);
-  }
-
-  async landmarkPlan(_repo?: string, _scope?: string, _head?: string): Promise<LandmarkPlan | undefined> {
-    return undefined;
   }
 
   private async run<T>(work: (tx: OuterTransaction) => Promise<T>): Promise<T> {

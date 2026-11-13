@@ -11,7 +11,6 @@
  */
 import { here } from '../model/raise.js';
 import { AuthoredRefusal } from '../graph/authored.js';
-import { languageOf } from '../knowledge/blocks.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
@@ -67,6 +66,20 @@ export interface KnowledgePart {
   createTask: (request: Request) => Promise<Handled>;
   closeTask: (request: Request) => Promise<Handled>;
   runTask: (request: Request) => Promise<Handled>;
+}
+
+/** The languages the source view names a file by, from its extension; a file it does not know is plain text. */
+const SOURCE_LANGUAGES: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', mjs: 'javascript', go: 'go', sql: 'sql', json: 'json', yaml: 'yaml', yml: 'yaml',
+  md: 'markdown', proto: 'protobuf', prisma: 'prisma', sh: 'shell', toml: 'toml', mod: 'go',
+};
+
+/** The language of a source file, for the highlighting its view uses. */
+function languageOf(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  if (name === 'Dockerfile' || name.startsWith('Dockerfile.')) return 'dockerfile';
+  if (name === 'Makefile') return 'makefile';
+  return SOURCE_LANGUAGES[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] ?? 'text';
 }
 
 /** The largest file the source view shows whole. */
@@ -198,17 +211,15 @@ export function createKnowledgePart(
       if (path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) {
         return refused(400, { field: 'path', message: `"${path}" is not a path inside a repository` });
       }
-      const selection = query.has('at') ? { repo: repo ?? '', at: query.get('at')! } : undefined;
-      if (selection !== undefined) {
-        const history = await product.historyAt(selection);
-        if (history.coverage !== 'covered') return refused(409, { field: 'at', message: `historical structure is ${history.coverage} for ${selection.repo} at ${selection.at}; no current source is substituted` });
-      }
-      const read = await product.source(repo === null || repo === '' ? null : repo, path, selection);
+      // The source view answers the text the graph was filled with, at the commit it was filled from (section 8): a past
+      // commit this graph cannot name is refused rather than answered with the current tree's bytes.
+      if (query.has('at')) return refused(409, { field: 'at', message: `historical source is not covered: this graph holds the text of the commit it was filled from, and no other` });
+      const read = await product.source(repo === null || repo === '' ? null : repo, path);
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
       // A past commit's text the graph cannot name is a 404 that says why, never the current tree's bytes under that commit's name.
       if ('absent' in read) return refused(404, { field: 'path', message: read.absent });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
-      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text, ...(read.history === undefined ? {} : { history: read.history }) }) };
+      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }) };
     }),
     run: guarded('read the run', async (request) => {
       const query = new URL(request.url).searchParams;

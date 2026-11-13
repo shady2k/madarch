@@ -15,50 +15,12 @@ import type { ProductFileSource } from '../plugin/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
-import type { Author, Question } from './entities.js';
+import type { Author } from './entities.js';
 import type { LoopGraph } from './graph.js';
-import { type TaskImpact } from './impact.js';
 import { type PlaceView, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import { ruleForKind } from '../problems/rules.js';
 import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
-
-type QuestionState = 'open' | 'answered' | 'closed';
-
-interface QuestionRow {
-  readonly slug: string;
-  readonly id: string;
-  readonly title: string;
-  readonly type: Question['type'];
-  readonly state: QuestionState;
-  readonly askedIn: string | null;
-  readonly askedAt: string | null;
-  readonly about: readonly string[];
-  readonly answeredBy: Author | null;
-  readonly answeredAt: string | null;
-  /** The pages whose rewrite used the answer. */
-  readonly closedBy: readonly string[];
-}
-
-export interface QuestionListing {
-  readonly rows: readonly QuestionRow[];
-  readonly open: number;
-  readonly answered: number;
-  readonly closed: number;
-  /** Question files that could not be read, each with its file and line. */
-  readonly problems: readonly string[];
-}
-
-export interface QuestionDetail extends QuestionRow {
-  readonly file: string;
-  readonly question: string;
-  readonly why: string;
-  readonly sides: readonly { readonly claim: string; readonly grounds: readonly string[] }[];
-  readonly answer: { readonly text: string; readonly by: Author; readonly at: string } | null;
-  /** How every target the question names resolves (`madarch:` links, by the target as written without the scheme). */
-  readonly resolutions: Record<string, Resolution>;
-  readonly resolvedAt: string | null;
-}
 
 // ---- problems ---------------------------------------------------------------------------------
 
@@ -140,59 +102,6 @@ export interface ProblemCategory {
   readonly closed: number;
   /** The rule's own name per interface language, from the manifest; the app prefers the locale's one-line meaning. */
   readonly label?: Readonly<Record<string, string>>;
-}
-
-/** The first level: one row per rule and the counts the page and the sidebar show. */
-export interface ProblemCategories {
-  readonly categories: readonly ProblemCategory[];
-  readonly total: number;
-  readonly open: number;
-  readonly closed: number;
-  readonly dismissed: number;
-  readonly sections: Readonly<Record<ProblemSection, number>>;
-  readonly severities: Readonly<Record<ProblemSeverity, number>>;
-  readonly notes: readonly ProblemNote[];
-}
-
-/** One source of a category: the page or the file its problems stand in. */
-interface ProblemSource {
-  /** The exact cursor key: the page id, or the file when the problem names no page. */
-  readonly key: string;
-  readonly label: string;
-  readonly page: string | null;
-  readonly pageTitle: string | null;
-  readonly file: string | null;
-  readonly count: number;
-  readonly open: number;
-}
-
-/** The second level: the sources of one rule, one bounded page at a time. */
-export interface ProblemSources {
-  readonly rule: string;
-  readonly kind: string;
-  readonly section: ProblemSection;
-  readonly sonar: SonarKind;
-  readonly severity: ProblemSeverity;
-  readonly count: number;
-  readonly open: number;
-  readonly closed: number;
-  /** How many sources this category holds in all; a page states this beside the rows it shows. */
-  readonly totalSources: number;
-  readonly sources: readonly ProblemSource[];
-  /** The key of the last source on this page, to pass as `after`; null when this page holds every source. */
-  readonly next: string | null;
-}
-
-/** The third level: the items of one source of one rule, one bounded page at a time. */
-export interface ProblemItems {
-  readonly rule: string;
-  readonly source: string;
-  readonly count: number;
-  readonly open: number;
-  readonly closed: number;
-  readonly problems: readonly Problem[];
-  /** The cursor of the last problem on this page, to pass as `after`; null when this page holds every problem. */
-  readonly next: string | null;
 }
 
 export interface ProblemInput {
@@ -398,21 +307,3 @@ export interface TaskRow {
   readonly problem?: string;
 }
 
-export interface TaskDetail extends Omit<TaskRow, 'impact'> {
-  /** The complete impact through the graph: the pages and statements the change reaches. */
-  readonly impact: TaskImpact | null;
-  /** The product's pages a run would rewrite: exactly what the preview lists. */
-  readonly writable: readonly string[];
-  /** The sections, statements and entities this task marks as a planned change. */
-  readonly marks: { readonly sections: number; readonly statements: number; readonly entities: number };
-}
-
-export interface TaskListing {
-  readonly tasks: readonly TaskRow[];
-  readonly open: number;
-  readonly closed: number;
-  /** Task files that could not be read, each with its file and line. */
-  readonly problems: readonly string[];
-  /** Why a closure or an impact could not be read: said, never hidden. */
-  readonly notes: readonly string[];
-}

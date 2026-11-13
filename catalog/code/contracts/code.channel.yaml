@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - publishes
 template-policy: page
-template: templates/item-plain.liquid
 source: graph
 fields:
 - name: repository

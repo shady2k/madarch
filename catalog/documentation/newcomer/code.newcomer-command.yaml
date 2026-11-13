@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - documents
 template-policy: page
-template: templates/item.liquid
 source: graph
 details:
 - command

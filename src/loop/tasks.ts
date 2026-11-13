@@ -31,15 +31,3 @@ export interface PlaceView {
   /** The stored scope as words, for a tooltip and for a client that knows no better. */
   readonly words: string;
 }
-
-/** A scope as a reader says it: `README.md#what-it-does`, `src/a.ts:12-20`, a code symbol's graph key, a statement's, or a path. */
-export function scopeWords(scope: TaskScope): string {
-  switch (scope.type) {
-    case 'section': return `${scope.path}#${scope.anchor}`;
-    case 'lines': return `${scope.path}:${scope.start}-${scope.end}`;
-    case 'file': return scope.path;
-    case 'symbol': return scope.key.startsWith('code.symbol:') ? scope.key : `code.symbol:${scope.key}`;
-    case 'statement': return scope.key;
-  }
-}
-

@@ -16,7 +16,6 @@ relation-constraints:
   in:
   - evidences
 template-policy: page
-template: templates/question.liquid
 source: graph
 fields:
 - name: legacy_id

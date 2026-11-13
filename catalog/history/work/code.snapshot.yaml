@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - partOf
 template-policy: page
-template: templates/item-plain.liquid
 source: graph
 origin: history
 details:

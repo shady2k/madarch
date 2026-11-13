@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - hasHost
 template-policy: page
-template: templates/item-plain.liquid
 source: graph
 details:
 - binary

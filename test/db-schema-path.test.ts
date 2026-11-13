@@ -23,19 +23,16 @@ import { closureOf } from '../src/plugin/closure.js';
 import { PluginHost } from '../src/plugin/host.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
-import type { Block, PageModel } from '../src/knowledge/model.js';
-import type { DiagramsBlockShape } from '../src/knowledge/views.js';
+import { GraphReader } from '../src/knowledge/graph-read.js';
 import { gitEnv } from './git-env.js';
 import { parseDocument } from 'yaml';
-import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
+import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { publishFixtureTemplate } from './structured-template-fixture.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
@@ -88,23 +85,6 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
 
 /** One git command in a repository. */
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', env: gitEnv(IDENTITY) });
-
-/** The diagrams block of a page. */
-const diagramsBlock = (page: PageModel): DiagramsBlockShape => {
-  const block = page.blocks.find((entry) => entry.type === 'diagrams');
-  if (block === undefined || block.type !== 'diagrams') throw new Error(`the page ${page.id} holds no diagrams block: ${JSON.stringify(page.blocks.map((entry) => entry.type))}`);
-  return block;
-};
-
-/** The groups one related block of a page shows, by their relation: the block the template's children tag drew. */
-const relatedGroups = (page: PageModel, relation: string): string[] => {
-  const groups = page.blocks
-    .filter((entry): entry is Extract<Block, { type: 'related' }> => entry.type === 'related')
-    .flatMap((block) => block.groups)
-    .filter((group) => group.relation === relation);
-  if (groups.length === 0) throw new Error(`the page ${page.id} holds no group of ${JSON.stringify(relation)}: ${JSON.stringify(page.blocks.map((entry) => (entry.type === 'related' ? entry.title : entry.type)))}`);
-  return groups.flatMap((group) => group.rows.map((row) => row.entity.label));
-};
 
 describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source it holds', () => {
   let work: string;
@@ -300,11 +280,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       expect(run.rows[0]?.state).toBe('completed_partial');
       for (const kind of ['code.table', 'code.column', 'code.index']) {
         expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)?.outcome).toBe('failed');
-        const listed = await product.list(kind, { limit: 100 });
-        expect(listed?.rows).toEqual([]);
       }
-      const invented = await product.page('code.table:app/madarch_substitution');
-      expect(invented.ok).toBe(false);
+      const afterPartial = await partialOwner.run(async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM "k_code_table" n JOIN node o ON o.id = n.node_id WHERE n.state = 'open' AND NOT o.removed`));
+      expect(afterPartial.rows[0]?.n).toBe('0');
     } finally { await partialOwner.close(); }
 
     writeFileSync(join(code, 'src', 'schema.ts'), STATIC_SOURCE);
@@ -318,33 +296,19 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     try {
       const read = readKinds(folder);
       if (!read.present) throw new Error('the fixture manifest is absent');
+      // Every table the SQL declares is in the graph, and nothing for the table the SQL composes at run time.
       const contract = graphContractOf(read.manifest);
-      // Source excerpts are explicit opinions now; the plugin's evidence location is checked above independently.
-      await owner.transaction('write', async (tx) => {
-        const journal = journalFor('db-schema@1.0.0');
-        const node = await ensureVertex(tx, contract, { kind: 'code.table', key: { database: 'app', name: 'child' } }, 1, journal);
-        const table = contract.vertex.find((kind) => kind.name === 'code.table')!;
-        const existing = await tx.query<{ unsupported: string | null; schema: string | null }>(`SELECT unsupported, schema FROM ${table.table} WHERE node_id = $1::bigint AND state = 'open'`, [node.nodeId]);
-        await publishOpinion(tx, contract, {
-          kind: 'code.table', nodeId: node.nodeId, producer: 'db-schema', producerVersion: '1.0.0',
-          values: { ...existing.rows[0], source: { text: STATIC_SOURCE, language: 'typescript', truncated: false, location: {
-            repo: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE, lineEnd: CHILD_LINE,
-            href: '/source/app/src/schema.ts',
-          } } },
-        }, 1, journal);
-        await writeJournal(tx, journal);
-      });
-      await publishFixtureTemplate(owner, folder, 'templates/database.liquid', [
-        { type: 'text', text: 'Static reading shows tables explicitly declared in code. Tables generated at run time are not shown until the agent fill; this is not the complete database schema.', line: 1 },
-        { type: 'block', name: 'properties', params: { title: 'Details' }, line: 2 },
-        { type: 'block', name: 'er', params: { title: 'Tables and their links', limit: '60' }, line: 3 },
-      ]);
-      await publishFixtureTemplate(owner, folder, 'templates/table.liquid', [
-        { type: 'block', name: 'properties', params: { title: 'Details' }, line: 1 },
-        { type: 'block', name: 'source', params: { title: 'Source' }, line: 2 },
-        { type: 'block', name: 'children', params: { title: 'Columns', kind: 'code.column', prefix: 'code.column:app/child/', relation: 'code.has-column', limit: '200' }, line: 3 },
-        { type: 'block', name: 'children', params: { title: 'Indexes', kind: 'code.index', prefix: 'code.index:app/child/', relation: 'code.has-index' }, line: 4 },
-      ]);
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest));
+      const tables = await reader.list('code.table', { limit: 100 });
+      expect(tables.rows.map((row) => row.properties['name']).sort()).toEqual(['child', 'parent']);
+      const child = tables.rows.find((row) => row.properties['name'] === 'child')!;
+      const keys = await reader.edgesOf(child, 'code.foreign-key', 'out', 20);
+      expect(keys.rows.map((row) => row.other.properties['name'])).toEqual(['parent']);
+      expect(keys.rows[0]!.properties['column']).toBe('parent_id');
+      const columns = await reader.list('code.column', { limit: 200 });
+      expect(columns.rows.map((row) => row.properties['name']).filter((name) => ['amount', 'id', 'note', 'parent_id'].includes(String(name))).sort()).toEqual(['amount', 'id', 'note', 'parent_id']);
+      const indexes = await reader.list('code.index', { limit: 100 });
+      expect(indexes.rows.map((row) => row.properties['name'])).toEqual(['child_parent']);
     } finally { await owner.close(); }
   }, 300_000);
 
@@ -354,39 +318,18 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     rmSync(work, { recursive: true, force: true });
   });
 
-  test('the database page draws every table the SQL creates and the foreign key between them', async () => {
-    const page = await product.page('code.database:app');
-    if (!page.ok) throw new Error(page.message);
-    const notice = page.page.blocks.filter((block) => block.type === 'markdown');
-    expect(JSON.stringify(notice)).toContain('Tables generated at run time are not shown until the agent fill');
-    expect(JSON.stringify(notice)).toContain('not the complete database schema');
-    const view = diagramsBlock(page.page).views[0];
-    if (view === undefined) throw new Error('the database page draws no view');
-    const tables = view.elements.map((element) => element.label).sort();
-    expect(tables).toEqual(['child', 'parent']);
-    expect(view.edges.map((edge) => [edge.from, edge.to, edge.label])).toEqual([['code.table:app/child', 'code.table:app/parent', 'parent_id']]);
-    expect(view.mermaidSource).toContain('erDiagram');
-    expect(view.mermaidSource).not.toContain('madarch_substitution');
-  }, 300_000);
-
-  test('a table page lists its columns and its indexes and links the file and the line that declared it', async () => {
-    const page = await product.page('code.table:app/child');
-    if (!page.ok) throw new Error(page.message);
-    expect(relatedGroups(page.page, 'code.has-column').sort()).toEqual(['amount', 'id', 'note', 'parent_id']);
-    expect(relatedGroups(page.page, 'code.has-index')).toEqual(['child_parent']);
-    const source = page.page.blocks.find((entry): entry is Extract<Block, { type: 'source' }> => entry.type === 'source');
-    expect(source?.location.path).toBe('src/schema.ts');
-    expect(source?.location.lineStart).toBe(CHILD_LINE);
-    expect(page.page.findings).toEqual([]);
-    const details = page.page.blocks.find((block) => block.type === 'properties');
-    expect(JSON.stringify(details)).toContain('unsupported expression index child_expression');
-  }, 300_000);
-
-  test('the variable table the SQL composes is no table of the wiki, and the plugin said so rather than inventing one', async () => {
-    const listed = await product.list('code.table', { limit: 100 });
-    if (listed === undefined) throw new Error('the product declares no code.table kind');
-    expect(listed.rows.map((row) => row.id).sort()).toEqual(['code.table:app/child', 'code.table:app/parent']);
-    const absent = await product.page('code.table:app/madarch_substitution');
-    expect(absent.ok).toBe(false);
+  test('the variable table the SQL composes is no table of the graph, and the plugin said so rather than inventing one', async () => {
+    const read = readKinds(folder);
+    if (!read.present) throw new Error('the fixture manifest is absent');
+    const contract = graphContractOf(read.manifest);
+    const owner = await createTestDatabaseOwner({
+      store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
+      graphContract: withManifestContract(await readPinnedGraphContract(folder)),
+    });
+    try {
+      const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest));
+      expect((await reader.list('code.table', { limit: 100 })).rows.map((row) => row.properties['name']).sort()).toEqual(['child', 'parent']);
+      expect((await reader.find('code.table:app/madarch_substitution')).length).toBe(0);
+    } finally { await owner.close(); }
   }, 300_000);
 });

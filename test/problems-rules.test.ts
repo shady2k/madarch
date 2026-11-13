@@ -10,10 +10,13 @@ import type { Resolution } from '../src/knowledge/resolve.js';
 import type { Question } from '../src/loop/entities.js';
 import { evaluateCode, type CodeSnapshot } from '../src/problems/code.js';
 import { evaluateDocuments } from './problems-documents-fixture.js';
-import { openProblemsOf } from '../src/problems/index.js';
 import { unimplementedRuleNotes } from '../src/problems/rules.js';
 import { STARTER_PROBLEM_RULES } from './catalog-data-fixture.js';
 import { DEFAULT_THRESHOLDS, SONAR_KINDS, PROBLEM_SEVERITIES, problemId, type ProblemSettings, type RuleSetting } from '../src/problems/types.js';
+
+/** A page's badge counts the work still open: a closed problem is history. */
+const openProblemsOf = (problems: readonly { readonly entity?: { readonly key?: string } | null; readonly closed: boolean }[], key: string): number =>
+  problems.filter((problem) => problem.entity?.key === key && !problem.closed).length;
 import type { ProblemDraft } from '../src/problems/types.js';
 
 const span = (path: string, line = 3) => ({ path, lineStart: line, lineEnd: line, byteStart: 0, byteEnd: 0 });

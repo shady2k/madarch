@@ -451,10 +451,13 @@ export class ReadContext {
     return entity.uid;
   }
 
-  private templateOf(kind: string): string {
-    const declared = this.manifest.kinds.get(kind)?.template;
-    if (declared === undefined) return 'entity';
-    return (declared.split('/').pop() ?? declared).replace(/\.(?:liquid|ya?ml)$/u, '');
+  /**
+   * The page template an entity opens with (decision 0036, section 6): its own template, else its kind's record template,
+   * else the base `entity`. A kind's own template is no longer a key of the manifest — templates are the product's
+   * `templates/` files, listed in the bootstrap — so every kind falls back to the base until a catalogue record names one.
+   */
+  private templateOf(_kind: string): string {
+    return 'entity';
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {

@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - evidences
 template-policy: page
-template: templates/correction.liquid
 source: graph
 fields:
 - name: legacy_id

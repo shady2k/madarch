@@ -16,7 +16,6 @@ import { generatedTableName, type EdgeContract, type FieldContract, type GraphCo
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
-import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
@@ -126,6 +125,5 @@ export function declaredEdgeReads(manifest: KindsManifest): Map<string, Generate
 
 /** The graph contract is exactly the product's ordinary declarations. */
 export function graphContractOf(manifest: KindsManifest): GraphContract {
-  const declared = manifestContractOf(manifest);
-  return { ...declared, vertex: [...declared.vertex.filter((kind) => !TEMPLATE_CONTRACT.vertex.some((one) => one.name === kind.name)), ...TEMPLATE_CONTRACT.vertex] };
+  return manifestContractOf(manifest);
 }

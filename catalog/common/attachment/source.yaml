@@ -11,7 +11,6 @@ relation-constraints:
   out: []
   in: []
 template-policy: page
-template: templates/item-plain.liquid
 source: graph
 fields:
 - name: repository

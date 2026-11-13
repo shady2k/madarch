@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import { parsePluginManifest } from '../src/plugin/closure.js';
 import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
-import { fillRequirementsOf } from '../src/knowledge/fill-requirements.js';
 import { createPluginTurnStage, planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 
@@ -145,13 +144,6 @@ test('unknown references, empty outputs and invalid concurrency retain source lo
   expect(() => parsePluginManifest('{\n "name":"a",\n "concurrency":0\n}', '/product/a/plugin.json')).toThrow('/product/a/plugin.json:3: plugin a concurrency must be a positive integer');
   expect(() => parsePluginManifest(JSON.stringify({ ...base, name: 'a', produces: [output('File')], reads: [] }), '/product/a/plugin.json')).toThrow();
 });
-test('catalogue preview plans requested closure and configured outputs, not raw agent capability', () => {
-  const manifest = manifestOf([kind('File'), kind('Summary', ['description'], ['File'])], [plugin('index'), plugin('summary', [output('Summary')]), general()]);
-  expect(fillRequirementsOf(manifest, '/product')(['File'])).toEqual({});
-  expect(fillRequirementsOf(manifest, '/product')(['Summary'])).toEqual({});
-  expect(fillRequirementsOf({ ...manifest, plugins: new Map() }, '/product')(['File'])).toEqual({});
-});
-
 test('manifest planning does not turn available agent capability into executable coverage', () => {
   const manifest = manifestOf([kind('File')], [general()]);
   const plan = planManifestFill(manifest, '/product', ['File'], false);
@@ -163,7 +155,6 @@ test('manifest planning does not turn available agent capability into executable
     kind: 'File', outcome: 'abstained',
     reason: 'kind File has no configured producer; configure an ordinary producer or kind.agent',
   }]);
-  expect(fillRequirementsOf(manifest, '/product')(['File'])).toEqual({});
 });
 test('manifest planning requires a selected adapter for explicitly configured agent output', () => {
   const manifest = manifestOf([kind('File')], [general()]);
@@ -175,7 +166,6 @@ test('manifest planning requires a selected adapter for explicitly configured ag
   expect(plan.requiresAgent).toBe(true);
   expect(plan.outputs.get('general')?.get('File')).toEqual(['title', 'description']);
   expect(plan.unproducedKinds).toEqual([]);
-  expect(fillRequirementsOf(configured, '/product')(['File'])).toEqual({ requiresAgent: true });
 });
 test('manifest planning reports missing prerequisites without scheduling their dependants', () => {
   const catalogue = [kind('File'), kind('Summary', ['description'], ['File']), kind('Independent')];
