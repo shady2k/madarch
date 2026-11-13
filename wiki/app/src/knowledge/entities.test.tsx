@@ -513,7 +513,7 @@ describe('the catalogue', () => {
   /** The catalogue's own request answered by a stub, as the server sends it. */
   const answer = (catalog: CatalogView): void => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => url.includes('/api/catalog')
-      ? new Response(JSON.stringify(catalog))
+      ? new Response(JSON.stringify({ ...catalog, kinds: catalog.kinds.map(({ filled, ...summary }) => summary) }))
       : new Response('{}', { status: 404 });
   };
   const kind = (fields: Partial<CatalogKindView> & Pick<CatalogKindView, 'kind'>): CatalogKindView => ({
@@ -586,12 +586,23 @@ describe('the catalogue', () => {
     }
   });
 
-  test('a kind without an enabled producer names that absence without inferring a category', async () => {
-    answer({ ...full, kinds: [kind({ kind: 'correction', labels: { en: { one: 'Correction', many: 'Corrections' } }, descriptions: { en: 'A note that a statement is wrong.' }, page: true, plugins: [], filled: false, count: 2 })] });
+  test('an empty kind without an enabled producer names that absence without inferring a category', async () => {
+    answer({ ...full, kinds: [kind({ kind: 'correction', labels: { en: { one: 'Correction', many: 'Corrections' } }, descriptions: { en: 'A note that a statement is wrong.' }, page: true, plugins: [], filled: false, count: 0 })] });
     const container = into(createElement(CataloguePage, { version: 0 }));
     await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
     expect(container.querySelector('[data-kind="correction"] [data-testid=catalogue-stage]')!.textContent).toBe('No enabled producer plugin');
+    expect(container.querySelector('[data-kind="correction"] [data-testid=catalogue-count]')!.textContent).toBe('0');
     expect(container.querySelector('[data-kind="correction"]')!.getAttribute('data-filled')).toBe('false');
+  });
+
+  test('a populated kind remains filled without an enabled producer', async () => {
+    answer({ ...full, kinds: [kind({ kind: 'correction', page: true, plugins: [], filled: true, count: 2, state: 'filled' })] });
+    const container = into(createElement(CataloguePage, { version: 0 }));
+    await until(() => container.querySelector('[data-testid=catalogue-page]') !== null, 'the catalogue');
+    const row = container.querySelector('[data-kind="correction"]')!;
+    expect(row.querySelector('[data-testid=catalogue-stage]')!.textContent).toBe('No enabled producer plugin');
+    expect(row.querySelector('[data-testid=catalogue-count]')!.textContent).toBe('2');
+    expect(row.getAttribute('data-filled')).toBe('true');
   });
 
   test('one entity in one kind reads in the singular, in English and in Russian', async () => {
