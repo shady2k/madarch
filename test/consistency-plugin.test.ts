@@ -195,7 +195,7 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(run.state, JSON.stringify(run)).toBe('succeeded');
     // The check declares its finding output and uses the ordinary plugin stage.
     expect(run.units.filter((unit) => unit.unitId.includes('plugin-consistency:probe.finding'))).toHaveLength(1);
-    expect(run.units.some((unit) => unit.unitId.startsWith('disk:'))).toBe(true);
+    expect(run.units.some((unit) => unit.stageId === 'plugin-turns' && unit.unitId.startsWith('plugin-turns/disk:'))).toBe(true);
     expect(await findings()).toEqual([]);
     expect((await readProducerOutcomes(owner, { runId: 'consistent' })).filter((one) => one.plugin === 'plugin-consistency')).toEqual([expect.objectContaining({ kind: 'probe.finding', outcome: 'empty', produced: 0, generation: 1 })]);
   }, 300_000);
