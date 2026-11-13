@@ -38,20 +38,20 @@ let home = '';
 let app = '';
 
 /** A product whose one repository is the folder named: the fixture writes the files, this makes the product. */
-function product(name: string, write: (repository: string) => void): { folder: string; repository: string } {
+function product(name: string, write: (repository: string) => void, plugins: readonly string[] = ['disk', 'git']): { folder: string; repository: string } {
   const repository = join(root, `${name}-code`);
   mkdirSync(repository, { recursive: true });
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
-  useFixturePlugins(folder, ['disk', 'git']);
+  useFixturePlugins(folder, plugins);
   nativeWorkflow(folder);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
   return { folder, repository };
 }
 
-/** Repository views need the native tree and history, not external plugin sandboxes. */
+/** Repository views run the fixture's declared ordinary producers in the plugin stage. */
 function nativeWorkflow(folder: string): void {
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
@@ -380,8 +380,8 @@ git(folder,'commit','-qm','the nested file moves');
       writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
       git(repository, 'add', '-A');
       git(repository, 'commit', '-qm', 'one commit');
-    });
-    // The store the product reads, filled by the tree pass alone: the history step did not run. It is
+    }, ['disk']);
+    // Only disk is declared: git history does not run merely because both producers share a stage. This is
     // the one store every surface resolves (`productStoreFolder`), under the home's knowledge root.
     const store = productStoreFolder(folder, knowledgeRootOf(home));
     mkdirSync(join(store, 'graph'), { recursive: true });
