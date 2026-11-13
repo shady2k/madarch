@@ -14,6 +14,7 @@ import { readFillEnd, writeFillEnd } from '../src/fill/orchestrator-store.js';
 import { recordUnitPlan } from '../src/fill/orchestrator-store.js';
 import type { KindDecl, PluginDecl, KindsManifest } from '../src/product/manifest/kinds.js';
 import { pluginsFillingKind } from '../src/fill/plugin-turns.js';
+import { parsePluginManifest } from '../src/plugin/closure.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 let owner: Awaited<ReturnType<typeof createTestDatabaseOwner>>;
@@ -202,10 +203,16 @@ test('starting a new request does not expose the previous run id while opening t
   }
 });
 
-test('run selection discovers catalogue agent producers from the same declaration matcher as the scheduler', () => {
-  const kind = { name: 'probe.summary', fields: [{ name: 'id', binding: { kind: 'agent', description: 'identity' } }] } as unknown as KindDecl;
-  const agent = { id: 'agent-fill', contract: { vertices: [{ kind: 'probe.summary' }], agent: { catalogue: true } } } as unknown as PluginDecl;
-  const unrelated = { id: 'unrelated', contract: { vertices: [{ kind: 'other' }], agent: { catalogue: true } } } as unknown as PluginDecl;
+test('run selection discovers declared agent producers rather than catalogue capability', () => {
+  const kind = { name: 'probe.summary', fields: [{ name: 'id', type: 'text' }] } as unknown as KindDecl;
+  const declaration = (name: string, output: string) => parsePluginManifest(JSON.stringify({
+    name, version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version },
+    agent: { prompt: 'Fill the declared output.', roots: ['product'], catalogue: true },
+    produces: [{ kind: output, fields: ['id'], reads: [] }],
+  }), `/product/plugins/${name}/plugin.json`);
+  const capability = { vertices: [{ kind: kind.name }], agent: { catalogue: true } };
+  const agent = { id: 'agent-fill', contract: capability, declaration: declaration('agent-fill', kind.name) } as unknown as PluginDecl;
+  const unrelated = { id: 'unrelated', contract: capability, declaration: declaration('unrelated', 'other') } as unknown as PluginDecl;
   expect(pluginsFillingKind({ kinds: new Map([[kind.name, kind]]), plugins: new Map([[agent.id, agent], [unrelated.id, unrelated]]) } as unknown as KindsManifest, kind.name)).toEqual(['agent-fill']);
 });
 

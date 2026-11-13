@@ -30,7 +30,7 @@ test('the loop kinds declare complete authored contracts and explicit import loc
     expect(kind.source).toBe('graph');
     expect(kind.origin).toBe('person');
     expect(kind.folder).toBeUndefined();
-    expect(kind.key).toBeUndefined();
+    expect(kind.key).toEqual([]);
     expect(manifestContractOf(manifest).vertex.find((vertex) => vertex.name === name)?.key).toEqual([]);
     expect(kind.importFolder).toBe(`docs/${name}s`);
     for (const field of kind.fields!) expect(field.line).toBeGreaterThan(0);

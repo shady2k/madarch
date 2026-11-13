@@ -24,7 +24,7 @@ test('a selected fill forwards agent and cap to the run without starting an adap
   const body = await response.response.json();
   expect(body).not.toHaveProperty('error');
   expect(response.response.status).toBe(202);
-  expect(presses).toEqual([{ agent: 'scripted', tokenCap: 200, targets: { kinds: ['probe.summary'] } }]);
+  expect(presses).toEqual([{ selected: ['probe.summary'], agent: 'scripted', tokenCap: 200, targets: { kinds: ['probe.summary'] } }]);
 });
 
 test('the product refuses a disabled producer stage before queue acceptance', async () => {
