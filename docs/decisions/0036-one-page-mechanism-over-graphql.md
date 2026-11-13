@@ -72,7 +72,7 @@ parallel; a change to it is a change to this record.
   name in camelCase (`links-to` → `linksTo`, `code.contains` → `codeContains`).
 - **Reserved**: field names `id`, `kind`, `label`, `template`, `opinions`, `contested`, `backlinks`,
   names starting `__` or ending `Of`, `Aggregate`, `Opinions`; type names `Query`, `Entity`,
-  `CatalogueEntity`, `Template`, `Bootstrap`, `Revision`, `Opinion`, `Evidence`, `Group`, `Bucket`,
+  `CatalogueEntity`, `PageTemplate`, `Bootstrap`, `Revision`, `Opinion`, `Evidence`, `Group`, `Bucket`,
   `Ranked`, the scalars, and any ending `Connection`, `Edge`, `Where`, `Order`, `OrderField`,
   `Aggregate`. A manifest whose names collide after
   encoding, or that uses a reserved name, is refused at start naming both declarations (the
@@ -88,9 +88,9 @@ parallel; a change to it is a change to this record.
   first: Int, after: String): EntityConnection!` (labels and text fields), `bootstrap: Bootstrap!`,
   `revision: Revision!`. Every root takes `lang: String` (default the reader's language).
 - **Bootstrap** `{ structureRevision: String!  home: { id: ID!  kind: String!  template: String! }
-  catalogueTemplate: String!  templates: [Template!]!  recordTemplates: [{ kind: String!  template:
+  catalogueTemplate: String!  templates: [PageTemplate!]!  recordTemplates: [{ kind: String!  template:
   String! }]!  ownTemplates: [{ id: ID!  template: String! }]!  roles: [String!]! }`;
-  `Template { name: String!  body: String! }`. `Revision { structure: String!  data: String! }`:
+  `PageTemplate { name: String!  body: String! }` (not `Template`: that name is the type of the catalogue entity `template`). `Revision { structure: String!  data: String! }`:
   `structure` changes with the schema or any template, `data` with every publication or authored
   write.
 
