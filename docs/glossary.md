@@ -246,13 +246,12 @@ repository.
 A module element grouping a core's groups of modules when one page would hold
 too many of them; a modelling choice, not a kind of element.
 
-**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/wiki/archify.ts`):
+**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/graphql/`):
 A product's wiki. The served wiki is madarch's own thin app (`wiki/app/`),
 served by a local madarch through the `madarch init` and `madarch serve`
-commands (`src/product-wiki/`), showing the product's document pages read from
-its working tree and its graph pages read from the fill's record store; the
-archify renderer (`src/wiki/archify.ts`) draws the architecture pages. (Decision
-0018.)
+commands (`src/product-wiki/`). Every page is a template the app runs over one
+GraphQL API derived from the manifest; everything it shows is an entity of the
+graph. (Decisions 0018, 0036.)
 
 **Product repository**:
 One product's knowledge kept as Markdown and YAML in a git repository of its
