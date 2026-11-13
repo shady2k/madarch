@@ -17,7 +17,7 @@ import { generatedTableName } from '../src/graph/contract.js';
 import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { runFill } from '../src/fill/run.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
-import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { instantOf } from '../plugins/git/main.js';
 import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
@@ -67,7 +67,7 @@ function makeProduct(folder: string, source: string, name: string): void {
   mkdirSync(join(folder, 'repos'), { recursive: true });
   symlinkSync(source, join(folder, 'repos', name));
   writeFileSync(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: records\nrepos:\n  - name: ${name}\n    url: file://${source}\n`);
-  useRepositoryPlugins(folder);
+  seedRepositoryPlugins(folder);
   restrictRepositoryDeclarations(folder);
   execFileSync('git', ['init', '-q'], { cwd: folder });
   execFileSync('git', ['add', '-A'], { cwd: folder });

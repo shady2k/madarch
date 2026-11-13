@@ -1,6 +1,6 @@
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
 
@@ -32,6 +32,24 @@ export function useFixturePlugins(folder: string, ids: readonly string[]): void 
   }
   manifest.set('plugins', plugins.filter(plugin => ids.includes(plugin.id)));
   writeFolderManifest(folder, manifest.toString());
+}
+
+/** Seeds a fresh repository-only fixture with both complete closures, not the everything starter's other plugins. */
+export function seedRepositoryPlugins(folder: string): void {
+  const ids = ['disk', 'git'];
+  for (const file of STARTER_FILES) {
+    if (file.path.startsWith('plugins/') && !ids.includes(file.path.split('/')[1]!)) continue;
+    const target = join(folder, file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    if (file.path === 'madarch/plugins.lock') {
+      const lock = parseDocument(file.content);
+      lock.set('plugins', lock.toJS().plugins.filter((plugin: { id: string }) => ids.includes(plugin.id)));
+      writeFileSync(target, lock.toString(), { flag: 'wx' });
+    } else {
+      writeFileSync(target, file.bytes ?? file.content, { flag: 'wx' });
+    }
+  }
+  useFixturePlugins(folder, ids);
 }
 
 /** Declares repository fact inputs for fixtures that previously relied on native stages. */
