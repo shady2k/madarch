@@ -85,6 +85,20 @@ kinds:
   code.repository: { template: templates/repository.liquid, source: graph, capability: git }
   code.directory: { template: templates/directory.liquid, source: graph, capability: git }
   probe.summary:
+    id: probe.summary
+    group: code.structure
+    definition: A summary of the fixture documents.
+    sources: ["https://example.test/probe-summary"]
+    acquisition: [agent-from-graph]
+    status: implemented
+    relation-constraints: { out: [], in: [] }
+    template-policy: page
+    labels:
+      en: { one: Summary, many: Summaries }
+      ru: { one: Сводка, many: Сводки }
+    description:
+      en: A summary of the fixture documents.
+      ru: Сводка документов примера.
     template: templates/item-plain.liquid
     source: graph
     derives-from: [code.file]

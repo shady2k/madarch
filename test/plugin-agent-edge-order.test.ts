@@ -89,6 +89,20 @@ kinds:
   code.repository: { template: templates/repository.liquid, source: graph, capability: git }
   code.directory: { template: templates/directory.liquid, source: graph, capability: git }
   probe.summary:
+    id: probe.summary
+    group: code.structure
+    definition: A summary of the fixture documents.
+    sources: ["https://example.test/probe-summary"]
+    acquisition: [agent-from-graph]
+    status: implemented
+    relation-constraints: { out: [], in: [] }
+    template-policy: page
+    labels:
+      en: { one: Summary, many: Summaries }
+      ru: { one: Сводка, many: Сводки }
+    description:
+      en: A summary of the fixture documents.
+      ru: Сводка документов примера.
     template: templates/item-plain.liquid
     source: graph
     derives-from: [code.file]
@@ -126,8 +140,10 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     const f = fixture(true);
     const file = join(f.product, 'madarch/kinds.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
+    const probeKind = (manifest.toJS() as { kinds: Record<string, Record<string, unknown>> }).kinds['probe.summary']!;
     manifest.deleteIn(['kinds', 'probe.summary']);
     for (const name of ['probe.a', 'probe.b']) manifest.setIn(['kinds', name], {
+      ...probeKind, id: name,
       template: 'templates/item-plain.liquid', source: 'graph',
       agent: { plugin: 'agent-fill', fields: '*' },
       'derives-from': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
