@@ -183,3 +183,73 @@ Three independent fixtures were stale: refinement provenance must use entity det
 Consistency record APIs were incorrectly required to declare all catalogue kinds as executable inputs. The host already authorizes their specific `graphReads` rights; these named writer-record reads now retain that authorization without fabricating whole-catalogue prerequisites or self cycles. Entity value/files read guards and bounded cursor semantics stay intact.
 
 Initial serialized local glossary-path validation passed all six cases (28 assertions); root check passed with the existing 17 SQL-layer findings and no new waiver. A new serialized per-file targeted batch covers all failure-map files except this already-run glossary and the separately validated UI, plus focused regression files. Final results will be recorded below; no full-suite success is claimed.
+
+
+### CI7e repair checkpoint validation
+
+# PR280 CI repair delivery
+
+Base: 7e98edd0650dd1b3a3b36e0458d0228d2fcf9424. All repair commits carry Task: madarch-64o5.28.
+
+Switched to /tmp/m28-ci-7e98edd0.log when it appeared: 91 unique failures across45 files, not180 summary markers. Maps /tmp/m28-ci7e-map.md and .json retain exact diagnostic evidence.
+
+Largest shared cause repaired: rolling system Git differed from approved bytes. Install/build now supply verified pinned Git; executable verification and plugin pins unchanged. Read-only verified cache reuse fixed. Assumptions: Linux x64 Ubuntu runtime and dpkg-deb; unsupported targets gain no Git approval/fallback.
+
+Other repaired groups: consistency record authorization by explicit graphReads (not whole catalogue prerequisites); declared subset starter output selection; explicit pending agent participation; ordered past durable-run fixtures; canonical provenance detail reads; complete repository-only fixture closure seeding; stage-qualified unit identity and inherited producer outcomes; current standing-file list/detail assertions; producerless UI count semantics. No existing deadlines, bounds or assertions weakened.
+
+Latest serialized results: 36 passing / 11 failing or terminated files among 47 unique targeted root files. Additionally glossary-path6/0 and UI entities61/0 passed. Graph-records final17/0; consistency8/0; fill-selection,fill-runs,fill-run,loop-starter,selective-runtime,starter-selection-roles all pass. Passing root files:
+- consistency-plugin.test.ts
+- daemon-one-store.test.ts
+- db-schema-path.test.ts
+- fill-already-running.test.ts
+- fill-entities.test.ts
+- fill-one-store.test.ts
+- fill-run.test.ts
+- fill-runs.test.ts
+- fill-selection.test.ts
+- fill-states.test.ts
+- fill-trace.test.ts
+- fill-updates-run.test.ts
+- graph-records-git-shapes.test.ts
+- graph-records.test.ts
+- graph-refinement.test.ts
+- knowledge-close-verdict.test.ts
+- knowledge-declared-entities.test.ts
+- knowledge-entity-ids.test.ts
+- knowledge-publication-state.test.ts
+- knowledge-responsive.test.ts
+- loop-starter.test.ts
+- mcp-lock.test.ts
+- mcp-product-repository.test.ts
+- mcp-start.test.ts
+- plugin-agent-edge-order.test.ts
+- plugin-agent-fill.test.ts
+- plugin-declaration-change.test.ts
+- plugin-file-facts.test.ts
+- plugin-fill-access.test.ts
+- plugin-release-tools.test.ts
+- roles-two-and-two.test.ts
+- selective-runtime.test.ts
+- starter-selection-roles.test.ts
+- startup-template-publication.test.ts
+- test-quarantine-fill.test.ts
+- wiki-fill-button-walk.test.ts
+
+Remaining failures/terminations (not a full-suite pass):
+- knowledge-server.test.ts (exit 1; /tmp/m28-ci97-rerun-knowledge-server.test.ts.log)
+- mcp-records.test.ts (exit 1; /tmp/m28-ci97-rerun-mcp-records.test.ts.log)
+- repository-wiki.test.ts (exit 143; /tmp/m28-ci97-rerun-repository-wiki.test.ts.log)
+- product-reset.test.ts (exit 1; /tmp/m28-ci97-rerun-product-reset.test.ts.log)
+- wiki-readers.test.ts (exit 137; /tmp/m28-ci97-rerun-wiki-readers.test.ts.log)
+- repository-language-publication.test.ts (exit 1; /tmp/m28-ci7e-rerun-repository-language-publication.test.ts.log)
+- api-role-first-page.test.ts (exit 1; /tmp/m28-ci7e-rerun-api-role-first-page.test.ts.log)
+- knowledge-page-budget.test.ts (exit 1; /tmp/m28-ci7e-rerun-knowledge-page-budget.test.ts.log)
+- draft-starter-copy.test.ts (exit 1; /tmp/m28-ci7e-rerun-draft-starter-copy.test.ts.log)
+- product-wiki-serve.test.ts (exit 1; /tmp/m28-ci7e-rerun-product-wiki-serve.test.ts.log)
+- product-cli.test.ts (exit 1; /tmp/m28-ci7e-rerun-product-cli.test.ts.log)
+
+Remaining causes: knowledge-server fill deadlines then dependent404/socket cleanup; mcp-records120s setup; product-reset120s fills; repository-language60s case; API warm status67ms vs50ms; page-budget history1758ms vs300ms; repository-wiki143 and wiki-readers137 interrupted runs; compiled starter-copy, product-wiki-serve and CLI repo-add failures require follow-up. Exact tails /tmp/m28-ci7e-remaining-failures.json. No test budget increased.
+
+Root bun run check passed on final code: existing17 SQL-layer findings, no waiver, catalogue520 kinds/75 page kinds. Native Linux release build failed own-wiki first-run smoke because own-wiki.lock pins da8570d28369a5603613e1aadd23cb29cc8cf307 whose external product kinds still use depends-on and plugins lack produces. Did not rewrite embedded upstream product or bypass smoke; needs source migration and reviewed upstream pin. /tmp/m28-ci97-build-retry.log and tool-review report contain evidence.
+
+Sandbox-off integration results do not establish enforced-sandbox acceptance. Performance target remains unmet. All started commands/workers settled before delivery; targeted queue was resumed after kernel shutdown, not falsely reported complete at interruption. New bundle is a repair checkpoint with explicitly remaining failures, not CI-green acceptance.
