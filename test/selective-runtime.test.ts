@@ -26,7 +26,7 @@ test('a selected fill forwards agent and cap to the run without starting an adap
   expect(presses).toEqual([{ agent: 'scripted', tokenCap: 200, targets: { kinds: ['probe.summary'] } }]);
 });
 
-test('the product refuses an omitted producer stage before queue acceptance', async () => {
+test('the product refuses a disabled producer stage before queue acceptance', async () => {
   mkdirSync(join(folder, 'plugins/probe'), { recursive: true });
   writeFileSync(join(folder, 'plugins/probe/plugin.json'), JSON.stringify({ name: 'probe', version: '1.0.0', runtime: { name: 'bun', version: Bun.version }, entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: ['id'], reads: [] }] }));
   writeFileSync(join(folder, 'plugins/probe/main.ts'), '');
@@ -40,11 +40,12 @@ test('the product refuses an omitted producer stage before queue acceptance', as
 plugins:
   - { id: probe, version: 1, path: plugins/probe, inputs: [], outputs: [], closure: [plugins/probe/plugin.json, plugins/probe/main.ts] }
 `);
-  writeFileSync(join(folder, 'madarch/workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: []\n');
+  writeFileSync(join(folder, 'madarch/workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
+  writeFileSync(join(folder, 'workspace.yaml'), 'fill:\n  stages:\n    plugin-turns: { enabled: false }\n');
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(folder, 'store'), fillQueued: true });
   product.product = () => ({ folder } as ReturnType<KnowledgeProduct['product']>);
   const result = await product.startFill({ agent: null, targets: { kinds: ['probe.summary'] } });
   expect(result.started).toBe(false);
-  if (result.started) throw new Error('the producer stage was excluded');
-  expect(result.message).toContain('madarch/workflows.yaml:2: selected producer probe cannot run');
+  if (result.started) throw new Error('the producer stage was disabled');
+  expect(result.message).toContain('workspace.yaml:3: selected producer probe cannot run: plugin-turns is disabled; enable its producer stage');
 });
