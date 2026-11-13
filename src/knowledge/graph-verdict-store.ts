@@ -28,17 +28,21 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 
 /** Reads every entity and relation the one graph holds, presented as the wiki's code kinds. */
-export async function loadGraphSnapshot(reader: GraphReader): Promise<GraphSnapshot> {
+export async function loadGraphSnapshot(reader: GraphReader, signal?: AbortSignal): Promise<GraphSnapshot> {
   const nodes: GraphNodeItem[] = [];
   for (const kind of ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author']) {
+    signal?.throwIfAborted();
     const page = await reader.list(kind, { limit: Number.MAX_SAFE_INTEGER });
+    signal?.throwIfAborted();
     for (const entity of page.rows) {
       nodes.push({ id: entity.key, versionId: entity.nodeIds[0] ?? entity.key, kind: entity.kind, label: entity.label, properties: entity.properties });
     }
   }
   const edges: GraphEdgeItem[] = [];
   for (const relation of ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-from']) {
+    signal?.throwIfAborted();
     const page = await reader.relationEdges(relation, Number.MAX_SAFE_INTEGER);
+    signal?.throwIfAborted();
     for (const edge of page.rows) {
       edges.push({
         id: `${relation}\u0000${edge.from.key}\u0000${edge.to.key}\u0000${edge.discriminator ?? ''}`,

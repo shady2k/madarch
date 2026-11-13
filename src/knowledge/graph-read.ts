@@ -11,7 +11,7 @@ import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner
 import { byCodePoint } from '../model/order.js';
 import type { LandmarkPlan } from './history-landmarks.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
-import { RecordGap, commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts, repositoryFileIndex } from '../graph/index.js';
+import { RecordGap, commitFacts, commitWithPaths, fileFacts, fileHistory, folderChildrenOf, folderFiles, listDirectories, listDocuments, listFiles, listRepositories, repositoryFacts, repositoryFileIndex, productFileIndex } from '../graph/index.js';
 import type { FileDate, FileHistoryRow, FileRecord } from '../graph/index.js';
 import { entityAddress } from './addresses.js';
 
@@ -480,6 +480,11 @@ export class GraphReader {
   }
 
   /** Every file of a repository's current tree, in code point order: the product repository read whole once per revision. */
+  async productFileIndex(repository: string): Promise<readonly { path: string; mode: string | null; bytes: number | null; form: 'text' | 'binary' | null }[]> {
+    if (!this.holds(GIT_KINDS.file)) return [];
+    return await productFileIndex(this.storeOwner(), repository);
+  }
+
   async fileIndex(repository: string): Promise<readonly FileRecord[]> {
     if (!this.holds(GIT_KINDS.file)) return [];
     return await repositoryFileIndex(this.storeOwner(), repository).catch((error: unknown) => {
@@ -498,9 +503,9 @@ export class GraphReader {
   }
 
   /** One page of a repository's files, for an agent's listing: the graph's own answer, never a checkout's. */
-  async files(repository: string, options: { readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
+  async files(repository: string, options: { readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number; readonly projection?: 'map' }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
     if (!this.holds(GIT_KINDS.file)) return { rows: [], next: null };
-    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
+    return await listFiles(this.storeOwner(), { repository, ...(options.prefix === undefined ? {} : { prefix: options.prefix }), ...(options.language === undefined ? {} : { language: options.language }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit, ...(options.projection === undefined ? {} : { projection: options.projection }) });
   }
 
   /** One file with its dates and authors, as the graph holds it. */
@@ -523,6 +528,11 @@ export class GraphReader {
   }
 
   /** One commit of a repository with its author, dates, parents and changed paths. */
+  async commitFacts(repository: string, hash: string) {
+    if (!this.holds(GIT_KINDS.commit)) return null;
+    return await commitFacts(this.storeOwner(), repository, hash);
+  }
+
   async commit(repository: string, hash: string): Promise<GraphCommitFacts | null> {
     if (!this.holds(GIT_KINDS.commit)) return null;
     const facts = await commitWithPaths(this.storeOwner(), repository, hash);
@@ -794,7 +804,17 @@ export class GraphReader {
          WHERE rk.name = ANY($1::text[]) AND (e.from_node = ANY($2::bigint[]) OR e.to_node = ANY($2::bigint[]))`,
         [`{${[...new Set(wanted.map((one) => one.graph.kind))].join(',')}}`, `{${entity.nodeIds.join(',')}}`],
       );
-      const declarations = [...this.generated?.values() ?? []];
+      const farKinds = new Set<string>();
+      for (const row of found.rows) {
+        const declaration = this.generatedEdges?.get(row['relation']!);
+        if (directions.includes('out') && entity.nodeIds.includes(row['from_node']!)) {
+          for (const kind of declaration?.to ?? []) farKinds.add(kind);
+        }
+        if (directions.includes('in') && entity.nodeIds.includes(row['to_node']!)) {
+          for (const kind of declaration?.from ?? []) farKinds.add(kind);
+        }
+      }
+      const declarations = [...this.generated?.values() ?? []].filter((decl) => farKinds.has(decl.kind));
       if (declarations.length === 0) return [];
       const farIds = [...new Set(found.rows.flatMap((row) => [row['from_node']!, row['to_node']!]))];
       // Sort the lightweight identities first. A commit can touch thousands of files while the block shows ten;

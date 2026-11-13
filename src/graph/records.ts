@@ -123,6 +123,13 @@ const FILE_OPINIONS = `LEFT JOIN LATERAL (
     FROM ${GIT_TABLES.file} o
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) fo ON true`;
 
+/** The map shows counts and every language claim with its producer, not source content or evidence. */
+const MAP_FILE_OPINIONS = `LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object('said_by', o.said_by, 'language', o.language,
+      'bytes', o.bytes::text, 'lines', o.lines::text) ORDER BY o.id) AS opinions
+    FROM ${GIT_TABLES.file} o
+    WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1) fo ON true`;
+
 /** The file columns a page reads: its key's path, and every open opinion of it with the blob it names. */
 const FILE_SELECT = `SELECT (n.key->>'path') AS path, fo.opinions
   FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
@@ -191,19 +198,19 @@ async function readRepositoryId(tx: OuterTransaction, repository: string): Promi
 
 
 /** The files one page of a repository holds, paged in SQL before any opinion is loaded. */
-async function filePage(tx: OuterTransaction, repository: string, where: string, extra: readonly unknown[], after: string | null, limit: number): Promise<Record<string, unknown>[]> {
+async function filePage(tx: OuterTransaction, repository: string, where: string, extra: readonly unknown[], after: string | null, limit: number, projection?: 'map'): Promise<Record<string, unknown>[]> {
   const found = await tx.query<Record<string, unknown>>(
     `SELECT (n.key->>'path') AS path, fo.opinions FROM (
        SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
        WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} AND ${where}
          AND ($2::text IS NULL OR (n.key->>'path') > $2) ORDER BY (n.key->>'path') LIMIT $3::bigint) p
-     JOIN node n ON n.id = p.id ${FILE_OPINIONS} ORDER BY (n.key->>'path')`,
+     JOIN node n ON n.id = p.id ${projection === 'map' ? MAP_FILE_OPINIONS : FILE_OPINIONS} ORDER BY (n.key->>'path')`,
     [repository, after, String(limit + 1), ...extra],
   );
   return found.rows;
 }
 
-export async function listFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
+export async function listFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly prefix?: string; readonly language?: string; readonly after?: string; readonly limit: number; readonly projection?: 'map' }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
   return await withSpan('records.listFiles', {
     'records.prefix': input.prefix ?? '',
     'records.language': input.language ?? '',
@@ -212,7 +219,7 @@ export async function listFiles(owner: DatabaseOwner, input: { readonly reposito
     await repositoryIdOf(tx, input.repository);
     const where = `($4::text IS NULL OR left((n.key->>'path'), length($4::text)) = $4::text)
       AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM ${GIT_TABLES.file} lo WHERE lo."node_id" = n.id AND lo."state" = 'open' AND lo."context_id" = 1 AND lo."language" = $5))`;
-    const found = await filePage(tx, input.repository, where, [input.prefix ?? null, input.language ?? null], input.after ?? null, input.limit);
+    const found = await filePage(tx, input.repository, where, [input.prefix ?? null, input.language ?? null], input.after ?? null, input.limit, input.projection);
     const rows = found.map(fileOf);
     const more = rows.length > input.limit;
     const shown = more ? rows.slice(0, input.limit) : rows;
@@ -502,6 +509,27 @@ export async function repositoryFileIndex(owner: DatabaseOwner, repository: stri
   }));
 }
 
+/** The product source needs the whole path inventory, but not file content, languages or opinion evidence. */
+export async function productFileIndex(owner: DatabaseOwner, repository: string): Promise<readonly { path: string; mode: string | null; bytes: number | null; form: 'text' | 'binary' | null }[]> {
+  return await withSpan('records.productFileIndex', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
+    const found = await tx.query<Record<string, unknown>>(
+      `SELECT (n.key->>'path') AS path,
+         (SELECT jsonb_agg(jsonb_build_object('mode', o.mode, 'bytes', o.bytes::text, 'form', o.form) ORDER BY o.id)
+          FROM ${GIT_TABLES.file} o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1) AS opinions
+       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
+       WHERE ${REPOSITORY_OF('n')} = $1 AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} ORDER BY ${PATH_OF('n')}`, [repository],
+    );
+    return found.rows.map((row) => {
+      const opinions = opinionsOfJson(row['opinions'], []);
+      return {
+        path: String(row['path']), mode: fieldRead(opinions, 'mode', asText).value,
+        bytes: fieldRead(opinions, 'bytes', asNumber).value,
+        form: fieldRead(opinions, 'form', (value) => (value === 'binary' ? 'binary' : value === 'text' ? 'text' : null)).value,
+      };
+    });
+  }));
+}
+
 /** Every repository the store holds, in code point order of the names. */
 export async function listRepositories(owner: DatabaseOwner, declared?: ReadonlySet<string>): Promise<readonly { readonly name: string; readonly url: string; readonly defaultBranch: string | null; readonly asIsCommit: string | null }[]> {
   // A product that declares no repository kind has no repository table: its contract answers no repository, and the
@@ -541,6 +569,11 @@ export async function listDirectories(owner: DatabaseOwner, repository: string):
 }
 
 /** One commit with its parents, its author and its dates, from the opinions that agree on them. */
+/** A commit's identity, clock and parents, without its changed paths. */
+export async function commitFacts(owner: DatabaseOwner, repository: string, hash: string): Promise<CommitRecord | null> {
+  return await withSpan('records.commitFacts', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => await readCommitFacts(tx, repository, hash)));
+}
+
 /** The commit's own facts in one statement each, in the transaction the caller holds. */
 async function readCommitFacts(tx: OuterTransaction, _repository: string, hash: string): Promise<CommitRecord | null> {
   const found = await tx.query<{ commit: string; opinions: unknown; author_name: string; author_email: string }>(

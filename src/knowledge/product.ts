@@ -642,7 +642,7 @@ export class KnowledgeProduct {
     const next: RepositoryPin[] = [];
     for (const facts of held) {
       const commit = facts.asIsCommit ?? '';
-      const at = commit === '' ? undefined : await reader.commit(facts.name, commit).catch(() => null);
+      const at = commit === '' ? undefined : await reader.commitFacts(facts.name, commit).catch(() => null);
       // The history pass's own opinion of the repository: a shallow clone is not the whole history.
       const shallow = facts.historyShallow === true;
       next.push({
@@ -1383,6 +1383,8 @@ export class KnowledgeProduct {
   }
 
   private async graphVerdictsOne(force: boolean): Promise<GraphVerdictProductView> {
+    const signal = this.publicationWait.signal;
+    signal.throwIfAborted();
     const file = graphVerdictFile(this.storeFolder());
     const state = readGraphVerdictState(file);
     const roles = this.modelRoles();
@@ -1394,7 +1396,7 @@ export class KnowledgeProduct {
       const manifest = await owner.run(async (tx) => await readPublishedManifest(tx));
       const kinds = manifest === undefined ? undefined : graphKindsOf(manifest);
       const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds?.declared, kinds?.generated, kinds?.edges);
-      snapshot = await loadGraphSnapshot(reader);
+      snapshot = await loadGraphSnapshot(reader, signal);
     } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;
     const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
@@ -1425,6 +1427,7 @@ export class KnowledgeProduct {
     }
     let evidenceContext: ReturnType<KnowledgeProduct['context']> | undefined;
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
+      signal.throwIfAborted();
       const product = this.product();
       if ('message' in product) throw new WikiReadError(product.message);
       evidenceContext ??= this.context();
@@ -1434,7 +1437,9 @@ export class KnowledgeProduct {
         if (!kind.fields?.some((field) => field.name === 'source_text')) continue;
         let after: string | undefined;
         do {
+          signal.throwIfAborted();
           const page = await context.ctx.graph.list(kind.name, { limit: 500, ...(after === undefined ? {} : { after }) });
+          signal.throwIfAborted();
           for (const entity of page.rows) {
             const fields = entity.properties;
             const repository = fields['repository'];
@@ -1450,6 +1455,7 @@ export class KnowledgeProduct {
     };
     const result = await runGraphVerdicts({
       snapshot,
+      signal,
       roles,
       budgets: state.budgets,
       readEvidence,
@@ -1459,6 +1465,7 @@ export class KnowledgeProduct {
       ...(this.options.graphJevVersion === undefined ? {} : { jevVersion: this.options.graphJevVersion }),
       judgeFor,
     });
+    signal.throwIfAborted();
     writeGraphVerdictState(file, result.cache);
     return { file, budgets: state.budgets, rows: result.rows, report: result.report, metrics: result.metrics, cached: false };
   }

@@ -91,8 +91,10 @@ describe('closing a product while its graph verdicts read the store', () => {
       } finally {
         releaseLock?.();
         await lock?.catch(() => undefined);
-        await verdict?.catch(() => undefined);
-        await closing?.catch(() => undefined);
+        if (verdict !== undefined) await expect(verdict).rejects.toMatchObject({ name: 'AbortError' });
+        await closing;
+        expect(existsSync(graphVerdictFile(productStoreFolder(draft.folder, storeRoot)))).toBe(false);
+        expect(await waitsForTheGraph(owner)).toBe(false);
       }
     } finally {
       await product?.close().catch(() => undefined);

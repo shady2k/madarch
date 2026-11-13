@@ -49,3 +49,29 @@ test('neighbors orders keyless identities by uid before resolving their opinions
   expect(await reader.neighbors({ nodeIds: ['1'] } as GraphEntity, { relations: ['links'], direction: 'out', limit: 1 }))
     .toMatchObject([{ total: 2, edges: 2, rows: [{ entity: { key: 'item:aa' } }] }]);
 });
+
+
+test.each(['both', 'out', 'in'] as const)('neighbors keeps polymorphic endpoints in the %s direction', async (direction) => {
+  let call = 0;
+  const tx = { query: async (_sql: string, parameters?: unknown[]) => {
+    call += 1;
+    if (call === 1) return { rows: [
+      { id: '1', relation: 'links', from_node: '1', to_node: '2' },
+      { id: '2', relation: 'links', from_node: '1', to_node: '3' },
+      { id: '3', relation: 'links', from_node: '4', to_node: '1' },
+    ] };
+    if (call === 2) return { rows: [
+      { node: '2', uid: '2', kind: 'alpha', key: { name: 'a' } },
+      { node: '3', uid: '3', kind: 'beta', key: { name: 'b' } },
+      { node: '4', uid: '4', kind: 'gamma', key: { name: 'c' } },
+    ] };
+    expect(parameters?.[0]).toBe(direction === 'out' ? '{2,3}' : direction === 'in' ? '{4}' : '{2,3,4}');
+    return { rows: ['alpha', 'beta', 'gamma'].map((kind, at) => ({ node_id: String(at + 2), uid: String(at + 2), kind, key: { name: ['a', 'b', 'c'][at] }, opinions: [{ node: String(at + 2), opinion_id: String(at), said_by: 'fixture@1', evidence: [] }] })) };
+  } } as unknown as OuterTransaction;
+  const generated = new Map(['alpha', 'beta', 'gamma', 'unrelated'].map((kind) => [kind, { kind, table: `${kind}_opinion`, key: ['name'], columns: [], types: {} }]));
+  const reader = new GraphReader({} as DatabaseOwner, () => '', undefined, tx, undefined, generated,
+    new Map([['links', { kind: 'links', columns: [], types: {}, from: ['alpha', 'gamma'], to: ['alpha', 'beta'] }]]));
+  const groups = await reader.neighbors({ nodeIds: ['1'] } as GraphEntity, { relations: ['links'], direction, limit: 10 });
+  expect(groups.map((group) => [group.direction, group.rows.map((row) => row.entity.key)]))
+    .toEqual(direction === 'out' ? [['out', ['alpha:a', 'beta:b']]] : direction === 'in' ? [['in', ['gamma:c']]] : [['out', ['alpha:a', 'beta:b']], ['in', ['gamma:c']]]);
+});
