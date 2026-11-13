@@ -45,12 +45,18 @@ export interface Evidence {
   readonly lineEnd?: number;
 }
 
-/** One vertex a unit produced: its key, and the field values of one opinion with the evidence it stands on. */
+/**
+ * One vertex a unit produced: its key and, when the unit states an opinion of it, the field values with the evidence
+ * they stand on. A vertex with `identityOnly` names an entity only as the end of an edge the unit also states: the
+ * graph creates the entity's identity, no opinion, and the edge reaches it.
+ */
 export interface VertexResult {
   readonly kind: string;
   readonly key: KeyValues;
   readonly values?: Readonly<Record<string, unknown>>;
   readonly evidence?: Evidence;
+  /** The unit names this entity as an edge's end and states no opinion of it. */
+  readonly identityOnly?: boolean;
 }
 
 /** One edge a unit produced: its ends, and the field values of one opinion with the evidence it stands on. */

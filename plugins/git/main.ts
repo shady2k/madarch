@@ -10,11 +10,15 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const known = new Set(files.map(file => `${String(file.key['repository'])}\0${String(file.key['path'])}`));
   const authors = new Set<string>();
   const paths = new Set<string>();
-  const fileIdentity = (repository: string, path: string, commit: string, values: { commit_count: number; last_change: string | null }): void => {
+  // A file in the current tree is a file with its history. A path only the history names is an identity its commits
+  // reach: the graph creates the vertex and no opinion, so the path is never counted among the current files.
+  const fileIdentity = (repository: string, path: string, commit: string, values?: { commit_count: number; last_change: string | null }): void => {
     const identity = JSON.stringify([repository, path]);
     if (paths.has(identity)) return;
     paths.add(identity);
-    vertices.push({ kind: 'code.file', key: { repository, path }, values, evidence: { repository, path, commitOrDigest: commit } });
+    vertices.push(values === undefined
+      ? { kind: 'code.file', key: { repository, path }, identityOnly: true }
+      : { kind: 'code.file', key: { repository, path }, values, evidence: { repository, path, commitOrDigest: commit } });
   };
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('git extraction cancelled');
@@ -59,8 +63,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       held.parents.forEach((hash, position) => edges.push({ kind: 'code.parent', from: commit, to: { kind: 'code.commit', key: { hash } }, values: { position }, evidence }));
       for (const touched of held.touched) {
         const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
-        fileIdentity(pin.repository, touched.path, pin.commit, factsOf(touched.path));
-        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
+        // A current path already stands as a file of the tree; only a path the history alone names becomes an identity.
+        if (!known.has(`${pin.repository}\0${touched.path}`)) fileIdentity(pin.repository, touched.path, pin.commit);
+        if (touched.previousPath !== undefined && !known.has(`${pin.repository}\0${touched.previousPath}`)) fileIdentity(pin.repository, touched.previousPath, pin.commit);
         edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
         if (touched.previousPath !== undefined) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
       }
@@ -71,9 +76,14 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const output = inputs.contract.vertices.find(vertex => vertex.kind === unit.kind);
   if (output === undefined) throw new Error(`no selected output contract for ${unit.kind}`);
   const fields = new Set(output.fields.map(field => field.name));
-  const selectedVertices = vertices.filter(vertex => vertex.kind === unit.kind).map(vertex => ({ ...vertex, ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }) }));
   const edgeOutputs = new Set(inputs.edgeOutputs.map(edge => JSON.stringify([edge.kind, edge.from, edge.to])));
   const selectedEdges = edges.filter(edge => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind])));
+  // An identity-only vertex travels with the edge that names it, even in a unit of another kind: a commit names the
+  // path it deleted, and that path must stand for the edge to reach it.
+  const endpoints = new Set(selectedEdges.flatMap(edge => [edge.from, edge.to].map(end => JSON.stringify([end.kind, end.key]))));
+  const selectedVertices = vertices
+    .filter(vertex => vertex.kind === unit.kind || (vertex.identityOnly === true && endpoints.has(JSON.stringify([vertex.kind, vertex.key]))))
+    .map(vertex => ({ ...vertex, ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }) }));
   return { vertices: selectedVertices, edges: selectedEdges, end: problems.some(problem => !problem.endsWith('shallow-history')) ? { state: 'partial', cause: problems.join('\n') } : { state: 'complete' } };
 }
 

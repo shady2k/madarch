@@ -90,11 +90,13 @@ test('git file facts count exact non-merge touches at the pin and take the maxim
     const result = await gitExtract(unit(root, pin, gitContract.outputs), context(['renamed.txt', 'src/file.txt', 'main.txt', 'untouched.txt']));
     expect(result.end?.state).toBe('complete');
     const vertices = new Map(result.vertices?.map(vertex => [String(vertex.key['path']), vertex]));
-    expect(vertices.get('old.txt')?.values).toEqual({ commit_count: 2, last_change: '2026-01-10T00:00:00.000Z' });
+    // A path the tree no longer holds is an identity its commits reach, not a current file with history of its own.
+    expect(vertices.get('old.txt')?.identityOnly).toBe(true);
+    expect(vertices.get('old.txt')?.values).toBeUndefined();
     expect(vertices.get('renamed.txt')?.values).toEqual({ commit_count: 1, last_change: '2026-01-06T00:00:00.000Z' });
     expect(vertices.get('src/file.txt')?.values).toEqual({ commit_count: 2, last_change: '2026-01-10T00:00:00.000Z' });
     expect(vertices.get('main.txt')?.values).toEqual({ commit_count: 1, last_change: '2026-01-08T00:00:00.000Z' });
     expect(vertices.get('untouched.txt')?.values).toEqual({ commit_count: 0, last_change: null });
-    for (const [path, vertex] of vertices) expect(vertex.evidence).toEqual({ repository: 'fixture', path, commitOrDigest: pin });
+    for (const [path, vertex] of vertices) if (vertex.identityOnly !== true) expect(vertex.evidence).toEqual({ repository: 'fixture', path, commitOrDigest: pin });
   });
 }, 60_000);
