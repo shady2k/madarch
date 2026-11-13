@@ -120,6 +120,26 @@ problems:
     template: 'templates/item-plain.liquid', source: 'graph', key: ['repository', 'path'],
     fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['test', 'other'] }, { name: 'path', type: 'text', producers: ['test', 'other'] }],
   });
+  const descriptions: Record<string, { en: string; ru: string }> = {
+    'probe.finding': { en: 'A consistency finding emitted by the fixture plugin.', ru: 'Находка проверки согласованности тестового плагина.' },
+    'probe.opinion': { en: 'An opinion with two fields requiring evidence.', ru: 'Утверждение с двумя полями, требующими основания.' },
+    'probe.keyed': { en: 'An opinion identified by two key fields.', ru: 'Утверждение, определяемое двумя ключевыми полями.' },
+    'probe.referrer': { en: 'A fixture record referencing a repository.', ru: 'Тестовая запись, ссылающаяся на репозиторий.' },
+  };
+  for (const [name, description] of Object.entries(descriptions)) {
+    declared.setIn(['kinds', name], {
+      ...declared.toJS().kinds[name],
+      id: name, definition: description.en, description,
+      sources: ['https://www.w3.org/TR/prov-dm/'],
+      acquisition: ['agent-from-graph'], status: 'implemented',
+      'template-policy': 'page', group: starter.kinds['code.file'].group,
+      'relation-constraints': { out: [], in: [] },
+      ...(name === 'probe.referrer' ? { labels: {
+        en: { one: 'Probe referrer', many: 'Probe referrers' },
+        ru: { one: 'Тестовая ссылка', many: 'Тестовые ссылки' },
+      } } : {}),
+    });
+  }
   writeFileSync(kindsFile, declared.toString());
   return closure;
 }
