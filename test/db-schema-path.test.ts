@@ -266,8 +266,11 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
     useFixturePlugins(folder, ['disk', 'git', 'db-schema']);
     const kindsPath = join(folder, 'madarch', 'kinds.yaml');
-    writeFileSync(kindsPath, readFileSync(kindsPath, 'utf8').replaceAll('terms: ["**/*.ts", "**/*.tsx"]', 'terms: ["src/**/*.ts"]'));
     const kinds = parseDocument(readFileSync(kindsPath, 'utf8'));
+    for (const output of ['code.database', 'code.table', 'code.column', 'code.index']) {
+      expect(kinds.hasIn(['kinds', output])).toBe(true);
+      kinds.setIn(['kinds', output, 'terms'], ['src/**/*.ts']);
+    }
     kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, binding: { agent: 'The structured source excerpt a page shows.' } });
     writeFileSync(kindsPath, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
