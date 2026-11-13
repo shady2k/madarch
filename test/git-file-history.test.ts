@@ -189,13 +189,13 @@ test('a path deleted and added again states its latest period', async () => {
   commit(folder, TWO, 'delete');
   writeFileSync(join(folder, 'twice.txt'), 'again\n');
   const again = commit(folder, THREE, 'add again');
-  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'twice', again)), context(['twice.txt']));
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', again)), context(['twice.txt']));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'twice.txt');
   expect(file?.values).toEqual({
     commit_count: 3, last_change: '2026-01-03T00:00:00.000Z',
     added_at: '2026-01-03T00:00:00.000Z', added_in: again, removed_at: null, removed_in: null,
   });
-  expect(file?.evidence).toEqual({ repository: 'twice', path: 'twice.txt', commitOrDigest: again });
+  expect(file?.evidence).toEqual({ repository: 'fixture', path: 'twice.txt', commitOrDigest: again });
 });
 
 
@@ -216,7 +216,7 @@ test('a removal made by a merge commit is stated by that merge', async () => {
   git(folder, TWO, 'merge', '--no-ff', '-m', 'merge side', 'side');
   const merged = git(folder, TWO, 'rev-parse', 'HEAD');
   expect(current(folder)).toEqual(['base.txt']);
-  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'merge-removal', merged)), context(current(folder)));
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'f.txt');
   expect(file?.values).toMatchObject({ added_in: added, removed_in: merged, removed_at: '2026-01-02T00:00:00.000Z' });
   expect(file?.values?.['removed_in']).not.toBe(deletedOnSide);
@@ -239,7 +239,7 @@ test('a deletion discarded by a merge is no removal', async () => {
   git(folder, TWO, 'merge', '-s', 'ours', '--no-ff', '-m', 'keep ours', 'side');
   const merged = git(folder, TWO, 'rev-parse', 'HEAD');
   expect(current(folder)).toEqual(['base.txt', 'f.txt']);
-  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'merge-discarded', merged)), context(current(folder)));
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
   const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'f.txt');
   expect(file?.values).toMatchObject({ added_in: added, removed_in: null, removed_at: null });
   expect(file?.values?.['removed_in']).not.toBe(discarded);
@@ -258,11 +258,39 @@ test('a shallow boundary does not fabricate an addition, and the repository says
   const clone = join(ROOT, 'shallow-clone');
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${origin}`, clone], { env: { ...process.env, ...ONE } });
   expect(current(clone)).toEqual(['a.txt', 'b.txt']);
-  const answer = await gitExtract(unit('code.file', fileEdges, pin(clone, 'shallow', tip)), context(current(clone)));
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(clone, 'fixture', tip)), context(current(clone)));
   for (const path of ['a.txt', 'b.txt']) {
     const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === path);
     expect(file?.values).toMatchObject({ added_at: null, added_in: null, removed_at: null, removed_in: null });
   }
-  const repository = await gitExtract(unit('code.repository', [], pin(clone, 'shallow', tip)), context([]));
-  expect(repository.vertices?.find((vertex) => vertex.kind === 'code.repository' && vertex.key['name'] === 'shallow')?.values).toMatchObject({ history_shallow: true });
+  const repository = await gitExtract(unit('code.repository', [], pin(clone, 'fixture', tip)), context([]));
+  expect(repository.vertices?.find((vertex) => vertex.kind === 'code.repository' && vertex.key['name'] === 'fixture')?.values).toMatchObject({ history_shallow: true });
+});
+
+
+test('a path created and deleted on a side branch is not current', async () => {
+  const folder = join(ROOT, 'side-only');
+  mkdirSync(folder);
+  git(folder, ONE, 'init', '-q', '-b', 'main');
+  git(folder, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(folder, 'main.txt'), 'main\n');
+  const root = commit(folder, ONE, 'root');
+  git(folder, TWO, 'checkout', '-qb', 'side');
+  writeFileSync(join(folder, 'side-only.txt'), 'side\n');
+  const added = commit(folder, TWO, 'side adds');
+  git(folder, TWO, 'rm', '-q', 'side-only.txt');
+  const deleted = commit(folder, TWO, 'side deletes');
+  git(folder, TWO, 'checkout', '-q', 'main');
+  writeFileSync(join(folder, 'main.txt'), 'main changed\n');
+  commit(folder, TWO, 'main changes');
+  git(folder, TWO, 'merge', '--no-ff', '-m', 'merge side', 'side');
+  const merged = git(folder, TWO, 'rev-parse', 'HEAD');
+  expect(current(folder)).toEqual(['main.txt']);
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(folder, 'fixture', merged)), context(current(folder)));
+  const file = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && vertex.key['path'] === 'side-only.txt');
+  expect(file?.values).toMatchObject({ added_in: added, removed_in: deleted });
+  expect(file?.values?.['added_in']).not.toBe(root);
+  expect(file?.values?.['removed_at']).not.toBeNull();
+  const open = (answer.vertices ?? []).filter((vertex) => vertex.kind === 'code.file' && (vertex.values?.['removed_at'] ?? null) === null);
+  expect(open.map((vertex) => String(vertex.key['path']))).toEqual(['main.txt']);
 });
