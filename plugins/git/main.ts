@@ -62,20 +62,41 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     // That addition may lie beyond the history the clone holds: the period stays unknown, and history_shallow says why.
     const shallow = history.gaps.some((gap) => gap.reason === 'shallow-history');
     const boundary = shallow ? firstParent.at(-1)?.hash : undefined;
-    const periods = new Map<string, { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null }>();
-    const emptyPeriod = () => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
-    for (const held of firstParent.reverse()) {
-      const at = new Date(held.commitDate).toISOString();
-      for (const touched of held.touched) {
-        if (touched.change === 'added' || touched.change === 'renamed') {
-          if (held.hash !== boundary) periods.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
-        } else if (touched.change === 'deleted') {
-          periods.set(touched.path, { ...(periods.get(touched.path) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
-        }
-        if (touched.change === 'renamed' && touched.previousPath !== undefined) {
-          periods.set(touched.previousPath, { ...(periods.get(touched.previousPath) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
+    type Period = { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null };
+    const emptyPeriod = (): Period => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
+    const periodsOf = (commits: readonly (typeof history.commits)[number][]): Map<string, Period> => {
+      const out = new Map<string, Period>();
+      for (const held of commits) {
+        const at = new Date(held.commitDate).toISOString();
+        for (const touched of held.touched) {
+          if (touched.change === 'added' || touched.change === 'renamed') {
+            if (held.hash !== boundary) out.set(touched.path, { added_at: at, added_in: held.hash, removed_at: null, removed_in: null });
+          } else if (touched.change === 'deleted') {
+            out.set(touched.path, { ...(out.get(touched.path) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
+          }
+          if (touched.change === 'renamed' && touched.previousPath !== undefined) {
+            out.set(touched.previousPath, { ...(out.get(touched.previousPath) ?? emptyPeriod()), removed_at: at, removed_in: held.hash });
+          }
         }
       }
+      return out;
+    };
+    const periods = periodsOf([...firstParent].reverse());
+    // A path only a side branch ever held never stands on the first-parent walk. If the default branch's tree does not
+    // hold it, its own commits state the period: the full history names the commit that added it and the one that
+    // deleted it. A path absent from the tree without a deletion ends at the pin, so `current = removed_at empty`
+    // holds for every path.
+    const fullPeriods = periodsOf([...history.commits].reverse());
+    const tree = new Set(files.filter((file) => file.key['repository'] === pin.repository).map((file) => String(file.key['path'])));
+    for (const [path, period] of fullPeriods) {
+      if (tree.has(path)) continue;
+      const held = periods.get(path);
+      if (held === undefined || held.removed_at === null) periods.set(path, period);
+    }
+    const pinCommit = byHash.get(pin.commit);
+    for (const [path, period] of periods) {
+      if (tree.has(path) || period.removed_at !== null) continue;
+      periods.set(path, { ...period, removed_in: pin.commit, removed_at: pinCommit === undefined ? null : new Date(pinCommit.commitDate).toISOString() });
     }
     const factsOf = (path: string): PathFacts => ({
       ...(changes.get(path) ?? { commit_count: 0, last_change: null }),
