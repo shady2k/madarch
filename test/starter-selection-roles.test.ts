@@ -15,6 +15,9 @@ test('a selected catalogue keeps roles named by its kinds even when those roles 
     const manifest = read.manifest;
     expect(manifest.findings).toEqual([]);
     expect(manifest.kinds.size).toBe(3);
+    for (const plugin of manifest.plugins?.values() ?? []) {
+      expect(plugin.outputs.every((kind) => manifest.kinds.has(kind))).toBe(true);
+    }
     expect(manifest.roles.has('platform-devops')).toBe(true);
     expect(manifest.roles.get('platform-devops')?.lead).toEqual([]);
     expect(manifest.kinds.get('code.repository')?.audience).toContain('platform-devops');

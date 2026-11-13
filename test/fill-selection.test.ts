@@ -132,9 +132,11 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     const newerOwner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
     const { createRun } = await import('../src/fill/state-store.js');
     const { recordRunConfiguration } = await import('../src/fill/orchestrator-store.js');
+    // Order fixture rows explicitly in the past so they cannot outrank the next native request.
+    const createdAt = Date.now() - 2000;
     try {
-      await createRun(newerOwner, { runId: 'older-without-trace', product, at: Date.now() });
-      await createRun(newerOwner, { runId: 'newer-without-trace', product, at: Date.now() + 1000 });
+      await createRun(newerOwner, { runId: 'older-without-trace', product, at: createdAt });
+      await createRun(newerOwner, { runId: 'newer-without-trace', product, at: createdAt + 1 });
       expect((await call('/api/run')).body.run.selection).toBeUndefined();
       await recordRunConfiguration(newerOwner, { runId: 'newer-without-trace', digest: 'fixture', at: Date.now(), snapshot: { repository: folder, defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture', targets: { kinds: ['doc.term'], vertex: 'named-term' } } });
       const newest = await call('/api/run');
@@ -153,7 +155,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       const newestStatus = await call('/api/status');
       expect(newestStatus.body.fill.run.runId).toBe('newer-without-trace');
       expect(newestStatus.body.fill.run.finishedAt).toBeUndefined();
-      await createRun(newerOwner, { runId: 'failed-before-configuration', product, at: Date.now() });
+      await createRun(newerOwner, { runId: 'failed-before-configuration', product, at: createdAt + 2 });
       await newerOwner.transaction('write', async (tx) => {
         await tx.query("UPDATE fill_run SET state = 'failed' WHERE run_id = $1", ['failed-before-configuration']);
       });

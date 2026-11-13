@@ -355,7 +355,7 @@ function pluginManifest(kinds: readonly CatalogKindData[]): Record<string, unkno
   const names = new Set(kinds.map((kind) => kind.name));
   return BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? kinds.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)))
     .map((plugin) => ({ id: plugin.id, version: Number(plugin.version.split('.')[0]), path: plugin.folder,
-      inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
+      inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin).filter((kind) => names.has(kind)), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
 }
 
 /** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
