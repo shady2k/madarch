@@ -13,6 +13,7 @@ import type {
   PluginEdgeResult,
   PluginEntityRef,
   PluginKeyValues,
+  PluginUnitProblem,
   PluginVertexKindDeclaration,
   PluginVertexResult,
 } from './protocol.js';
@@ -42,6 +43,8 @@ export interface ValidatedUnit {
   readonly vertices: readonly PluginVertexResult[];
   readonly edges: readonly PluginEdgeResult[];
   readonly removals: readonly PluginEntityRef[];
+  /** The places the unit could not read, in path and line order: the answer's values stand beside them. */
+  readonly problems: readonly PluginUnitProblem[];
   readonly end: { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string };
   /** How many removals a partial unit carried and the host dropped. */
   readonly removalsDropped: number;
@@ -117,7 +120,7 @@ function checkReferences(contract: PluginContractDeclaration, declaration: Plugi
  * The answer comes back in code point order of its kinds and keys, so two
  * runs of the same plugin answer the same bytes.
  */
-export function validateUnitResult(contract: PluginContractDeclaration, result: { unitId: string; vertices?: readonly PluginVertexResult[]; edges?: readonly PluginEdgeResult[]; removals?: readonly PluginEntityRef[]; end: ValidatedUnit['end'] }): ResultCheck {
+export function validateUnitResult(contract: PluginContractDeclaration, result: { unitId: string; vertices?: readonly PluginVertexResult[]; edges?: readonly PluginEdgeResult[]; removals?: readonly PluginEntityRef[]; problems?: readonly PluginUnitProblem[]; end: ValidatedUnit['end'] }): ResultCheck {
   const vertices: PluginVertexResult[] = [];
   const seenVertices = new Set<string>();
   for (const [at, vertex] of (result.vertices ?? []).entries()) {
@@ -193,6 +196,7 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     seenRemovals.add(identity);
     removals.push(removal);
   }
+  const problems = [...(result.problems ?? [])].sort((left, right) => byCodePoint(left.repository ?? '', right.repository ?? '') || byCodePoint(left.path, right.path) || left.line - right.line || (left.column ?? 0) - (right.column ?? 0));
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key), canonicalKey(right.key)));
   edges.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.from.key), canonicalKey(right.from.key)) || byCodePoint(canonicalKey(left.to.key), canonicalKey(right.to.key)) || byCodePoint(left.discriminator ?? '', right.discriminator ?? ''));
   removals.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(canonicalKey(left.key ?? {}), canonicalKey(right.key ?? {})));
@@ -203,6 +207,7 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
       vertices,
       edges,
       removals,
+      problems,
       end: result.end,
       removalsDropped: partial ? (result.removals ?? []).length : 0,
     },

@@ -64,10 +64,26 @@ test('declared refinement metadata remains available without selecting execution
   expect(plan.producers('File', 'description')).toEqual([]);
   expect(plan.lastProducer('File', 'description')).toBeUndefined();
 });
-test('S3: hidden prerequisite reads fail with output and actionable declaration locations', () => {
-  const catalogue = [kind('Document'), kind('Policy'), kind('Summary', ['description'], ['Document'])];
+test('S3: a plugin\'s reads orders its turn after the producers of the kinds it reads, with no derives-from', () => {
+  const catalogue = [kind('Document'), kind('Policy'), kind('Summary', ['description'])];
   const declarations = [plugin('document', [output('Document')]), plugin('policy', [output('Policy')]), plugin('summary', [output('Summary', '*', { reads: ['Policy'] })])];
-  expect(() => planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['Summary'] })).toThrow(/\/product\/summary\/plugin.json:\d+: plugin summary reads Policy for output Summary.*add Policy to Summary.derives-from/);
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['Summary'] });
+  expect(plan.selectedKinds).toEqual(['Policy', 'Summary']);
+  expect(plan.order).toEqual(['policy', 'summary']);
+  expect(plan.unitPredecessors('summary', 'Summary')).toEqual([{ plugin: 'policy', kind: 'Policy' }]);
+  expect([...plan.outputs.get('summary')!.keys()]).toEqual(['Summary']);
+});
+
+test('a plugin that reads a kind its output does not rest on still runs after that kind\'s producers', () => {
+  const catalogue = [
+    { ...kind('code.file', ['repository', 'path']), line: 4 },
+    { ...kind('code.package', ['ecosystem', 'name']), line: 9 },
+  ];
+  const declarations = [plugin('disk', [output('code.file')]), plugin('imports', [output('code.package', '*', { reads: ['code.file'] })])];
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['code.package'] });
+  expect(plan.selectedKinds).toEqual(['code.file', 'code.package']);
+  expect(plan.order).toEqual(['disk', 'imports']);
+  expect(plan.unitPredecessors('imports', 'code.package')).toEqual([{ plugin: 'disk', kind: 'code.file' }]);
 });
 test('S4: each output validates and selects only its own dependencies', () => {
   const catalogue = [kind('X'), kind('Y'), kind('A', ['description'], ['X']), kind('B', ['description'], ['Y'])];
@@ -78,7 +94,10 @@ test('S4: each output validates and selects only its own dependencies', () => {
   expect(plan.unitPredecessors('multi', 'A')).toEqual([{ plugin: 'x', kind: 'X' }]);
   expect(plan.readsFor('multi', 'A')).toEqual(['X']);
   const hidden = plugin('multi', [output('A', '*', { reads: ['Y'] }), output('B', '*', { reads: ['Y'] })]);
-  expect(() => planFillDeclarations({ kinds: catalogue, plugins: [hidden] })).toThrow(/reads Y for output A/);
+  const read = planFillDeclarations({ kinds: catalogue, plugins: [hidden, plugin('x', [output('X')]), plugin('y', [output('Y')])], selectedKinds: ['A'] });
+  expect(read.selectedKinds).toEqual(['X', 'Y', 'A']);
+  expect(read.order).toEqual(['x', 'y', 'multi']);
+  expect(read.unitPredecessors('multi', 'A')).toEqual([{ plugin: 'x', kind: 'X' }, { plugin: 'y', kind: 'Y' }]);
 });
 test('S5: a later refiner does not silently remove a required latest dependency', () => {
   const catalogue = [kind('Source'), kind('Summary', ['description'], ['Source'])];

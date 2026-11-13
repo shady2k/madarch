@@ -37,5 +37,3 @@ labels:
 description:
   en: A package a repository's files import from outside it, named as its ecosystem names it.
   ru: Пакет, который импортируют файлы репозитория, названный так, как его называет экосистема.
-derives-from:
-- code.file

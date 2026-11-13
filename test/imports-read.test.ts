@@ -127,6 +127,23 @@ describe('the imports reader', () => {
     expect(read.records.map(edgeOf)).toEqual([{ from: 'src/a.ts', to: 'src/util.ts', line: 2, column: 1, lineEnd: 2, specifier: './util.js', form: 'static', names: ['default'] }]);
   });
 
+  test('a file the parser refuses is a problem with its place, and the other files are still read', () => {
+    const read = readRepository({
+      repository: 'app',
+      files: ['src/broken.ts', 'src/user.ts', 'src/target.ts'],
+      texts: new Map([
+        ['src/broken.ts', 'export const broken = ;\n'],
+        ['src/user.ts', "import target from './target.js';\n"],
+        ['src/target.ts', 'export default 1;\n'],
+      ]),
+      blobs: new Map(),
+    });
+    expect(read.problems).toEqual([
+      { repository: 'app', path: 'src/broken.ts', line: 1, column: 23, lineEnd: 1, specifier: '', form: 'static', message: 'the parser refused the file: Unexpected token (1:22)' },
+    ]);
+    expect(read.records.map(edgeOf)).toEqual([{ from: 'src/user.ts', to: 'src/target.ts', line: 1, column: 1, lineEnd: 1, specifier: './target.js', form: 'static', names: ['default'] }]);
+  });
+
   test('a source the caller did not hand over is not read, and the texts it did hand over are', () => {
     const read = readRepository({
       repository: 'app',

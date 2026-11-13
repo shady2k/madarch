@@ -11,8 +11,9 @@
  * a specifier is resolved by the repository's own rules over the graph's file list and the tsconfig nearest the
  * importing file (`./resolve.js`), the package.json of a folder included. A relative specifier that names no file is
  * stated as an edge to the path it names, which no vertex holds: the graph records the unresolved reference with the
- * import's place, so the problem is reported, never dropped. A file whose content the graph does not hold makes the
- * unit partial with its place: nothing can be stated about what was not read.
+ * import's place, so the problem is reported, never dropped. A file the parser refuses, or whose content the graph does
+ * not hold, is a problem with its place in the unit's answer; the other files are still read, and the host records the
+ * problems beside the values.
  */
 import { definePlugin, type EdgeResult, type ExtractContext, type Unit, type UnitResult, type VertexResult } from 'madarch-plugin-sdk';
 import contract from './contract.json';
@@ -24,16 +25,8 @@ const IMPORT_KIND = 'code.imports';
 const PACKAGE_IMPORT_KIND = 'code.imports-package';
 const PACKAGE_KIND = 'code.package';
 
-/** The files the plugin parses when the manifest names no pattern: every TypeScript and JavaScript source. */
-const DEFAULT_PATTERNS: readonly string[] = ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts', '**/*.js', '**/*.jsx', '**/*.mjs', '**/*.cjs'];
-
 /** The most file reads in flight: the host answers one request at a time, and a burst of them costs the fill nothing. */
 const READ_CONCURRENCY = 8;
-
-/** The unit's inputs: the patterns the host names for the kind's files, when the manifest declares them. */
-interface ImportsInputs {
-  readonly patterns?: readonly string[];
-}
 
 /** One file the plugin reads, by its graph key. */
 interface WantedFile {
@@ -72,35 +65,20 @@ interface ReadRepositoryAnswer {
   readonly problems: readonly ImportProblem[];
 }
 
-/** The reason a partial unit names, one clause per import it could not read. */
-function causeOf(problems: readonly ImportProblem[]): string {
-  return `${String(problems.length)} import${problems.length === 1 ? '' : 's'} could not be read: ${problems
-    .map((problem) => `${problem.repository}/${problem.path}:${String(problem.line)}:${String(problem.column)} ${problem.message}`)
-    .join('; ')}`;
-}
-
 /** The answer one unit states: the edges of every repository it read, and the package entities they name. */
-async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = (unit.inputs ?? {}) as ImportsInputs;
-  const patterns = inputs.patterns !== undefined && inputs.patterns.length > 0 ? [...new Set(inputs.patterns)] : [...DEFAULT_PATTERNS];
-  // Every path the graph holds is what a specifier resolves against; the patterns only say which files are parsed.
+async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult> {
+  // Every path the graph holds is what a specifier resolves against, and every TypeScript or JavaScript source is read:
+  // the plugin has no scope of its own yet, and a kind's `terms` is not where a producer's configuration belongs.
   const all = await context.graph.files('**/*');
   const paths = new Map<string, Set<string>>();
+  const wanted = new Map<string, WantedFile>();
   for (const file of all) {
     const repository = String(file.key['repository'] ?? '');
     const path = String(file.key['path'] ?? '');
     const held = paths.get(repository) ?? new Set<string>();
     held.add(path);
     paths.set(repository, held);
-  }
-  const wanted = new Map<string, WantedFile>();
-  for (const pattern of patterns) {
-    for (const file of await context.graph.files(pattern)) {
-      const repository = String(file.key['repository'] ?? '');
-      const path = String(file.key['path'] ?? '');
-      if (sourceExtensionOf(path) === undefined) continue;
-      wanted.set(`${repository}\u0000${path}`, { repository, path, kind: file.kind, key: file.key });
-    }
+    if (sourceExtensionOf(path) !== undefined) wanted.set(`${repository}\u0000${path}`, { repository, path, kind: file.kind, key: file.key });
   }
   // A tsconfig and a package.json are not sources the plugin parses, but their texts are what the repository's aliases
   // and a folder's entry are read from: every one the graph holds is read beside the sources, and the reader uses it
@@ -172,14 +150,10 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   }
   const vertices = [...packages.values()];
   const problems = answers.flatMap((answer) => answer.problems);
-  const unread: ImportProblem[] = [];
   for (const problem of problems) {
     // A relative specifier that names no file is an edge to the file it names: the host resolves both ends, finds no
     // vertex for this one, and records an unresolved reference with the edge and the place — a problem, never a silence.
-    if (problem.target === undefined || problem.target === '') {
-      unread.push(problem);
-      continue;
-    }
+    if (problem.target === undefined || problem.target === '') continue;
     edges.push({
       kind: IMPORT_KIND,
       from: { kind: 'code.file', key: { repository: problem.repository, path: problem.path } },
@@ -192,7 +166,16 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   return {
     vertices,
     edges,
-    end: unread.length === 0 ? { state: 'complete' } : { state: 'partial', cause: causeOf(unread) },
+    // One file the parser refuses, or whose content the graph does not hold, is a problem with its place: the rest of
+    // the repository is still answered, and the host records these beside the unit's values.
+    problems: problems.map((problem) => ({
+      repository: problem.repository,
+      path: problem.path,
+      line: problem.line,
+      ...(problem.column > 0 ? { column: problem.column } : {}),
+      message: problem.message,
+    })),
+    end: { state: 'complete' },
   };
 }
 

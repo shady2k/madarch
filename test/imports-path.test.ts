@@ -29,6 +29,7 @@ import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { unresolvedReferences } from '../src/graph/index.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
@@ -43,6 +44,8 @@ const FILES: Record<string, string> = {
   'src/shape.ts': 'export type Shape = { id: number };\n',
   'src/helper.ts': 'export const helper = 1;\n',
   'src/dangling.ts': "import './nope.js';\n",
+  // A file no parser accepts: its place is reported and the other files' imports still stand.
+  'src/broken.ts': 'export const broken = ;\n',
 };
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases that need one are skipped with it. */
@@ -54,14 +57,6 @@ const sandboxProblem: string | undefined = await (async (): Promise<string | und
   const problem = await sandboxSetupProblem({ cgroupParent: parent });
   return problem?.message;
 })();
-
-/** The glob the fixture's fake graph answers: every file for `**` and a suffix match for a source pattern. */
-function matched(pattern: string, path: string): boolean {
-  if (pattern === '**/*') return true;
-  const wildcard = pattern.replace('**/', '');
-  if (wildcard.startsWith('*.')) return path.endsWith(wildcard.slice(1));
-  return path === wildcard;
-}
 
 /** Whether the fake host answers no text for the file the unread-content case asks for. */
 let broken = false;
@@ -82,7 +77,7 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
       releaseHashes: [closure.hash],
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
-        files: async (pattern) => [...Object.keys(FILES), 'src/absent.ts'].filter((path) => matched(pattern, path)).map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),
+        files: async () => [...Object.keys(FILES), 'src/absent.ts'].map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),
         value: async (_kind, key, field) => {
           const path = String(key['path']);
           if (field === 'blob') return `blob-${path}`;
@@ -98,9 +93,14 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
   afterAll(async () => { await session?.close(); rmSync(work, { recursive: true, force: true }); });
 
   test('it answers the imports of src/graph/write.ts with their places, forms and names, and the package they name', async () => {
-    const outcome = await session.runUnit({ unitId: 'imports-code.package', kind: 'code.package', key: { pattern: '' }, inputs: { patterns: [] } });
+    const outcome = await session.runUnit({ unitId: 'imports-code.package', kind: 'code.package', key: {}, inputs: {} });
     if (outcome.state !== 'extracted') throw new Error(`the unit was not extracted: ${outcome.cause.code}: ${outcome.cause.message}`);
     expect(outcome.result.end.state).toBe('complete');
+    // The unparseable file is a problem with its place; the unit still answers every other file.
+    expect(outcome.result.problems).toEqual([
+      { repository: 'app', path: 'src/broken.ts', line: 1, column: 23, message: 'the parser refused the file: Unexpected token (1:22)' },
+      { repository: 'app', path: 'src/dangling.ts', line: 1, column: 1, message: 'the relative specifier "./nope.js" resolves to no file of the repository' },
+    ]);
     const imports = outcome.result.edges.filter((edge) => edge.kind === 'code.imports' && edge.from.key['path'] === 'src/graph/write.ts')
       .map((edge) => [edge.discriminator, edge.to.key['path'], edge.values?.['specifier'], edge.values?.['form'], edge.values?.['names']])
       .sort();
@@ -121,15 +121,19 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
     expect(first?.evidence).toMatchObject({ repository: 'app', path: 'src/graph/write.ts', lineStart: 1, lineEnd: 1, commitOrDigest: 'blob-src/graph/write.ts' });
   }, 120_000);
 
-  test('a file the host was asked for and did not answer is a partial unit naming its place', async () => {
+  test('a file the host did not answer is a problem with its place, and the unit still answers the rest', async () => {
     broken = true;
     try {
-      const outcome = await session.runUnit({ unitId: 'imports-unread', kind: 'code.package', key: { pattern: 'src/absent.ts' }, inputs: { patterns: ['src/absent.ts'] } });
+      const outcome = await session.runUnit({ unitId: 'imports-unread', kind: 'code.package', key: {}, inputs: {} });
       if (outcome.state !== 'extracted') throw new Error(JSON.stringify(outcome));
-      expect(outcome.result.end.state).toBe('partial');
-      if (outcome.result.end.state !== 'partial') throw new Error('expected a partial unit');
-      expect(outcome.result.end.cause).toBe('1 import could not be read: app/src/absent.ts:1:1 the file content is not in the graph');
-      expect(outcome.result.edges).toEqual([]);
+      expect(outcome.result.end.state).toBe('complete');
+      expect(outcome.result.problems).toEqual([
+        { repository: 'app', path: 'src/absent.ts', line: 1, column: 1, message: 'the file content is not in the graph' },
+        { repository: 'app', path: 'src/broken.ts', line: 1, column: 23, message: 'the parser refused the file: Unexpected token (1:22)' },
+        { repository: 'app', path: 'src/dangling.ts', line: 1, column: 1, message: 'the relative specifier "./nope.js" resolves to no file of the repository' },
+      ]);
+      // The files the host did answer are still read: write.ts's first import stands.
+      expect(outcome.result.edges.some((edge) => edge.kind === 'code.imports' && edge.from.key['path'] === 'src/graph/write.ts')).toBe(true);
     } finally { broken = false; }
   }, 120_000);
 
@@ -232,6 +236,21 @@ describe.skipIf(sandboxProblem !== undefined)('a product repository filled with 
       expect(dangling.map((row) => [row.edge?.from?.key, row.field, row.target.key, row.edge?.discriminator])).toEqual([
         [{ repository: 'app', path: 'src/dangling.ts' }, 'to', { repository: 'app', path: 'src/nope.js' }, '1:1'],
       ]);
+    } finally { await owner.close(); }
+  }, 300_000);
+
+  test('the unparseable file is recorded as the producer\'s problem, with its place, and the fill still completes', async () => {
+    const owner = await createTestDatabaseOwner({
+      store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
+      graphContract: withManifestContract(await readPinnedGraphContract(folder)),
+    });
+    try {
+      const outcomes = await readProducerOutcomes(owner, {});
+      const imports = outcomes.find((outcome) => outcome.plugin === 'imports');
+      expect(imports?.outcome).toBe('completed');
+      expect(imports?.reason).toContain('2 places could not be read:');
+      expect(imports?.reason).toContain('app/src/broken.ts:1:23 the parser refused the file: Unexpected token (1:22)');
+      expect(imports?.reason).toContain('app/src/dangling.ts:1:1 the relative specifier "./nope.js" resolves to no file of the repository');
     } finally { await owner.close(); }
   }, 300_000);
 });

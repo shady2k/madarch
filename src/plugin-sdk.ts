@@ -66,11 +66,30 @@ export interface EdgeResult {
 /** How one unit ended. */
 export type UnitEnd = { readonly state: 'complete' } | { readonly state: 'partial'; readonly cause: string };
 
+/**
+ * One place a unit could not read: a file, the line it stands on and the cause. The unit states everything else it read,
+ * and the host records these as the unit's problems, so one unreadable file never costs the rest of the answer.
+ */
+export interface UnitProblem {
+  /** The repository the file belongs to, when the product spans several. */
+  readonly repository?: string;
+  /** The repository-relative path of the file the problem stands in. */
+  readonly path: string;
+  /** The line the problem opens at, 1-based. */
+  readonly line: number;
+  /** The column the problem opens at, 1-based, when the reader has one. */
+  readonly column?: number;
+  /** What could not be read, in words a person can act on. */
+  readonly message: string;
+}
+
 /** One unit's answer. */
 export interface UnitResult {
   readonly vertices?: readonly VertexResult[];
   readonly edges?: readonly EdgeResult[];
   readonly removals?: readonly EntityRef[];
+  /** The places the unit could not read; the answer's vertices and edges still stand. */
+  readonly problems?: readonly UnitProblem[];
   readonly end: UnitEnd;
 }
 
