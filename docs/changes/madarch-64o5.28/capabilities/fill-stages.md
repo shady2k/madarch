@@ -414,9 +414,20 @@ Zero-Problem checks are explicit successful empty outcomes.
 Default general-agent unclaimed coverage subtracts configured producer claims
 before execution, never judges runtime values and never activates on omission.
 Explicit per-kind/field configuration can opt into overlap and named refinement.
+All eight review-section-1 regression scenarios are mapped explicitly in the
+contract. These scenarios are required acceptance behavior, not passing results.
 Only actual planned agent requests require selection, with actionable prestart
 refusal and the same required-field behavior in the wiki. Fixtures retain valid
 typed kinds and use scripted adapters for any exercised agent requests.
+
+
+A manifest kind explicitly bound to `capability: git` uses the git declaration's
+storage kind, table and key as its single canonical identity. Additional declared
+fields extend that opinion table; no duplicate prefixed vertex or table is made.
+Draft vertices, edge endpoints and reference keys resolve through the capability
+declaration before publication. File and directory identity uses `repository`
+(a text reference) and `path` (text), not physical node or path IDs. This mapping
+is declaration-driven; similarly named kinds without the binding stay distinct.
 
 ### Scenario: capability-without-work
 - Given: deterministic declarations cover all selected fields of 2,603 indexed files and general-agent capability is available
@@ -437,16 +448,3 @@ typed kinds and use scripted adapters for any exercised agent requests.
 - Given: an actual planned plugin requests an agent and none is selected
 - When: fill admission runs
 - Then: refuse before acceptance/queueing/execution with manifest location and how to choose an agent
-
-All eight review-section-1 regression scenarios are mapped explicitly in the
-contract. These scenarios are required acceptance behavior, not passing results.
-
-### Native-backed declaration identity
-
-A manifest kind explicitly bound to `capability: git` uses the git declaration's
-storage kind, table and key as its single canonical identity. Additional declared
-fields extend that opinion table; no duplicate prefixed vertex or table is made.
-Draft vertices, edge endpoints and reference keys resolve through the capability
-declaration before publication. File and directory identity uses `repository`
-(a text reference) and `path` (text), not physical node or path IDs. This mapping
-is declaration-driven; similarly named kinds without the binding stay distinct.

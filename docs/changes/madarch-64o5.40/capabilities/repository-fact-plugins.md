@@ -107,6 +107,19 @@ change. Existing timeout and performance bounds shall not be increased to make
 the migration pass. Missing evidence or a failed check shall be reported, not
 relabelled as passed.
 
+All twelve rules in `../../madarch-64o5.28/contract.md` remain normative,
+including per-output prerequisite validation, immutable explicit earlier reads,
+success-gated dependencies, scoped replacement/retraction, authored-input plugins
+and explicit per-kind outcomes. No native exemption satisfies any rule.
+A coordinator-reported actual internal-native baseline is recorded in change.md;
+whole-suite green, after timing and comparable before/after analysis remain pending;
+only the parent coordinator runs checks and PostgreSQL commands.
+
+
+Schema migration revision is 5 → 6. The release-platform trusted Git digest is
+`eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
+
+
 ### Scenario: fixture-fill
 - Given: a generated repository with known paths and commits
 - When: disk and git fill the selected kinds
@@ -117,24 +130,11 @@ relabelled as passed.
 - When: fill speed is measured
 - Then: both actual measurements and their inputs are reported under unchanged bounds
 
-## Integration with .28
-
-All twelve rules in `../../madarch-64o5.28/contract.md` remain normative,
-including per-output prerequisite validation, immutable explicit earlier reads,
-success-gated dependencies, scoped replacement/retraction, authored-input plugins
-and explicit per-kind outcomes. No native exemption satisfies any rule.
-A coordinator-reported actual internal-native baseline is recorded in change.md;
-whole-suite green, after timing and comparable before/after analysis remain pending;
-only the parent coordinator runs checks and PostgreSQL commands.
-
-
 ### Scenario: historical-file-identity
 - Given: a historical changed path absent from the pinned tree and git declaring a `code.file` key refinement of disk
 - When: history and latest file keys are filled
 - Then: ordinary declared publication preserves that file identity without an `ensureVertex` exception, native writer or hidden prerequisite exemption
 
-Schema migration revision is 5 → 6. The release-platform trusted Git digest is
-`eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
 
 
 ## Requirement: partitions — Large outputs use generic bounded key plans
@@ -155,6 +155,10 @@ consumers. Producer-scoped deletion/replacement and retained history apply to
 the complete selected output. Explicit named earlier reads shall identify only
 a successful complete immutable barrier generation.
 
+Contract approved for implementation; runtime implementation and validation are
+pending. Actual oversized glossary evidence and partial checks remain recorded
+in change.md; this design does not itself establish acceptance.
+
 ### Scenario: bounded-complete-output
 - Given: an ordinary output exceeding one 8 MiB execution unit and opting into key partitioning
 - When: its complete validated plan executes within unchanged unit/message caps
@@ -170,6 +174,3 @@ a successful complete immutable barrier generation.
 - When: the host validates it
 - Then: refuse the invalid plan rather than accept partial enumeration or silently lose facts
 
-Contract approved for implementation; runtime implementation and validation are
-pending. Actual oversized glossary evidence and partial checks remain recorded
-in change.md; this design does not itself establish acceptance.

@@ -1,7 +1,7 @@
 # Repository facts come from ordinary disk and git plugins
 
 Change: madarch-64o5.40
-Base: 6d19ce48
+Base: 0148a638fa234accc37a871416f954d4ae3bcf15
 Tasks: madarch-64o5.28
 Kind: behavior
 
@@ -63,6 +63,7 @@ Complete proposed capabilities: `capabilities/repository-fact-plugins.md` and
 - repository-fact-plugins/selection: static, test, mutation, review
 - repository-fact-plugins/publication: static, test, mutation, review
 - repository-fact-plugins/regression: static, test, mutation, review
+- repository-fact-plugins/partitions: static, test, mutation, review
 
 - fill-history/stage: static, test, mutation, review
 - fill-history/reads: static, test, mutation, review
@@ -100,7 +101,7 @@ refinement, source-preservation and prerequisite rules remain applicable; all tw
 rules of .28 contract.md remain normative. Append-only integration notes do not
 replace historical evidence.
 
-## Canonical identity and host rights
+### Canonical identity and host rights
 
 Repository storage and all reads/writes use ordinary declared `code.*` kinds.
 There are no native read/write aliases, dual identities, fallback writers or
@@ -127,7 +128,7 @@ the unchanged training workload provide actual evidence, with any remaining
 blockers reported explicitly.
 
 
-## Owner integration clarification: historical file identity
+### Owner integration clarification: historical file identity
 
 Historical file identity must be retained without an `ensureVertex` exception.
 Git's ordinary `code.file` key output explicitly refines disk's key output.
@@ -143,7 +144,7 @@ The release-platform trusted Git pin digest is
 `eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201`.
 These are declared migration/tool constants, not relaxed performance bounds.
 
-## Coordinator-reported baseline evidence
+### Coordinator-reported baseline evidence
 
 The parent reports a completed internal-native before run of 10.444655832 seconds,
 114 files, 583054 bytes, 72 commits and 55 directories at pinned revision
@@ -153,7 +154,7 @@ The after measurement and comparable before/after analysis remain pending.
 This baseline is not a whole-suite-green, migration-completion or approval claim.
 
 
-## Partial validation reported by coordinator
+### Partial validation reported by coordinator
 
 The fifth root check completed successfully: `/tmp/m28-check-fifth.log`, all six
 checks exit 0. The existing 18 architecture baseline findings are unchanged.
@@ -173,7 +174,7 @@ invocation. Runtime partition implementation and its validation are pending;
 this record does not claim the oversized workload is repaired.
 
 
-## Further partial validation reported by coordinator
+### Further partial validation reported by coordinator
 
 Root check six exited 0 across all six checks in 84.2 seconds:
 `/tmp/m28-check-sixth.log`. It ran before the latest test and reader commits;
@@ -194,7 +195,7 @@ is `b0b8725d`. These source changes are not passing rerun evidence: reruns remai
 pending. Whole-suite green and after-training timing remain unestablished.
 
 
-## Partition and reader rerun evidence reported by coordinator
+### Partition and reader rerun evidence reported by coordinator
 
 The complete partition regression run passed: 5 cases / 32 assertions in
 119.93 seconds, `/tmp/m28-partitions-sixth.log`, after `5aa0cb02`, `8a41360e`
@@ -214,7 +215,7 @@ No after-training timing or acceptance result is available. Whole-suite green
 remains unestablished; no pending run is recorded as passed.
 
 
-## Root check eight and remaining partition capacity issue
+### Root check eight and remaining partition capacity issue
 
 The coordinator reports root check eight green: all six checks in 71.89 seconds,
 with the same 18 architecture baseline findings. The fourth glossary run's
@@ -234,7 +235,7 @@ assertions or changing bounds/timeouts. No child checks or runtime edits were
 performed to record this clarification; after timing remains pending.
 
 
-## Benchmark comparability audit and settled glossary run
+### Benchmark comparability audit and settled glossary run
 
 Source audit `/tmp/m28-benchmark-comparability-audit.md` establishes that the
 actual before and planned ordinary-plugin after have unequal total workloads.
@@ -268,7 +269,7 @@ nine-key test `44774579` are committed; runtime integration and rerun evidence
 remain pending. These source commits do not prove repair or acceptance.
 
 
-## Nested partition rerun evidence
+### Nested partition rerun evidence
 
 The coordinator reports partition run seven green: all five cases / 44 assertions
 in 207.69 seconds, `/tmp/m28-partitions-seventh.log`. This run exercises the
@@ -285,7 +286,7 @@ remain pending. Nested partition success is not a claim that those pending
 validations passed, nor a controlled performance comparison.
 
 
-## Glossary five diagnostic outcome
+### Glossary five diagnostic outcome
 
 The fifth glossary run was cancelled and settled at exit -15 after its first
 case failed at 210.5 seconds. It was not a completed six-failure run. Real-data
@@ -299,7 +300,7 @@ latest-value fallback. Runtime/graph implementation and rerun evidence remain
 pending. No successful after timing or acceptance result is available.
 
 
-## Snapshot read validation and glossary six diagnostic
+### Snapshot read validation and glossary six diagnostic
 
 The coordinator reports pure snapshot tests green: 29 cases / 88 assertions in
 7.43 seconds, `/tmp/m28-pure-snapshots-third.log`. Root check ten passed all six
@@ -319,7 +320,7 @@ A focused named-earlier regression is next before another full glossary run.
 No successful after timing, whole-suite green or acceptance is established.
 
 
-## Immutable enumeration PostgreSQL validation
+### Immutable enumeration PostgreSQL validation
 
 The focused immutable enumeration regression passed: one case / 14 assertions
 in 31.85 seconds, `/tmp/m28-partitions-eighth-snapshot.log`. This validates
@@ -333,7 +334,7 @@ held stable during the run. Its result, successful after timing and acceptance
 remain pending. No child checks or PostgreSQL commands were used for this record.
 
 
-## Focused glossary and optional-argument transport results
+### Focused glossary and optional-argument transport results
 
 Glossary seven's focused first case passed after `fde5dcd7`: one pass / one
 assertion, five filtered, 290.07 seconds overall and 280.72 seconds for the case,
@@ -351,7 +352,7 @@ planned, not completed evidence. No acceptance or controlled speed comparison
 is established by these focused passes.
 
 
-## Full glossary eight result and fresh after timing in progress
+### Full glossary eight result and fresh after timing in progress
 
 The coordinator reports full glossary eight settled at one pass, six failures
 and one error. The second case hit the unchanged 300-second timeout; later
@@ -369,7 +370,7 @@ The unequal-total-workload comparison caveat remains mandatory. Whole-suite
 green, successful after timing and acceptance remain pending.
 
 
-## Successful ordinary-plugin after integration timing
+### Successful ordinary-plugin after integration timing
 
 The coordinator reports a successful completed after run at
 `/tmp/m28-after-second-valid/after.json`: 298543.051 ms (298.543051 seconds),
@@ -396,7 +397,7 @@ hold is released with no PostgreSQL run active; implementation and validation
 of these optimizations remain pending. Whole-suite green remains unresolved.
 
 
-## Graph validation and committed read optimizations
+### Graph validation and committed read optimizations
 
 The coordinator reports remaining focused graph coverage green: 16 cases /
 130 assertions in 27.61 seconds, `/tmp/m28-graph-fourth-focused.log`. Coverage
@@ -416,7 +417,7 @@ new commits; a fresh after run is needed to measure their actual effect. The
 unequal-total-workload caveat and unresolved whole-suite acceptance remain.
 
 
-## Delivery evidence and remaining gaps — source 4d482a87
+### Delivery evidence and remaining gaps — source 4d482a87
 
 The final focused glossary run is green: two passes, four filtered, zero failures,
 18 assertions in 372.11 seconds (`/tmp/m28-glossary-eleventh-first-two.log`).

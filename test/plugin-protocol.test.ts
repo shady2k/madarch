@@ -21,7 +21,7 @@ import { bundledClosureHashes } from '../src/plugin/bundled.js';
 import { seccompFilter, refusedCallNames } from '../src/plugin/seccomp.js';
 import { checkCgroupDelegation, checkUserNamespaces } from '../src/plugin/cgroup.js';
 import { probeUnit } from '../src/plugin/conformance.js';
-import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, progressOf, requestText, successText } from '../src/plugin/wire.js';
+import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, progressOf, protocolMessageProblem, requestText, successText } from '../src/plugin/wire.js';
 import { byCodePoint } from '../src/model/order.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
@@ -56,6 +56,16 @@ function answer(overrides: Record<string, unknown> = {}): Parameters<typeof vali
     ...overrides,
   } as Parameters<typeof validateUnitResult>[1];
 }
+
+test('a malformed known graph method names its own field instead of another method constant', () => {
+  const message = { jsonrpc: '2.0', id: 'read-1', method: 'graph.value', params: { kind: 'code.file', key: { repository: 'source', path: 'private-path.ts' }, field: 42 } };
+  expect(Value.Check(PluginProtocolMessage, message)).toBe(false);
+  const problem = protocolMessageProblem(message);
+  expect(problem).toContain('graph.value: params/field');
+  expect(problem).not.toContain('constant');
+  expect(problem).not.toContain('private-path.ts');
+  expect(protocolMessageProblem({ ...message, params: { ...message.params, field: 'content' } })).toBeUndefined();
+});
 
 describe('the graph reads a contract declares', () => {
   test('a graph right with no named reads is files and value, and a named read is what the contract grants', () => {

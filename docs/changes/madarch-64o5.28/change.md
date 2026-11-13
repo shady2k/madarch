@@ -118,7 +118,7 @@ revision, an all-green result, or a process-approval receipt.
 - Implementation evidence and tracker check receipts are recorded separately by the coordinator after the final source revision. This observation is not a receipt for the full required checks.
 
 
-## Main integration merge and glossary profiling (2026-11-12)
+### Main integration merge and glossary profiling (2026-11-12)
 
 The architecture reference was corrected before merging: repository facts now come from the declared ordinary disk and git plugins, not the deleted native repository-facts stage. Main `9bdeee93` was merged with a no-fast-forward merge, retaining its wiki kind pages, section graphs and fill-page presentation. The declaration-driven ordinary-plugin contract remains authoritative for fill semantics. Earlier partial-native observations above are historical, not the current implementation.
 
@@ -139,7 +139,7 @@ Final-source focused validation: all six glossary cases pass (28 assertions, 761
 The final root and wiki checks pass; the root reports the same 18 listed SQL-layer architecture findings with no allowlist change. The seconds-level whole-fixture performance target remains unmet: passing the unchanged 300-second per-case bounds is not a performance acceptance claim. These source-level repairs are delivered with that residual explicitly unresolved. The old native 10.444655832-second measurement used a different product inventory and is not a controlled ratio against this fixture. No full suite or CI acceptance is claimed. Bundle prerequisite is the freshly fetched `origin/fix/madarch-64o5.30-28` at `6d19ce48f541f0f762f3d4b720c1be18a531fa70`.
 
 
-## PR #280 functional CI follow-up (2026-11-12)
+### PR #280 functional CI follow-up (2026-11-12)
 
 This follow-up is based on pushed commit `db44aae4`; it does not rewrite that history. Agent capability is not participation: wildcard gap availability does not schedule an agent. Explicitly configured agent invocations still require an available adapter before admission. Selected kinds with no configured producer receive durable per-kind `kind-abstained` events. Their missing prerequisites are not marked successful. A manifest without plugins still plans that ordinary stage and can complete with no invocations.
 
@@ -157,7 +157,7 @@ Later focused reruns passed both agent integration files, the two-phase schema i
 
 The retained ordinary disk profile keeps the complete seeded product, real closure inventory and five linked source files: first fill 61.379 seconds, changed-file fill 48.175 seconds. Changed-fill spans include 5481 SQL statements and 2288 transaction spans; their overlapping duration sums are not wall time. This is diagnostic evidence, not performance acceptance. The seconds-level goal remains unmet. Invocation-local immutable snapshot capture deduplication preserves every field binding and durable read/event record; it adds no cross-invocation cache.
 
-## Main integration: #295 and #296
+### Main integration: #295 and #296
 
 Merged `origin/main` at `14d70d12` into the PR checkpoint `97fd9bf2` with a real two-parent merge. Main's split `madarch/catalog.yaml` and per-kind `madarch/kinds/<area>/<subgroup>/<kind>.yaml` layout, roles, purposes, facts, manifest cache, run page and Fill button are retained. Declaration-owned fields, natural keys and `derives-from` are in the repository `catalog/` kind YAML files, copied into products unchanged. The union restores `code.gitlink`: 520 kinds and 75 page/member kinds. No native repository stage or graph publication fallback was restored.
 
@@ -187,7 +187,7 @@ Initial serialized local glossary-path validation passed all six cases (28 asser
 
 ### CI7e repair checkpoint validation
 
-# PR280 CI repair delivery
+### PR280 CI repair delivery
 
 Base: 7e98edd0650dd1b3a3b36e0458d0228d2fcf9424. All repair commits carry Task: madarch-64o5.28.
 

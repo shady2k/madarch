@@ -25,11 +25,11 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
-import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
+import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, protocolMessageProblem, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
 
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/host.ts';
@@ -429,8 +429,8 @@ ${text === '' ? '(empty)' : text}` };
       this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a line that is not JSON (${String(said)}): its messages are JSON-RPC over newline delimited JSON` });
       return;
     }
-    const first = [...Value.Errors(PluginProtocolMessage, value)][0];
-    if (first !== undefined) {
+    const problem = protocolMessageProblem(value);
+    if (problem !== undefined) {
       // A message the protocol does not hold is recorded before it is refused, under the method it named: a malformed
       // graph request stands in the journal with its class, not only a well-formed refusal (codex, stage 2 review, 5).
       const named = typeof value === 'object' && value !== null && typeof (value as { method?: unknown }).method === 'string' ? (value as { method: string }).method : '';
@@ -438,7 +438,7 @@ ${text === '' ? '(empty)' : text}` };
         const slot = this.options.requests?.begin(named);
         this.options.requests?.settle(slot, 'refused', 0, 'malformed-message');
       }
-      this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a message the protocol does not hold: ${first.instancePath === '' ? 'the message' : first.instancePath.slice(1)} ${first.message}` });
+      this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a message the protocol does not hold: ${problem}` });
       return;
     }
     if (isRequest(value)) {
