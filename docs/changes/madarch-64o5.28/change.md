@@ -253,3 +253,11 @@ Remaining causes: knowledge-server fill deadlines then dependent404/socket clean
 Root bun run check passed on final code: existing17 SQL-layer findings, no waiver, catalogue520 kinds/75 page kinds. Native Linux release build failed own-wiki first-run smoke because own-wiki.lock pins da8570d28369a5603613e1aadd23cb29cc8cf307 whose external product kinds still use depends-on and plugins lack produces. Did not rewrite embedded upstream product or bypass smoke; needs source migration and reviewed upstream pin. /tmp/m28-ci97-build-retry.log and tool-review report contain evidence.
 
 Sandbox-off integration results do not establish enforced-sandbox acceptance. Performance target remains unmet. All started commands/workers settled before delivery; targeted queue was resumed after kernel shutdown, not falsely reported complete at interruption. New bundle is a repair checkpoint with explicitly remaining failures, not CI-green acceptance.
+
+### Owner decision: system Git (2026-11-13)
+
+The owner requires the installed system Git, approved by its resolved executable path and a minimum supported version, not an exact executable digest. The ordinary disk and git plugins must use that approved executable only. There is no bundled Git, pinned package download, extraction, cache, alias or fallback. Resolution and version approval follow the same code path on Linux, macOS and Windows. Other declared tools keep their existing byte approval requirements.
+
+A missing or unsupported Git must name the executable/version found and the version required. Its affected producer kinds receive explicit durable per-kind outcomes. Unrelated producers still run; a Git failure is not a whole-fill preflight refusal. Existing immutable repository snapshots, declared graph/file reads and writes, sandbox isolation and publication rules remain unchanged.
+
+Disk declares Git 2.40 for `check-attr --source`; history declares Git 2.31 for `log --diff-merges=first-parent`. These are the minimums required by their actual commands, not an arbitrary installed version. Validation evidence is recorded in the delivery report; this decision does not claim that the deferred reset/repeat-fill performance defect is repaired.

@@ -43,6 +43,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { producerSucceeded } from './producer-outcomes.js';
+import { ClosureRefusal } from '../plugin/closure-refusal.js';
 import { readProducerOutcomes, readProducerOutcomesIn } from '../graph/producer-outcomes.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
@@ -1722,7 +1723,9 @@ async function attemptUnitPhases(
       return answered;
     });
   } catch (error) {
-    raised = error as Error;
+    if (error instanceof ClosureRefusal && error.code === 'plugin-tool') {
+      result = { outcome: 'blocked', reason: error.message };
+    } else raised = error as Error;
   } finally {
     await executionReader.close();
     tools?.close();

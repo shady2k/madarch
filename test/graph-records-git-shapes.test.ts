@@ -16,7 +16,6 @@ import { readRepositoryTree, type RepositoryAt } from '../plugins/disk/reader.js
 import { readRepositoryHistory } from '../plugins/git/reader.js';
 import { readPluginManifest } from '../src/plugin/closure.js';
 import { snapshotTools } from '../src/plugin/tools.js';
-import { releaseTools } from '../src/plugin/release-tools.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-git-shapes-'));
 const IDENTITY = {
@@ -30,10 +29,10 @@ const priorGitTool = process.env['MADARCH_TOOL_GIT'];
 beforeAll(() => {
   const disk = readPluginManifest(join(import.meta.dir, '..', 'plugins', 'disk'));
   const history = readPluginManifest(join(import.meta.dir, '..', 'plugins', 'git'));
-  expect(history.tools).toEqual(disk.tools);
-  const tools = snapshotTools(disk.tools, releaseTools(), ROOT);
+  expect(history.tools).toEqual([{ name: 'git', source: 'system', minimumVersion: '2.31' }]);
+  const tools = snapshotTools(disk.tools, {}, ROOT);
   const git = tools.find((tool) => tool.name === 'git');
-  if (git === undefined) throw new Error('the repository readers declare no pinned git tool');
+  if (git === undefined) throw new Error('the repository readers declare no system git tool');
   process.env['MADARCH_TOOL_GIT'] = git.executable;
 });
 

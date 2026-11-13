@@ -15,7 +15,6 @@
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import { snapshotTools, type TrustedTool } from './tools.js';
-import { releaseTools } from './release-tools.js';
 import { snapshotFilesystemInputs } from './filesystem-inputs.js';
 import { PluginAgentBridge, type PluginAgentOptions, type PluginAgentReport } from './agent.js';
 import { join } from 'node:path';
@@ -343,7 +342,7 @@ export class PluginHost {
     // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
     // the files producer alone reads the source tree (decision 0035, item 9).
     const readsRepository = this.contractRights?.filesystem === true;
-    const tools = snapshotTools(closure.manifest.tools, this.options.tools ?? releaseTools(platform), workFolder);
+    const tools = snapshotTools(closure.manifest.tools, this.options.tools ?? {}, workFolder, this.options.env ?? process.env);
     if ((this.options.filesystemInputs?.length ?? 0) > 0 && !readsRepository) throw new ClosureRefusal('plugin-filesystem', `${WHERE}:1: filesystem inputs require the declared filesystem right`, WHERE);
     const spec: SandboxSpec = {
       closureFolder: snapshot.folder,

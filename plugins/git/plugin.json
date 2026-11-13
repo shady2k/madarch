@@ -9,7 +9,8 @@
   "tools": [
     {
       "name": "git",
-      "sha256": "eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201"
+      "source": "system",
+      "minimumVersion": "2.31"
     }
   ],
   "produces": [

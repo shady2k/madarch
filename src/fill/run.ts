@@ -17,7 +17,6 @@ import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import { fillSteps } from './steps.js';
-import { assertFillGitVersion } from './git-version.js';
 import { createRunRepositoryInputs } from '../plugin/repository-input.js';
 
 import type { StageRegistry } from './registry.js';
@@ -120,9 +119,6 @@ function narrowed(wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring']
  * the caller's to report: this function never turns a failure into a smaller success.
  */
 export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
-  // The fill reads git, and the passes use options older versions do not have: a machine's git is named here, before
-  // the run stands up, so an older one is refused with the version found and the one needed (item 6).
-  assertFillGitVersion();
   const product = resolve(options.product);
   if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${resolve(product, 'madarch/catalog.yaml')}:1: token cap must be a positive integer`);
   const runId = options.runId ?? `fill-${String(Date.now())}`;

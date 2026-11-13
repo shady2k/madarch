@@ -1,7 +1,7 @@
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
@@ -20,7 +20,7 @@ import { generatedTableName } from '../src/graph/contract.js';
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
 const field = (name: string) => ({ name, type: 'text', meaning: name, example: name, required: true });
-type Mode = 'files' | 'multi' | 'unselected-write' | 'undeclared-read';
+type Mode = 'files' | 'multi' | 'unselected-write' | 'undeclared-read' | 'system-git';
 
 /** Authored source records are captured into a locked ordinary source plugin, never a native Git stage. */
 function fixture(mode: Mode) {
@@ -38,17 +38,29 @@ function fixture(mode: Mode) {
   const home = join(root, 'home'); mkdirSync(home);
   const product = makeProduct(home, 'scenarios', repo, 'repo'); seedStarterSet(product);
   const plugin = join(product, 'plugins/scenarios'); mkdirSync(plugin, { recursive: true });
-  const entries = mode === 'multi' || mode === 'undeclared-read'
+  const entries = mode === 'system-git'
+    ? [['X', [], ['id', 'text']], ['Y', [], ['id', 'text']], ['Healthy', [], ['id', 'text']]] as const
+    : mode === 'multi' || mode === 'undeclared-read'
     ? [['X', [], ['id', 'text']], ['Y', [], ['id', 'text']], ['A', ['X'], ['id', 'text']], ['B', ['Y'], ['id', 'text']]] as const
     : [['Files', [], ['path', 'content', 'description']], ['Summary', ['Files'], ['id', 'text']]] as const;
   const contract = { vertices: entries.map(([kind, , fields]) => ({ kind, key: [fields[0]], fields: fields.map(field) })), edges: [] };
-  const produces = entries.map(([kind, reads]) => ({ kind, fields: '*', reads }));
-  writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'scenarios', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces }));
-  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: contract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
+  const produces = entries.filter(([kind]) => mode !== 'system-git' || kind !== 'Healthy').map(([kind, reads]) => ({ kind, fields: '*', reads }));
+  writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'scenarios', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces, ...(mode === 'system-git' ? { tools: [{ name: 'git', source: 'system', minimumVersion: '2.31' }] } : {}) }));
+  const scenarioContract = mode === 'system-git' ? { vertices: contract.vertices.filter(vertex => vertex.kind !== 'Healthy'), edges: [] } : contract;
+  writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: scenarioContract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
   writeFileSync(join(plugin, 'main.js'), readFileSync(new URL('./fixtures/plugin-declaration-scenarios/main.js', import.meta.url), 'utf8'));
-  writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(contract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files)};\n`);
+  writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(scenarioContract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files)};\n`);
   const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { template: 'templates/item-plain.liquid', source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
   const plugins = [{ id: 'scenarios', version: 1, path: 'plugins/scenarios', inputs: [...new Set(entries.flatMap(([, reads]) => [...reads]))], outputs: entries.map(([kind]) => kind), closure: ['plugins/scenarios/plugin.json', 'plugins/scenarios/contract.json', 'plugins/scenarios/main.js', 'plugins/scenarios/scenario.js'] }];
+  if (mode === 'system-git') {
+    const healthy = join(product, 'plugins/healthy'); mkdirSync(healthy, { recursive: true });
+    const outputs = { vertices: contract.vertices.filter(vertex => vertex.kind === 'Healthy'), edges: [] };
+    writeFileSync(join(healthy, 'plugin.json'), JSON.stringify({ name: 'healthy', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'Healthy', fields: '*', reads: [] }] }));
+    writeFileSync(join(healthy, 'contract.json'), JSON.stringify({ id: 'healthy', version: '1.0.0', outputs, rights: { network: 'none' } }));
+    writeFileSync(join(healthy, 'main.js'), `import { definePlugin } from 'madarch-plugin-sdk'; await definePlugin({ name: 'healthy', version: '1.0.0', contract: ${JSON.stringify(outputs)}, async extract() { return { vertices: [{ kind: 'Healthy', key: { id: 'independent' }, values: { text: 'still filled' } }], end: { state: 'complete' } }; } });`);
+    plugins[0]!.outputs = ['X', 'Y'];
+    plugins.push({ id: 'healthy', version: 1, path: 'plugins/healthy', inputs: [], outputs: ['Healthy'], closure: ['plugins/healthy/plugin.json', 'plugins/healthy/contract.json', 'plugins/healthy/main.js'] });
+  }
   if (mode === 'files') plugins.push({ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: [], outputs: [], closure: ['plugins/agent-fill/plugin.json', 'plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/prompt.md'] });
   writeFolderManifest(product, stringify({ language: 'en', kinds, plugins }));
   const releases = plugins.map(({ id, path }) => ({ id, path, version: '1.0.0', closure: closureOf(join(product, path)).hash }));
@@ -60,8 +72,8 @@ function fixture(mode: Mode) {
 async function open(f: ReturnType<typeof fixture>) {
   const owner = await createTestDatabaseOwner({ btreeGist: true });
   await prepareStore(owner, { contract: await readPinnedGraphContract(f.product) });
-  const run = async (target: string, runId: string) => await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: f.releaseHashes,
-    steps: ['plugin-turns'], targets: { kinds: [target] }, runId,
+  const run = async (target: string | readonly string[], runId: string) => await runFill({ product: f.product, database: owner, home: f.home, releaseHashes: f.releaseHashes,
+    steps: ['plugin-turns'], targets: { kinds: typeof target === 'string' ? [target] : target }, runId,
     prepareContract: async contract => { await prepareStore(owner, { contract }); } });
   const rows = async (kind: string) => (await owner.transaction('snapshot', async tx => await tx.query<Record<string, unknown>>(`SELECT o.*, n.key->>'path' AS path FROM ${generatedTableName(kind, 'vertex')} o JOIN node n ON n.id=o.node_id WHERE o.state='open' ORDER BY n.key->>'path' COLLATE "C"`))).rows;
   return { owner, run, rows };
@@ -120,4 +132,46 @@ test.each(['unselected-write', 'undeclared-read'] as const)('real plugin %s fail
     else { expect(await rows('Y')).toEqual([]); expect(await rows('X')).toHaveLength(1); }
     expect(await readProducerOutcomes(owner, { runId: mode })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: target, outcome: 'failed' })]));
   } finally { await owner.close(); }
+}, 300_000);
+
+/** Product metadata still uses real Git; only the producer's system-tool probe is unavailable/old. */
+test.each(['unavailable', 'old'] as const)('system Git %s fails each Git output durably while an unrelated producer publishes', async mode => {
+  const f = fixture('system-git');
+  const { owner, run, rows } = await open(f);
+  const previousPath = process.env.PATH;
+  const realGit = Bun.which('git');
+  if (realGit === null) throw new Error('fixture setup requires Git');
+  const bin = join(f.home, 'git-probe'); mkdirSync(bin);
+  const executable = join(bin, 'git');
+  writeFileSync(executable, `#!/bin/sh\nif [ "$1" = "--version" ]; then\n${mode === 'old' ? 'echo "git version 2.30.5"' : 'echo "git unavailable for producer" >&2; exit 127'}\nelse\nexec ${JSON.stringify(realGit)} "$@"\nfi\n`);
+  chmodSync(executable, 0o755);
+  process.env.PATH = `${bin}:${previousPath ?? ''}`;
+  try {
+    const runId = `system-git-${mode}`;
+    const result = await run(['X', 'Y', 'Healthy'], runId);
+    expect(result.ok).toBe(true); if (!result.ok) throw new Error(JSON.stringify(result));
+    expect(result.state).not.toBe('succeeded');
+    for (const kind of ['X', 'Y']) {
+      expect(result.units.find(unit => unit.unitId === `plugin-turns/scenarios:${kind}`)?.state).toBe('blocked');
+    }
+    expect(await rows('X')).toEqual([]); expect(await rows('Y')).toEqual([]);
+    expect(await rows('Healthy')).toEqual([expect.objectContaining({ text: 'still filled' })]);
+    const retried = await owner.transaction('snapshot', async tx => await tx.query(`SELECT unit_id FROM fill_event WHERE run_id=$1 AND kind='unit-retried'`, [runId]));
+    expect(retried.rows).toEqual([]);
+    const outcomes = await readProducerOutcomes(owner, { runId });
+    expect(outcomes).toHaveLength(3);
+    for (const kind of ['X', 'Y']) {
+      const failed = outcomes.filter(outcome => outcome.kind === kind);
+      expect(failed).toEqual([expect.objectContaining({ plugin: 'scenarios', outcome: 'failed', produced: 0 })]);
+      expect(failed[0]!.reason).toContain('system Git found');
+      expect(failed[0]!.reason).toContain('Git 2.31 or newer');
+      expect(failed[0]!.reason).toContain(mode === 'old' ? '2.30.5' : 'could not run --version');
+    }
+    expect(outcomes.find(outcome => outcome.kind === 'Healthy')).toMatchObject({ plugin: 'healthy', outcome: 'completed', produced: 1 });
+    // Read completion metadata again in a separate committed transaction: failures are not private drafts.
+    expect(await readProducerOutcomes(owner, { runId })).toEqual(outcomes);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    await owner.close();
+  }
 }, 300_000);

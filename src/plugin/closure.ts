@@ -61,10 +61,17 @@ export const PluginManifest = Type.Object(
       coverage: Type.Optional(Type.Literal('gaps')),
       partition: Type.Optional(Type.Literal('key')),
     }, { additionalProperties: false }), { minItems: 1 }),
-    tools: Type.Optional(Type.Array(Type.Object({
-      name: Type.String({ pattern: '^[a-z][a-z0-9-]*$' }),
-      sha256: Type.String({ pattern: '^[a-f0-9]{64}$' }),
-    }, { additionalProperties: false }))),
+    tools: Type.Optional(Type.Array(Type.Union([
+      Type.Object({
+        name: Type.String({ pattern: '^[a-z][a-z0-9-]*$' }),
+        sha256: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+      }, { additionalProperties: false }),
+      Type.Object({
+        name: Type.Literal('git'),
+        source: Type.Literal('system'),
+        minimumVersion: Type.String({ pattern: '^\\d+\\.\\d+(?:\\.\\d+)?$' }),
+      }, { additionalProperties: false }),
+    ]))),
     concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     description: Type.Optional(Type.String({ minLength: 1 })),
     agent: Type.Optional(Type.Object({

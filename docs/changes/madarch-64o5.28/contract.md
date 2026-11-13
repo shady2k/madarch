@@ -330,3 +330,7 @@ to CI. Detailed actual results, unresolved file/line observations and timing
 caveats are recorded in `../madarch-64o5.40/change.md`. Native before and valid
 pre-optimization ordinary after timings cover unequal total workloads and do
 not establish a controlled comparison or final-source speed result.
+
+### System Git decision (2026-11-13)
+
+The owner supersedes the historical exact Git executable digest above. The disk and git plugins use only system Git approved by resolved path and supported minimum version. No release Git payload, download, cache or fallback remains. Missing/old Git fails affected producer kinds explicitly without suppressing unrelated work. Other executable approvals, immutable snapshots and declared access/publication contracts remain unchanged.

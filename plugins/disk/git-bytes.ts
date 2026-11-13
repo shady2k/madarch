@@ -11,7 +11,7 @@ const GIT_ERROR_BYTES = 4_000;
  * answered; it never holds those bytes.
  */
 export async function gitStream(root: string, args: readonly string[], onChunk: (chunk: Uint8Array) => void, options: { readonly input?: string } = {}): Promise<number> {
-    const executable = process.env['MADARCH_TOOL_GIT'] ?? raise('the declared pinned git tool is unavailable');
+    const executable = process.env['MADARCH_TOOL_GIT'] ?? raise('the declared system git tool is unavailable');
     const process_ = (() => {
     try {
       return Bun.spawn([executable, ...args], {
