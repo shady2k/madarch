@@ -359,11 +359,6 @@ export function annotateSpan(attributes: SpanAttributes): void {
   for (const [key, value] of Object.entries(attributes)) span.setAttribute(key, value);
 }
 
-/** The number of bytes a value takes as JSON: a span records sizes, never the text itself. */
-export function bytesOf(value: unknown): number {
-  try { return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8'); } catch { return 0; }
-}
-
 /** The trace files a store holds, newest first. */
 export function traceFiles(store: string): { file: string; runId: string; modifiedAt: number }[] {
   const folder = join(store, 'traces');

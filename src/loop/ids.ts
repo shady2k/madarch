@@ -10,7 +10,6 @@
  * A question id as the wiki reads it back: an old lower-case name from a file
  * written before content hashes, or a content hash and its collision suffix.
  */
-export const QUESTION_SLUG = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)*|[0-9a-f]{12}(?:-[0-9]+)?)$/;
 
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';

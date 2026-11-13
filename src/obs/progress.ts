@@ -107,17 +107,6 @@ export function readFillProgress(file: string, reader?: TraceSpanReader): FillPr
   return fillProgressOf(reader === undefined ? readTraceSpans(file) : reader.read(file));
 }
 
-/**
- * The progress of the newest trace in a store: a store a fill is writing into holds the run's trace
- * from its start, so a reader between two spans still sees what the run has done. A server that
- * serves the same store opens its own trace beside the fill's; the fill's is the newest while it
- * runs, which is the only moment this answer is read.
- */
-export function readLatestFillProgress(store: string): FillProgress {
-  const files = traceFiles(store);
-  return files.length === 0 ? NOTHING : readFillProgress(files[0]!.file);
-}
-
 /** No run has written a span yet: what a reader sees before the first one is written. */
 const NOTHING: FillProgress = { spans: 0, planned: 0, published: 0, failed: 0, blocked: 0, stages: {}, last: null, pass: null };
 

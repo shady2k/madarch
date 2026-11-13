@@ -102,7 +102,6 @@ document.addEventListener('click', function (event) {
 }, true);
 `;
 
-const escapeHtml = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 
 // ---- archify -------------------------------------------------------------------------------------------
@@ -384,9 +383,3 @@ export async function archifyFrame(view: GraphView, _env: Readonly<Record<string
   }
 }
 
-/** A failed iframe is still an HTTP failure, with a safe diagnostic and an explicit fallback message. */
-export function archifyFailurePage(lang: string | undefined, message: string): string {
-  const sentence = lang === 'ru' ? 'Эту диаграмму не удалось нарисовать в archify. Выберите другой рендерер.' : 'This diagram could not be drawn by archify. Choose another renderer.';
-  const data = JSON.stringify({ madarch: 'failed', renderer: 'archify', message }).replaceAll('<', '\\u003c');
-  return `<!DOCTYPE html><html lang="${lang === 'ru' ? 'ru' : 'en'}"><head><meta charset="utf-8"><title>archify</title></head><body data-frame-error="archify"><p>${sentence}</p><pre>${escapeHtml(message)}</pre><script>parent.postMessage(${data}, '*');</script></body></html>`;
-}

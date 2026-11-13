@@ -66,14 +66,14 @@ describe('startup manifest publication', () => {
     const folder = '/tmp/publication-failed';
     const { part, reads } = fixture(folder);
     setManifestPublicationState(folder, { status: 'failed', message: 'database unavailable' });
-    const failure = await part.catalog(new Request('http://localhost/api/catalog'));
+    const failure = await part.run(new Request('http://localhost/api/run'));
     expect(failure.response.status).toBe(503);
     expect(failure.response.headers.get('retry-after')).toBeNull();
     expect(await failure.response.json()).toEqual({ publication: 'failed', message: expect.stringContaining('database unavailable') });
     expect(reads()).toBe(0);
     setManifestPublicationState(folder, { status: 'published' });
     expect(manifestPublicationReady(folder)).toBe(true);
-    await part.catalog(new Request('http://localhost/api/catalog'));
+    await part.run(new Request('http://localhost/api/run'));
     expect(reads()).toBe(1);
   });
 });

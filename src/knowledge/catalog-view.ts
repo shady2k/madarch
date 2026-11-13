@@ -16,15 +16,7 @@ import type { CatalogEntry } from './catalog.js';
 import { kindNumbers } from './kind-numbers.js';
 import { fillRequirementsOf } from './fill-requirements.js';
 import type { KindDecl, KindsManifest } from '../product/manifest/kinds.js';
-import type { CatalogKindView, CatalogSummaryView, CatalogView, WikiStatus } from './model.js';
-
-/** The list carries navigation and fill metadata; declaration details are read only when a kind is opened. */
-export function catalogSummary(view: CatalogView): CatalogSummaryView {
-  return { ...view, kinds: view.kinds.map(({ fields, relations, sources, pluginFolders, declaration, filled, ...kind }) => ({
-    ...kind,
-    ...(sources === undefined || sources.length === 0 ? {} : { sourcesAvailable: true }),
-  })) };
-}
+import type { CatalogKindView, WikiStatus } from './model.js';
 
 /** The groups of the navigation and the catalogue, in the manifest's order, as the app reads them. */
 export function groupViews(manifest: KindsManifest): WikiStatus['groups'] {

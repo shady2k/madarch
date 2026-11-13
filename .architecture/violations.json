@@ -71,11 +71,6 @@
   },
   {
     "rule": "sql-only-in-storage-layer",
-    "file": "src/mcp/graph.ts",
-    "symbol": "src/adapters/database-owner.ts"
-  },
-  {
-    "rule": "sql-only-in-storage-layer",
     "file": "src/problems/index.ts",
     "symbol": "src/adapters/database-owner.ts"
   },

@@ -41,8 +41,7 @@ import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
-import { API, KIND_FILE_BASE, PAGE_FILE_BASE } from '../knowledge/addresses.js';
-import { kindFileAt, pageFileAt } from '../knowledge/page-files.js';
+import { API } from '../knowledge/addresses.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { MANIFEST_FILE, readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from '../product-wiki/manifestless.js';
@@ -329,8 +328,8 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (product === undefined ? [] : [{ name: product.name, folder: basename(product.folder) }]);
-  const knowledgeOf = (productFolder: string, own = false, prefix = ''): KnowledgePart =>
-    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames(), env as Record<string, string | undefined>, own, prefix);
+  const knowledgeOf = (productFolder: string, own = false): KnowledgePart =>
+    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames(), env as Record<string, string | undefined>, own);
   const handle = createHandler({
     env,
     sources,
@@ -404,7 +403,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
         own: item.own,
         product: opened.product,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, ...(obsTrace === undefined ? {} : { trace: obsTrace }), wiki: createWikiPart(makeJson, wikiRefused, knowledgeHost.of(item.folder).changes, appFolder), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own, `/products/${encodeURIComponent(name)}`) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, ...(obsTrace === undefined ? {} : { trace: obsTrace }), wiki: createWikiPart(makeJson, wikiRefused, knowledgeHost.of(item.folder).changes, appFolder), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own) }),
       });
     }
     productEntries.clear();
@@ -650,26 +649,8 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.product, handle: (request: Request) => dependencies.knowledge!.identity(request) },
         { method: 'GET', path: '/graphql/schema', handle: (request: Request) => dependencies.knowledge!.graphqlSchema(request) },
         { method: 'POST', path: '/graphql', handle: (request: Request) => dependencies.knowledge!.graphql(request) },
-        { method: 'GET', path: '/llms.txt', handle: (request: Request) => dependencies.knowledge!.llms(request) },
-        { method: 'GET', path: `${PAGE_FILE_BASE}<id>.md|.json`, match: (pathname) => pageFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.pageFile(request) },
-        { method: 'GET', path: `${KIND_FILE_BASE}<kind>.md|.json`, match: (pathname) => kindFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.kindFile(request) },
         { method: 'GET', path: API.status, handle: (request: Request) => dependencies.knowledge!.status(request) },
-        { method: 'GET', path: API.catalog, handle: (request: Request) => dependencies.knowledge!.catalog(request) },
-        { method: 'GET', path: API.search, handle: (request: Request) => dependencies.knowledge!.search(request) },
-        { method: 'GET', path: API.page, handle: (request: Request) => dependencies.knowledge!.page(request) },
-        { method: 'GET', path: API.block, handle: (request: Request) => dependencies.knowledge!.block(request) },
-        { method: 'GET', path: API.facts, handle: (request: Request) => dependencies.knowledge!.facts(request) },
-        { method: 'GET', path: API.statement, handle: (request: Request) => dependencies.knowledge!.statement(request) },
-        { method: 'GET', path: API.entities, handle: (request: Request) => dependencies.knowledge!.entities(request) },
         { method: 'GET', path: API.kindUsage, handle: (request: Request) => dependencies.knowledge!.kindUsage(request) },
-        { method: 'GET', path: API.authoredSchema, handle: (request: Request) => dependencies.knowledge!.authoredSchema(request) },
-        { method: 'GET', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
-        { method: 'POST', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
-        { method: 'PATCH', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
-        { method: 'DELETE', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
-        { method: 'GET', path: API.neighborhood, handle: (request: Request) => dependencies.knowledge!.neighborhood(request) },
-        { method: 'GET', path: API.view, handle: (request: Request) => dependencies.knowledge!.view(request) },
-        { method: 'GET', path: API.viewFrame, handle: (request: Request) => dependencies.knowledge!.viewFrame(request) },
         { method: 'GET', path: API.source, handle: (request: Request) => dependencies.knowledge!.source(request) },
         { method: 'GET', path: API.run, handle: (request: Request) => dependencies.knowledge!.run(request) },
         { method: 'GET', path: API.products, handle: (request: Request) => dependencies.knowledge!.products(request) },
@@ -680,24 +661,15 @@ export function createHandler(dependencies: {
         { method: 'POST', path: API.stop, handle: (request: Request) => dependencies.knowledge!.stop(request) },
         { method: 'GET', path: API.agents, handle: (request: Request) => dependencies.knowledge!.agents(request) },
         { method: 'POST', path: API.agent, handle: (request: Request) => dependencies.knowledge!.chooseAgent(request) },
-        { method: 'GET', path: API.documents, handle: (request: Request) => dependencies.knowledge!.documents(request) },
-        { method: 'GET', path: API.document, handle: (request: Request) => dependencies.knowledge!.document(request) },
-        { method: 'GET', path: API.glossary, handle: (request: Request) => dependencies.knowledge!.glossary(request) },
         { method: 'GET', path: API.settings, handle: (request: Request) => dependencies.knowledge!.settings(request) },
         { method: 'POST', path: API.settings, handle: (request: Request) => dependencies.knowledge!.settings(request) },
-        { method: 'GET', path: API.questions, handle: (request: Request) => dependencies.knowledge!.questions(request) },
-        { method: 'GET', path: API.question, handle: (request: Request) => dependencies.knowledge!.question(request) },
         { method: 'POST', path: API.answer, handle: (request: Request) => dependencies.knowledge!.answer(request) },
         { method: 'POST', path: API.correction, handle: (request: Request) => dependencies.knowledge!.correction(request) },
-        { method: 'GET', path: API.problems, handle: (request: Request) => dependencies.knowledge!.problems(request) },
         { method: 'POST', path: API.problemDismiss, handle: (request: Request) => dependencies.knowledge!.problemDismiss(request) },
         { method: 'POST', path: API.problemTask, handle: (request: Request) => dependencies.knowledge!.problemTask(request) },
         { method: 'GET', path: API.journal, handle: (request: Request) => dependencies.knowledge!.journal(request) },
         { method: 'GET', path: API.refreshPlan, handle: (request: Request) => dependencies.knowledge!.refreshPlan(request) },
-        { method: 'GET', path: API.tasks, handle: (request: Request) => dependencies.knowledge!.tasks(request) },
-        { method: 'GET', path: API.task, handle: (request: Request) => dependencies.knowledge!.task(request) },
         { method: 'POST', path: API.taskPropose, handle: (request: Request) => dependencies.knowledge!.proposeTask(request) },
-        { method: 'POST', path: API.taskImpact, handle: (request: Request) => dependencies.knowledge!.scopeImpact(request) },
         { method: 'POST', path: API.taskCreate, handle: (request: Request) => dependencies.knowledge!.createTask(request) },
         { method: 'POST', path: API.taskClose, handle: (request: Request) => dependencies.knowledge!.closeTask(request) },
         { method: 'POST', path: API.taskRun, handle: (request: Request) => dependencies.knowledge!.runTask(request) },

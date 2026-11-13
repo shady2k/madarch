@@ -16,7 +16,6 @@ import { publishValidatedManifests, validateProductManifests } from '../src/grap
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
-import { isRecordTool } from '../src/mcp/records.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -175,9 +174,6 @@ describe('the agent writes the graph', () => {
   });
   test('one product session serves the schema, the query and the writes', async () => {
     expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'put_entity', 'put_edge', 'retract']);
-    // The record surface no longer carries the graph read tools: there is one session.
-    expect(isRecordTool('graph_schema')).toBe(false);
-    expect(isRecordTool('graph_query')).toBe(false);
     const stub = {
       graphqlSchema: async () => 'scalar BigInt\ntype Query { bootstrap: String }',
       graphql: async (operation: { query: string }) => ({ status: 200, body: { data: { echoed: operation.query } } }),
