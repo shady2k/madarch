@@ -1,0 +1,32 @@
+id: practice.debt-marker
+purpose: quality
+audience: [developer, architect]
+definition: A TODO or FIXME a comment left in the code, which names a debt rather than being one.
+sources:
+- https://arc42.org/overview
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+details:
+- marker
+- text
+- path
+- line
+labels:
+  en:
+    one: Debt marker
+    many: Debt markers
+  ru:
+    one: Маркер долга
+    many: Маркеры долга
+description:
+  en: A TODO or FIXME a comment left in the code.
+  ru: TODO или FIXME, оставленный комментарием в коде.

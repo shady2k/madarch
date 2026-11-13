@@ -1,0 +1,28 @@
+id: practice.user-story
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
+definition: A short narrative of a need from one person's point of view, with the benefit it carries.
+sources:
+- https://glossary.istqb.org/en_US/term/user-story
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  - hasAcceptanceCriterion
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: User story
+    many: User stories
+  ru:
+    one: Пользовательская история
+    many: Пользовательские истории
+description:
+  en: A short narrative of a need from one person's point of view, with the benefit it carries.
+  ru: Короткий рассказ о потребности с точки зрения человека и о выгоде, которую она несёт.

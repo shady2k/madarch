@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
@@ -104,7 +105,7 @@ problems:
     removed-end: { predicate: findings, kind: removed-end, sonar: bug, severity: major, section: code, action: task, enabled: true, label: { en: Edge ends at a removed vertex, ru: Ребро ведёт к удалённой вершине } }
     unevidenced-opinion: { predicate: findings, kind: unevidenced-opinion, sonar: bug, severity: minor, section: code, action: task, enabled: true, label: { en: Opinion without evidence, ru: Утверждение без основания } }
 `;
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), manifest);
+  writeFolderManifest(folder, manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   return closure;
 }
@@ -191,7 +192,7 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
         FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node
         WHERE k.name = 'contains' AND n.key->>'path' = 'src/a.ts'`));
     expect(damaged.rows).toHaveLength(1);
-    for (const producer of ['git-tree', 'linguist']) {
+    for (const producer of ['git-tree', 'language-attribution']) {
       expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src/a.ts' }, producer }, 1))).toBe(true);
     }
     await owner.transaction('write', async (tx) => {

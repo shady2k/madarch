@@ -1,0 +1,27 @@
+id: practice.information-category
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: A class of information the product handles, which decides how it may be stored, shown and shared.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Information category
+    many: Information categories
+  ru:
+    one: Категория информации
+    many: Категории информации
+description:
+  en: A class of information the product handles, which decides how it may be stored, shown and shared.
+  ru: Класс информации, с которой работает продукт, определяющий, как её можно хранить, показывать и передавать.

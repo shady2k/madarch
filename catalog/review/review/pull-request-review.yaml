@@ -1,0 +1,27 @@
+id: practice.pull-request-review
+purpose: quality
+audience: [developer, tester]
+definition: The review one or more people gave a proposed change, with its comments and its verdict.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - reviews
+  in:
+  - reviews
+template-policy: none
+labels:
+  en:
+    one: Pull-request review
+    many: Pull-request reviews
+  ru:
+    one: Просмотр запроса на слияние
+    many: Просмотры запросов на слияние
+description:
+  en: The review one or more people gave a proposed change, with its comments and its verdict.
+  ru: Просмотр, который один или несколько человек дали предложенному изменению, с комментариями и вердиктом.

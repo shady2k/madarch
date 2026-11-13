@@ -1,0 +1,27 @@
+id: archimate.assessment
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: The organisation's judgement of a driver, a goal or another element, and the grounds it rests on.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Assessment
+    many: Assessments
+  ru:
+    one: Оценка
+    many: Оценки
+description:
+  en: The organisation's judgement of a driver, a goal or another element, and the grounds it rests on.
+  ru: Суждение организации о движущей силе, цели или другом элементе и основания, на которых оно держится.

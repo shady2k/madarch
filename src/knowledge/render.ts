@@ -324,6 +324,8 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
       kind: row.kind,
       source: decl?.source ?? 'graph',
       single: decl?.file !== undefined,
+      ...(decl?.purpose === undefined ? {} : { purpose: decl.purpose }),
+      ...(decl?.audience === undefined ? {} : { audience: decl.audience }),
       page: row.page,
       ...(decl?.listing === undefined ? {} : { listing: decl.listing }),
       ...(decl?.nav === undefined ? {} : { nav: decl.nav }),

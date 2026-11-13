@@ -1,0 +1,27 @@
+id: practice.process-step
+purpose: operations
+audience: [analyst, platform-devops, operations]
+definition: One step of a business process; whether it is done by hand, automated or by an agent is an attribute.
+sources:
+- https://www.omg.org/spec/BPMN/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Process step
+    many: Process steps
+  ru:
+    one: Шаг процесса
+    many: Шаги процесса
+description:
+  en: One step of a business process; whether it is done by hand, automated or by an agent is an attribute.
+  ru: Один шаг бизнес-процесса; выполняется ли он вручную, автоматически или агентом — это атрибут.

@@ -1,0 +1,27 @@
+id: practice.budget
+purpose: operations
+audience: [product-lead, operations, platform-devops]
+definition: A limit on what a product or a team may spend in a period, with who is warned when it nears.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Budget
+    many: Budgets
+  ru:
+    one: Бюджет
+    many: Бюджеты
+description:
+  en: A limit on what a product or a team may spend in a period, with who is warned when it nears.
+  ru: Предел трат продукта или команды за период и те, кого предупреждают о приближении к нему.

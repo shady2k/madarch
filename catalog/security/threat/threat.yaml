@@ -1,0 +1,27 @@
+id: stride.threat
+purpose: quality
+audience: [security-engineer, architect]
+definition: A way an attacker could harm the product, placed in one STRIDE category.
+sources:
+- https://community.owasp.org/Threat_Modeling
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - threatens
+template-policy: none
+labels:
+  en:
+    one: Threat
+    many: Threats
+  ru:
+    one: Угроза
+    many: Угрозы
+description:
+  en: A way an attacker could harm the product, placed in one STRIDE category.
+  ru: Способ, которым атакующий может навредить продукту, отнесённый к одной категории STRIDE.

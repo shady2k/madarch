@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { parseKinds } from '../src/product/manifest/kinds.js';
+import { starterManifestText } from './catalog-folder-fixture.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const SMALL = [
@@ -70,7 +71,7 @@ function withRoles(roles: readonly string[]): string {
 
 /** The findings of a manifest: the line and the words of each. */
 function findings(manifest: string): string[] {
-  const read = parseKinds(manifest, 'madarch/kinds.yaml', TEMPLATES);
+  const read = parseKinds(manifest, 'madarch/catalog.yaml', TEMPLATES);
   return read.findings.map((finding) => `${finding.line}: ${finding.message}`);
 }
 
@@ -114,17 +115,17 @@ describe('the roles are the product\'s own, and the POV covers the catalog', () 
     expect(findings(withRoles(['  product: { lead: [area], mood: yes }']))).toEqual([expect.stringContaining('role "product": "mood" is not a field of a role: the fields are "open" and "lead"')] as unknown as string[]);
     // The finding stands at the line of the role, or of the field it is about, never at the block's top.
     const planted = withRoles(['  product: { lead: [nowhere] }', '  designer: { lead: [area] }']);
-    const read = parseKinds(planted, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(planted, 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings.map((finding) => finding.line)).toEqual([planted.split('\n').findIndex((one) => one.startsWith('  product:')) + 1]);
   });
 
   test('a role is left out when its declaration has a problem, and the rest of the roles stand', () => {
-    const read = parseKinds(withRoles(['  product: { open: [nothing], lead: [area] }', '  designer: { lead: [area] }']), 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(withRoles(['  product: { open: [nothing], lead: [area] }', '  designer: { lead: [area] }']), 'madarch/catalog.yaml', TEMPLATES);
     expect([...read.roles.keys()]).toEqual(['designer']);
   });
 
   test('the starter set declares ten roles and every area is led', () => {
-    const read = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, 'madarch/kinds.yaml', TEMPLATES);
+    const read = parseKinds(starterManifestText(), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings).toEqual([]);
     expect([...read.roles.keys()]).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'designer', 'security-engineer', 'platform-devops', 'product-lead']);
     const led = new Set([...read.roles.values()].flatMap((role) => role.lead));

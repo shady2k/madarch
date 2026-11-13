@@ -1,0 +1,27 @@
+id: oscal.control
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: One control of a catalog, with its statements, its parameters and its assessment methods.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Control
+    many: Controls
+  ru:
+    one: Контроль
+    many: Контроли
+description:
+  en: One control of a catalog, with its statements, its parameters and its assessment methods.
+  ru: Один контроль каталога с его утверждениями, параметрами и методами оценки.

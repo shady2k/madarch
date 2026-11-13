@@ -1,0 +1,27 @@
+id: practice.support-answer
+purpose: understand
+audience: [operations, product, developer]
+definition: The answer support gave a request, and whether it solved the problem.
+sources:
+- https://www.atlassian.com/software/jira/service-management
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Support answer
+    many: Support answers
+  ru:
+    one: Ответ поддержки
+    many: Ответы поддержки
+description:
+  en: The answer support gave a request, and whether it solved the problem.
+  ru: Ответ, который поддержка дала на обращение, и решил ли он проблему.

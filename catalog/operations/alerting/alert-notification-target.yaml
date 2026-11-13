@@ -1,0 +1,27 @@
+id: alertmanager.receiver
+purpose: operations
+audience: [operations, platform-devops]
+definition: A place alerts are delivered to, such as a chat channel or a paging service.
+sources:
+- https://prometheus.io/docs/alerting/latest/configuration/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Alert target
+    many: Alert targets
+  ru:
+    one: Получатель оповещений
+    many: Получатели оповещений
+description:
+  en: A place alerts are delivered to, such as a chat channel or a paging service.
+  ru: 'Место доставки оповещений: канал чата или сервис вызова.'

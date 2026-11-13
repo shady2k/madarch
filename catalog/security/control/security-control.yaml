@@ -1,0 +1,27 @@
+id: asvs.requirement
+purpose: quality
+audience: [security-engineer, architect]
+definition: A requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.
+sources:
+- https://github.com/OWASP/ASVS/tree/master/5.0/en
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - satisfies
+template-policy: none
+labels:
+  en:
+    one: Security control
+    many: Security controls
+  ru:
+    one: Контроль безопасности
+    many: Контроли безопасности
+description:
+  en: A requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.
+  ru: Требование, снижающее риск безопасности, как OWASP ASVS излагает их главами и уровнями.

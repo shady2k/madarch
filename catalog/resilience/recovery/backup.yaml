@@ -1,0 +1,27 @@
+id: nist800-34.backup
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A copy of data or configuration kept apart from the original so it can be restored.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - restores
+  in:
+  - restores
+template-policy: none
+labels:
+  en:
+    one: Backup
+    many: Backups
+  ru:
+    one: Резервная копия
+    many: Резервные копии
+description:
+  en: A copy of data or configuration kept apart from the original so it can be restored.
+  ru: Копия данных или настроек, хранимая отдельно от оригинала для восстановления.

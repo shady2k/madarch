@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -77,7 +78,7 @@ function fixture(agent: boolean) {
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
-  writeFileSync(join(product, 'madarch/kinds.yaml'), `language: en
+  const manifestText = `language: en
 kinds:
   code.file: { template: templates/file.liquid, source: graph, capability: git }
   code.repository: { template: templates/repository.liquid, source: graph, capability: git }
@@ -95,14 +96,15 @@ edges:
   - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
 plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
-`);
+`;
+  writeFolderManifest(product, manifestText);
   const closure = closureOf(folder).hash;
   writeFileSync(join(product, 'madarch/plugins.lock'), `plugins:\n  - { id: probe-summary, version: 1.0.0, closure: ${closure}, path: plugins/probe-summary }\n`);
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'plugin');
   const fake = join(root, 'fake-acp.ts');
   writeFileSync(fake, FAKE);
-  return { root, home, product, repo, closure, fake };
+  return { root, home, product, repo, closure, fake, manifestText };
 }
 
 describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fill', () => {
@@ -134,14 +136,13 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
   test('the bundled catalogue plugin derives an arbitrary kind contract from its agent fields', async () => {
     const f = fixture(true);
     writeFileSync(f.fake, FAKE.replace('/repo/private.md', '/repo/absent.md'));
-    const file = join(f.product, 'madarch/kinds.yaml');
-    const manifest = parseDocument(readFileSync(file, 'utf8'));
+    const manifest = parseDocument(f.manifestText);
     manifest.setIn(['kinds', 'probe.summary', 'fields'], [
       { name: 'id', type: 'text', binding: { agent: 'A stable identity for the summary.' } },
       { name: 'title', type: 'text', binding: { agent: 'The combined statement in the allowed documents.' } },
     ]);
     manifest.setIn(['plugins'], [{ id: 'agent-fill', version: 1, path: 'plugins/agent-fill', inputs: ['code.file'], outputs: [], closure: ['plugins/agent-fill/contract.json', 'plugins/agent-fill/main.ts', 'plugins/agent-fill/plugin.json', 'plugins/agent-fill/prompt.md'] }]);
-    writeFileSync(file, manifest.toString());
+    writeFolderManifest(f.product, manifest.toString());
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
     writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:
   - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }

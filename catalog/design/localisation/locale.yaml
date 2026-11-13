@@ -1,0 +1,27 @@
+id: cldr.locale
+purpose: structure
+audience: [designer, developer]
+definition: A language and region the product is translated for, with its formatting rules.
+sources:
+- https://unicode.org/reports/tr35/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Locale
+    many: Locales
+  ru:
+    one: Локаль
+    many: Локали
+description:
+  en: A language and region the product is translated for, with its formatting rules.
+  ru: Язык и регион, для которых переводят продукт, с правилами форматирования.

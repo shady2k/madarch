@@ -1,0 +1,27 @@
+id: practice.sftp-endpoint
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A file transfer endpoint a service writes files to or reads them from.
+sources:
+- https://www.rfc-editor.org/rfc/rfc4253.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - dependsOn
+  in:
+  - dependsOn
+template-policy: none
+labels:
+  en:
+    one: SFTP endpoint
+    many: SFTP endpoints
+  ru:
+    one: Конечная точка SFTP
+    many: Конечные точки SFTP
+description:
+  en: A file transfer endpoint a service writes files to or reads them from.
+  ru: Конечная точка передачи файлов, куда сервис пишет файлы или откуда читает их.

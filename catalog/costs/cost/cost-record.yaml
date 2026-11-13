@@ -1,0 +1,27 @@
+id: focus.cost-record
+purpose: operations
+audience: [product-lead, operations, platform-devops]
+definition: One measured cost of a resource over a period, in one currency, as FinOps FOCUS describes it.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - allocates
+template-policy: none
+labels:
+  en:
+    one: Cost record
+    many: Cost records
+  ru:
+    one: Запись затрат
+    many: Записи затрат
+description:
+  en: One measured cost of a resource over a period, in one currency, as FinOps FOCUS describes it.
+  ru: Одна измеренная стоимость ресурса за период в одной валюте, как её описывает FinOps FOCUS.

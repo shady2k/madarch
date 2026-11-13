@@ -1,0 +1,27 @@
+id: archimate.value-stream-stage
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: One step of a value stream, with the capabilities that enable it.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - realises
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Value-stream stage
+    many: Value-stream stages
+  ru:
+    one: Этап потока ценности
+    many: Этапы потока ценности
+description:
+  en: One step of a value stream, with the capabilities that enable it.
+  ru: Один шаг потока создания ценности с обеспечивающими его способностями.

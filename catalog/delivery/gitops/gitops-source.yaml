@@ -1,0 +1,27 @@
+id: opengitops.source
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The repository, path and revision a GitOps agent reads the desired state from.
+sources:
+- https://opengitops.dev/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: GitOps source
+    many: GitOps sources
+  ru:
+    one: Источник GitOps
+    many: Источники GitOps
+description:
+  en: The repository, path and revision a GitOps agent reads the desired state from.
+  ru: Репозиторий, путь и ревизия, откуда агент GitOps читает желаемое состояние.

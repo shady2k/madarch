@@ -1,0 +1,27 @@
+id: istqb.coverage-item
+purpose: quality
+audience: [tester, developer]
+definition: The thing a test suite is measured to have exercised, such as a branch or a requirement.
+sources:
+- https://glossary.istqb.org/en_US/term/coverage
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Coverage item
+    many: Coverage items
+  ru:
+    one: Элемент покрытия
+    many: Элементы покрытия
+description:
+  en: The thing a test suite is measured to have exercised, such as a branch or a requirement.
+  ru: 'То, что набор тестов, как измерено, выполнил: ветвь или требование.'

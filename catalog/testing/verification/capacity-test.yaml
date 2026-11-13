@@ -1,0 +1,27 @@
+id: practice.capacity-test
+purpose: quality
+audience: [tester, developer]
+definition: A test that finds how much load the product can take before it degrades.
+sources:
+- https://glossary.istqb.org/en_US/term/capacity-testing
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Capacity test
+    many: Capacity tests
+  ru:
+    one: Тест ёмкости
+    many: Тесты ёмкости
+description:
+  en: A test that finds how much load the product can take before it degrades.
+  ru: Тест, который выясняет, какую нагрузку продукт выдерживает до деградации.

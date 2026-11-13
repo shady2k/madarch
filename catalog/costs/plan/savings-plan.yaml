@@ -1,0 +1,27 @@
+id: practice.savings-plan
+purpose: operations
+audience: [product-lead, operations, platform-devops]
+definition: A planned change that lowers the cost, with the saving it is expected to make.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Savings plan
+    many: Savings plans
+  ru:
+    one: План экономии
+    many: Планы экономии
+description:
+  en: A planned change that lowers the cost, with the saving it is expected to make.
+  ru: Запланированное изменение, снижающее затраты, и ожидаемая экономия.

@@ -1,0 +1,27 @@
+id: practice.trust-zone
+purpose: structure
+audience: [security-engineer, architect]
+definition: An area of the system within which one level of trust holds.
+sources:
+- https://cyclonedx.org/docs/1.6/json/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Trust zone
+    many: Trust zones
+  ru:
+    one: Зона доверия
+    many: Зоны доверия
+description:
+  en: An area of the system within which one level of trust holds.
+  ru: Область системы, внутри которой действует один уровень доверия.

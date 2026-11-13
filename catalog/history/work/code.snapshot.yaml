@@ -1,0 +1,30 @@
+id: practice.repository-landmark
+purpose: history
+audience: [developer, architect, product-lead]
+definition: A repository landmark read from Git, with its commit and the files of that tree.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- extractor history
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+origin: history
+details:
+- commit
+labels:
+  en:
+    one: Repository landmark
+    many: Repository landmarks
+  ru:
+    one: Ориентир репозитория
+    many: Ориентиры репозитория
+description:
+  en: A repository landmark read from Git, with its commit and the files held by that tree.
+  ru: Ориентир из Git с его коммитом и файлами этого дерева репозитория.

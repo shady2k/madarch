@@ -2,7 +2,7 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { listProducts } from './list.js';
-import { KINDS_FILE } from '../product/manifest/kinds.js';
+import { KINDS_FILE, KINDS_FOLDER } from '../product/manifest/kinds.js';
 import { WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { validateProductManifests, type ValidatedManifests } from '../graph/manifest-publication.js';
 
@@ -38,7 +38,7 @@ export function createManifestWatch(folders: readonly string[], publish: (value:
   const watchFolder = (folder: string): void => {
     const watcher = watch(folder, { recursive: true, persistent: false }, (event, filename) => {
       const path = filename?.toString().replaceAll('\\', '/');
-      if (event === 'rename' || path === KINDS_FILE || path === WORKFLOWS_FILE || path === 'madarch/plugins.lock' || path?.endsWith('/plugin.json') || path?.endsWith('/contract.json') || (path !== undefined && templatePaths.get(folder)?.has(path))) void refresh(folder);
+      if (event === 'rename' || path === KINDS_FILE || path === 'madarch/kinds.yaml' || path?.startsWith(`${KINDS_FOLDER}/`) === true || path === WORKFLOWS_FILE || path === 'madarch/plugins.lock' || path?.endsWith('/plugin.json') || path?.endsWith('/contract.json') || (path !== undefined && templatePaths.get(folder)?.has(path))) void refresh(folder);
     });
     watcher.on('error', (error) => report(`${folder}:1: the manifest watcher failed: ${error.message}`));
     watchers.set(folder, watcher);

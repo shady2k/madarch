@@ -1,0 +1,27 @@
+id: practice.iam-account
+purpose: structure
+audience: [security-engineer, architect]
+definition: An identity that can be authenticated and given permissions.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/207/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - memberOf
+  in:
+  - hasMember
+template-policy: none
+labels:
+  en:
+    one: IAM account
+    many: IAM accounts
+  ru:
+    one: Учётная запись IAM
+    many: Учётные записи IAM
+description:
+  en: An identity that can be authenticated and given permissions.
+  ru: Идентичность, которую можно аутентифицировать и наделить правами.

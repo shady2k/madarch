@@ -1,0 +1,31 @@
+id: manifest.event
+purpose: structure
+audience: [architect, product-lead]
+definition: 'A named happening that moves a workflow transition: an entity is created or linked, an approval package is approved,
+  a branch is merged, a test passes.'
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/transition-an-issue/
+- https://www.omg.org/spec/BPMN/2.0.2/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - triggers
+  - partOf
+  in:
+  - partOf
+  - triggers
+template-policy: none
+labels:
+  en:
+    one: Event
+    many: Events
+  ru:
+    one: Событие
+    many: События
+description:
+  en: A named happening that moves a transition, such as a link created, a package approved, a merge or a test passing.
+  ru: 'Именованное событие, которое двигает переход: связь создана, пакет согласован, ветка слита или тест прошёл.'

@@ -1,0 +1,59 @@
+id: practice.document
+purpose: understand
+audience: [product, analyst, developer, operations]
+definition: A written page of the product, such as a README, a guide or a reference.
+sources:
+- https://diataxis.fr/
+acquisition:
+- document
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - hasDocumentation
+  in:
+  - documents
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+fields:
+- name: commit
+  type: text
+  binding:
+    agent: 'Read each **/*.md source file at the pinned repository revision: the exact commit that grounds its Markdown, heading
+      anchors and line extents.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read each **/*.md source file: repository-relative path of the document.'
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read each **/*.md source file: the repository name, or null for the product repository.'
+- name: markdown
+  type: text
+  binding:
+    agent: 'Read each **/*.md source file: the full document Markdown.'
+- name: anchors
+  type: json
+  binding:
+    agent: 'Read each **/*.md source file: map each Markdown heading anchor to {title, start, end, markdown}, preserving source
+      line numbers and full section Markdown.'
+- name: links
+  type: json
+  binding:
+    agent: 'Read each **/*.md source file: an array of Markdown link targets for document navigation.'
+key:
+- repository
+- path
+labels:
+  en:
+    one: Document
+    many: Documents
+  ru:
+    one: Документ
+    many: Документы
+description:
+  en: A written page of the product, such as a README, a guide or a reference.
+  ru: 'Написанная страница продукта: README, руководство или справочник.'

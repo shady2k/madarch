@@ -46,6 +46,16 @@ export function segmentsToPath(segments: PathSegment[]): string {
  * resolved exactly (for example a whole-file problem with no path).
  */
 export function lineForPath(doc: { contents: unknown }, lineCounter: LineCounter, segments: PathSegment[]): number {
+  return findLineForPath(doc, lineCounter, segments);
+}
+
+/** Index a document for one read. The caller must not mutate the document during that read. */
+export function lineLocator(doc: { contents: unknown }, lineCounter: LineCounter): (segments: PathSegment[]) => number {
+  const indexes = new WeakMap<object, Map<unknown, { key: unknown; value: unknown }>>();
+  return (segments) => findLineForPath(doc, lineCounter, segments, indexes);
+}
+
+function findLineForPath(doc: { contents: unknown }, lineCounter: LineCounter, segments: PathSegment[], indexes?: WeakMap<object, Map<unknown, { key: unknown; value: unknown }>>): number {
   let node: unknown = doc.contents;
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
@@ -60,7 +70,21 @@ export function lineForPath(doc: { contents: unknown }, lineCounter: LineCounter
       node = item;
     } else {
       if (!isMap(node)) break;
-      const pair = node.items.find((p) => isScalarValue(p.key) === segment || (typeof p.key === 'object' && p.key !== null && 'value' in p.key && (p.key as { value: unknown }).value === segment));
+      let pair: { key: unknown; value: unknown } | undefined;
+      if (indexes === undefined) {
+        pair = node.items.find((p) => keyValue(p.key) === segment);
+      } else {
+        let index = indexes.get(node);
+        if (index === undefined) {
+          index = new Map();
+          for (const item of node.items) {
+            const key = keyValue(item.key);
+            if (!index.has(key)) index.set(key, item);
+          }
+          indexes.set(node, index);
+        }
+        pair = index.get(segment);
+      }
       if (!pair) break;
       if (i === segments.length - 1) {
         return lineAtRangeStart(pair.key, lineCounter);
@@ -71,8 +95,9 @@ export function lineForPath(doc: { contents: unknown }, lineCounter: LineCounter
   return lineAtRangeStart(doc.contents, lineCounter);
 }
 
-function isScalarValue(key: unknown): unknown {
+function keyValue(key: unknown): unknown {
   if (typeof key === 'string' || typeof key === 'number') return key;
+  if (typeof key === 'object' && key !== null && 'value' in key) return (key as { value: unknown }).value;
   return undefined;
 }
 

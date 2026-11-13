@@ -1,0 +1,27 @@
+id: practice.api-reference
+purpose: structure
+audience: [developer, analyst, architect, tester]
+definition: The generated description of an interface's operations and their payloads.
+sources:
+- https://spec.openapis.org/oas/v3.1.1.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: API reference
+    many: API references
+  ru:
+    one: Справочник API
+    many: Справочники API
+description:
+  en: The generated description of an interface's operations and their payloads.
+  ru: Создаваемое описание операций интерфейса и их полезных нагрузок.

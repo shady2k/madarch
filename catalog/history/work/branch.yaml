@@ -1,0 +1,27 @@
+id: otel.vcs-ref
+purpose: history
+audience: [developer, architect, product-lead]
+definition: A movable name for a line of commits in a repository.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Branch
+    many: Branches
+  ru:
+    one: Ветка
+    many: Ветки
+description:
+  en: A movable name for a line of commits in a repository.
+  ru: Перемещаемое имя линии коммитов в репозитории.

@@ -1,0 +1,28 @@
+id: practice.usability-finding
+purpose: quality
+audience: [designer, tester, product, analyst]
+definition: A problem a usability test found, with the session that showed it.
+sources:
+- https://www.nngroup.com/articles/usability-testing-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  - affects
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Usability finding
+    many: Usability findings
+  ru:
+    one: Находка юзабилити-теста
+    many: Находки юзабилити-теста
+description:
+  en: A problem a usability test found, with the session that showed it.
+  ru: Проблема, найденная тестом удобства, и сессия, которая её показала.

@@ -1,0 +1,49 @@
+id: practice.source
+purpose: structure
+audience: [developer, architect]
+definition: The source text of one repository file at its recorded commit.
+sources:
+- https://git-scm.com/docs/git-show
+acquisition:
+- document
+status: implemented
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read **/* files in every declared repository and the product repository: repository name, or null for the product
+      repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* files in every declared repository and the product repository: repository-relative file path.'
+- name: source_text
+  type: text
+  binding:
+    agent: 'Read **/* files in every declared repository and the product repository: full source text grounded in the file
+      at its recorded commit; never omit or shorten content silently.'
+- name: commit
+  type: text
+  binding:
+    agent: 'Read **/* files in every declared repository and the product repository: the exact repository commit whose file
+      text grounds this opinion.'
+key:
+- repository
+- path
+labels:
+  en:
+    one: Source file
+    many: Source files
+  ru:
+    one: Исходный файл
+    many: Исходные файлы
+description:
+  en: The full source text of a repository file at a recorded revision.
+  ru: Полный исходный текст файла репозитория на записанной ревизии.

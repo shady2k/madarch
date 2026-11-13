@@ -1,0 +1,55 @@
+id: practice.interface-contract
+purpose: structure
+audience: [developer, architect, analyst, tester]
+definition: An OpenAPI, gRPC or AsyncAPI file that fixes an interface.
+sources:
+- https://spec.openapis.org/oas/v3.1.1.html
+- https://www.asyncapi.com/docs/reference/specification/v3.0.0
+acquisition:
+- extractor contracts
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  - hasDocumentation
+  in:
+  - documents
+template-policy: page
+template: templates/contract.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read the declared repositories: repository name, or null for the product repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
+- name: definition
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read the contract source files **/* for this entity: complete structured definition {spec:{text,lines},document?,protobuf?,descriptions?,selection?,diagnostics?},
+      preserving the full spec text and source lines; use null when no definition applies.'
+key:
+- repository
+- path
+card: true
+definition-block: contract
+details:
+- format
+- specVersion
+- version
+- path
+labels:
+  en:
+    one: Contract
+    many: Contracts
+  ru:
+    one: Контракт
+    many: Контракты
+description:
+  en: An OpenAPI, gRPC or AsyncAPI file that fixes an interface.
+  ru: Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.

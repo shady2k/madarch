@@ -30,8 +30,9 @@ import { SelectionRunPage } from './fill-runs.js';
 import { RunPage } from './repository.js';
 
 import { GlossaryProvider, GlossaryPage } from './glossary.js';
+import { FactsHome } from './facts.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
-import { RoleContext, loadSettings, useSettings } from './roles.js';
+import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfFillRun, addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage } from './loop.js';
 import { JournalPage } from './journal.js';
@@ -175,6 +176,16 @@ export function navGroups(status: WikiStatus): NavGroup[] {
     }), (entry) => entry.total);
 }
 
+/** Reader-purpose sections use the vocabulary order, populated pages, and the reader's explicit audience. */
+export function navPurposes(status: WikiStatus, role: string) {
+  const visible = status.kinds.filter((kind) => kind.count > 0 && kind.page !== false
+    && (role === 'everything' || kind.audience === undefined || kind.audience.includes(role)));
+  return [...(status.purposes ?? [])]
+    .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((purpose) => ({ ...purpose, rows: purpose.kinds.flatMap((name) => visible.filter((kind) => kind.kind === name)) }))
+    .filter((purpose) => purpose.rows.length > 0);
+}
+
 function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: WikiRoute; onNavigate?: () => void }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
@@ -184,7 +195,9 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
   const problemsOpen = status.loop?.problemsOpen ?? status.loop?.correctionsOpen ?? 0;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
-  const groups = navGroups(status);
+  const { role, roles } = useRole();
+  const purposes = navPurposes(status, role);
+  const groups = status.purposes === undefined ? leadGroups(navGroups(status), role, roles) : [];
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
   const waitingLink = (id: string, href: string, Icon: typeof HomeIcon, label: string, count: number, active: boolean): ReactElement => (
@@ -240,6 +253,12 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
           {waitingLink('nav-problems', WIKI_PROBLEMS, AlertTriangleIcon, t('loop.problemsTitle'), problemsOpen, route.name === 'problems')}
         </NavigationSection>
+        {purposes.map((purpose) => (
+          <NavigationSection key={purpose.id} data-nav-purpose={purpose.id}>
+            <NavigationHeading>{purpose.labels[language] ?? purpose.labels['en'] ?? purpose.id}</NavigationHeading>
+            {purpose.rows.map((kind) => kindLink(kind))}
+          </NavigationSection>
+        ))}
         {groups.length > 0 && <NavigationHeading>{t('knowledge.kinds')}</NavigationHeading>}
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';
@@ -460,11 +479,7 @@ export function KnowledgeApp(): ReactElement {
   // page a later stage will read. Nothing of the product is parsed before the fill writes it.
   if (route.name === 'home') view = !status.filled
     ? <Overview status={status} refresh={refresh} />
-    : status.home !== null
-      ? <EntityPage key={status.home} id={status.home} version={version} />
-      : status.repository !== undefined && status.repository.asIsCommit !== null
-        ? <EntityPage key={status.repository.id} id={status.repository.id} after={null} version={version} />
-        : <Overview status={status} refresh={refresh} />;
+    : <FactsHome title={status.product.name} version={version} />;
   else if (route.name === 'kit') view = <KitPage />;
   else if (route.name === 'entity') view = <EntityPage key={`${route.id}\0${route.after ?? ''}`} id={route.id} after={route.after} version={version} />;
   else if (route.name === 'authored') view = status.kinds.some((kind) => kind.kind === route.kind && kind.origins.includes('person')) ? <AuthoredPage key={`${route.kind}:${route.uid}`} kind={route.kind} uid={route.uid} version={version} /> : <p>{t('knowledge.noSuchPage')}</p>;

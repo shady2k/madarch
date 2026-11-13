@@ -1,0 +1,31 @@
+id: practice.document-section
+purpose: understand
+audience: [product, analyst, developer, operations]
+definition: A heading and its section declared in a repository document.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasPart
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- heading
+- level
+- path
+labels:
+  en:
+    one: Document section
+    many: Document sections
+  ru:
+    one: Раздел документа
+    many: Разделы документов
+description:
+  en: A heading and its section declared in a repository document.
+  ru: Заголовок и его раздел в документе репозитория.

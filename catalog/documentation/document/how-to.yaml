@@ -1,0 +1,27 @@
+id: practice.how-to
+purpose: operations
+audience: [product, analyst, developer, operations]
+definition: The steps that solve one real problem a person has.
+sources:
+- https://diataxis.fr/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: How-to
+    many: How-tos
+  ru:
+    one: Инструкция
+    many: Инструкции
+description:
+  en: The steps that solve one real problem a person has.
+  ru: Шаги, которые решают одну настоящую задачу человека.

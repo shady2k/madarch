@@ -1,0 +1,30 @@
+id: manifest.statuses
+purpose: structure
+audience: [architect, product-lead]
+definition: A named state an entity of a kind may be in, declared in the manifest's workflow; an entity has one current status,
+  and its id is its key under statuses.
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/create-edit-and-delete-statuses-in-team-managed-projects/
+- https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - constrains
+  in:
+  - hasPart
+template-policy: none
+labels:
+  en:
+    one: Status
+    many: Statuses
+  ru:
+    one: Статус
+    many: Статусы
+description:
+  en: A named state a workflow gives an entity; an entity has one current status.
+  ru: Именованное состояние, которое рабочий процесс даёт сущности; у сущности один текущий статус.

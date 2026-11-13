@@ -1,0 +1,27 @@
+id: practice.ownership-assignment
+purpose: history
+audience: [product-lead, architect, developer, operations]
+definition: A recorded statement that one element is owned by one person or group, and since when.
+sources:
+- https://backstage.io/docs/features/software-catalog/well-known-relations
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - assigns
+  in:
+  - assigns
+template-policy: none
+labels:
+  en:
+    one: Ownership assignment
+    many: Ownership assignments
+  ru:
+    one: Назначение владельца
+    many: Назначения владельца
+description:
+  en: A recorded statement that one element is owned by one person or group, and since when.
+  ru: Записанное утверждение, что элемент принадлежит человеку или группе, и с какого времени.

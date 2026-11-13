@@ -1,0 +1,27 @@
+id: practice.ip-range
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A block of addresses the product's networks and rules are written against.
+sources:
+- https://www.rfc-editor.org/rfc/rfc4632.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: IP range
+    many: IP ranges
+  ru:
+    one: Диапазон IP
+    many: Диапазоны IP
+description:
+  en: A block of addresses the product's networks and rules are written against.
+  ru: Блок адресов, на который рассчитаны сети и правила продукта.

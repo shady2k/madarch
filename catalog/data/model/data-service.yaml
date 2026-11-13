@@ -1,0 +1,27 @@
+id: dcat.data-service
+purpose: structure
+audience: [analyst, architect, developer]
+definition: An interface that gives access to one or more datasets, such as an API or an endpoint.
+sources:
+- https://www.w3.org/TR/vocab-dcat-3/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - providesApi
+template-policy: none
+labels:
+  en:
+    one: Data service
+    many: Data services
+  ru:
+    one: Сервис данных
+    many: Сервисы данных
+description:
+  en: An interface that gives access to one or more datasets, such as an API or an endpoint.
+  ru: 'Интерфейс, дающий доступ к одному или нескольким наборам данных: API или конечная точка.'

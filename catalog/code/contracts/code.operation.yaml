@@ -1,0 +1,67 @@
+id: practice.api-operation
+purpose: structure
+audience: [developer, architect, analyst, tester]
+definition: An operation an OpenAPI or a gRPC contract declares.
+sources:
+- https://spec.openapis.org/oas/v3.1.1.html
+acquisition:
+- extractor contracts
+status: implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - partOf
+template-policy: page
+template: templates/operation.liquid
+source: graph
+fields:
+- name: repository
+  type: text
+  nullable: true
+  binding:
+    agent: 'Read the declared repositories: repository name, or null for the product repository.'
+- name: path
+  type: text
+  binding:
+    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
+- name: name
+  type: text
+  binding:
+    agent: 'Read the defining source file: fully qualified symbol name, API operation identity (method and route or RPC name),
+      or channel address, unique within this file.'
+- name: definition
+  type: json
+  nullable: true
+  binding:
+    agent: 'Read the contract source files **/* for this entity: complete structured definition {spec:{text,lines},document?,protobuf?,descriptions?,selection?,diagnostics?},
+      preserving the full spec text and source lines; use null when no definition applies.'
+key:
+- repository
+- path
+- name
+card: true
+definition-block: operation
+listing: operations
+details:
+- method
+- path
+- operationId
+- public
+- service
+- package
+- input
+- output
+- rpc
+- servers
+- summary
+labels:
+  en:
+    one: API operation
+    many: API operations
+  ru:
+    one: Операция API
+    many: Операции API
+description:
+  en: An operation an OpenAPI or gRPC contract declares.
+  ru: Операция, которую объявляет контракт OpenAPI или gRPC.

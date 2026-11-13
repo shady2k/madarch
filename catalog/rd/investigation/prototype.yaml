@@ -1,0 +1,27 @@
+id: practice.prototype
+purpose: understand
+audience: [product, designer, developer, architect]
+definition: A throwaway build that explores an option before the product is committed to it.
+sources:
+- https://www.nngroup.com/articles/paper-prototyping/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Prototype
+    many: Prototypes
+  ru:
+    one: Прототип
+    many: Прототипы
+description:
+  en: A throwaway build that explores an option before the product is committed to it.
+  ru: Одноразовая сборка, которая исследует вариант до того, как на него решатся.

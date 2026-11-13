@@ -1,0 +1,30 @@
+id: practice.make-target
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A target of a Makefile and the commands it runs.
+sources:
+- https://www.gnu.org/software/make/manual/make.html
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - handles
+  in:
+  - partOf
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- phony
+- recipe
+labels:
+  en:
+    one: Make target
+    many: Make targets
+  ru:
+    one: Цель make
+    many: Цели make
+description:
+  en: A target of a Makefile and the commands it runs.
+  ru: Цель Makefile и команды, которые она выполняет.

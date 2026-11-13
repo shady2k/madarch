@@ -1,0 +1,27 @@
+id: otel.cicd-pipeline-run
+purpose: history
+audience: [developer, platform-devops, operations]
+definition: One execution of a pipeline on one revision, with its result and its duration.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasTest
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Pipeline run
+    many: Pipeline runs
+  ru:
+    one: Запуск конвейера
+    many: Запуски конвейера
+description:
+  en: One execution of a pipeline on one revision, with its result and its duration.
+  ru: Одно выполнение конвейера на одной ревизии с его результатом и длительностью.

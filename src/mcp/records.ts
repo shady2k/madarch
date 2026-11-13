@@ -348,7 +348,7 @@ async function dispatch(tool: string, args: Record<string, unknown>, context: Re
   switch (tool) {
     case 'kinds': {
       const { manifest, dependencies } = await context.owner.run(async (tx) => ({ manifest: await readPublishedManifest(tx), dependencies: await readPublishedDependencies(tx) }));
-      if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/kinds.yaml:1: the graph holds no published manifest`);
+      if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/catalog.yaml:1: the graph holds no published manifest`);
       return {
         answer: {
           ...envelope(context, null),

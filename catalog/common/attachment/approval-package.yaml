@@ -1,0 +1,35 @@
+id: practice.approval-package
+purpose: quality
+audience: [product-lead, analyst, developer]
+definition: 'A package of pending changes: what will be created or changed, its links and its risks, linked to the entity
+  it changes; the entity keeps its one current status until the package is approved.'
+sources:
+- https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests
+- https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  - contains
+  - evidences
+  in:
+  - approves
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Approval package
+    many: Approval packages
+  ru:
+    one: Пакет согласования
+    many: Пакеты согласования
+description:
+  en: What will be created or changed, its links and risks, linked to the entity; the entity keeps its one current status
+    until the package is approved.
+  ru: Что будет создано или изменено, его связи и риски, связанные с сущностью; сущность сохраняет свой единственный текущий
+    статус, пока пакет не согласован.

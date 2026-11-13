@@ -1,0 +1,27 @@
+id: practice.decommission-plan
+purpose: operations
+audience: [operations, platform-devops, product-lead]
+definition: The plan that says how a system is taken out of service without losing what it holds.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/88/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: Decommission plan
+    many: Decommission plans
+  ru:
+    one: План вывода из эксплуатации
+    many: Планы вывода из эксплуатации
+description:
+  en: The plan that says how a system is taken out of service without losing what it holds.
+  ru: План того, как систему выводят из обслуживания, не теряя того, что она хранит.

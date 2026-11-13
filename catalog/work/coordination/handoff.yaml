@@ -1,0 +1,30 @@
+id: practice.handoff
+purpose: operations
+audience: [developer, product, analyst, product-lead]
+definition: One operation that gives a branch and its work to another responsible person.
+sources:
+- https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - assigns
+  - contains
+  in:
+  - assigns
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Handoff
+    many: Handoffs
+  ru:
+    one: Передача
+    many: Передачи
+description:
+  en: One operation that gives a branch and its work to another responsible person.
+  ru: Одна операция, которая передаёт ветку и её работу другому ответственному человеку.

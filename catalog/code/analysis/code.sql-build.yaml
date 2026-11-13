@@ -1,0 +1,27 @@
+id: practice.sql-build
+purpose: structure
+audience: [developer, architect]
+definition: A function that builds SQL text by joining strings.
+sources:
+- https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - generates
+  in:
+  - generates
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+labels:
+  en:
+    one: SQL build
+    many: SQL builds
+  ru:
+    one: Сборка SQL
+    many: Сборки SQL
+description:
+  en: A function that builds SQL text by joining strings.
+  ru: Функция, которая собирает текст SQL склейкой строк.

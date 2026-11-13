@@ -1,0 +1,27 @@
+id: practice.touchpoint
+purpose: understand
+audience: [product, analyst, designer]
+definition: A place in a journey where a person meets the product or the organisation.
+sources:
+- https://www.nngroup.com/articles/journey-mapping-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Touchpoint
+    many: Touchpoints
+  ru:
+    one: Точка контакта
+    many: Точки контакта
+description:
+  en: A place in a journey where a person meets the product or the organisation.
+  ru: Место в пути человека, где он встречает продукт или организацию.

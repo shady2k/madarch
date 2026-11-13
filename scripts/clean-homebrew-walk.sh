@@ -78,7 +78,7 @@ done
 [ "$SERVED" -eq 1 ] || { cat "$TMP/init.txt"; echo "Homebrew madarch init did not serve the product in its not-filled state at $URL: ${STATUS:-no answer}" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1; }
 # A Windows shell would join the path with backslashes, escaped in the JSON: the file's two names are what the walk
 # reads, whichever separator the folder uses.
-case "$STATUS" in *'"manifestFile":"'*'madarch'*'kinds.yaml"'*) ;; *) echo "Homebrew madarch init: the status names no madarch/kinds.yaml: $STATUS" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1 ;; esac
+case "$STATUS" in *'"manifestFile":"'*'madarch'*'catalog.yaml"'*) ;; *) echo "Homebrew madarch init: the status names no madarch/catalog.yaml: $STATUS" >&2; tail -40 "$HOME/products/.madarch-daemon.log" >&2 2>/dev/null || true; exit 1 ;; esac
 curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null || { echo "Homebrew madarch init: the root of the server did not answer" >&2; exit 1; }
 curl -fsS "$URL" | grep -q '<div id="root"' || { echo "Homebrew madarch init: $URL is not the wiki app's page" >&2; exit 1; }
 # The server stays up until it is stopped: the walk stops it, then serves the

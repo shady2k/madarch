@@ -1,0 +1,27 @@
+id: scrum.product-goal
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: 'The commitment the product backlog is ordered against: the single objective the product works towards now.'
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Product goal
+    many: Product goals
+  ru:
+    one: Цель продукта
+    many: Цели продукта
+description:
+  en: 'The commitment the product backlog is ordered against: the single objective the product works towards now.'
+  ru: 'Обязательство, по которому упорядочен журнал продукта: одна цель, к которой продукт идёт сейчас.'

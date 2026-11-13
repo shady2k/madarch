@@ -1,0 +1,27 @@
+id: practice.saas-service
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A software service a supplier runs for the product, reached over an interface.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - c4.uses
+  in:
+  - c4.uses
+template-policy: none
+labels:
+  en:
+    one: SaaS service
+    many: SaaS services
+  ru:
+    one: Сервис SaaS
+    many: Сервисы SaaS
+description:
+  en: A software service a supplier runs for the product, reached over an interface.
+  ru: Программный сервис поставщика для продукта, доступный через интерфейс.

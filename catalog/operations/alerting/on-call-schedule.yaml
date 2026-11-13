@@ -1,0 +1,27 @@
+id: practice.on-call-schedule
+purpose: operations
+audience: [operations, platform-devops]
+definition: Who is answering alerts at which time, and how they are reached.
+sources:
+- https://sre.google/workbook/on-call/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - assigns
+  in:
+  - assigns
+template-policy: none
+labels:
+  en:
+    one: On-call schedule
+    many: On-call schedules
+  ru:
+    one: График дежурств
+    many: Графики дежурств
+description:
+  en: Who is answering alerts at which time, and how they are reached.
+  ru: Кто отвечает на оповещения в какое время и как с ним связываются.

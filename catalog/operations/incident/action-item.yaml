@@ -1,0 +1,27 @@
+id: sre.action-item
+purpose: quality
+audience: [operations, platform-devops]
+definition: A piece of work a postmortem asks for, with its owner and how it is tracked.
+sources:
+- https://sre.google/workbook/postmortem-culture/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Action item
+    many: Action items
+  ru:
+    one: Действие по разбору
+    many: Действия по разбору
+description:
+  en: A piece of work a postmortem asks for, with its owner and how it is tracked.
+  ru: Работа, которую требует разбор инцидента, с её владельцем и способом отслеживания.

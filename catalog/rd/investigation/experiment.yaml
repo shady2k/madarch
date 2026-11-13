@@ -1,0 +1,27 @@
+id: practice.experiment
+purpose: understand
+audience: [product, analyst, architect, developer]
+definition: A controlled trial that tests a hypothesis and concludes with a finding.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Experiment
+    many: Experiments
+  ru:
+    one: Эксперимент
+    many: Эксперименты
+description:
+  en: A controlled trial that tests a hypothesis and concludes with a finding.
+  ru: Контролируемая проба, которая проверяет гипотезу и заканчивается выводом.

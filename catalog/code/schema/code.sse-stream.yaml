@@ -1,0 +1,27 @@
+id: practice.sse-stream
+purpose: structure
+audience: [developer, architect, analyst]
+definition: A server-sent event stream a service offers to its clients.
+sources:
+- https://html.spec.whatwg.org/multipage/server-sent-events.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - consumesApi
+template-policy: none
+labels:
+  en:
+    one: SSE stream
+    many: SSE streams
+  ru:
+    one: Поток SSE
+    many: Потоки SSE
+description:
+  en: A server-sent event stream a service offers to its clients.
+  ru: Поток событий, который сервис отправляет клиентам.

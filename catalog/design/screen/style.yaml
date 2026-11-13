@@ -1,0 +1,27 @@
+id: practice.style
+purpose: structure
+audience: [designer, developer]
+definition: A stylesheet or a set of style rules that applies to components and refers to tokens.
+sources:
+- https://www.w3.org/TR/CSS22/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - appliesTo
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: Style
+    many: Styles
+  ru:
+    one: Стиль
+    many: Стили
+description:
+  en: A stylesheet or a set of style rules that applies to components and refers to tokens.
+  ru: Таблица стилей или набор правил, которые применяются к компонентам и ссылаются на токены.

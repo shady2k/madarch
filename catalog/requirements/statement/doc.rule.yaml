@@ -1,0 +1,49 @@
+id: practice.business-rule
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
+definition: A rule the product keeps, stated in the documents, which the code is meant to enforce.
+sources:
+- https://cucumber.io/docs/gherkin/reference/
+acquisition:
+- document
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: page
+template: templates/entity-text.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+labels:
+  en:
+    one: Business rule
+    many: Business rules
+  ru:
+    one: Бизнес-правило
+    many: Бизнес-правила
+description:
+  en: A rule the product keeps (BR-1, BR-2 ...), with the code that implements it.
+  ru: Правило, которое соблюдает продукт (BR-1, BR-2 ...), и код, который его реализует.

@@ -47,6 +47,7 @@ export interface KnowledgePart {
   page: (request: Request) => Promise<Handled>;
   block: (request: Request) => Promise<Handled>;
   statement: (request: Request) => Promise<Handled>;
+  facts: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
   /** What the agent spent on one kind: per run, plugin run, field and model (madarch-stm0.4, decision 0035, item 22). */
   kindUsage: (request: Request) => Promise<Handled>;
@@ -234,7 +235,7 @@ export function createKnowledgePart(
       const kind = new URL(request.url).searchParams.get('kind');
       if (kind === null) return { response: json(200, catalogSummary(catalog)) };
       const detail = catalog.kinds.find((entry) => entry.kind === kind);
-      if (detail === undefined) return refused(404, { field: 'kind', message: `${resolve(product.folder, 'madarch/kinds.yaml')}:1: the manifest declares no kind "${kind}"` });
+      if (detail === undefined) return refused(404, { field: 'kind', message: `${resolve(product.folder, 'madarch/catalog.yaml')}:1: the manifest declares no kind "${kind}"` });
       return { response: json(200, detail) };
     }),
     search: guarded('search the wiki', async (request) => {
@@ -270,6 +271,12 @@ export function createKnowledgePart(
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.block) };
     }),
+    facts: guarded('compute declared facts', async (request) => {
+      const roles = choosableRoles(await product.declaredRoles());
+      const settings = readSettings(env, roles);
+      const lang = new URL(request.url).searchParams.get('lang');
+      return { response: json(200, await product.facts(settings.role, lang === 'ru' || lang === 'en' ? lang : undefined)) };
+    }),
     statement: guarded('draw the statement', async (request) => {
       const query = new URL(request.url).searchParams;
       const id = query.get('id');
@@ -279,7 +286,8 @@ export function createKnowledgePart(
       const asked = query.get('n');
       const turn = asked === null ? 0 : Number(asked);
       if (!Number.isInteger(turn) || turn < 0) return refused(400, { field: 'n', message: `"n" is ${JSON.stringify(asked)}: the turn of the sentence among the sentences of the same text on the page, from 0` });
-      const result = await product.statement(id, sentence, turn);
+      const lang = query.get('lang');
+      const result = await product.statement(id, sentence, turn, lang === 'ru' || lang === 'en' ? lang : undefined);
       if (!result.ok) return refused(result.status, { field: 'sentence', message: result.message });
       return { response: json(200, result.statement) };
     }),
@@ -553,7 +561,7 @@ export function createKnowledgePart(
         : await product.problemItems(rule, source, { ...(after === null ? {} : { after }), limit });
       if (page === undefined) {
         return refused(404, source === null
-          ? { field: 'rule', message: `the problems hold no category ${JSON.stringify(rule)}: the product's manifest declares it in madarch/kinds.yaml under problems.rules, or no problem of it is open` }
+          ? { field: 'rule', message: `the problems hold no category ${JSON.stringify(rule)}: the product's manifest declares it in madarch/catalog.yaml under problems.rules, or no problem of it is open` }
           : { field: 'source', message: `the category ${JSON.stringify(rule)} holds no source ${JSON.stringify(source)}: read the category's sources first` });
       }
       return { response: json(200, page) };

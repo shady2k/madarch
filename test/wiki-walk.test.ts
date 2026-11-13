@@ -17,7 +17,7 @@ const KIND_PRODUCT = 'product';
 const STATUS = {
   product: { name: 'fixture', id: 'fixture' },
   manifest: 'ok',
-  manifestFile: 'madarch/kinds.yaml',
+  manifestFile: 'madarch/catalog.yaml',
   language: 'en',
   findings: [],
   kinds: [

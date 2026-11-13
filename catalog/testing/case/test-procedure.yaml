@@ -1,0 +1,27 @@
+id: istqb.test-procedure
+purpose: quality
+audience: [tester, developer]
+definition: The order in which test cases are run, and what has to be in place before them.
+sources:
+- https://glossary.istqb.org/en_US/term/test-procedure
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Test procedure
+    many: Test procedures
+  ru:
+    one: Процедура тестирования
+    many: Процедуры тестирования
+description:
+  en: The order in which test cases are run, and what has to be in place before them.
+  ru: Порядок выполнения тестовых случаев и то, что должно быть готово до них.

@@ -1,0 +1,27 @@
+id: practice.screen
+purpose: structure
+audience: [designer, developer]
+definition: A page or view a person sees, made of components and reached through a route.
+sources:
+- https://www.nngroup.com/articles/usability-testing-101/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Screen
+    many: Screens
+  ru:
+    one: Экран
+    many: Экраны
+description:
+  en: A page or view a person sees, made of components and reached through a route.
+  ru: Страница или вид, который видит человек, собранный из компонентов и открываемый по маршруту.

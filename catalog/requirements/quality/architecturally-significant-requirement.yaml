@@ -1,0 +1,27 @@
+id: practice.asr
+purpose: quality
+audience: [architect, analyst, developer, tester]
+definition: A requirement that measurably affects the architecture, so a decision answers it.
+sources:
+- https://adr.github.io/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Architecturally significant requirement
+    many: Architecturally significant requirements
+  ru:
+    one: Архитектурно значимое требование
+    many: Архитектурно значимые требования
+description:
+  en: A requirement that measurably affects the architecture, so a decision answers it.
+  ru: Требование, которое измеримо влияет на архитектуру, так что на него отвечает решение.

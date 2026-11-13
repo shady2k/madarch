@@ -74,6 +74,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { archifyFrame, likec4Model } from './view-frames.js';
 import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
+import { buildFacts, type FactsView } from './facts.js';
 import { documentAddress, entityAddress } from './addresses.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
@@ -1396,10 +1397,12 @@ export class KnowledgeProduct {
         cached: true,
       };
     }
+    let evidenceContext: ReturnType<KnowledgeProduct['context']> | undefined;
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
       const product = this.product();
       if ('message' in product) throw new WikiReadError(product.message);
-      const context = await this.context();
+      evidenceContext ??= this.context();
+      const context = await evidenceContext;
       if ('absent' in context) return undefined;
       for (const kind of context.manifest.kinds.values()) {
         if (!kind.fields?.some((field) => field.name === 'source_text')) continue;
@@ -2481,6 +2484,7 @@ export class KnowledgeProduct {
       language: context.manifest.language ?? 'en',
       findingCount: context.findings.length,
       kinds: await kindSummaries(context.ctx),
+      ...(context.manifest.purposes === undefined ? {} : { purposes: [...context.manifest.purposes.values()].sort((a, b) => a.order - b.order || byCodePoint(a.id, b.id)).map((purpose) => ({ id: purpose.id, labels: { ...purpose.labels }, order: purpose.order, kinds: [...context.manifest.kinds.values()].filter((kind) => kind.purpose === purpose.id).map((kind) => kind.name) })) }),
       groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.short === undefined ? {} : { short: { ...group.short } }), ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled,
@@ -2623,7 +2627,7 @@ export class KnowledgeProduct {
   /** Strict guide data and fresh walk evidence are assembled once for every read format. */
   private async guidePage(kind: GuideKind, locale: GuideLocale, ctx: RenderContext, history?: HistoryContext): Promise<PageResult> {
     const declaration = ctx.manifest.kinds.get(kind);
-    const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/kinds.yaml' };
+    const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/catalog.yaml' };
     const file = resolve(ctx.productFolder, output.path);
     const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
     const base: PageModel = { id: output.id, kind, language: locale, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
@@ -2692,10 +2696,22 @@ export class KnowledgeProduct {
     return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block known as ${held}` } : { ok: true, block };
   }
 
+  async facts(role: string, lang?: string): Promise<FactsView> {
+    const context = await this.context();
+    if ('absent' in context) return { role, kinds: [] };
+    return await buildFacts(context.ctx, role, lang ?? context.ctx.language);
+  }
+
   /** The statement view of one sentence of an agent's page. */
-  async statement(id: string, sentence: string, turn = 0): Promise<StatementResult> {
+  async statement(id: string, sentence: string, turn = 0, lang?: string): Promise<StatementResult> {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+    if (id.startsWith('fact:')) {
+      const facts = await buildFacts(context.ctx, 'everything', lang ?? context.ctx.language);
+      const fact = facts.kinds.flatMap((kind) => kind.statements).find((fact) => fact.id === id);
+      if (fact === undefined) return { ok: false, status: 404, message: `no declared fact ${id}` };
+      return { ok: true, statement: fact.statement };
+    }
     const result = await buildStatement(context.ctx, id, sentence, turn);
     if (!result.ok) return result;
     return { ok: true, statement: { ...result.statement, ...(await this.plannedForStatement(id, result.statement.name)) } };
@@ -2939,7 +2955,7 @@ export class KnowledgeProduct {
 
   /** A person's answer: written into the question's file and committed with the person as author. */
   async answer(_slug: string, _text: string): Promise<Answered> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   private async marks(): Promise<PlannedMarks> {
@@ -3011,7 +3027,7 @@ export class KnowledgeProduct {
 
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
   async createTask(_input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async scopeImpact(scope: readonly TaskScope[]): Promise<TaskImpact> {
@@ -3023,7 +3039,7 @@ export class KnowledgeProduct {
 
   /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
   async closeTask(_id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async runTask(_id: string): Promise<{ ok: true; task: TaskRow; pages: readonly string[]; fill: FillState } | { ok: false; message: string }> {
@@ -3032,7 +3048,7 @@ export class KnowledgeProduct {
 
   /** A person's correction of a statement: a new file, committed with the person as author. */
   async correct(_statement: string, _reason: string): Promise<Corrected> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async problems(): Promise<ProblemListing> {
@@ -3256,7 +3272,7 @@ export class KnowledgeProduct {
    * A problem that names no place a person can change says why instead of opening an empty task.
    */
   async createProblemTask(_id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/kinds.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {

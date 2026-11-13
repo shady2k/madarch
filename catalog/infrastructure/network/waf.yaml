@@ -1,0 +1,27 @@
+id: practice.waf
+purpose: operations
+audience: [operations, platform-devops, security-engineer]
+definition: A filter in front of a service that refuses requests matching an attack pattern.
+sources:
+- https://owasp.org/www-project-modsecurity-core-rule-set/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: WAF
+    many: WAFs
+  ru:
+    one: WAF
+    many: WAF
+description:
+  en: A filter in front of a service that refuses requests matching an attack pattern.
+  ru: Фильтр перед сервисом, который отклоняет запросы, совпадающие с образцом атаки.

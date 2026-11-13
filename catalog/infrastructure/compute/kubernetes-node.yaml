@@ -1,0 +1,27 @@
+id: kubernetes.node
+purpose: structure
+audience: [operations, platform-devops, architect]
+definition: One machine of a Kubernetes cluster that runs pods.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - hasHost
+template-policy: none
+labels:
+  en:
+    one: Kubernetes node
+    many: Kubernetes nodes
+  ru:
+    one: Узел Kubernetes
+    many: Узлы Kubernetes
+description:
+  en: One machine of a Kubernetes cluster that runs pods.
+  ru: Одна машина кластера Kubernetes, на которой работают поды.

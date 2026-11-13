@@ -1,0 +1,27 @@
+id: practice.git-remote
+purpose: structure
+audience: [developer, platform-devops]
+definition: A place a repository is published to and fetched from, by its address.
+sources:
+- https://git-scm.com/docs/git-remote
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Remote
+    many: Remotes
+  ru:
+    one: Удалённый репозиторий
+    many: Удалённые репозитории
+description:
+  en: A place a repository is published to and fetched from, by its address.
+  ru: Место, куда публикуют репозиторий и откуда его получают, по его адресу.

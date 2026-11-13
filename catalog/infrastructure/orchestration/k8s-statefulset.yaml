@@ -1,0 +1,27 @@
+id: kubernetes.statefulset
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A Kubernetes workload whose pods keep a stable identity and their own storage.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: StatefulSet
+    many: StatefulSets
+  ru:
+    one: StatefulSet
+    many: StatefulSet
+description:
+  en: A Kubernetes workload whose pods keep a stable identity and their own storage.
+  ru: Рабочая нагрузка Kubernetes, чьи поды сохраняют постоянную идентичность и собственное хранилище.

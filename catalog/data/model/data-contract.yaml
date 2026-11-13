@@ -1,0 +1,27 @@
+id: practice.data-contract
+purpose: structure
+audience: [analyst, developer, architect, tester]
+definition: The agreed shape, meaning and quality of a dataset, which its producers and consumers hold to.
+sources:
+- https://openlineage.io/docs/spec/object-model
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Data contract
+    many: Data contracts
+  ru:
+    one: Контракт данных
+    many: Контракты данных
+description:
+  en: The agreed shape, meaning and quality of a dataset, which its producers and consumers hold to.
+  ru: Согласованные форма, смысл и качество набора данных, которых держатся его производители и потребители.

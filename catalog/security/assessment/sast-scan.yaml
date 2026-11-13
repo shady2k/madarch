@@ -1,0 +1,27 @@
+id: practice.sast-scan
+purpose: quality
+audience: [security-engineer, tester, developer]
+definition: A tool run that reads the source for patterns that may be exploitable.
+sources:
+- https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - foundBy
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: SAST scan
+    many: SAST scans
+  ru:
+    one: Сканирование SAST
+    many: Сканирования SAST
+description:
+  en: A tool run that reads the source for patterns that may be exploitable.
+  ru: Запуск инструмента, который ищет в исходниках образцы, которые можно использовать.

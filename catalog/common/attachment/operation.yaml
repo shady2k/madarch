@@ -1,0 +1,30 @@
+id: practice.operation
+purpose: history
+audience: [product-lead, analyst, developer]
+definition: 'The unit of sync: one intended change with a random id, its author, time and expectation, which the journal applies
+  as an increment.'
+sources:
+- https://hal.inria.fr/inria-00555588/document
+- https://martinfowler.com/eaaDev/EventSourcing.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  - generates
+  in:
+  - affects
+template-policy: none
+labels:
+  en:
+    one: Operation
+    many: Operations
+  ru:
+    one: Операция
+    many: Операции
+description:
+  en: One intended change with a random id, author, time and expectation, which the journal applies.
+  ru: Одно намеренное изменение со случайным идентификатором, автором, временем и ожиданием, которое применяет журнал.

@@ -1,0 +1,27 @@
+id: slsa.byproduct
+purpose: history
+audience: [developer, platform-devops, operations]
+definition: Something a build emitted besides its artifacts, such as a log or a scan result.
+sources:
+- https://slsa.dev/spec/v1.0/provenance
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out: []
+  in:
+  - hasOutput
+  - generates
+template-policy: none
+labels:
+  en:
+    one: Byproduct
+    many: Byproducts
+  ru:
+    one: Побочный результат
+    many: Побочные результаты
+description:
+  en: Something a build emitted besides its artifacts, such as a log or a scan result.
+  ru: 'То, что сборка выдала помимо артефактов: журнал или результат проверки.'

@@ -1,0 +1,27 @@
+id: nist800-34.exercise
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A planned exercise in which a disruption is simulated and the plan is followed.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Drill
+    many: Drills
+  ru:
+    one: Учение
+    many: Учения
+description:
+  en: A planned exercise in which a disruption is simulated and the plan is followed.
+  ru: Запланированное упражнение, в котором имитируют сбой и следуют плану.

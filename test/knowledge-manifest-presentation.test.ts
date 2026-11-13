@@ -11,6 +11,8 @@ import { join } from 'node:path';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { historyBlock } from '../src/knowledge/history.js';
 import { starterKinds } from './knowledge-fixture.js';
+import { byCodePoint } from '../src/model/order.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { buildStatement } from '../src/knowledge/statement.js';
 import type { RenderContext, Subject } from '../src/knowledge/blocks.js';
 import type { GraphEntity, HistoryEvidence } from '../src/knowledge/graph-read.js';
@@ -52,7 +54,7 @@ function readFixture(lines: readonly string[], name: string): KindsManifest {
   mkdirSync(join(folder, 'madarch'), { recursive: true });
   mkdirSync(join(folder, 'templates'), { recursive: true });
   for (const template of ['domain', 'service', 'file', 'task']) writeFileSync(join(folder, 'templates', `${template}.liquid`), '{% layout "./entity.liquid" %}\n');
-  writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `${lines.join('\n')}\n`);
+  writeFolderManifest(folder, `${lines.join('\n')}\n`);
   const read = readKinds(folder);
   if (!read.present) throw new Error(`the fixture manifest of ${folder} was not read`);
   if (read.manifest.findings.length > 0) throw new Error(`the fixture manifest of ${folder} has findings: ${read.manifest.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('; ')}`);
@@ -172,7 +174,7 @@ describe('a history page follows the kind declaration', () => {
     const refused = await historyBlock(context(manifest, join(work, 'undeclared')), { source: 'graph', entity: UNDECLARED }, {}, 'templates/file.liquid', 7);
     expect(refused).toMatchObject({
       type: 'problem', block: 'history', file: 'templates/file.liquid', line: 7,
-      message: expect.stringContaining(`the manifest ${join(work, 'undeclared', 'madarch', 'kinds.yaml')} declares none for the kind code.deployment`),
+      message: expect.stringContaining(`the manifest ${join(work, 'undeclared', 'madarch', 'catalog.yaml')} declares none for the kind code.deployment`),
     });
   });
 
@@ -204,13 +206,13 @@ describe('the manifest reader refuses a presentation field it cannot read', () =
     mkdirSync(join(folder, 'templates'), { recursive: true });
     for (const template of ['domain', 'service', 'file', 'task']) writeFileSync(join(folder, 'templates', `${template}.liquid`), '{% layout "./entity.liquid" %}\n');
     const lines = manifestLines(['    card: yes'], ['    history: sideways']);
-    writeFileSync(join(folder, 'madarch', 'kinds.yaml'), `${lines.join('\n')}\n`);
+    writeFolderManifest(folder, `${lines.join('\n')}\n`);
     const read = readKinds(folder);
     if (!read.present) throw new Error(`the fixture manifest of ${folder} was not read`);
     const messages = read.manifest.findings.map((one) => `${one.file}:${one.line}: ${one.message}`);
     expect(messages).toEqual([
-      `${join(folder, 'madarch', 'kinds.yaml')}:9: kind "code.service": "card" is true or absent: a ground on one of the kind's entities shows its card, and the entity's code is shown when it is absent`,
-      `${join(folder, 'madarch', 'kinds.yaml')}:13: kind "code.file": "history" is the shape of the story the history block tells of the kind: repositories, author, path, membership, commit, task, got "sideways"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.file.yaml')}:3: kind "code.file": "history" is the shape of the story the history block tells of the kind: repositories, author, path, membership, commit, task, got "sideways"`,
+      `${join(folder, 'madarch', 'kinds', 'fixture', 'fixture', 'code.service.yaml')}:3: kind "code.service": "card" is true or absent: a ground on one of the kind's entities shows its card, and the entity's code is shown when it is absent`,
     ]);
   });
 });
@@ -218,9 +220,9 @@ describe('the manifest reader refuses a presentation field it cannot read', () =
 describe('the starter set keeps the pages it showed', () => {
   test('the kinds the starter set gives a card and a history page are the ones the engine named before', () => {
     const cards = starterKinds().filter((kind) => kind.card === true).map((kind) => kind.name);
-    expect(cards).toEqual(['code.service', 'code.package', 'code.operation', 'code.contract', 'code.channel', 'code.message', 'code.database', 'code.table']);
+    expect(cards.sort(byCodePoint)).toEqual(['code.service', 'code.package', 'code.operation', 'code.contract', 'code.channel', 'code.message', 'code.database', 'code.table'].sort(byCodePoint));
     const stories = starterKinds().filter((kind) => kind.history !== undefined).map((kind) => `${kind.name}: ${kind.history}`);
-    expect(stories).toEqual([
+    expect(stories.sort(byCodePoint)).toEqual([
       'product: repositories',
       'code.service: membership',
       'code.package: membership',
@@ -230,6 +232,6 @@ describe('the starter set keeps the pages it showed', () => {
       'code.author: author',
       'code.task: task',
       'code.repository: repositories',
-    ]);
+    ].sort(byCodePoint));
   });
 });

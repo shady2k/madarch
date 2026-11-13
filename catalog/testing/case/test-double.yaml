@@ -1,0 +1,27 @@
+id: istqb.test-double
+purpose: quality
+audience: [tester, developer]
+definition: A stand-in for a component or an interface a test runs against.
+sources:
+- https://glossary.istqb.org/en_US/term/test-double
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Test double
+    many: Test doubles
+  ru:
+    one: Тестовый дублёр
+    many: Тестовые дублёры
+description:
+  en: A stand-in for a component or an interface a test runs against.
+  ru: Замена компонента или интерфейса, против которой работает тест.

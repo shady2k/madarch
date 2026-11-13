@@ -1,0 +1,27 @@
+id: bpmn.gateway
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A BPMN point where a process branches or joins, by a condition or an event.
+sources:
+- https://www.omg.org/spec/BPMN/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Process gateway
+    many: Process gateways
+  ru:
+    one: Шлюз процесса
+    many: Шлюзы процесса
+description:
+  en: A BPMN point where a process branches or joins, by a condition or an event.
+  ru: Точка BPMN, где процесс ветвится или соединяется по условию или событию.

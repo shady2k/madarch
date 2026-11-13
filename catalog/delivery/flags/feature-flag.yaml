@@ -1,0 +1,27 @@
+id: openfeature.flag
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: A switch that changes the product's behaviour without a new deployment.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Feature flag
+    many: Feature flags
+  ru:
+    one: Флаг функции
+    many: Флаги функций
+description:
+  en: A switch that changes the product's behaviour without a new deployment.
+  ru: Переключатель, который меняет поведение продукта без нового развёртывания.

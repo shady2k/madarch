@@ -1,0 +1,27 @@
+id: openfeature.provider
+purpose: operations
+audience: [developer, platform-devops, operations]
+definition: The component that supplies flag definitions and answers evaluations.
+sources:
+- https://openfeature.dev/specification/glossary
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: Flag provider
+    many: Flag providers
+  ru:
+    one: Поставщик флагов
+    many: Поставщики флагов
+description:
+  en: The component that supplies flag definitions and answers evaluations.
+  ru: Компонент, который выдаёт определения флагов и отвечает на оценки.

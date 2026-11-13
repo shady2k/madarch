@@ -1,0 +1,27 @@
+id: alertmanager.route
+purpose: operations
+audience: [operations, platform-devops]
+definition: The rule that decides which receiver an alert goes to, by its labels.
+sources:
+- https://prometheus.io/docs/alerting/latest/configuration/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - routesTo
+  in:
+  - routesTo
+template-policy: none
+labels:
+  en:
+    one: Alert route
+    many: Alert routes
+  ru:
+    one: Маршрут оповещений
+    many: Маршруты оповещений
+description:
+  en: The rule that decides which receiver an alert goes to, by its labels.
+  ru: Правило, которое по меткам решает, какому получателю уйдёт оповещение.

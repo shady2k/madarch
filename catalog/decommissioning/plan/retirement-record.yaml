@@ -1,0 +1,27 @@
+id: practice.retirement-record
+purpose: history
+audience: [operations, platform-devops, product-lead]
+definition: 'The record that a system was retired: when, by whom and what is left of its data.'
+sources:
+- https://csrc.nist.gov/pubs/sp/800/88/r1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Retirement record
+    many: Retirement records
+  ru:
+    one: Запись о выводе
+    many: Записи о выводе
+description:
+  en: 'The record that a system was retired: when, by whom and what is left of its data.'
+  ru: 'Запись о том, что система выведена: когда, кем и что осталось от её данных.'

@@ -1,0 +1,27 @@
+id: archimate.value-stream
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: A sequence of stages that together deliver a result of value to a customer.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Value stream
+    many: Value streams
+  ru:
+    one: Поток создания ценности
+    many: Потоки создания ценности
+description:
+  en: A sequence of stages that together deliver a result of value to a customer.
+  ru: Последовательность этапов, которые вместе дают клиенту результат.

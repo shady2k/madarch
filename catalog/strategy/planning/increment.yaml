@@ -1,0 +1,27 @@
+id: scrum.increment
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: The usable result the team adds to the product in a sprint.
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - realises
+  in:
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Increment
+    many: Increments
+  ru:
+    one: Инкремент
+    many: Инкременты
+description:
+  en: The usable result the team adds to the product in a sprint.
+  ru: Полезный результат, который команда добавляет продукту за спринт.

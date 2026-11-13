@@ -1,0 +1,27 @@
+id: focus.allocation
+purpose: operations
+audience: [product-lead, operations, platform-devops]
+definition: How a cost is split over the products, the teams or the services that caused it.
+sources:
+- https://focus.finops.org/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Cost allocation
+    many: Cost allocations
+  ru:
+    one: Распределение затрат
+    many: Распределения затрат
+description:
+  en: How a cost is split over the products, the teams or the services that caused it.
+  ru: То, как затраты распределяются по продуктам, командам или сервисам, которые их вызвали.

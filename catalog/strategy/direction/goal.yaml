@@ -1,0 +1,31 @@
+id: archimate.goal
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: A state or condition the organisation wants to reach, as ArchiMate motivation elements and the Business Motivation
+  Model state it.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+- https://www.omg.org/spec/BMM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  - realises
+  in:
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Goal
+    many: Goals
+  ru:
+    one: Цель
+    many: Цели
+description:
+  en: A state or condition the organisation wants to reach, as ArchiMate motivation elements and the Business Motivation Model
+    state it.
+  ru: Состояние, которого организация хочет достичь, как его излагают элементы мотивации ArchiMate и модель бизнес-мотивации.

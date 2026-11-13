@@ -1,0 +1,27 @@
+id: pact.provider-verification
+purpose: quality
+audience: [tester, developer]
+definition: The run in which a provider is checked against the contracts its consumers published.
+sources:
+- https://docs.pact.io/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Provider verification
+    many: Provider verifications
+  ru:
+    one: Проверка поставщика
+    many: Проверки поставщика
+description:
+  en: The run in which a provider is checked against the contracts its consumers published.
+  ru: Запуск, в котором поставщика проверяют по контрактам, опубликованным потребителями.

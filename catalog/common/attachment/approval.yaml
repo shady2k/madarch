@@ -1,0 +1,30 @@
+id: practice.approval
+purpose: history
+audience: [product-lead, analyst, developer]
+definition: 'A responsible person''s decision on an approval package: approved, or declined with a reason, with who decided
+  and when.'
+sources:
+- https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/
+- https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - approves
+  in:
+  - approves
+template-policy: none
+labels:
+  en:
+    one: Approval
+    many: Approvals
+  ru:
+    one: Согласование
+    many: Согласования
+description:
+  en: 'A responsible person''s decision on an approval package: approved, or declined with a reason.'
+  ru: 'Решение ответственного человека о пакете согласования: одобрено или отклонено с указанием причины.'

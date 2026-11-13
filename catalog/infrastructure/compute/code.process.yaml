@@ -1,0 +1,30 @@
+id: practice.runtime-process
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A program the system starts, and the port it listens on.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/resource/process/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - hasHost
+  in:
+  - hasHost
+template-policy: page
+template: templates/item-plain.liquid
+source: graph
+details:
+- binary
+- command
+labels:
+  en:
+    one: Process
+    many: Processes
+  ru:
+    one: Процесс
+    many: Процессы
+description:
+  en: A program the system starts, and the port it listens on.
+  ru: Программа, которую запускает система, и порт, который она слушает.

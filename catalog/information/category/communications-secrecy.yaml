@@ -1,0 +1,27 @@
+id: practice.communications-secrecy
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: Information about the fact and the content of a communication, which the law protects separately.
+sources:
+- https://gdpr-info.eu/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Communications secrecy
+    many: Communications secrecy
+  ru:
+    one: Тайна связи
+    many: Тайна связи
+description:
+  en: Information about the fact and the content of a communication, which the law protects separately.
+  ru: Сведения о факте и содержании связи, которые закон защищает отдельно.

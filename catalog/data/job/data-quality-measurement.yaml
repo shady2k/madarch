@@ -1,0 +1,27 @@
+id: dqv.measurement
+purpose: quality
+audience: [analyst, tester, developer]
+definition: One measured quality value of a dataset, with the metric and the time it was taken.
+sources:
+- https://www.w3.org/TR/vocab-dqv/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Data quality measurement
+    many: Data quality measurements
+  ru:
+    one: Измерение качества данных
+    many: Измерения качества данных
+description:
+  en: One measured quality value of a dataset, with the metric and the time it was taken.
+  ru: Одно измеренное значение качества набора данных с метрикой и временем измерения.

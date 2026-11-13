@@ -290,6 +290,8 @@ export type KindSummary = {
   single: boolean;
   group?: string;
   origins: Origin[];
+  audience?: readonly string[];
+  purpose?: string;
   descriptions?: Record<string, string>;
   labels?: Record<string, { one: string; many: string }>;
   /** The form the kind's listing page takes; absent for the plain table of names and places. */
@@ -515,6 +517,7 @@ export type WikiStatus = {
   findingCount: number;
   kinds: KindSummary[];
   groups: GroupSummary[];
+  purposes?: { id: string; labels: Record<string, string>; order: number; kinds: string[] }[];
   repositories: { name: string; filled: boolean }[];
   filled: boolean;
   incomplete: boolean;
@@ -621,7 +624,35 @@ export type GroundView = { url: string; resolution: Resolution; excerpt: Excerpt
 
 type RelyingRef = { page: string; pageTitle: string; text: string; line: number; file: string; how: 'grounds' | 'mentions'; ground: string; sentence?: string; turn?: number };
 
+
+/** Manifest facts computed from the graph for the reader's role. */
+export type FactGround = {
+  value: number | null;
+  rows: { label: string; value: number; entity?: string }[];
+  kind: string;
+  measure: string;
+  field?: string;
+  buckets?: readonly number[];
+  limit?: number;
+  total: number;
+  missing: number;
+  entities: string[];
+  computedAt: string;
+};
+export type FactStatement = {
+  id: string;
+  label: string;
+  display: 'number' | 'bar' | 'treemap' | 'timeline';
+  measure: string;
+  value: number | null;
+  rows: { label: string; value: number; entity?: string }[];
+  ground: FactGround;
+  statement: StatementModel;
+};
+export type FactsView = { role: string; kinds: { kind: string; label: string; statements: FactStatement[] }[] };
+
 export type StatementModel = {
+  aggregate?: FactGround;
   page: EntityRef;
   /** The statement's name on its page: what a correction names it by. */
   name: string | null;

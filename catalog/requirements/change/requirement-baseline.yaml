@@ -1,0 +1,27 @@
+id: practice.requirement-baseline
+purpose: history
+audience: [product, analyst, tester, architect, product-lead]
+definition: The agreed set of requirements at a point in time, which changes are measured against.
+sources:
+- https://www.omg.org/spec/SACM/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Requirement baseline
+    many: Requirement baselines
+  ru:
+    one: Базовая линия требований
+    many: Базовые линии требований
+description:
+  en: The agreed set of requirements at a point in time, which changes are measured against.
+  ru: Согласованный набор требований на момент времени, с которым сравнивают изменения.

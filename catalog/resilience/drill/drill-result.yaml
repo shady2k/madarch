@@ -1,0 +1,27 @@
+id: nist800-34.exercise-result
+purpose: quality
+audience: [operations, platform-devops, architect]
+definition: 'What a drill showed: the objectives reached, the time taken and the gaps found.'
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Drill result
+    many: Drill results
+  ru:
+    one: Результат учения
+    many: Результаты учения
+description:
+  en: 'What a drill showed: the objectives reached, the time taken and the gaps found.'
+  ru: 'То, что показало учение: достигнутые цели, затраченное время и найденные пробелы.'

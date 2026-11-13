@@ -1,0 +1,27 @@
+id: scrum.sprint
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: A fixed period in which the team turns backlog items into an increment.
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Sprint
+    many: Sprints
+  ru:
+    one: Спринт
+    many: Спринты
+description:
+  en: A fixed period in which the team turns backlog items into an increment.
+  ru: Фиксированный период, за который команда превращает элементы журнала в инкремент.

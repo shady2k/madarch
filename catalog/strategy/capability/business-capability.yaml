@@ -1,0 +1,28 @@
+id: archimate.capability
+purpose: understand
+audience: [product, product-lead, analyst]
+definition: What the organisation is able to do, independent of how it does it.
+sources:
+- https://pubs.opengroup.org/architecture/archimate32-doc/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - realises
+  in:
+  - realises
+template-policy: none
+labels:
+  en:
+    one: Business capability
+    many: Business capabilities
+  ru:
+    one: Бизнес-способность
+    many: Бизнес-способности
+description:
+  en: What the organisation is able to do, independent of how it does it.
+  ru: То, что организация умеет делать, независимо от того, как она это делает.

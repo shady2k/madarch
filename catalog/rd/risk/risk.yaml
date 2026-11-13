@@ -1,0 +1,28 @@
+id: arc42.risk
+purpose: quality
+audience: [product, analyst, architect, developer]
+definition: Something that may happen and would harm a goal, with its likelihood and its effect.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - threatens
+  - mitigates
+  in:
+  - threatens
+template-policy: none
+labels:
+  en:
+    one: Risk
+    many: Risks
+  ru:
+    one: Риск
+    many: Риски
+description:
+  en: Something that may happen and would harm a goal, with its likelihood and its effect.
+  ru: То, что может случиться и навредить цели, с вероятностью и последствием.

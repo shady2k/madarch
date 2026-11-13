@@ -1,0 +1,33 @@
+id: practice.health-endpoint
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: The route that tells whether a service is alive.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - providesApi
+  in:
+  - providesApi
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- method
+- path
+- ports
+- statusOk
+- service
+labels:
+  en:
+    one: Health endpoint
+    many: Health endpoints
+  ru:
+    one: Проверка здоровья
+    many: Проверки здоровья
+description:
+  en: The route that tells whether a service is alive.
+  ru: Маршрут, по которому видно, жив ли сервис.

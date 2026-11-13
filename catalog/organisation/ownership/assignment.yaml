@@ -1,0 +1,27 @@
+id: practice.assignment
+purpose: history
+audience: [product-lead, product, architect]
+definition: A piece of work given to a person or a group, with the time it is expected in.
+sources:
+- https://scrumguides.org/scrum-guide.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - assigns
+  in:
+  - assigns
+template-policy: none
+labels:
+  en:
+    one: Assignment
+    many: Assignments
+  ru:
+    one: Назначение
+    many: Назначения
+description:
+  en: A piece of work given to a person or a group, with the time it is expected in.
+  ru: Работа, данная человеку или группе, со временем, к которому её ждут.

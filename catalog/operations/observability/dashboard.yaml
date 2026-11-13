@@ -1,0 +1,27 @@
+id: practice.dashboard
+purpose: operations
+audience: [developer, operations, platform-devops]
+definition: A screen of panels that shows the metrics and the logs of one subject over time.
+sources:
+- https://grafana.com/docs/grafana/latest/dashboards/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Dashboard
+    many: Dashboards
+  ru:
+    one: Панель
+    many: Панели
+description:
+  en: A screen of panels that shows the metrics and the logs of one subject over time.
+  ru: Экран из панелей, который показывает метрики и журналы одного предмета во времени.

@@ -1,0 +1,27 @@
+id: nist800-34.restore-test
+purpose: quality
+audience: [operations, platform-devops, tester]
+definition: A trial restore from a backup, with the time it took and what it proved.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - verifies
+  in:
+  - verifies
+template-policy: none
+labels:
+  en:
+    one: Restore test
+    many: Restore tests
+  ru:
+    one: Проверка восстановления
+    many: Проверки восстановления
+description:
+  en: A trial restore from a backup, with the time it took and what it proved.
+  ru: Пробное восстановление из резервной копии с затраченным временем и доказанным результатом.

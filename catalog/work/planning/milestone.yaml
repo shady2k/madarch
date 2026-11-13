@@ -1,0 +1,28 @@
+id: practice.milestone
+purpose: understand
+audience: [developer, product, product-lead, tester]
+definition: A dated point a set of epics is planned to reach.
+sources:
+- https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/about-milestones
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Milestone
+    many: Milestones
+  ru:
+    one: Веха
+    many: Вехи
+description:
+  en: A dated point a set of epics is planned to reach.
+  ru: Дата, к которой планируют прийти набором эпиков.

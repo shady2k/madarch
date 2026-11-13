@@ -4,15 +4,14 @@ import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 
 export function useExtractedGlossary(folder: string): void {
-  const path = join(folder, 'madarch', 'kinds.yaml');
+  const path = join(folder, 'madarch', 'kinds', 'requirements', 'statement', 'doc.term.yaml');
   const manifest = parseDocument(readFileSync(path, 'utf8'));
-  const term = ['kinds', 'doc.term'];
-  manifest.setIn([...term, 'source'], 'document');
-  manifest.setIn([...term, 'origin'], 'person');
-  manifest.setIn([...term, 'terms'], ['**/glossary*.md']);
-  manifest.setIn([...term, 'semantics'], 'term');
-  manifest.setIn([...term, 'key'], ['name']);
-  manifest.setIn([...term, 'fields'], [
+  manifest.setIn(['source'], 'document');
+  manifest.setIn(['origin'], 'person');
+  manifest.setIn(['terms'], ['**/glossary*.md']);
+  manifest.setIn(['semantics'], 'term');
+  manifest.setIn(['key'], ['name']);
+  manifest.setIn(['fields'], [
     { name: 'name', type: 'text', binding: 'glossary@1.name' },
     { name: 'definition', type: 'text', binding: 'glossary@1.definition' },
     { name: 'synonyms', type: 'json', nullable: true, binding: 'glossary@1.synonyms' },

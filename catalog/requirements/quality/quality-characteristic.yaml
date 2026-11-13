@@ -1,0 +1,27 @@
+id: iso25010.quality-characteristic
+purpose: quality
+audience: [product, analyst, tester, architect]
+definition: One of the quality characteristics a quality requirement is stated against, as ISO/IEC 25010 lists them.
+sources:
+- https://committee.iso.org/standard/78176.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Quality characteristic
+    many: Quality characteristics
+  ru:
+    one: Характеристика качества
+    many: Характеристики качества
+description:
+  en: One of the quality characteristics a quality requirement is stated against, as ISO/IEC 25010 lists them.
+  ru: Одна из характеристик качества, против которой заявляют требование качества, как их перечисляет ISO/IEC 25010.

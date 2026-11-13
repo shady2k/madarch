@@ -66,7 +66,10 @@ test('a source workspace and madarch settings are linked without modifying the c
   expect(product).toMatchObject({ ok: true, product: { name: 'madarch', repos: [{ name: 'madarch', linked: true }] } });
   if (!product.ok) throw new Error(product.message);
   expect(product.product.id).not.toBe('madarch');
-  expect(existsSync(join(folder, 'madarch', 'kinds.yaml'))).toBe(true);
+  expect(existsSync(join(folder, 'madarch', 'catalog.yaml'))).toBe(true);
+  expect(existsSync(join(folder, 'madarch', 'kinds', 'code', 'structure', 'code.file.yaml'))).toBe(true);
+  expect(existsSync(join(folder, 'madarch', 'kinds.yaml'))).toBe(false);
+  expect(readFileSync(join(source, 'madarch', 'kinds.yaml'), 'utf8')).toBe('source settings\n');
   expect(realpathSync(join(folder, 'repos', 'madarch'))).toBe(realpathSync(source));
   expect(readFileSync(join(source, 'workspace.yaml'), 'utf8')).toBe(settings);
   expect(runGit(source, ['rev-parse', 'HEAD'])).toEqual(before);

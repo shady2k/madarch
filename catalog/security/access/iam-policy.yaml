@@ -1,0 +1,27 @@
+id: practice.iam-policy
+purpose: operations
+audience: [security-engineer, architect]
+definition: A written rule that says who may do what with which resources.
+sources:
+- https://csrc.nist.gov/pubs/sp/800/207/final
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: IAM policy
+    many: IAM policies
+  ru:
+    one: Политика IAM
+    many: Политики IAM
+description:
+  en: A written rule that says who may do what with which resources.
+  ru: Письменное правило о том, кто что может делать с какими ресурсами.

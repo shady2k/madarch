@@ -1,3 +1,4 @@
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The wiki's pages over a small graph written out in the test (decision 0029):
  * the template substitution, every block of the library, the `madarch:` links
@@ -11,9 +12,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeGraph } from './fake-graph.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
-import { parseKinds } from '../src/product/manifest/kinds.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphMarkdownEntities } from '../src/knowledge/markdown.js';
-import type { Block, PageModel } from '../src/knowledge/model.js';
+import type { Block, KindSummary, PageModel } from '../src/knowledge/model.js';
 import { graphTitleOf, kindSummaries, listEntities, markdownTitleOf, renderPage, searchWiki } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 
@@ -81,7 +82,8 @@ beforeAll(async () => {
     mkdirSync(join(productFolder, path, '..'), { recursive: true });
     writeFileSync(join(productFolder, path), text);
   };
-  write('madarch/kinds.yaml', [
+  mkdirSync(join(productFolder, 'madarch'), { recursive: true });
+  writeFolderManifest(productFolder, [
     'properties:',
     '  line: { en: Line, ru: Строка }',
     '  marker: { en: Marker, ru: Маркер }',
@@ -158,7 +160,9 @@ beforeAll(async () => {
     ['svc/billing/src/b.ts', B_TS],
   ]);
 
-  const read = parseKinds(await Bun.file(join(productFolder, 'madarch/kinds.yaml')).text(), join(productFolder, 'madarch/kinds.yaml'), productFolder);
+  const loaded = readKinds(productFolder);
+  if (!loaded.present) throw new Error(`${productFolder}/madarch/catalog.yaml:1: fixture catalog missing`);
+  const read = loaded.manifest;
   expect(read.findings).toEqual([]);
   const blockPart = (name: string, params: Record<string, string> = {}, line = 1) => ({ type: 'block', name, params, line });
   const textPart = (text: string, line = 1) => ({ type: 'text', text, line });
@@ -401,7 +405,7 @@ describe('the function page', () => {
     const problem = block(await page(CHARGE), 'problem');
     expect(problem).toMatchObject({ block: 'er', file: 'templates/symbol.md', line: 7 });
     expect(problem.message).toContain('the er block draws an entity whose kind declares the ER view, and this is code.symbol');
-    expect(problem.message).toContain(`${join(productFolder, 'madarch', 'kinds.yaml')}:21 gives the kind code.symbol no "er: tables" or "er: links"`);
+    expect(problem.message).toContain(`${join(productFolder, 'madarch/catalog.yaml')}:1 gives the kind code.symbol no "er: tables" or "er: links"`);
   });
 });
 
@@ -493,7 +497,7 @@ describe('what has a page', () => {
 
   test('the kinds are counted from the graph and from the Markdown, and listed in key order with a filter', async () => {
     const summaries = await kindSummaries(ctx);
-    expect(summaries).toEqual([
+    expect(summaries).toEqual(([
       { kind: 'product', source: 'markdown', page: true, single: true, count: 1, origins: ['agent'] },
       { kind: 'domain', source: 'markdown', page: true, single: false, count: 1, origins: ['agent'] },
       { kind: 'code.service', source: 'graph', page: true, single: false, count: 1, origins: ['code'] },
@@ -502,7 +506,7 @@ describe('what has a page', () => {
       { kind: 'code.debt', source: 'graph', page: true, single: false, count: 1, origins: ['code'] },
       { kind: 'code.database', source: 'graph', page: true, single: false, count: 1, origins: ['code'] },
       { kind: 'doc.use-case', source: 'document', page: true, single: false, count: 0, origins: ['person'] },
-    ]);
+    ] satisfies KindSummary[]).map((entry) => ({ ...entry, group: 'fixture.fixture' })).sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
     const symbols = await listEntities(ctx, 'code.symbol', { limit: 2 });
     expect(symbols).toMatchObject({ total: 3, next: CHARGE });
     expect(symbols!.rows.map((row) => row.id)).toEqual([AUDIT, CHARGE]);

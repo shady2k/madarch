@@ -1,0 +1,27 @@
+id: practice.key-material
+purpose: structure
+audience: [security-engineer, architect, developer]
+definition: A key the product uses to sign, encrypt or authenticate, with where it is kept and when it expires.
+sources:
+- https://www.rfc-editor.org/rfc/rfc5280.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Key material
+    many: Key materials
+  ru:
+    one: Ключевой материал
+    many: Ключевой материал
+description:
+  en: A key the product uses to sign, encrypt or authenticate, with where it is kept and when it expires.
+  ru: Ключ, которым продукт подписывает, шифрует или аутентифицирует, с местом хранения и сроком.

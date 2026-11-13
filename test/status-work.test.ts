@@ -127,7 +127,7 @@ describe('a status answer reads the manifest once per key', () => {
 
   test('a manifest edited and committed beside the product shows after the fill, and the wiki never reads the file itself', async () => {
     manifestReads = 0;
-    const file = join(folder, 'madarch', 'kinds.yaml');
+    const file = join(folder, 'madarch', 'catalog.yaml');
     const manifest = parseDocument(readFileSync(file, 'utf8'));
     manifest.setIn(['groups', 'stamp-probe'], { en: 'Stamp probe', ru: 'Проба чекана', short: { en: 'Stamp probe', ru: 'Проба чекана' } });
     manifest.addIn(['roles', 'developer', 'lead'], 'stamp-probe');

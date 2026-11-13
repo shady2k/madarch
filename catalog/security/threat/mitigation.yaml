@@ -1,0 +1,27 @@
+id: owasp.mitigation
+purpose: quality
+audience: [security-engineer, architect]
+definition: A measure that reduces a threat's likelihood or its effect.
+sources:
+- https://community.owasp.org/Threat_Modeling
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - mitigates
+  in:
+  - mitigates
+template-policy: none
+labels:
+  en:
+    one: Mitigation
+    many: Mitigations
+  ru:
+    one: Смягчение
+    many: Смягчения
+description:
+  en: A measure that reduces a threat's likelihood or its effect.
+  ru: Мера, которая снижает вероятность угрозы или её эффект.

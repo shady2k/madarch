@@ -1,0 +1,28 @@
+id: gdpr.personal-data-category
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: A kind of personal data processed, such as a name, a location or a health record.
+sources:
+- https://gdpr-info.eu/art-30-gdpr/
+- https://w3c.github.io/dpv/2.0/dpv/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Personal-data category
+    many: Personal-data categories
+  ru:
+    one: Категория персональных данных
+    many: Категории персональных данных
+description:
+  en: A kind of personal data processed, such as a name, a location or a health record.
+  ru: 'Вид обрабатываемых персональных данных: имя, местоположение или запись о здоровье.'

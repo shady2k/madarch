@@ -1,0 +1,28 @@
+id: practice.firewall-rule
+purpose: operations
+audience: [operations, platform-devops, security-engineer]
+definition: A rule that allows or refuses traffic between addresses, ports and protocols.
+sources:
+- https://www.rfc-editor.org/rfc/rfc4949.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  - appliesTo
+  in:
+  - appliesTo
+template-policy: none
+labels:
+  en:
+    one: Firewall rule
+    many: Firewall rules
+  ru:
+    one: Правило брандмауэра
+    many: Правила брандмауэра
+description:
+  en: A rule that allows or refuses traffic between addresses, ports and protocols.
+  ru: Правило, которое разрешает или запрещает трафик между адресами, портами и протоколами.

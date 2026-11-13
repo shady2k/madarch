@@ -1,0 +1,27 @@
+id: kubernetes.daemonset
+purpose: operations
+audience: [operations, platform-devops, architect]
+definition: A Kubernetes workload that runs one pod on every node it selects.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: DaemonSet
+    many: DaemonSets
+  ru:
+    one: DaemonSet
+    many: DaemonSet
+description:
+  en: A Kubernetes workload that runs one pod on every node it selects.
+  ru: Рабочая нагрузка Kubernetes, которая запускает один под на каждом выбранном узле.

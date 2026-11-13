@@ -1,0 +1,27 @@
+id: openssf.scorecard-check
+purpose: quality
+audience: [security-engineer, platform-devops, developer]
+definition: One OpenSSF Scorecard check of a repository, with its score and the evidence it read.
+sources:
+- https://github.com/ossf/scorecard/blob/main/docs/checks.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - measures
+  in:
+  - measures
+template-policy: none
+labels:
+  en:
+    one: Scorecard check
+    many: Scorecard checks
+  ru:
+    one: Проверка Scorecard
+    many: Проверки Scorecard
+description:
+  en: One OpenSSF Scorecard check of a repository, with its score and the evidence it read.
+  ru: Одна проверка репозитория OpenSSF Scorecard с оценкой и прочитанными доказательствами.

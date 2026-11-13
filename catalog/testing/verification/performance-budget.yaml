@@ -1,0 +1,27 @@
+id: practice.performance-budget
+purpose: quality
+audience: [tester, developer]
+definition: A limit a screen or a route must stay within, which a performance test checks.
+sources:
+- https://web.dev/articles/performance-budgets-101
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Performance budget
+    many: Performance budgets
+  ru:
+    one: Бюджет производительности
+    many: Бюджеты производительности
+description:
+  en: A limit a screen or a route must stay within, which a performance test checks.
+  ru: Предел, в который должен укладываться экран или маршрут и который проверяет тест производительности.

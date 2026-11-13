@@ -54,7 +54,7 @@ const PARSER_PACKAGES = new Set(['yaml', 'remark-parse', 'remark-gfm', 'unified'
 const PARSER_CALLS = new Set(['parse', 'parseDocument', 'parseAllDocuments', 'parseSync']);
 const FS_READS = new Set(['readFile', 'readFileSync', 'createReadStream', 'open', 'openSync']);
 const PRODUCT_ROOTS = new Set(['productFolder', 'productRoot', 'productDirectory']);
-const PRODUCT_PATHS = new Set(['workspace.yaml', 'madarch/kinds.yaml', 'madarch/workflows.yaml', 'docs', 'README.md']);
+const PRODUCT_PATHS = new Set(['workspace.yaml', 'madarch/catalog.yaml', 'madarch/kinds', 'madarch/kinds.yaml', 'madarch/workflows.yaml', 'docs', 'README.md']);
 
 /** Calls and value dependencies are both checked; a type-only import carries no reader. */
 export function productFileReaderViolations(root: string): ArchitectureViolation[] {

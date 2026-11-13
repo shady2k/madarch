@@ -1,0 +1,27 @@
+id: practice.database-change
+purpose: operations
+audience: [operations, platform-devops]
+definition: A change to a database's schema or its data, with the way back if it fails.
+sources:
+- https://kubernetes.io/docs/concepts/workloads/controllers/job/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Database change
+    many: Database changes
+  ru:
+    one: Изменение базы данных
+    many: Изменения базы данных
+description:
+  en: A change to a database's schema or its data, with the way back if it fails.
+  ru: Изменение схемы или данных базы с путём назад при сбое.

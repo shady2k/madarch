@@ -1,0 +1,76 @@
+id: practice.commit
+purpose: history
+audience: [developer, architect, product-lead]
+definition: A change in the repository's history, with its author and the files it touched.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
+acquisition:
+- extractor history
+status: implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - partOf
+template-policy: page
+template: templates/commit.liquid
+source: graph
+capability: git
+fields:
+- name: hash
+  type: text
+  producers:
+  - git
+- name: algorithm
+  type: text
+  producers:
+  - git
+- name: subject
+  type: text
+  nullable: true
+  producers:
+  - git
+- name: author_date
+  type: timestamp
+  nullable: true
+  producers:
+  - git
+- name: author_offset_min
+  type: integer
+  nullable: true
+  producers:
+  - git
+- name: commit_date
+  type: timestamp
+  nullable: true
+  producers:
+  - git
+- name: commit_offset_min
+  type: integer
+  nullable: true
+  producers:
+  - git
+key:
+- hash
+depends-on:
+- code.repository
+origin: history
+history: commit
+details:
+- author
+- authorEmail
+- subject
+- authoredAt
+- committedAt
+- merge
+- mergedBranch
+labels:
+  en:
+    one: Commit
+    many: Commits
+  ru:
+    one: Коммит
+    many: Коммиты
+description:
+  en: A change in the repository's history, with its author and the files it touched.
+  ru: Изменение в истории репозитория, его автор и затронутые файлы.

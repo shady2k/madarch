@@ -1,0 +1,27 @@
+id: istqb.test-session
+purpose: quality
+audience: [tester, developer]
+definition: One bounded period of exploratory testing, with what it found.
+sources:
+- https://glossary.istqb.org/en_US/term/exploratory-testing
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - evidences
+  in:
+  - evidences
+template-policy: none
+labels:
+  en:
+    one: Test session
+    many: Test sessions
+  ru:
+    one: Тестовая сессия
+    many: Тестовые сессии
+description:
+  en: One bounded period of exploratory testing, with what it found.
+  ru: Ограниченный период исследовательского тестирования с его находками.

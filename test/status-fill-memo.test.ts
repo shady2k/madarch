@@ -10,6 +10,7 @@ import { fillInProcess } from './fill-inline.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { prepareTestProduct } from './prepared-server.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 
 test('a cached status says manifest ok and filled together after a real successful fill', async () => {
   const work = mkdtempSync(join(tmpdir(), 'madarch-status-fill-memo-'));
@@ -23,14 +24,11 @@ test('a cached status says manifest ok and filled together after a real successf
     if (draft.outcome !== 'created') throw new Error(`cannot create fixture: ${JSON.stringify(draft)}`);
     mkdirSync(join(draft.folder, 'templates'), { recursive: true });
     writeFileSync(join(draft.folder, 'templates', 'idea.liquid'), '{{ page.title }}\n');
-    writeFileSync(join(draft.folder, 'madarch', 'kinds.yaml'), `groups:
-  tracker: { en: Tracker, ru: Tracker }
-kinds:
+    writeFolderManifest(draft.folder, `kinds:
   idea:
     template: templates/idea.liquid
     source: graph
     origin: person
-    group: tracker
     fields:
       - { name: title, type: text, producers: [person] }
     title: title

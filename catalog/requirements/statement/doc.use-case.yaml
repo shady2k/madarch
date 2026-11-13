@@ -1,0 +1,50 @@
+id: practice.use-case
+purpose: understand
+audience: [product, analyst, tester, developer, architect]
+definition: A way an actor reaches a goal with the system, as the documents state it.
+sources:
+- https://arc42.org/overview
+acquisition:
+- document
+- conversation
+status: implemented
+relation-constraints:
+  out:
+  - refines
+  - satisfies
+  in:
+  - refines
+template-policy: page
+template: templates/entity-text.liquid
+source: graph
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: front
+  type: json
+  nullable: true
+  producers:
+  - person
+origin: person
+labels:
+  en:
+    one: Use case
+    many: Use cases
+  ru:
+    one: Сценарий
+    many: Сценарии
+description:
+  en: A way a person uses the product (UC-1, UC-2 ...), as the documents state it.
+  ru: Способ, которым человек пользуется продуктом (UC-1, UC-2 ...), как его описывают документы.

@@ -1,0 +1,27 @@
+id: codeowners.owner
+purpose: history
+audience: [developer, architect]
+definition: A person or a team a CODEOWNERS pattern makes the reviewer of some paths; it is review ownership only.
+sources:
+- https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - ownedBy
+  in:
+  - ownedBy
+template-policy: none
+labels:
+  en:
+    one: Code owner
+    many: Code owners
+  ru:
+    one: Владелец кода
+    many: Владельцы кода
+description:
+  en: A person or a team a CODEOWNERS pattern makes the reviewer of some paths; it is review ownership only.
+  ru: Человек или команда, которых шаблон CODEOWNERS делает рецензентами путей; это только ответственный за просмотр.

@@ -1,0 +1,27 @@
+id: spdx.license
+purpose: quality
+audience: [security-engineer, platform-devops, developer]
+definition: The terms a component may be used under, named by its SPDX identifier.
+sources:
+- https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - hasDeclaredLicense
+template-policy: none
+labels:
+  en:
+    one: Licence
+    many: Licences
+  ru:
+    one: Лицензия
+    many: Лицензии
+description:
+  en: The terms a component may be used under, named by its SPDX identifier.
+  ru: Условия, на которых можно использовать компонент, названные его идентификатором SPDX.

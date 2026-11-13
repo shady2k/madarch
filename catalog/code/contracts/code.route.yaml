@@ -1,0 +1,39 @@
+id: practice.http-route
+purpose: structure
+audience: [developer, architect, analyst, tester]
+definition: An HTTP route a service serves, read from its code.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- extractor code
+status: implemented
+relation-constraints:
+  out:
+  - handles
+  - routesTo
+  in:
+  - routesTo
+template-policy: page
+template: templates/route.liquid
+source: graph
+sequence: route
+details:
+- method
+- path
+- authGroup
+- authAlgorithm
+- handler
+- handlerPath
+- service
+- middleware
+- ports
+labels:
+  en:
+    one: HTTP route
+    many: HTTP routes
+  ru:
+    one: HTTP-маршрут
+    many: HTTP-маршруты
+description:
+  en: An HTTP route a service serves, read from its code.
+  ru: HTTP-маршрут, который обслуживает сервис, прочитанный из кода.

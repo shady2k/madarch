@@ -1,0 +1,27 @@
+id: oscal.system-security-plan
+purpose: quality
+audience: [security-engineer, analyst, product-lead]
+definition: The plan that binds a system to a profile, its controls and how they are implemented.
+sources:
+- https://pages.nist.gov/OSCAL/learn/concepts/layer/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - contains
+  in:
+  - documents
+template-policy: none
+labels:
+  en:
+    one: System security plan
+    many: System security plans
+  ru:
+    one: План безопасности системы
+    many: Планы безопасности системы
+description:
+  en: The plan that binds a system to a profile, its controls and how they are implemented.
+  ru: План, который привязывает систему к профилю, его контролям и способу их реализации.

@@ -1,0 +1,27 @@
+id: practice.sso-configuration
+purpose: operations
+audience: [security-engineer, operations, platform-devops]
+definition: How a service trusts one identity provider to sign its users in.
+sources:
+- https://docs.oasis-open.org/security/saml/v2.0/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  in:
+  - defines
+template-policy: none
+labels:
+  en:
+    one: SSO configuration
+    many: SSO configurations
+  ru:
+    one: Настройка SSO
+    many: Настройки SSO
+description:
+  en: How a service trusts one identity provider to sign its users in.
+  ru: То, как сервис доверяет одному поставщику идентичности вход его пользователей.

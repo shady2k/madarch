@@ -1,0 +1,27 @@
+id: practice.deprecation
+purpose: operations
+audience: [operations, platform-devops, product-lead]
+definition: The announcement that a part of the product will be withdrawn, and what replaces it.
+sources:
+- https://www.rfc-editor.org/rfc/rfc8594.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Deprecation
+    many: Deprecations
+  ru:
+    one: Прекращение поддержки
+    many: Прекращения поддержки
+description:
+  en: The announcement that a part of the product will be withdrawn, and what replaces it.
+  ru: Объявление о том, что часть продукта будет отозвана, и о том, что её заменит.

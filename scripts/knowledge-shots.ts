@@ -815,7 +815,7 @@ if (only === '' || only === 'tasks') {
 // ---- a Russian wiki over English documents (madarch-m38l.18) -----------------------------------
 // The owner's complaint: after a Russian refresh the glossary still showed the English definitions of
 // docs/glossary.md, and a place still carried the name of the repository it stands in. The walk fills a
-// product whose madarch/kinds.yaml says `language: ru` over the training repository's English documents,
+// product whose madarch/catalog.yaml says `language: ru` over the training repository's English documents,
 // with the scripted agent (no model runs), and shows what a reader sees: the glossary with «В источнике»
 // closed and open, a use case and a business rule, the domain page the agent wrote in Russian, and the
 // place a term is stated at. Every surface is shot in both schemes and at both widths, and the language
@@ -836,7 +836,7 @@ if (only === 'localized') {
   // writes into the manifest, as `language: ru` among its top-level keys.
   rmSync(folder, { recursive: true, force: true });
   makeProduct(home, name, repository);
-  const manifest = join(folder, 'madarch', 'kinds.yaml');
+  const manifest = join(folder, 'madarch', 'catalog.yaml');
   writeFileSync(manifest, `${readFileSync(manifest, 'utf8')}language: ru\n`);
   writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript({}, { product: `product:${name}` })));
   const chosen = await api('/api/agent', { agent: 'claude-code', install: false });

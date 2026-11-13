@@ -1,0 +1,27 @@
+id: practice.upgrade
+purpose: operations
+audience: [operations, platform-devops]
+definition: A move of a component or a platform to a newer version, with what it requires first.
+sources:
+- https://endoflife.date/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Upgrade
+    many: Upgrades
+  ru:
+    one: Обновление
+    many: Обновления
+description:
+  en: A move of a component or a platform to a newer version, with what it requires first.
+  ru: Переход компонента или платформы на более новую версию и то, что для него нужно сначала.

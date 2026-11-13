@@ -577,6 +577,8 @@ export interface SearchView {
 }
 
 export interface KindSummary {
+  purpose?: string;
+  audience?: readonly string[];
   kind: string;
   source: 'graph' | 'markdown' | 'document';
   count: number;
@@ -832,7 +834,7 @@ export interface AgentOffer {
 
 export interface WikiStatus {
   product: { name: string; id: string };
-  /** `no-manifest` when `madarch/kinds.yaml` is absent. */
+  /** `no-manifest` when `madarch/catalog.yaml` is absent. */
   manifest: 'ok' | 'not-filled' | 'no-manifest';
   /** Startup catalogue publication is separate from a fill and never opens a store for a poll. */
   publication?: 'pending' | 'done' | 'failed';
@@ -843,6 +845,7 @@ export interface WikiStatus {
   /** How many findings the documents and the manifest hold: a count, never the list (madarch-8bdc.2.5). */
   findingCount: number;
   kinds: KindSummary[];
+  purposes?: { id: string; labels: Record<string, string>; order: number; kinds: string[] }[];
   /** The groups of kinds, in the manifest's order. */
   groups: {
     group: string;
@@ -957,6 +960,7 @@ export interface RelyingRef {
 
 /** A statement of an agent's page: the sentence, its paragraph and each ground with its excerpt (the statement view). */
 export interface StatementModel {
+  aggregate?: import('./facts.js').FactGround;
   page: EntityRef;
   /** The statement's name on its page (its first footnote's name, `~2` from the second use): what a correction names it by; null when unnamed. */
   name: string | null;

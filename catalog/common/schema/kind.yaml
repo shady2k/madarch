@@ -1,0 +1,31 @@
+id: manifest.kinds
+purpose: structure
+audience: [architect, product-lead]
+definition: 'A declared kind of entity in the product manifest: its concept id, definition, sources, acquisition, status,
+  relation constraints and template policy; its id is its key under kinds.'
+sources:
+- https://doc.anytype.io/anytype/organize/types
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - defines
+  - hasPart
+  in:
+  - defines
+  - partOf
+template-policy: none
+labels:
+  en:
+    one: Kind
+    many: Kinds
+  ru:
+    one: Вид
+    many: Виды
+description:
+  en: A kind of entity the manifest declares, with its row of the catalog.
+  ru: Вид сущности, который объявляет манифест, со своей строкой каталога.

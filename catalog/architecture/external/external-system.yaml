@@ -1,0 +1,27 @@
+id: c4.external-system
+purpose: structure
+audience: [architect, developer, analyst]
+definition: A software system outside the product's scope that the product communicates with.
+sources:
+- https://c4model.com/abstractions
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - c4.uses
+  in:
+  - c4.uses
+template-policy: none
+labels:
+  en:
+    one: External system
+    many: External systems
+  ru:
+    one: Внешняя система
+    many: Внешние системы
+description:
+  en: A software system outside the product's scope that the product communicates with.
+  ru: Программная система вне границ продукта, с которой продукт взаимодействует.

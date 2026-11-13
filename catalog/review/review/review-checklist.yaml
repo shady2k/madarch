@@ -1,0 +1,27 @@
+id: practice.review-checklist
+purpose: quality
+audience: [developer, tester]
+definition: The list of what a reviewer is expected to check before approving a change.
+sources:
+- https://docs.github.com/en/pull-requests/collaborating-with-pull-requests
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - constrains
+  in:
+  - constrains
+template-policy: none
+labels:
+  en:
+    one: Review checklist
+    many: Review checklists
+  ru:
+    one: Контрольный список просмотра
+    many: Контрольные списки просмотра
+description:
+  en: The list of what a reviewer is expected to check before approving a change.
+  ru: Список того, что рецензент должен проверить до одобрения изменения.

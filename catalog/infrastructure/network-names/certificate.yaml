@@ -1,0 +1,27 @@
+id: x509.certificate
+purpose: operations
+audience: [operations, platform-devops, security-engineer]
+definition: A signed statement that binds a public key to a name, which a service presents to be trusted.
+sources:
+- https://www.rfc-editor.org/rfc/rfc5280.html
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - refines
+  in:
+  - refines
+template-policy: none
+labels:
+  en:
+    one: Certificate
+    many: Certificates
+  ru:
+    one: Сертификат
+    many: Сертификаты
+description:
+  en: A signed statement that binds a public key to a name, which a service presents to be trusted.
+  ru: Подписанное утверждение, связывающее открытый ключ с именем, которое сервис предъявляет для доверия.

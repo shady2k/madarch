@@ -1,0 +1,27 @@
+id: istqb.defect
+purpose: quality
+audience: [tester, developer]
+definition: An imperfection in a work product that may cause a failure.
+sources:
+- https://glossary.istqb.org/en_US/term/defect
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - affects
+  in:
+  - foundBy
+template-policy: none
+labels:
+  en:
+    one: Defect
+    many: Defects
+  ru:
+    one: Дефект
+    many: Дефекты
+description:
+  en: An imperfection in a work product that may cause a failure.
+  ru: Несовершенство продукта работы, которое может вызвать сбой.

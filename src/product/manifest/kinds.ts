@@ -1,7 +1,9 @@
 /**
  * The product's entity kinds (decision 0029, "Manifests and templates live in
- * the product repository"): `madarch/kinds.yaml` in the product repository
- * declares which kinds the wiki shows, where each kind's entities come from
+ * the product repository"): `madarch/catalog.yaml` and `madarch/kinds/` in the product repository
+ * is the retired layout. `madarch/catalog.yaml` holds metadata and
+ * `madarch/kinds/<group>/<subgroup>/<kind>.yaml` declares each kind,
+ * including where its entities come from
  * (the graph, or Markdown files in the product repository) and the template
  * that shows them. The engine holds no kind of its own: nothing here names a
  * kind, a folder or a template, and a product without the file has no pages.
@@ -34,8 +36,11 @@
 import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { LineCounter, parseDocument, type Document } from 'yaml';
-import { lineForPath } from '../../model/yaml-position.js';
+import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
+
+/** Decode repository-owned catalogue YAML in the manifest layer. */
+export function parseCatalogYaml(text: string): unknown { return Bun.YAML.parse(text); }
+import { lineForPath, lineLocator } from '../../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from '../../knowledge/catalog.js';
 import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from '../../knowledge/semantics.js';
@@ -45,12 +50,16 @@ import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettin
 import { Value } from 'typebox/value';
 import { PluginContractFile, type PluginContractDeclaration } from '../../plugin/protocol.js';
 import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
-import { workingTreeFiles, type ProductFileRead } from '../../plugin/product-files.js';
+import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
 import { byCodePoint } from '../../model/order.js';
 
 /** The manifest's place in the product repository. */
-export const KINDS_FILE = 'madarch/kinds.yaml';
+export const KINDS_FILE = 'madarch/catalog.yaml';
+export const KINDS_FOLDER = 'madarch/kinds';
+const LEGACY_KINDS_FILE = 'madarch/kinds.yaml';
+
+export type KindsFileSource = ProductFileRead & Pick<ProductFileSource, 'filesBelow'>;
 
 /** One problem in a product file the wiki reads: where it is and what it is. */
 /** What kind of problem a finding is, for the Problems page: a file that cannot be read. */
@@ -243,7 +252,30 @@ interface GroupDecl {
  */
 export const GROUP_SHORT_LABEL_LIMIT = 18;
 
+/** A deterministic aggregate declared by a kind, not an agent conclusion. */
+export interface FactDecl {
+  readonly id: string;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly measure: 'count' | 'group-by' | 'histogram' | 'top-n';
+  readonly display: 'number' | 'bar' | 'treemap' | 'timeline';
+  readonly field?: string;
+  /** Upper bounds in days since the timestamp, followed by an open-ended bucket. */
+  readonly buckets?: readonly number[];
+  readonly limit?: number;
+  readonly audience?: readonly string[];
+}
+
+export interface PurposeDecl {
+  id: string;
+  labels: Readonly<Record<string, string>>;
+  order: number;
+  line: number;
+}
+
 export interface KindDecl {
+  purpose?: string;
+  audience?: readonly string[];
+  facts?: readonly FactDecl[];
   name: string;
   /** The template's path in the product repository, `/`-separated. */
   template: string;
@@ -490,6 +522,7 @@ export interface KindsManifest {
   file: string;
   /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
   roles: ReadonlyMap<string, RoleDecl>;
+  purposes?: ReadonlyMap<string, PurposeDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
   /** `journal:` — whether the journal keeps every request a plugin makes, its reads included (off unless it is said). */
@@ -499,6 +532,8 @@ export interface KindsManifest {
   /** The reader-facing labels and value formats of the properties the kinds show. */
   properties: ReadonlyMap<string, PropertyDecl>;
   kinds: ReadonlyMap<string, KindDecl>;
+  /** Source paths of folder declarations, keyed by kind name. */
+  kindFiles?: ReadonlyMap<string, string>;
   /** The edge kinds the manifest declares, by name. */
   edges?: ReadonlyMap<string, EdgeDecl>;
   /** The plugins the product holds, by id (decision 0035, item 11). */
@@ -553,7 +588,7 @@ export type KindsRead =
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
-  'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'purpose', 'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
@@ -839,21 +874,192 @@ function withWorkflows(manifest: KindsManifest, files: ProductFileRead, productF
   };
 }
 
-/** Reads `madarch/kinds.yaml` of a product folder's working tree; absent when the product holds none. */
+/** Reads catalogue metadata and kind declarations of a product working tree; absent when neither exists. */
 export function readKinds(productFolder: string): KindsRead {
   return readKindsFrom(workingTreeFiles(productFolder), productFolder);
 }
 
 /**
- * Reads `madarch/kinds.yaml` and the declaration files beside it from a source of the product repository's files: the
+ * Reads the metadata and folder declarations from a source of the product repository's files: the
  * fill's working tree, or the graph's stored text for a reader of the wiki. Nothing is read from a checkout here.
  */
-export function readKindsFrom(files: ProductFileRead, productFolder: string): KindsRead {
-  const file = join(productFolder, KINDS_FILE);
-  if (!files.has(KINDS_FILE)) return { present: false, file };
-  const text = files.text(KINDS_FILE);
-  if (text === undefined) return { present: true, manifest: nothing(file, [{ file, line: 1, message: 'the file cannot be read: the source holds no text of it' }]) };
-  return { present: true, manifest: withWorkflows(parseKinds(text, file, productFolder, files), files, productFolder) };
+type KindsReadDependency = { method: 'has'; path: string; value: boolean } | { method: 'text'; path: string; value: string | undefined } | { method: 'size'; path: string; value: number | null } | { method: 'filesBelow'; path: string; value: string[] };
+const kindsReads = new Map<string, { dependencies: KindsReadDependency[]; read: KindsRead }>();
+
+export function readKindsFrom(files: KindsFileSource, productFolder: string): KindsRead {
+  const held = kindsReads.get(productFolder);
+  const matches = held !== undefined && held.dependencies.every((dependency) => {
+    try {
+      if (dependency.method === 'filesBelow') {
+        const current = files.filesBelow(dependency.path);
+        return current.length === dependency.value.length && current.every((path, index) => path === dependency.value[index]);
+      }
+      return files[dependency.method](dependency.path) === dependency.value;
+    } catch {
+      return false;
+    }
+  });
+  if (held !== undefined && matches) {
+    kindsReads.delete(productFolder);
+    kindsReads.set(productFolder, held);
+    return structuredClone(held.read);
+  }
+  const dependencies: KindsReadDependency[] = [];
+  let sourceThrew = false;
+  const call = <T>(read: () => T): T => {
+    try { return read(); } catch (error) { sourceThrew = true; throw error; }
+  };
+  const recorded: KindsFileSource = {
+    has: (path) => { const value = call(() => files.has(path)); dependencies.push({ method: 'has', path, value }); return value; },
+    text: (path) => { const value = call(() => files.text(path)); dependencies.push({ method: 'text', path, value }); return value; },
+    filesBelow: (path) => { const value = call(() => files.filesBelow(path)); dependencies.push({ method: 'filesBelow', path, value: [...value] }); return value; },
+    size: (path) => { const value = call(() => files.size(path)); dependencies.push({ method: 'size', path, value }); return value; },
+  };
+  const read = readKindsUncached(recorded, productFolder);
+  kindsReads.delete(productFolder);
+  if (!sourceThrew) kindsReads.set(productFolder, { dependencies, read: structuredClone(read) });
+  while (kindsReads.size > PARSED_MANIFESTS_KEPT) kindsReads.delete(kindsReads.keys().next().value!);
+  return read;
+}
+
+function readKindsUncached(files: KindsFileSource, productFolder: string): KindsRead {
+  if (files.has(LEGACY_KINDS_FILE)) {
+    const file = join(productFolder, LEGACY_KINDS_FILE);
+    return { present: true, manifest: nothing(file, [{ file, source: file, line: 1, message: 'the legacy madarch/kinds.yaml layout is not supported: migrate metadata to madarch/catalog.yaml and kind declarations to madarch/kinds/<group>/<subgroup>/<kind>.yaml' }]) };
+  }
+  const read = readKindsFolderFrom(files, productFolder);
+  return read.present ? { present: true, manifest: withWorkflows(read.manifest, files, productFolder) } : read;
+}
+
+/** Reads a folder catalogue through the same validator as product declarations, retaining each source line. */
+export function readKindsFolderFrom(files: KindsFileSource, productFolder: string, metadataPath = KINDS_FILE, kindsFolder = KINDS_FOLDER): KindsRead {
+  const file = join(productFolder, metadataPath);
+  const paths = files.filesBelow(kindsFolder).filter((path) => path !== metadataPath).sort(byCodePoint);
+  if (!files.has(metadataPath) && paths.length === 0) return { present: false, file };
+  const documents = folderManifestDocuments(productFolder, [file, ...paths.map((path) => join(productFolder, path))]);
+  const findings: Finding[] = [];
+  const locations: { file: string; line: number }[] = [];
+  const kindFiles = new Map<string, string>();
+  const locators = new Map<string, (path: (string | number)[]) => number>();
+  const readDocument = (path: string): Record<string, unknown> | undefined => {
+    const full = join(productFolder, path);
+    const text = files.has(path) ? files.text(path) : undefined;
+    if (text === undefined) {
+      findings.push({ file: full, source: full, line: 1, message: 'the file cannot be read: the source holds no text of it' });
+      return undefined;
+    }
+    const { doc, lines } = parsedFolderManifest(documents, text, full);
+    if (doc.errors.length > 0) {
+      for (const error of doc.errors) findings.push({ file: full, source: full, line: error.linePos?.[0].line ?? 1, message: error.message.split('\n')[0] ?? error.message });
+      return undefined;
+    }
+    let aliasError = false;
+    let failureLine: number | undefined;
+    const restoreAliases: (() => void)[] = [];
+    visit(doc, (_key, node) => {
+      if (!isAlias(node)) return;
+      if (!node.resolve(doc)) {
+        aliasError = true;
+        findings.push({ file: full, source: full, line: lines.linePos(node.range?.[0] ?? 0).line, message: `Unresolved alias (the anchor must be set before the alias): ${node.source}` });
+      }
+      const original = node.toJSON;
+      node.toJSON = function (...args) {
+        try { return original.apply(this, args); } catch (error) {
+          failureLine ??= lines.linePos(node.range?.[0] ?? 0).line;
+          throw error;
+        }
+      };
+      restoreAliases.push(() => { node.toJSON = original; });
+    });
+    let value: unknown;
+    try {
+      if (aliasError) return undefined;
+      value = doc.toJS();
+    } catch (error) {
+      findings.push({ file: full, source: full, line: failureLine ?? 1, message: error instanceof Error ? error.message : String(error) });
+      return undefined;
+    } finally {
+      for (const restore of restoreAliases) restore();
+    }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      findings.push({ file: full, source: full, line: 1, message: 'the declaration is a YAML mapping' });
+      return undefined;
+    }
+    for (const key of ['kinds', ...(path === metadataPath ? [] : ['name', 'group'])]) {
+      if (Object.hasOwn(value, key)) {
+        findings.push({ file: full, source: full, line: lineForPath(doc, lines, [key]), message: `"${key}" is not declared here: kind names and groups come from the folder layout` });
+        return undefined;
+      }
+    }
+    const offset = locations.length;
+    for (let line = 1; line <= text.split('\n').length; line++) locations.push({ file: full, line });
+    const locate = lineLocator(doc, lines);
+    locators.set(path, (parts) => offset + locate(parts));
+    return value as Record<string, unknown>;
+  };
+  const metadata = readDocument(metadataPath) ?? {};
+  const rawGroups = metadata['groups'];
+  const groups = rawGroups !== null && typeof rawGroups === 'object' && !Array.isArray(rawGroups) ? rawGroups as Record<string, { parent?: unknown }> : {};
+  const kinds: Record<string, unknown> = Object.create(null);
+  for (const path of paths) {
+    const full = join(productFolder, path);
+    const segments = path.slice(kindsFolder.length + 1).split('/');
+    const leaf = segments.at(-1)!;
+    if (segments.length !== 3 || !leaf.endsWith('.yaml') || leaf === '.yaml' || segments.some((segment) => segment === '')) {
+      findings.push({ file: full, source: full, line: 1, message: 'a kind declaration lives at <group>/<subgroup>/<kind>.yaml' });
+      continue;
+    }
+    const name = leaf.slice(0, -'.yaml'.length);
+    const value = readDocument(path);
+    if (kindFiles.has(name)) {
+      findings.push({ file: full, source: full, line: 1, message: `kind "${name}" is already declared in ${join(productFolder, kindFiles.get(name)!)}` });
+      continue;
+    }
+    if (value === undefined) continue;
+    kindFiles.set(name, path);
+    const subgroup = segments[1]!;
+    const group = groups[subgroup]?.parent === segments[0] ? subgroup : segments.slice(0, -1).join('.');
+    kinds[name] = { group, ...value };
+  }
+  const at = (path: (string | number)[]): number => {
+    if (path[0] === 'kinds' && typeof path[1] === 'string') {
+      const kindPath = kindFiles.get(path[1]);
+      if (kindPath !== undefined) return locators.get(kindPath)!(path.slice(2));
+    }
+    return locators.get(metadataPath)?.(path) ?? 1;
+  };
+  const manifest = parseKinds({ root: { ...metadata, kinds }, at }, file, productFolder, files);
+  const location = (line: number) => locations[line - 1] ?? { file, line: 1 };
+  const remap = (finding: Finding): Finding => finding.file === file
+    ? { ...finding, ...location(finding.line), source: location(finding.line).file }
+    : finding;
+  // Declaration locations are used by publication as well as diagnostics.
+  const remapLines = (value: unknown): void => {
+    if (value instanceof Map) { for (const entry of value.values()) remapLines(entry); }
+    else if (Array.isArray(value)) { for (const entry of value) remapLines(entry); }
+    else if (value !== null && typeof value === 'object') {
+      for (const [key, held] of Object.entries(value)) {
+        if (key === 'line' && typeof held === 'number') (value as { line: number }).line = location(held).line;
+        else remapLines(held);
+      }
+    }
+  };
+  const mapped = manifest.findings.map(remap);
+  const catalogMapped = manifest.catalog?.findings.map(remap);
+  remapLines(manifest.kinds);
+  remapLines(manifest.groups);
+  remapLines(manifest.properties);
+  remapLines(manifest.expect);
+  remapLines(manifest.roles);
+  if (manifest.purposes !== undefined) remapLines(manifest.purposes);
+  remapLines(manifest.edges);
+  remapLines(manifest.plugins);
+  if (manifest.catalog !== undefined) {
+    remapLines(manifest.catalog.kinds);
+    remapLines(manifest.catalog.schema);
+    manifest.catalog = { ...manifest.catalog, findings: catalogMapped ?? [] };
+  }
+  return { present: true, manifest: { ...manifest, kindFiles, findings: [...findings, ...mapped] } };
 }
 
 /**
@@ -870,7 +1076,30 @@ const PARSED_MANIFESTS_KEPT = 8;
  * is made *of* the parsed document — findings, line numbers, whether a template exists — is worked out on every read and
  * is not cached, so a template written beside an unchanged manifest is still seen (madarch-u3vw.8).
  */
-const parsedManifests = new Map<string, { readonly text: string; readonly doc: Document; readonly lines: LineCounter }>();
+type ParsedManifest = { readonly text: string; readonly doc: Document; readonly lines: LineCounter };
+const parsedManifests = new Map<string, ParsedManifest>();
+
+/** Raw declarations belong to a bounded set of products, separately from their composite parse. */
+const folderManifests = new Map<string, Map<string, ParsedManifest>>();
+
+function folderManifestDocuments(productFolder: string, files: readonly string[]): Map<string, ParsedManifest> {
+  const documents = folderManifests.get(productFolder) ?? new Map<string, ParsedManifest>();
+  const current = new Set(files);
+  for (const file of documents.keys()) if (!current.has(file)) documents.delete(file);
+  folderManifests.delete(productFolder);
+  folderManifests.set(productFolder, documents);
+  while (folderManifests.size > PARSED_MANIFESTS_KEPT) folderManifests.delete(folderManifests.keys().next().value!);
+  return documents;
+}
+
+function parsedFolderManifest(documents: Map<string, ParsedManifest>, text: string, file: string): ParsedManifest {
+  const held = documents.get(file);
+  if (held !== undefined && held.text === text) return held;
+  const lines = new LineCounter();
+  const entry = { text, doc: parseDocument(text, { lineCounter: lines, uniqueKeys: true }), lines };
+  documents.set(file, entry);
+  return entry;
+}
 
 /** The parse of one manifest text, from the cache when this file last saw this text. */
 function parsedManifest(text: string, file: string): { readonly doc: Document; readonly lines: LineCounter } {
@@ -994,13 +1223,19 @@ function jsonLine(text: string, segment: number): number {
   return text.slice(0, at).split('\n').length;
 }
 
-export function parseKinds(text: string, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
+export function parseKinds(input: string | { root: unknown; at: (path: (string | number)[]) => number }, file: string, productFolder: string, files: ProductFileRead = workingTreeFiles(productFolder)): KindsManifest {
   const findings: Finding[] = [];
-  const { doc, lines } = parsedManifest(text, file);
-  const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
-  for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
-  if (doc.errors.length > 0) return nothing(file, findings);
-  const root: unknown = doc.toJS();
+  let root: unknown;
+  let at: (path: (string | number)[]) => number;
+  if (typeof input === 'string') {
+    const { doc, lines } = parsedManifest(input, file);
+    at = lineLocator(doc, lines);
+    for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
+    if (doc.errors.length > 0) return nothing(file, findings);
+    root = doc.toJS();
+  } else {
+    ({ root, at } = input);
+  }
   if (root === null || typeof root !== 'object' || Array.isArray(root)) {
     return nothing(file, [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }]);
   }
@@ -1016,7 +1251,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
+    } else if (key !== 'purposes' && key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -1046,6 +1281,23 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
     }
   }
   const problems = parseProblems(top['problems'], at, findings, file);
+  const purposes = new Map<string, PurposeDecl>();
+  const rawPurposes = top['purposes'];
+  if (rawPurposes !== undefined) {
+    if (rawPurposes === null || typeof rawPurposes !== 'object' || Array.isArray(rawPurposes)) findings.push({ file, line: at(['purposes']), message: 'purposes maps ids to { labels: { en, ru }, order: integer }' });
+    else for (const [id, raw] of Object.entries(rawPurposes)) {
+      const path = ['purposes', id];
+      const problem = (key: string, message: string): void => { findings.push({ file, line: at([...path, key]), message: `purpose "${id}": ${message}` }); };
+      const start = findings.length;
+      if (!id.trim() || raw === null || typeof raw !== 'object' || Array.isArray(raw)) { problem('', 'expected { labels: { en, ru }, order: integer }'); continue; }
+      const body = raw as Record<string, unknown>;
+      for (const key of Object.keys(body)) if (!['labels', 'order'].includes(key)) problem(key, `unknown field "${key}"`);
+      const labels = body['labels'] as Record<string, unknown> | undefined;
+      if (labels === null || typeof labels !== 'object' || Array.isArray(labels) || Object.keys(labels).length !== LABEL_LANGUAGES.length || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || !(labels[lang] as string).trim())) problem('labels', `labels names each language (${LABEL_LANGUAGES.join(', ')})`);
+      if (!Number.isSafeInteger(body['order'])) problem('order', 'order is a safe integer');
+      if (findings.length === start) purposes.set(id, { id, labels: labels as Record<string, string>, order: body['order'] as number, line: at(path) });
+    }
+  }
   const groups = new Map<string, GroupDecl>();
   /** The groups whose `parent` the reader refused: their own finding covers the defect, and no other rule repeats it. */
   const refusedGroupParents = new Set<string>();
@@ -1291,6 +1543,17 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       const entry = readCatalogKind(name, decl, catalogSchema, groups, line, catalogProblem, wordsProblem, LABEL_LANGUAGES, refusedGroupParents);
       if (entry !== undefined) catalogEntries.set(name, entry);
     }
+    const audienceOf = (raw: unknown, path: (string | number)[]): readonly string[] | undefined => {
+      if (raw === undefined) return undefined;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((role) => typeof role !== 'string' || !roles.has(role)) || new Set(raw).size !== raw.length) {
+        problem(path, `audience is a nonempty list of distinct declared roles (${[...roles.keys()].join(', ')})`);
+        return undefined;
+      }
+      return raw as string[];
+    };
+    const audience = audienceOf(decl['audience'], ['audience']);
+    const purpose = decl['purpose'];
+    if ((rawPurposes !== undefined || purpose !== undefined) && (typeof purpose !== 'string' || !purposes.has(purpose))) catalogProblem(['purpose'], `purpose names a declared purpose (${[...purposes.keys()].join(', ')}), got ${JSON.stringify(purpose)}`);
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
       for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
@@ -1501,6 +1764,37 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');
+    const facts: FactDecl[] = [];
+    const rawFacts = decl['facts'];
+    if (rawFacts !== undefined && !Array.isArray(rawFacts)) problem(['facts'], 'facts is a list of declared aggregates');
+    if (Array.isArray(rawFacts)) rawFacts.forEach((raw: unknown, index) => {
+      const path = ['facts', index] as (string | number)[];
+      if (!isRecord(raw)) { problem(path, 'a fact is a mapping'); return; }
+      const start = findings.length;
+      for (const key of Object.keys(raw)) if (!['id', 'labels', 'measure', 'display', 'field', 'buckets', 'limit', 'audience'].includes(key)) problem([...path, key], `unknown fact field "${key}"`);
+      if (typeof raw['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/u.test(raw['id']) || facts.some((fact) => fact.id === raw['id'])) problem([...path, 'id'], 'a fact id is a unique lower-case identifier');
+      const labels = raw['labels'];
+      if (!isRecord(labels) || Object.keys(labels).some((key) => !LABEL_LANGUAGES.includes(key)) || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || (labels[lang] as string).trim() === '')) problem([...path, 'labels'], `fact labels must name every language (${LABEL_LANGUAGES.join(', ')})`);
+      const measure = raw['measure'];
+      if (!['count', 'group-by', 'histogram', 'top-n'].includes(String(measure))) problem([...path, 'measure'], 'measure is count, group-by, histogram or top-n');
+      if (!['number', 'bar', 'treemap', 'timeline'].includes(String(raw['display']))) problem([...path, 'display'], 'display is number, bar, treemap or timeline');
+      if ((measure === 'count' && raw['display'] !== 'number') || (measure !== 'count' && raw['display'] === 'number')) problem([...path, 'display'], 'count displays a number; grouped, histogram and top-n facts display bar, treemap or timeline');
+      const field = fields.find((field) => field.name === raw['field']);
+      if (measure !== 'count' && field === undefined) problem([...path, 'field'], 'a fact must name a declared field');
+      if (measure === 'count' && raw['field'] !== undefined) problem([...path, 'field'], 'count has no field');
+      if (measure === 'group-by' && field?.type === 'json') problem([...path, 'field'], 'group-by requires a scalar field');
+      if (measure === 'histogram' && field?.type !== 'timestamp') problem([...path, 'field'], 'histogram requires a timestamp field');
+      if (measure === 'top-n' && field?.type !== 'integer' && field?.type !== 'bigint') problem([...path, 'field'], 'top-n requires a numeric field');
+      const buckets = raw['buckets'];
+      if (measure === 'histogram') {
+        if (!Array.isArray(buckets) || buckets.length === 0 || buckets.some((n, i) => typeof n !== 'number' || !Number.isFinite(n) || n <= 0 || (i > 0 && n <= buckets[i - 1]))) problem([...path, 'buckets'], 'histogram buckets are increasing positive day bounds');
+      } else if (buckets !== undefined) problem([...path, 'buckets'], 'only histogram declares buckets');
+      if (measure === 'top-n') {
+        if (typeof raw['limit'] !== 'number' || !Number.isInteger(raw['limit']) || raw['limit'] < 1) problem([...path, 'limit'], 'top-n requires a positive integer limit');
+      } else if (raw['limit'] !== undefined) problem([...path, 'limit'], 'only top-n declares a limit');
+      const factAudience = audienceOf(raw['audience'], [...path, 'audience']);
+      if (start === findings.length) facts.push({ ...raw, ...(factAudience === undefined ? {} : { audience: factAudience }) } as unknown as FactDecl);
+    });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
     const capability = decl['capability'];
@@ -1559,6 +1853,9 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       ...(nav === undefined ? {} : { nav }),
       ...(member === undefined ? {} : { member }),
       ...(fields.length === 0 ? {} : { fields }),
+      ...(typeof purpose === 'string' ? { purpose } : {}),
+      ...(audience === undefined ? {} : { audience }),
+      ...(facts.length === 0 ? {} : { facts }),
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(dependsOn) ? { dependsOn: dependsOn as string[] } : {}),
@@ -1834,7 +2131,7 @@ export function parseKinds(text: string, file: string, productFolder: string, fi
       if (debug === true) journal = { debug: true };
     }
   }
-  return { file, roles, properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
+  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**

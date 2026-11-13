@@ -1,0 +1,29 @@
+id: practice.prerequisites
+purpose: operations
+audience: [developer, platform-devops]
+definition: The tools the README says a newcomer needs.
+sources:
+- https://diataxis.fr/
+acquisition:
+- extractor operations
+status: implemented
+relation-constraints:
+  out:
+  - documents
+  in:
+  - documents
+template-policy: page
+template: templates/item.liquid
+source: graph
+details:
+- tools
+labels:
+  en:
+    one: Prerequisites
+    many: Prerequisites
+  ru:
+    one: Что нужно установить
+    many: Что нужно установить
+description:
+  en: The tools the README says a newcomer needs.
+  ru: Инструменты, которые по README нужны новичку.

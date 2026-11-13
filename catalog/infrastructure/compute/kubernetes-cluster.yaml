@@ -1,0 +1,27 @@
+id: kubernetes.cluster
+purpose: structure
+audience: [operations, platform-devops, architect]
+definition: A set of nodes one control plane schedules workloads onto.
+sources:
+- https://kubernetes.io/docs/reference/kubernetes-api/
+acquisition:
+- document
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  in:
+  - contains
+template-policy: none
+labels:
+  en:
+    one: Kubernetes cluster
+    many: Kubernetes clusters
+  ru:
+    one: Кластер Kubernetes
+    many: Кластеры Kubernetes
+description:
+  en: A set of nodes one control plane schedules workloads onto.
+  ru: Набор узлов, на которые одна панель управления планирует рабочую нагрузку.
