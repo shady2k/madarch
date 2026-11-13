@@ -142,11 +142,6 @@ export type KeyValueDraft = string | number | boolean | EntityRefDraft;
 export interface VertexDraft {
   /** Replace only these fields; fields outside the scope keep their prior opinions. */
   readonly selectedFields?: readonly string[];
-  /**
-   * The draft names the entity only as an edge's end: the writer creates its identity and no opinion, so the entity
-   * stands in the graph without appearing among the kind's entities. A draft that states an opinion cannot say this.
-   */
-  readonly identityOnly?: boolean;
   readonly kind: string;
   /** The entity's natural key values, by the kind's key fields; a reference is its entity's kind and key. */
   readonly key: Readonly<Record<string, KeyValueDraft>>;

@@ -36,7 +36,11 @@
         "repository",
         "path",
         "last_change",
-        "commit_count"
+        "commit_count",
+        "added_at",
+        "added_in",
+        "removed_at",
+        "removed_in"
       ],
       "refines": [
         "disk"

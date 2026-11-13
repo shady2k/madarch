@@ -12,8 +12,6 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   readonly reads: readonly DeclaredRead[];
   readonly fileKind: string;
   readonly edges: readonly string[];
-  /** The kinds an edge this invocation owns may end at: an identity-only vertex of one is that edge's end, not an opinion. */
-  readonly identityKinds?: readonly string[];
   readonly snapshots?: ReadonlyMap<string, { readonly runId: string; readonly unitId: string; readonly generation: number }>;
 }) {
   let violation: Error | undefined;
@@ -47,8 +45,7 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
     assertWrites(result: Pick<ValidatedUnit, 'vertices' | 'edges' | 'removals'>): void {
       if (violation !== undefined) throw violation;
       for (const vertex of [...result.vertices, ...result.removals]) {
-        const identity = 'identityOnly' in vertex && vertex.identityOnly === true && (scope.identityKinds ?? []).includes(vertex.kind);
-        if (vertex.kind !== scope.output && !identity) deny(`write of unselected output ${vertex.kind}; this invocation selects only ${scope.output}`);
+        if (vertex.kind !== scope.output) deny(`write of unselected output ${vertex.kind}; this invocation selects only ${scope.output}`);
         for (const field of Object.keys('values' in vertex ? vertex.values ?? {} : {})) {
           if (!scope.fields.includes(field)) deny(`write of undeclared selected field ${vertex.kind}.${field}`);
         }

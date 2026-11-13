@@ -68,9 +68,8 @@ export const PluginVertexResult = Type.Object(
     key: PluginKeyValues,
     values: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Unknown(), { description: 'The field values this producer states, by field name: every value is an opinion.' })),
     evidence: Type.Optional(PluginEvidence),
-    identityOnly: Type.Optional(Type.Boolean({ description: 'The unit names this entity only as an edge\'s end and states no opinion of it: the graph creates its identity and no opinion.' })),
   },
-  { additionalProperties: false, description: 'One vertex a unit produced: its kind, its key and the field values of one opinion with its evidence, or the identity of an entity an edge reaches.' },
+  { additionalProperties: false, description: 'One vertex a unit produced: its kind, its key and the field values of one opinion with its evidence.' },
 );
 
 /** One edge a unit produced. */

@@ -115,3 +115,22 @@ test('editing the product kind file changes facts after rereading without a code
   if (!second.present) throw new Error('manifest absent');
   expect((await buildFacts(ctx([], second.manifest), 'developer')).kinds[0]!.statements[0]!.label).toBe('Source files');
 });
+
+
+test('a fact counts only the entities its declared condition names, and null matches a field no opinion states', async () => {
+  const conditioned = declaration
+    .replace('- { name: changed, type: timestamp, producers: [fixture] }', '- { name: changed, type: timestamp, producers: [fixture] }\n- { name: removed, type: timestamp, producers: [fixture] }')
+    .replace('- { id: count, labels: { en: Files, ru: Файлы }, measure: count, display: number }', '- { id: count, labels: { en: Files, ru: Файлы }, measure: count, display: number, where: { removed: null } }');
+  const manifest = parse(conditioned);
+  expect(manifest.findings).toEqual([]);
+  const context = ctx([
+    entity(1, { language: 'TS' }),
+    entity(2, { language: 'Go', removed: '2026-01-01T00:00:00Z' }),
+  ], manifest);
+  const facts = await buildFacts(context, 'developer', 'en', now);
+  const count = facts.kinds[0]!.statements.find((fact) => fact.id === 'fact:sample/count')!;
+  expect(count.value).toBe(1);
+  expect(count.ground.total).toBe(1);
+  expect(count.ground.entities).toEqual(['sample:0001']);
+  expect(count.ground.where).toEqual({ removed: null });
+});
