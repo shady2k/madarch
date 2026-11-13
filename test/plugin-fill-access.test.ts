@@ -34,10 +34,20 @@ test('selected output field and edge boundaries are enforced', () => {
   expect(() => setup('A', []).access.assertWrites({ vertices: [], edges: [{ kind: 'hidden', from: { kind: 'A', key: {} }, to: { kind: 'A', key: {} } }], removals: [] })).toThrow('unselected edge');
 });
 
-test('unfilterable catalogue pages refuse before reading undeclared kinds', async () => {
-  const { access, calls } = setup('A', ['X']);
-  await expect(access.graph.unresolved!({})).rejects.toThrow('undeclared catalogue read of Y');
-  expect(calls).toEqual([]);
+test('consistency record reads preserve bounded pages without requiring catalogue content inputs', async () => {
+  const calls: unknown[] = [];
+  const query = { after: 'cursor', limit: 1 };
+  const access = pluginInvocationAccess({
+    files: async () => [], value: async () => null,
+    unresolved: async (page) => { calls.push(['unresolved', page]); return { references: [], next: 'references-next' }; },
+    removedEnds: async (page) => { calls.push(['removedEnds', page]); return { edges: [], next: 'edges-next' }; },
+    unevidenced: async (page) => { calls.push(['unevidenced', page]); return { opinions: [], next: 'opinions-next' }; },
+  }, { location: '/product/plugin.json:7', plugin: 'consistency', output: 'Finding', reads: [], fields: [], catalogueKinds: ['X', 'Y', 'Finding'], fileKind: 'File', edges: [] });
+  expect(await access.graph.unresolved!(query)).toEqual({ references: [], next: 'references-next' });
+  expect(await access.graph.removedEnds!(query)).toEqual({ edges: [], next: 'edges-next' });
+  expect(await access.graph.unevidenced!(query)).toEqual({ opinions: [], next: 'opinions-next' });
+  expect(calls).toEqual([['unresolved', query], ['removedEnds', query], ['unevidenced', query]]);
+  expect(() => access.assertAllowed()).not.toThrow();
 });
 
 test('catalogue:true does not let a scripted agent read undeclared files', async () => {

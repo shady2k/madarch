@@ -22,10 +22,6 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   };
   const readOf = (kind: string): DeclaredRead => scope.reads.find((read) => (typeof read === 'string' ? read : read.kind) === kind)
     ?? deny(`undeclared catalogue read of ${kind}; declare this input in produces[].reads and the output's derives-from`);
-  const broad = (): void => {
-    for (const kind of scope.catalogueKinds) readOf(kind);
-    if (scope.reads.some((read) => typeof read !== 'string')) deny('broad catalogue pages cannot serve an immutable earlier snapshot; use a scoped value read');
-  };
   const scoped: GraphAnswerer = {
     files: async (pattern) => {
       const read = readOf(scope.fileKind);
@@ -39,9 +35,10 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
       if (typeof read !== 'string' && snapshot === undefined) deny(`earlier snapshot of ${kind} from ${read.producer} is unavailable; enable immutable versioned reads before running this output`);
       return await graph.value(kind, key, field, snapshot);
     },
-    ...(graph.unresolved === undefined ? {} : { unresolved: async (...args: Parameters<NonNullable<GraphAnswerer['unresolved']>>) => { broad(); return await graph.unresolved!(...args); } }),
-    ...(graph.removedEnds === undefined ? {} : { removedEnds: async (...args: Parameters<NonNullable<GraphAnswerer['removedEnds']>>) => { broad(); return await graph.removedEnds!(...args); } }),
-    ...(graph.unevidenced === undefined ? {} : { unevidenced: async (...args: Parameters<NonNullable<GraphAnswerer['unevidenced']>>) => { broad(); return await graph.unevidenced!(...args); } }),
+    // The host authorizes writer consistency records by graphReads, not catalogue content prerequisites.
+    ...(graph.unresolved === undefined ? {} : { unresolved: (...args: Parameters<NonNullable<GraphAnswerer['unresolved']>>) => graph.unresolved!(...args) }),
+    ...(graph.removedEnds === undefined ? {} : { removedEnds: (...args: Parameters<NonNullable<GraphAnswerer['removedEnds']>>) => graph.removedEnds!(...args) }),
+    ...(graph.unevidenced === undefined ? {} : { unevidenced: (...args: Parameters<NonNullable<GraphAnswerer['unevidenced']>>) => graph.unevidenced!(...args) }),
   };
   return {
     graph: scoped,
