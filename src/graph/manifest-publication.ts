@@ -64,14 +64,18 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
   };
   add('catalogue', 'product', manifest, KINDS_FILE, 1);
+  // The plugins whose contract declares a kind's vertices: the catalogue entity says what fills it.
+  const pluginsOf = (name: string): string[] => [...(manifest.plugins?.values() ?? [])]
+    .filter((plugin) => (plugin.contract?.vertices ?? []).some((vertex) => vertex.kind === name))
+    .map((plugin) => plugin.id);
   for (const [name, kind] of manifest.kinds) {
     const path = manifest.kindFiles?.get(name) ?? KINDS_FILE;
-    add('kind', name, { ...kind, ...(manifest.catalog?.kinds.get(name) === undefined ? {} : { catalog: manifest.catalog.kinds.get(name) }) }, path, kind.line);
+    add('kind', name, { ...kind, ...(manifest.catalog?.kinds.get(name) === undefined ? {} : { catalog: manifest.catalog.kinds.get(name) }), taken: true, plugins: pluginsOf(name) }, path, kind.line);
     for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, path, field.line ?? kind.line);
     for (const [index, relation] of (kind.relations ?? []).entries()) add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
     for (const dependency of kind.derivesFrom ?? []) add('dependency', JSON.stringify(['kind', name, dependency]), { from: dependency, to: name, via: 'derives-from' }, path, kind.line);
   }
-  for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind }, manifest.kindFiles?.get(name) ?? KINDS_FILE, kind.line);
+  for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind, taken: false, plugins: [] }, manifest.kindFiles?.get(name) ?? KINDS_FILE, kind.line);
   for (const [name, edge] of manifest.edges ?? []) add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);
   for (const [name, entry] of manifest.workflows?.workflows ?? []) {
     add('workflow', name, entry, WORKFLOWS_FILE, entry.line);
