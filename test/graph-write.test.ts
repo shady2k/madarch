@@ -20,7 +20,7 @@ import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js'
 import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
 import { publishGraphWrites } from '../src/graph/claims.js';
 import { ensureVertex, journalFor, journalOn, publishGraphDrafts, publishOpinion, writeJournal } from '../src/graph/write.js';
-import type { GraphContract } from '../src/graph/contract.js';
+import type { EdgeDraft, GraphContract } from '../src/graph/contract.js';
 import { producerEntities } from '../src/graph/plugin-turns.js';
 import { unevidencedOpinions } from '../src/graph/consistency.js';
 import type { VertexDraft } from '../src/graph/contract.js';
@@ -600,6 +600,82 @@ describe('the manifest makes the table and the writer fills it', () => {
       expect(closed.filter((one) => before.opinions.some((opinion) => opinion.id === one.id))).toHaveLength(3);
       expect(await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [removal] }))).toBe(0);
       expect(await snapshot()).toEqual(after);
+    } finally { await durable.close(); }
+  }, 120_000);
+
+  test('a producer\'s edge retraction closes only its own opinion, and the edge goes with the last open one', async () => {
+    const durable = await createTestDatabaseOwner();
+    const edgeTable = generatedTableName('links', 'edge');
+    const graph: GraphContract = {
+      vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'name', type: 'text' }], key: ['name'], capability: 'fixture' }],
+      edge: [{ name: 'links', table: edgeTable, from: ['record'], to: ['record'], repeats: false, fields: [{ name: 'weight', type: 'integer' }], capability: 'fixture' }],
+      dictionary: [],
+    };
+    const ref = (name: string) => ({ kind: 'record', key: { name } });
+    const place = (path: string) => [{ type: 'file' as const, repository: 'fixture', commit_or_digest: 'abc', path }];
+    const publish = async (edges: readonly EdgeDraft[], vertices: readonly VertexDraft[] = []): Promise<number> =>
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices, edges, removals: [] }));
+    const retract = async (from: string, to: string, producer: string): Promise<number> =>
+      await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [], removals: [], edgeRemovals: [{ kind: 'links', from: ref(from), to: ref(to), producer }] }));
+    const held = async () => await durable.run(async (tx) => ({
+      edges: (await tx.query<{ id: string }>('SELECT id::text AS id FROM edge ORDER BY id')).rows,
+      opinions: (await tx.query<{ id: string; said_by: string; state: string; weight: number | null; evidence: readonly Record<string, unknown>[] }>(`SELECT id::text AS id, said_by, state, weight, evidence FROM ${edgeTable} ORDER BY id`)).rows,
+      operations: (await tx.query<{ change: { edges: { edge: string; state: string }[]; opinions: { id: string; said_by: string; state: string }[] } }>('SELECT change FROM operation ORDER BY seq')).rows,
+    }));
+    /** The states the store holds, by opinion id, for a comparison with what was held before. */
+    const states = (page: Awaited<ReturnType<typeof held>>) => page.opinions.map((one) => [one.id, one.said_by, one.state, one.weight]);
+    try {
+      await prepareStore(durable, { contract: graph });
+      await publish([], ['Left', 'Right', 'Else'].map((name) => ({ kind: 'record', key: { name }, producer: 'source', producerVersion: '1' })));
+      const edge = (producer: string, version: string, weight: number): EdgeDraft => ({
+        kind: 'links', from: ref('Left'), to: ref('Right'), values: { weight }, evidence: place(`docs/${producer}.md`), producer, producerVersion: version,
+      });
+      await publish([edge('first', '1', 1)]);
+      await publish([edge('second', '2', 2)]);
+      const before = await held();
+      // The producer's declared existence and its stated values, then the second producer's opinion beside them.
+      expect(before.edges).toHaveLength(1);
+      expect(states(before)).toEqual([
+        [before.opinions[0]!.id, 'first@1', 'closed', null],
+        [before.opinions[1]!.id, 'first@1', 'open', 1],
+        [before.opinions[2]!.id, 'second@2', 'open', 2],
+      ]);
+      const [existence, firstValues, secondValues] = before.opinions.map((one) => one.id) as [string, string, string];
+
+      // The first producer no longer states the edge: its opinion closes, its evidence stays, the edge stands on the other.
+      expect(await retract('Left', 'Right', 'first')).toBe(1);
+      const one = await held();
+      expect(one.edges).toEqual(before.edges);
+      expect(states(one)).toEqual([[existence, 'first@1', 'closed', null], [firstValues, 'first@1', 'closed', 1], [secondValues, 'second@2', 'open', 2]]);
+      expect(one.opinions[1]!.evidence).toEqual(place('docs/first.md'));
+      expect(one.operations.at(-1)!.change.edges).toEqual([]);
+      expect(one.operations.at(-1)!.change.opinions.map((row) => [row.id, row.state])).toEqual([[firstValues, 'closed']]);
+
+      // A retraction that names nothing this producer holds writes nothing: the same producer again, and a producer
+      // that never stated the edge.
+      expect(await retract('Left', 'Right', 'first')).toBe(0);
+      expect(await retract('Left', 'Right', 'third')).toBe(0);
+
+      // The last open opinion closes: the edge row goes with the opinions, and both closes stand in the journal.
+      expect(await retract('Left', 'Right', 'second')).toBe(1);
+      const both = await held();
+      expect(both.edges).toEqual([]);
+      expect(both.opinions).toEqual([]);
+      expect(both.operations.at(-1)!.change.edges.map((row) => [row.edge, row.state])).toEqual([[before.edges[0]!.id, 'removed']]);
+      expect(both.operations.at(-1)!.change.opinions.map((row) => [row.id, row.state])).toEqual([[secondValues, 'closed']]);
+      expect(both.operations.slice(-2).flatMap((entry) => entry.change.opinions).map((row) => [row.id, row.state]))
+        .toEqual([[firstValues, 'closed'], [secondValues, 'closed']]);
+
+      // A retraction naming an edge the store does not hold writes nothing, and no entry.
+      const entries = both.operations.length;
+      expect(await retract('Left', 'Right', 'second')).toBe(0);
+      expect((await held()).operations).toHaveLength(entries);
+
+      // A producer holding no opinion of an edge another producer states closes nothing, and the edge stays open.
+      await publish([{ kind: 'links', from: ref('Left'), to: ref('Else'), values: { weight: 3 }, producer: 'first', producerVersion: '1' }]);
+      const open = await held();
+      expect(await retract('Left', 'Else', 'second')).toBe(0);
+      expect(await held()).toEqual(open);
     } finally { await durable.close(); }
   }, 120_000);
 
