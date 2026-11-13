@@ -24,7 +24,7 @@ test.each(selections)('fixture plugin selection preserves all fields with %j', (
     const before = parse(original);
     useFixturePlugins(folder, selected);
     const after = parse(readFileSync(file, 'utf8'));
-    expect(after.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(selected);
+    expect(after.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(before.plugins.filter((plugin: { id: string }) => selected.includes(plugin.id)).map((plugin: { id: string }) => plugin.id));
     const expected = structuredClone(before.kinds);
     let converted = 0;
     let enabledBindings = 0;

@@ -150,6 +150,9 @@ beforeAll(async () => {
   product = makeProduct(home, 'consistency', repository, 'repo');
   seedStarterSet(product);
   fixtureClosure = addConsistency(product);
+  const declared = readKinds(product);
+  if (!declared.present) throw new Error('fixture manifest is absent');
+  expect(declared.manifest.findings).toEqual([]);
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the product');
   owner = await createTestDatabaseOwner({ btreeGist: true });
