@@ -324,26 +324,10 @@ export function FileFactsBlock({ data }: { data: FileBlockData }): React.ReactEl
 }
 
 /** The run page: the newest trace, step by step — its wall clock, its peak memory and its slowest names. */
-export function RunPage({ run: named, version }: { run: string | null; version: number }): React.ReactElement {
+export function RunDiagnostics({ run }: { run: FillRunView }): React.ReactElement {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? 'en';
-  useTabTitle(t('knowledge.run.title'));
-  const { data, error } = useRead<{ run: FillRunView }>(`run:${named ?? ''}`, version, (signal) => getRun(named, signal));
-  if (data === null && error === null) return <PageSkeleton testId="run-loading" rows />;
-  if (data === null) {
-    return (
-      <Alert variant="problem" data-testid="run-error">
-        <AlertTitle>{t('knowledge.repository.noPage', { what: named ?? t('knowledge.run.title') })}</AlertTitle>
-        <AlertDescription><Paragraph className="mb-0">{error ?? ''}</Paragraph></AlertDescription>
-      </Alert>
-    );
-  }
-  const run = data.run;
-  return (
-    <PageSection data-testid="run-page" data-run={run.runId}>
-      <PageHeader className="mb-6">
-        <PageTitle className="break-all">{t('knowledge.run.title')}</PageTitle>
-        <Paragraph className="mb-1 break-all text-small text-muted" data-testid="run-id"><InlineCode>{run.runId}</InlineCode></Paragraph>
+  return <Stack data-testid="run-diagnostics">
         <Paragraph className="mb-0 text-small text-muted" data-testid="run-totals">
           {t('knowledge.run.totals', {
             wall: msText(run.wallMs),
@@ -352,7 +336,6 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
             to: run.finishedAt === undefined ? t(`knowledge.fillPage.runStates.${run.state}`) : new Date(run.finishedAt).toLocaleString(language, { timeStyle: 'medium' }),
           })}
         </Paragraph>
-      </PageHeader>
       <SectionTitle className="mb-2 mt-0">{t('knowledge.run.steps')}</SectionTitle>
       <Stack className="table-wrap mb-8">
       <Table className="w-full border-collapse text-small" data-testid="run-steps">
@@ -392,6 +375,30 @@ export function RunPage({ run: named, version }: { run: string | null; version: 
       </OrderedList>
       <Paragraph className="mt-4 text-small text-muted" data-testid="run-note">{t('knowledge.run.note')}</Paragraph>
       <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid="run-memory-note">{t('knowledge.run.memoryNote')}</Paragraph>
+  </Stack>;
+}
+
+export function RunPage({ run: named, version }: { run: string | null; version: number }): React.ReactElement {
+  const { t } = useTranslation();
+  useTabTitle(t('knowledge.run.title'));
+  const { data, error } = useRead<{ run: FillRunView }>(`run:${named ?? ''}`, version, (signal) => getRun(named, signal));
+  if (data === null && error === null) return <PageSkeleton testId="run-loading" rows />;
+  if (data === null) {
+    return (
+      <Alert variant="problem" data-testid="run-error">
+        <AlertTitle>{t('knowledge.repository.noPage', { what: named ?? t('knowledge.run.title') })}</AlertTitle>
+        <AlertDescription><Paragraph className="mb-0">{error ?? ''}</Paragraph></AlertDescription>
+      </Alert>
+    );
+  }
+  const run = data.run;
+  return (
+    <PageSection data-testid="run-page" data-run={run.runId}>
+      <PageHeader className="mb-6">
+        <PageTitle className="break-all">{t('knowledge.run.title')}</PageTitle>
+        <Paragraph className="mb-1 break-all text-small text-muted" data-testid="run-id"><InlineCode>{run.runId}</InlineCode></Paragraph>
+      </PageHeader>
+      <RunDiagnostics run={run} />
     </PageSection>
   );
 }

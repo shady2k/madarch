@@ -11,6 +11,9 @@
  * the graph's own repository entity and its as-is edge, so a source view shows
  * the bytes the graph's spans were read from, and a restarted server still knows.
  */
+import { here } from '../model/raise.js';
+import { failRequestedFill } from './fill-run.js';
+import { cancelRun } from '../fill/orchestrator.js';
 import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs.js';
 import { createRecordSchema } from '../graph/index.js';
 import { hasGeneratedTable } from '../graph/tables.js';
@@ -35,8 +38,9 @@ import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
+import { readFillRunDetail } from './fill-runs.js';
 import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
-import { hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
+import { createRun, readChain, readLatestRun, readRun, readRuns, hasSuccessfulFill, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
@@ -92,7 +96,7 @@ import { readUnitStates } from '../fill/state-store.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
-import { PLUGIN_TURN_STAGE_ID, pluginTurnUnitId } from '../fill/plugin-turns.js';
+import { PLUGIN_TURN_STAGE_ID, pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
 import { manifestPublicationState, waitForManifestPublication } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
@@ -843,7 +847,7 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { selected?: readonly string[]; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -926,9 +930,6 @@ export class KnowledgeProduct {
     }
     this.changedPages = undefined;
     this.changedLoaded = true;
-    // The repository the run reads, as the product declares it: the card says what it is reading
-    // before the run's own trace has a unit to count.
-    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
     this.fillExtras = {};
     const chosen = this.chosenAgent();
     const seeded = resuming && this.writer.units.length > 0 ? this.writer : undefined;
@@ -945,11 +946,26 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    this.notify();
-    const press = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
+    const request = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
+    const selection = options.targets === undefined ? undefined : {
+      selected: [...(options.selected ?? options.targets.kinds)], order: [...options.targets.kinds],
+      ...(options.targets.vertex === undefined ? {} : { vertex: options.targets.vertex }),
+      groups: options.targets.kinds.flatMap((kind) => {
+        const declaration = read.manifest.kinds.get(kind);
+        const plugins = pluginsFillingKind(read.manifest, kind);
+        return plugins.map((plugin) => ({ kind, group: declaration?.group ?? null, plugin, stageUnitId: pluginTurnUnitId(plugin, kind, options.targets?.vertex) }));
+      }),
+    };
+    if (publication?.status !== 'pending') await createRun(await this.open(), { runId, product: product.name, at: Date.parse(startedAt), ...(selection === undefined ? {} : { selection }) });
+    const press = { ...request, ...(selection === undefined ? {} : { selection }) };
+    // The repository the run reads, as the product declares it: the card says what it is reading
+    // before the run's own trace has a unit to count.
+    this.fillRunId = runId;
+    this.fill = { state: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.notify();
     this.running = (async () => {
       try {
         const ready = await waitForManifestPublication(this.folder, this.publicationWait.signal);
@@ -957,6 +973,7 @@ export class KnowledgeProduct {
         if (ready?.status === 'failed') throw new Error(`The catalogue could not be published: ${ready.message}`);
         await (this.options.fillQueued === true ? this.runQueuedFill(product, runId, press) : this.runInlineFill(product, runId, press));
       } catch (error) {
+        if (publication?.status !== 'pending') await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
         if (this.closed) return;
         this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
         if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
@@ -968,19 +985,20 @@ export class KnowledgeProduct {
       this.running = undefined;
       this.fillRun = undefined;
     });
-    return { started: true, fill: this.fill };
+    return { started: true, runId, fill: this.fill };
   }
 
   /**
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string }; readonly selection?: import('../fill/fsm.js').RunSelection } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
     try {
       const owner = await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true });
+      if (await readRun(owner, runId) === null) await createRun(owner, { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
       const run = await startKnowledgeFill({
         productFolder: product.folder,
         storeFolder,
@@ -997,13 +1015,14 @@ export class KnowledgeProduct {
         await run.close().catch(() => undefined);
       }
     } catch (error) {
+      await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
     }
     if (result === undefined || !result.ok) {
       this.fill = {
-        state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
+        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
         ...(result?.message === undefined ? {} : { message: result.message }), code: 'fill',
       };
       this.notify();
@@ -1028,14 +1047,14 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
-    void product;
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string }; readonly selection?: import('../fill/fsm.js').RunSelection }): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;
     let end: Awaited<ReturnType<typeof readFillEnd>> = null;
     try {
       const owner = await this.open();
+      if (await readRun(owner, runId) === null) await createRun(owner, { runId, product: product.name, at: Date.parse(this.fill.startedAt!), ...(asked.selection === undefined ? {} : { selection: asked.selection }) });
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
@@ -1053,12 +1072,13 @@ export class KnowledgeProduct {
         await Bun.sleep(250);
       }
     } catch (error) {
+      await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
       this.notify();
       return;
     }
     if (state !== 'succeeded') {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
+      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
       this.notify();
       return;
     }
@@ -2099,24 +2119,48 @@ export class KnowledgeProduct {
     } catch {
       // The store cannot be read: the answer is what this process last knew.
     }
-    let live: Awaited<ReturnType<typeof readLiveRun>>;
+    let named: Awaited<ReturnType<typeof readRun>>;
     try {
-      live = await readLiveRun(this.reader.owner);
+      const identity = this.product();
+      if ('message' in identity) return;
+      const chain = await readChain(this.reader.owner, identity.name);
+      named = chain !== null && chain.state === 'active' && chain.context.activeRunId !== null
+        ? await readRun(this.reader.owner, chain.context.activeRunId)
+        : (await readRuns(this.reader.owner, identity.name))[0] ?? null;
     } catch {
       return;
     }
+    // A queued request belongs to this process until its runner settles it. The chain may still name the previous
+    // run before the worker claims this request; adopting that run would report its old end as this press's result.
+    if (this.running !== undefined && this.fillRunId !== undefined && named?.runId !== this.fillRunId) return;
+    const live = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling'].includes(named.state) ? named : null;
+    if (named !== null && (named.state === 'paused' || named.state === 'cancelled')) {
+      this.fillRunId = named.runId;
+      this.fill = {
+        state: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
+        startedAt: new Date(named.createdAt).toISOString(),
+        ...(named.state === 'cancelled' ? { finishedAt: new Date(named.updatedAt).toISOString() } : {}),
+      };
+    }
     if (live !== null) {
-      if (this.fill.state === 'idle') {
+      if (this.fill.state !== 'running' || this.fillRunId !== live.runId) {
         this.fillRunId = live.runId;
-        this.fill = { state: 'running', startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+        this.fill = { state: 'running', runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
       }
       return;
+    }
+    // A run may finish between polls. Adopt its published end, not a terminal row whose store work is still settling.
+    const namedEnd = named !== null && (named.state === 'succeeded' || named.state === 'failed')
+      ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
+    if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
+      this.fillRunId = named.runId;
+      this.fill = { state: 'running', runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
     }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
       // run row's terminal state alone is not the store's publication, because the pins a page reads land after it. A run
       // the process has not ended here yet keeps this answer `running`.
-      const end = await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
+      const end = namedEnd ?? await readFillEnd(this.reader.owner, this.fillRunId).catch(() => null);
       if (end === null) return;
       await this.published(undefined).catch(() => undefined);
       // The answer that reads the settled run warms the worker and the repository aggregates: the page a person opens
@@ -2266,7 +2310,7 @@ export class KnowledgeProduct {
     // counts are read from the run's file as it is written, never kept as a second count here.
     if (this.fill.state === 'running') {
       const progress = this.fillRunId === undefined ? undefined : readFillProgressOf(this.storeFolder(), this.fillRunId, this.traceReader);
-      return progress === undefined ? this.fill : { ...this.fill, progress };
+      return { ...this.fill, ...(this.fillRunId === undefined ? {} : { runId: this.fillRunId }), ...(progress === undefined ? {} : { progress }) };
     }
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
     const ended: WikiStatus['fill'] = { ...this.fill, ...this.fillExtras };
@@ -2357,6 +2401,35 @@ export class KnowledgeProduct {
       ?? held[0];
     if (chosen === undefined) return undefined;
     return { id: chosen.id, name: chosen.name, url: chosen.url, defaultBranch: chosen.defaultBranch, asIsCommit: chosen.asIsCommit, counts: chosen.counts, historyShallow: chosen.historyShallow, steps: chosen.steps };
+  }
+
+  /** Canonical history, never inferred from trace size or local status. */
+  async fillRuns(runId?: string) {
+    const owner = await this.open();
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
+    return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
+      const summary = (await this.runViewOf(run!.runId))!;
+      return (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+    }));
+  }
+
+  /** A scoped control never targets mutable latest-run fields. */
+  async controlFillRun(runId: string, action: 'pause' | 'stop') {
+    const owner = await this.open();
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const run = await readRun(owner, runId);
+    if (run === null || run.product !== product.name) return { ok: false as const, status: 404, message: `${here()}: this product holds no run ${JSON.stringify(runId)}` };
+    if (!(action === 'pause' ? ['running'] : ['created', 'planning', 'running', 'pausing', 'paused']).includes(run.state)) return { ok: false as const, status: 409, message: `${here()}: run ${runId} is ${run.state} and cannot ${action}` };
+    if (run.state === 'paused') {
+      // A paused worker has ended and holds no live sessions; use the same durable cancellation as its host.
+      await cancelRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId, cause: 'stopped from the fill run page' });
+    } else {
+      await askRunControl(owner, { runId, action, at: Date.now() });
+    }
+    return { ok: true as const, runId };
   }
 
   /** The newest run of the store's trace, or the named one. */

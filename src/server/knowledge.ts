@@ -9,6 +9,7 @@
  * after each commit, and a comment now and then so a quiet product keeps its
  * connection.
  */
+import { here } from '../model/raise.js';
 import { resolve } from 'node:path';
 import { AuthoredRefusal } from '../graph/authored.js';
 import { catalogSummary } from '../knowledge/catalog-view.js';
@@ -60,6 +61,7 @@ export interface KnowledgePart {
   fill: (request: Request) => Promise<Handled>;
   /** Starts the fill page’s selected kinds, with their dependencies in order. */
   fillSelected: (request: Request) => Promise<Handled>;
+  fillRuns: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
   /** A person's «Остановить»: the run ends now; the body's `confirm` is the second press that ends it. */
@@ -138,8 +140,8 @@ export function createKnowledgePart(
         const response = json(503, {
           publication: publication.status,
           message: publication.status === 'pending'
-            ? 'The catalogue is being published. Please wait; no catalogue is available yet.'
-            : `The catalogue could not be published: ${publication.message}`,
+            ? `${here()}: The catalogue is being published. Please wait; no catalogue is available yet.`
+            : `${here()}: The catalogue could not be published: ${publication.message}`,
         });
         response.headers.set('cache-control', 'no-store');
         if (publication.status === 'pending') response.headers.set('retry-after', '1');
@@ -154,7 +156,7 @@ export function createKnowledgePart(
         return refused(500, { message: error.message });
       }
       errorLog(`the knowledge wiki could not ${what}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
-      return refused(500, { message: `the wiki could not ${what}; the cause is in the server's log` });
+      return refused(500, { message: `${here()}: the wiki could not ${what}; the cause is in the server's log` });
     }
   };
   /**
@@ -167,23 +169,23 @@ export function createKnowledgePart(
   | { readonly bad: Handled }
 > {
   const plain = notJson(request);
-  if (plain !== undefined) return { bad: refused(415, { message: plain }) };
+  if (plain !== undefined) return { bad: refused(415, { message: `${here()}: ${plain}` }) };
   let body: unknown;
-  try { body = await request.json(); } catch (error) { return { bad: refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }) }; }
+  try { body = await request.json(); } catch (error) { return { bad: refused(400, { message: `${here()}: the request body is not JSON: ${(error as Error).message}` }) }; }
   const asked = body as { selected?: unknown; agent?: unknown; tokenCap?: unknown } | null;
-  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: 'the body is { selected: [kind...], agent?, tokenCap? }' }) };
+  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: `${here()}: the body is { selected: [kind...], agent?, tokenCap? }` }) };
   const selected = asked.selected;
   if (!Array.isArray(selected) || selected.some((kind) => typeof kind !== 'string' || kind.trim() === '')) {
-    return { bad: refused(400, { field: 'selected', message: '"selected" is the list of entity kinds the catalogue has checked, each a kind of the product\'s manifest' }) };
+    return { bad: refused(400, { field: 'selected', message: `${here()}: "selected" is the list of entity kinds the catalogue has checked, each a kind of the product's manifest` }) };
   }
   if (asked.agent !== undefined && asked.agent !== null && typeof asked.agent !== 'string') {
-    return { bad: refused(400, { field: 'agent', message: '"agent" is the id of the agent the panel chose, or null for none' }) };
+    return { bad: refused(400, { field: 'agent', message: `${here()}: "agent" is the id of the agent the panel chose, or null for none` }) };
   }
   if (asked.tokenCap !== undefined && asked.tokenCap !== null && (typeof asked.tokenCap !== 'number' || !Number.isInteger(asked.tokenCap) || asked.tokenCap < 1)) {
-    return { bad: refused(400, { field: 'tokenCap', message: '"tokenCap" is the most tokens one run may spend: a whole number of 1 or more, or null for no cap' }) };
+    return { bad: refused(400, { field: 'tokenCap', message: `${here()}: "tokenCap" is the most tokens one run may spend: a whole number of 1 or more, or null for no cap` }) };
   }
-  if (asked.agent != null) return { bad: refused(400, { field: 'agent', message: 'this fill runs plugins only: choosing an agent is not supported' }) };
-  if (asked.tokenCap != null) return { bad: refused(400, { field: 'tokenCap', message: 'this fill runs plugins only: a token cap is not supported' }) };
+  if (asked.agent != null) return { bad: refused(400, { field: 'agent', message: `${here()}: this fill runs plugins only: choosing an agent is not supported` }) };
+  if (asked.tokenCap != null) return { bad: refused(400, { field: 'tokenCap', message: `${here()}: this fill runs plugins only: a token cap is not supported` }) };
   return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null } };
 }
 
@@ -379,39 +381,60 @@ export function createKnowledgePart(
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
     }, true, true),
+    fillRuns: guarded('read fill history', async (request) => {
+      const runId = new URL(request.url).searchParams.get('run');
+      const runs = await product.fillRuns(runId ?? undefined);
+      if (runId !== null && runs.length === 0) return refused(404, { message: `${here()}: this product holds no run ${JSON.stringify(runId)}` });
+      return { response: json(200, runId === null ? { runs } : { run: runs[0] }) };
+    }),
     fillSelected: guarded('fill the selected entities', async (request) => {
-      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(409, { message: "madarch's own wiki is documentation: it has no code to read and no entities of a product to fill" });
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
+      if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
       const asked = await selectionBody(request);
       if ('bad' in asked) return asked.bad;
       const kinds = readKinds(product.folder);
-      if (!kinds.present) return refused(409, { message: `the product has no ${kinds.file}: the catalogue shows the kinds that file declares` });
+      if (!kinds.present) return refused(409, { message: `${kinds.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares` });
       const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
-      const started = await product.startFill({ targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
-      if (!started.started) return refused(409, { message: started.message });
-      return { response: json(202, { fill: started.fill, order: targets.targets.order }) };
+      const started = await product.startFill({ selected: asked.selection.selected, targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
+      if (!started.started) return refused(409, { message: `${here()}: ${started.message}` });
+      return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order }) };
     }, true, true),
     pause: guarded('pause the fill', async (request) => {
       const crossSite = foreign(request);
-      if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(409, { message: "madarch's own wiki is documentation: there is no run to pause" });
+      if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
+      if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: there is no run to pause` });
+      const runId = new URL(request.url).searchParams.get('run');
+      if (runId !== null) {
+        if (runId.trim() === '') return refused(400, { field: 'run', message: `${here()}: run must name one fill run` });
+        const controlled = await product.controlFillRun(runId, 'pause');
+        if (!controlled.ok) return refused(controlled.status, { message: controlled.message });
+        return { response: json(200, controlled) };
+      }
       const paused = await product.pauseRun();
       if (!paused.ok) return refused(paused.status, { message: paused.message });
       return { response: json(200, { fill: paused.fill, writer: paused.writer }) };
     }),
     stop: guarded('stop the fill', async (request) => {
       const crossSite = foreign(request);
-      if (crossSite !== undefined) return refused(403, { message: crossSite });
-      if (own) return refused(409, { message: "madarch's own wiki is documentation: there is no run to stop" });
+      if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
+      if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: there is no run to stop` });
       // The second press confirms: the first answer counts the pages this run rewrote and says that they stay.
       let confirm = false;
       if (request.headers.get('content-type')?.includes('application/json')) {
         let body: unknown;
-        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `${here()}: the request body is not JSON: ${(error as Error).message}` }); }
         const asked = (body as { confirm?: unknown } | null)?.confirm;
-        if (asked !== undefined && typeof asked !== 'boolean') return refused(400, { field: 'confirm', message: '"confirm" is true for the press that ends the run: the answer to the first press names the pages it keeps' });
+        if (asked !== undefined && typeof asked !== 'boolean') return refused(400, { field: 'confirm', message: `${here()}: "confirm" is true for the press that ends the run: the answer to the first press names the pages it keeps` });
         confirm = asked === true;
+      }
+      const runId = new URL(request.url).searchParams.get('run');
+      if (runId !== null) {
+        if (runId.trim() === '') return refused(400, { field: 'run', message: `${here()}: run must name one fill run` });
+        if (!confirm) return refused(409, { field: 'confirm', message: `${here()}: stopping this run requires confirm: true; its published records stay` });
+        const controlled = await product.controlFillRun(runId, 'stop');
+        if (!controlled.ok) return refused(controlled.status, { message: controlled.message });
+        return { response: json(200, controlled) };
       }
       const stopped = await product.stopRun({ confirm });
       if (!stopped.ok) return refused(stopped.status, { message: stopped.message });
