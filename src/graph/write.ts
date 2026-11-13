@@ -689,26 +689,25 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   if (closed.rows.length === 0) return scopedChanged;
   for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
   const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
-  const removed = Number(open.rows[0]?.n ?? '0') === 0;
-  // The vertex is journaled as removed only where no open opinion of any producer remains: a producer that withdraws
-  // while another's opinion stands closed its own opinion and removed nothing.
-  let stillRemoved = removed;
-  if (removed) {
-    // The incident edges lose only this producer's opinions: an edge another producer still states keeps its end, so
-    // the vertex stays as an identity for it (owner's review of def179cd, item 1).
-    const incident = await executor.query<{ id: string; kind: string }>(
-      `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
-       WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
-    );
-    for (const edge of incident.rows) {
-      await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal);
-      const table = contract.edge.find((one) => one.name === edge.kind)?.table;
-      if (table === undefined) continue;
-      const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [edge.id, String(contextId)]);
-      if (Number(open.rows[0]?.n ?? '0') > 0) stillRemoved = false;
-    }
-    if (stillRemoved) journal?.removedVertex(vertex.name, uid, nodeId);
+  const vertexOpen = Number(open.rows[0]?.n ?? '0') > 0;
+  // This producer's incident edges are withdrawn on every entity retraction, even while another producer's opinion of
+  // the vertex stands: a retraction states what this producer no longer holds, edges included. An edge another
+  // producer still states keeps its end, so the vertex stays as an identity for it (owner's review of def819cd, item 1).
+  const incident = await executor.query<{ id: string; kind: string }>(
+    `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
+     WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
+  );
+  let blocked = false;
+  for (const edge of incident.rows) {
+    await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal);
+    const table = contract.edge.find((one) => one.name === edge.kind)?.table;
+    if (table === undefined) continue;
+    const stillOpen = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [edge.id, String(contextId)]);
+    if (Number(stillOpen.rows[0]?.n ?? '0') > 0) blocked = true;
   }
+  const stillRemoved = !vertexOpen && !blocked;
+  // The vertex is journaled as removed only where no open opinion of any producer remains and no incident edge does.
+  if (stillRemoved) journal?.removedVertex(vertex.name, uid, nodeId);
   await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, stillRemoved]);
   return true;
 }

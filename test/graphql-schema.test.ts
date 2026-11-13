@@ -113,18 +113,20 @@ kinds:
     expect(error.message).toContain('reserved');
   });
 
-  test('refuses a reserved field name, naming the field and the kind', () => {
-    const error = refusalOf(`
+  test('encodes a contract field whose name the schema reserves, instead of refusing the product', () => {
+    const sdl = graphqlSchemaOf(publishedManifestOf(manifestOf(`
 kinds:
   demo.file:
     template: templates/entity.yaml
     source: graph
     title: path
     fields:
+      - { name: id, type: text, producers: [agent] }
       - { name: backlinks, type: text, producers: [agent] }
-`);
-    expect(error.message).toContain('the field "backlinks" of the kind "demo.file"');
-    expect(error.message).toContain('reserved');
+`)));
+    expect(sdl).toContain('idField: String');
+    expect(sdl).toContain('backlinksField: String');
+    expect(sdl).toContain('id: ID!');
   });
 
   test('refuses two kinds that encode to one type name, naming both declarations', () => {

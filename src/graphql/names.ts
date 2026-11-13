@@ -40,10 +40,23 @@ export function typeNameOf(name: string): string {
   return parts(name).map(capitalised).join('');
 }
 
-/** The field name of a contract field or an edge kind: `commit_count` → `commitCount`, `code.contains` → `codeContains`. */
+/**
+ * The field name of a contract field or an edge kind: `commit_count` → `commitCount`, `code.contains` → `codeContains`.
+ * A name the schema reserves — `id`, `kind`, `label`, `template`, `opinions`, `contested`, `backlinks`, a name starting
+ * `__`, or one ending `Of`, `Aggregate`, `Opinions` (decision 0036, section 1) — is encoded rather than refused, so an
+ * existing product keeps opening: the reserved word takes the `Field` suffix (`id` → `idField`), and a name starting
+ * `__` takes the `field` prefix (`__x` → `field__x`).
+ */
 export function fieldNameOf(name: string): string {
   const held = parts(name);
-  return held.map((part, at) => (at === 0 ? part.slice(0, 1).toLowerCase() + part.slice(1) : capitalised(part))).join('');
+  const camel = held.map((part, at) => (at === 0 ? part.slice(0, 1).toLowerCase() + part.slice(1) : capitalised(part))).join('');
+  if (camel.startsWith('__')) return `field${camel}`;
+  return isReservedFieldName(camel) ? `${camel}Field` : camel;
+}
+
+/** Whether the schema owns a field name, so a contract field of that name is encoded (not refused). */
+export function isReservedFieldName(name: string): boolean {
+  return RESERVED_FIELD_NAMES.includes(name) || name.startsWith('__') || RESERVED_FIELD_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
 /** A refused manifest: its declaration, the name it encoded to and why that name is taken. */
@@ -72,9 +85,7 @@ export class NameRegistry {
 
   /** A field name on one type, claimed by a declaration (`the field "commit_count" of the kind "code.file"`). */
   claimField(type: string, name: string, declaration: string): void {
-    if (RESERVED_FIELD_NAMES.includes(name) || name.startsWith('__') || RESERVED_FIELD_SUFFIXES.some((suffix) => name.endsWith(suffix))) {
-      throw new SchemaRefusal(`${declaration} encodes to the field name "${name}", which is reserved by the schema: rename it`);
-    }
+    // A reserved contract field name is already encoded by `fieldNameOf`; two declarations may still encode to one name.
     this.claim(this.fields, `${type}.${name}`, name, declaration, `field name of the type "${type}"`);
   }
 

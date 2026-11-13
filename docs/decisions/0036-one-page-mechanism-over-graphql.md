@@ -74,9 +74,15 @@ parallel; a change to it is a change to this record.
   names starting `__` or ending `Of`, `Aggregate`, `Opinions`; type names `Query`, `Entity`,
   `CatalogueEntity`, `PageTemplate`, `Bootstrap`, `Revision`, `Opinion`, `Evidence`, `Group`, `Bucket`,
   `Ranked`, the scalars, and any ending `Connection`, `Edge`, `Where`, `Order`, `OrderField`,
-  `Aggregate`. A manifest whose names collide after
-  encoding, or that uses a reserved name, is refused at start naming both declarations (the
-  manifest check of madarch-64o5.9), so two machines always derive one schema.
+  `Aggregate`.
+  - A **contract field** (or edge kind) whose encoded name is a reserved field name is **encoded, never
+    refused**, so an existing product keeps opening: it takes the `Field` suffix (`id` → `idField`, `label` →
+    `labelField`, `backlinks` → `backlinksField`, `xOf` → `xOfField`), and a name starting `__` takes the `field`
+    prefix (`__x` → `field__x`). Two declarations that encode to one field name of one type still refuse the
+    manifest, naming both.
+  - A **type name** that is reserved refuses the manifest naming the declaration (the manifest check of
+    madarch-64o5.9). A manifest whose names collide after encoding also refuses, naming both declarations, so two
+    machines always derive one schema.
 - **Scalars**: text → `String`, integer → `Int`, bigint → `BigInt` (decimal string), boolean →
   `Boolean`, timestamp → `DateTime` (ISO 8601 with offset), json → `JSON`. A nullable contract
   field is nullable; every value is nullable on read (see 2).
