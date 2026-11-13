@@ -50,6 +50,7 @@
     "@types/pg": "^8.23.1",
     "debug": "^4.4.3",
     "dependency-cruiser": "18.7.1",
+    "graphql": "17.1.0",
     "knip": "6.44.1",
     "likec4": "1.59.4",
     "mermaid": "12.0.0",

@@ -1,0 +1,641 @@
+scalar BigInt
+
+scalar DateTime
+
+scalar JSON
+
+type Backlink {
+  relation: String!
+  from: Entity!
+}
+
+type BacklinkConnection {
+  edges: [BacklinkEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type BacklinkEdge {
+  cursor: String!
+  node: Backlink!
+}
+
+type Bootstrap {
+  structureRevision: String!
+  home: BootstrapHome
+  templates: [PageTemplate!]!
+}
+
+type BootstrapHome {
+  id: ID!
+  kind: String!
+  template: String!
+}
+
+type DemoAuthor implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  email: String
+  emailOpinions: [Opinion!]!
+  emailOpinionsCount: Int!
+  commits: Int
+  commitsOpinions: [Opinion!]!
+  commitsOpinionsCount: Int!
+  demoAuthored(first: Int, after: String): DemoAuthoredConnection!
+}
+
+type DemoAuthorConnection {
+  edges: [DemoAuthorEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoAuthorEdge {
+  cursor: String!
+  node: DemoAuthor!
+}
+
+type DemoAuthoredConnection {
+  edges: [DemoAuthoredEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoAuthoredEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type DemoCommit implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  hash: String
+  hashOpinions: [Opinion!]!
+  hashOpinionsCount: Int!
+  subject: String
+  subjectOpinions: [Opinion!]!
+  subjectOpinionsCount: Int!
+  committedAt: DateTime
+  committedAtOpinions: [Opinion!]!
+  committedAtOpinionsCount: Int!
+  changedLines: BigInt
+  changedLinesOpinions: [Opinion!]!
+  changedLinesOpinionsCount: Int!
+  demoAuthoredOf(first: Int, after: String): DemoAuthoredConnection!
+  demoTouched(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
+}
+
+type DemoCommitConnection {
+  edges: [DemoCommitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoCommitEdge {
+  cursor: String!
+  node: DemoCommit!
+}
+
+type DemoContainsConnection {
+  edges: [DemoContainsEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  position: Int
+  positionOpinions: [Opinion!]!
+  positionOpinionsCount: Int!
+  node: Entity!
+}
+
+type DemoFile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: DemoRepository
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  lines: Int
+  linesOpinions: [Opinion!]!
+  linesOpinionsCount: Int!
+  bytes: BigInt
+  bytesOpinions: [Opinion!]!
+  bytesOpinionsCount: Int!
+  language: String
+  languageOpinions: [Opinion!]!
+  languageOpinionsCount: Int!
+  binary: Boolean
+  binaryOpinions: [Opinion!]!
+  binaryOpinionsCount: Int!
+  lastChange: DateTime
+  lastChangeOpinions: [Opinion!]!
+  lastChangeOpinionsCount: Int!
+  facets: JSON
+  facetsOpinions: [Opinion!]!
+  facetsOpinionsCount: Int!
+  demoContainsOf(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  demoTouchedOf(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
+}
+
+type DemoFileConnection {
+  edges: [DemoFileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoFileEdge {
+  cursor: String!
+  node: DemoFile!
+}
+
+type DemoRepository implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  url: String
+  urlOpinions: [Opinion!]!
+  urlOpinionsCount: Int!
+  defaultBranch: String
+  defaultBranchOpinions: [Opinion!]!
+  defaultBranchOpinionsCount: Int!
+  archived: Boolean
+  archivedOpinions: [Opinion!]!
+  archivedOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  facets: JSON
+  facetsOpinions: [Opinion!]!
+  facetsOpinionsCount: Int!
+  size: BigInt
+  sizeOpinions: [Opinion!]!
+  sizeOpinionsCount: Int!
+  demoContains(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  repositoryOfDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String): DemoFileConnection!
+}
+
+type DemoRepositoryConnection {
+  edges: [DemoRepositoryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoRepositoryEdge {
+  cursor: String!
+  node: DemoRepository!
+}
+
+type DemoTouchedConnection {
+  edges: [DemoTouchedEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DemoTouchedEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  change: String
+  changeOpinions: [Opinion!]!
+  changeOpinionsCount: Int!
+  added: BigInt
+  addedOpinions: [Opinion!]!
+  addedOpinionsCount: Int!
+  removed: BigInt
+  removedOpinions: [Opinion!]!
+  removedOpinionsCount: Int!
+  changedAt: DateTime
+  changedAtOpinions: [Opinion!]!
+  changedAtOpinionsCount: Int!
+  weight: Int
+  weightOpinions: [Opinion!]!
+  weightOpinionsCount: Int!
+  binary: Boolean
+  binaryOpinions: [Opinion!]!
+  binaryOpinionsCount: Int!
+  meta: JSON
+  metaOpinions: [Opinion!]!
+  metaOpinionsCount: Int!
+  node: Entity!
+}
+
+interface Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+}
+
+type EntityConnection {
+  edges: [EntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EntityEdge {
+  cursor: String!
+  node: Entity!
+}
+
+type Evidence {
+  repository: String
+  path: String
+  lineStart: Int
+  lineEnd: Int
+  revision: String
+}
+
+type Opinion {
+  value: JSON
+  producer: String!
+  version: String
+  lang: String
+  statedAt: DateTime!
+  evidence: [Evidence!]!
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+type PageTemplate {
+  name: String!
+  body: String!
+}
+
+type Query {
+  entity(id: ID!, lang: String): Entity
+  allDemoAuthor(where: DemoAuthorWhere, orderBy: [DemoAuthorOrder!], first: Int, after: String, lang: String): DemoAuthorConnection!
+  allDemoCommit(where: DemoCommitWhere, orderBy: [DemoCommitOrder!], first: Int, after: String, lang: String): DemoCommitConnection!
+  allDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String, lang: String): DemoFileConnection!
+  allDemoRepository(where: DemoRepositoryWhere, orderBy: [DemoRepositoryOrder!], first: Int, after: String, lang: String): DemoRepositoryConnection!
+  search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
+  bootstrap(lang: String): Bootstrap!
+}
+
+input DemoAuthorCommitsFilter {
+  _eq: Int
+  _in: [Int!]
+  _lt: Int
+  _gt: Int
+}
+
+input DemoAuthorEmailFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoAuthorNameFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoAuthorOrder {
+  field: DemoAuthorOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DemoAuthorWhere {
+  name: DemoAuthorNameFilter
+  email: DemoAuthorEmailFilter
+  commits: DemoAuthorCommitsFilter
+}
+
+input DemoCommitChangedLinesFilter {
+  _eq: BigInt
+  _in: [BigInt!]
+  _lt: BigInt
+  _gt: BigInt
+}
+
+input DemoCommitCommittedAtFilter {
+  _eq: DateTime
+  _in: [DateTime!]
+  _lt: DateTime
+  _gt: DateTime
+}
+
+input DemoCommitHashFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoCommitOrder {
+  field: DemoCommitOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DemoCommitSubjectFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoCommitWhere {
+  hash: DemoCommitHashFilter
+  subject: DemoCommitSubjectFilter
+  committedAt: DemoCommitCommittedAtFilter
+  changedLines: DemoCommitChangedLinesFilter
+}
+
+input DemoContainsEdgeOrder {
+  field: DemoContainsEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DemoContainsEdgePositionFilter {
+  _eq: Int
+  _in: [Int!]
+  _lt: Int
+  _gt: Int
+}
+
+input DemoContainsEdgeWhere {
+  position: DemoContainsEdgePositionFilter
+}
+
+input DemoFileBinaryFilter {
+  _eq: Boolean
+}
+
+input DemoFileBytesFilter {
+  _eq: BigInt
+  _in: [BigInt!]
+  _lt: BigInt
+  _gt: BigInt
+}
+
+input DemoFileFacetsFilter {
+  _eq: JSON
+}
+
+input DemoFileLanguageFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoFileLastChangeFilter {
+  _eq: DateTime
+  _in: [DateTime!]
+  _lt: DateTime
+  _gt: DateTime
+}
+
+input DemoFileLinesFilter {
+  _eq: Int
+  _in: [Int!]
+  _lt: Int
+  _gt: Int
+}
+
+input DemoFileOrder {
+  field: DemoFileOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DemoFilePathFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoFileWhere {
+  path: DemoFilePathFilter
+  lines: DemoFileLinesFilter
+  bytes: DemoFileBytesFilter
+  language: DemoFileLanguageFilter
+  binary: DemoFileBinaryFilter
+  lastChange: DemoFileLastChangeFilter
+  facets: DemoFileFacetsFilter
+}
+
+input DemoRepositoryArchivedFilter {
+  _eq: Boolean
+}
+
+input DemoRepositoryCreatedAtFilter {
+  _eq: DateTime
+  _in: [DateTime!]
+  _lt: DateTime
+  _gt: DateTime
+}
+
+input DemoRepositoryDefaultBranchFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoRepositoryFacetsFilter {
+  _eq: JSON
+}
+
+input DemoRepositoryNameFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoRepositoryOrder {
+  field: DemoRepositoryOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DemoRepositorySizeFilter {
+  _eq: BigInt
+  _in: [BigInt!]
+  _lt: BigInt
+  _gt: BigInt
+}
+
+input DemoRepositoryUrlFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoRepositoryWhere {
+  name: DemoRepositoryNameFilter
+  url: DemoRepositoryUrlFilter
+  defaultBranch: DemoRepositoryDefaultBranchFilter
+  archived: DemoRepositoryArchivedFilter
+  createdAt: DemoRepositoryCreatedAtFilter
+  facets: DemoRepositoryFacetsFilter
+  size: DemoRepositorySizeFilter
+}
+
+input DemoTouchedEdgeAddedFilter {
+  _eq: BigInt
+  _in: [BigInt!]
+  _lt: BigInt
+  _gt: BigInt
+}
+
+input DemoTouchedEdgeBinaryFilter {
+  _eq: Boolean
+}
+
+input DemoTouchedEdgeChangeFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input DemoTouchedEdgeChangedAtFilter {
+  _eq: DateTime
+  _in: [DateTime!]
+  _lt: DateTime
+  _gt: DateTime
+}
+
+input DemoTouchedEdgeMetaFilter {
+  _eq: JSON
+}
+
+input DemoTouchedEdgeOrder {
+  field: DemoTouchedEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DemoTouchedEdgeRemovedFilter {
+  _eq: BigInt
+  _in: [BigInt!]
+  _lt: BigInt
+  _gt: BigInt
+}
+
+input DemoTouchedEdgeWeightFilter {
+  _eq: Int
+  _in: [Int!]
+  _lt: Int
+  _gt: Int
+}
+
+input DemoTouchedEdgeWhere {
+  change: DemoTouchedEdgeChangeFilter
+  added: DemoTouchedEdgeAddedFilter
+  removed: DemoTouchedEdgeRemovedFilter
+  changedAt: DemoTouchedEdgeChangedAtFilter
+  weight: DemoTouchedEdgeWeightFilter
+  binary: DemoTouchedEdgeBinaryFilter
+  meta: DemoTouchedEdgeMetaFilter
+}
+
+enum DemoAuthorOrderField {
+  name
+  email
+  commits
+}
+
+enum DemoCommitOrderField {
+  hash
+  subject
+  committedAt
+  changedLines
+}
+
+enum DemoContainsEdgeOrderField {
+  position
+}
+
+enum DemoFileOrderField {
+  path
+  lines
+  bytes
+  language
+  binary
+  lastChange
+  facets
+}
+
+enum DemoRepositoryOrderField {
+  name
+  url
+  defaultBranch
+  archived
+  createdAt
+  facets
+  size
+}
+
+enum DemoTouchedEdgeOrderField {
+  change
+  added
+  removed
+  changedAt
+  weight
+  binary
+  meta
+}
+
+enum NullsOrder {
+  FIRST
+  LAST
+}
+
+enum OrderDirection {
+  ASC
+  DESC
+}
