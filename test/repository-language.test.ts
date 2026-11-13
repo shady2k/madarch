@@ -14,6 +14,8 @@ test('an ambiguous extension is decided by its content, then by the extension\'s
   expect(languageOfPath('Makefile', '{}')).toEqual({ language: 'Makefile', candidates: ['Makefile'] });
   expect(languageOfPath('src/example.ts', 'export const a = 1;\n')).toEqual({ language: 'TypeScript', candidates: ['TypeScript', 'XML'] });
   expect(languageOfPath('src/translations.ts', '<?xml version="1.0" encoding="utf-8"?><TS></TS>\n')).toEqual({ language: 'XML', candidates: ['TypeScript', 'XML'] });
+  expect(languageOfPath('src/qt.ts', '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE TS>\n<TS version="2.1"></TS>\n')).toEqual({ language: 'XML', candidates: ['TypeScript', 'XML'] });
+  expect(languageOfPath('src/qt-comments.ts', '\uFEFF<?xml version="1.0"?>\n<!-- generated -->\n<!DOCTYPE TS>\n<!-- another -->\n<TS></TS>\n')).toEqual({ language: 'XML', candidates: ['TypeScript', 'XML'] });
   // A TypeScript file that mentions the XML element inside its own text stays TypeScript: the XML rule is anchored.
   expect(languageOfPath('src/reader.ts', 'export const tag = "<TS";\n')).toEqual({ language: 'TypeScript', candidates: ['TypeScript', 'XML'] });
   expect(languageOfPath('src/view.tsx', 'export const View = () => <TS />;\n')).toEqual({ language: 'TSX', candidates: ['TSX', 'XML'] });
