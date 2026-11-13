@@ -387,7 +387,8 @@ describe('the GraphQL executor', () => {
   });
 
   test('a null where argument is an omitted filter (#16)', async () => {
-    const data = await graphql(`{ allDemoFile(where: null, first: 2) { edges { node { path } } } filtered: allDemoFile(where: { lines: { _is_null: true }, path: { _in: ["a.ts", "b.ts", "c.ts"] } }, first: 2) { edges { node { path } } } }`);
+    const data = await graphql(`{ allDemoFile(where: null, first: 2) { edges { node { path } } } catalogue: allCatalogueEntity(where: null, first: 1) { totalCount } filtered: allDemoFile(where: { lines: { _is_null: true }, path: { _in: ["a.ts", "b.ts", "c.ts"] } }, first: 2) { edges { node { path } } } }`);
+    expect((data['catalogue'] as Record<string, any>).totalCount).toBe(2);
     expect((data['allDemoFile'] as Record<string, any>).edges).toHaveLength(2);
     expect((data['filtered'] as Record<string, any>).edges.map((edge: any) => edge.node.path)).toEqual(['c.ts']);
   });
