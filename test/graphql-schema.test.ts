@@ -92,7 +92,7 @@ describe('the schema of a published manifest', () => {
     const sdl = graphqlSchemaOf(publishedManifestOf(manifestOf(`
 kinds:
   template:
-    template: templates/entity.yaml
+    
     source: graph
     title: name
 `)));
@@ -104,7 +104,7 @@ kinds:
     const error = refusalOf(`
 kinds:
   demo.edge:
-    template: templates/entity.yaml
+    
     source: graph
     title: name
 `);
@@ -117,7 +117,7 @@ kinds:
     const sdl = graphqlSchemaOf(publishedManifestOf(manifestOf(`
 kinds:
   demo.file:
-    template: templates/entity.yaml
+    
     source: graph
     title: path
     fields:
@@ -133,11 +133,11 @@ kinds:
     const error = refusalOf(`
 kinds:
   demo.file:
-    template: templates/entity.yaml
+    
     source: graph
     title: path
   demo-file:
-    template: templates/entity.yaml
+    
     source: graph
     title: path
 `);
@@ -150,13 +150,13 @@ kinds:
     const error = refusalOf(`
 kinds:
   demo.repository:
-    template: templates/entity.yaml
+    
     source: graph
     title: name
     fields:
       - { name: links_to, type: text, producers: [agent] }
   demo.file:
-    template: templates/entity.yaml
+    
     source: graph
     title: path
 edges:
@@ -173,7 +173,7 @@ edges:
     const error = refusalOf(`
 kinds:
   demo.repository:
-    template: templates/entity.yaml
+    
     source: graph
     title: name
 edges:

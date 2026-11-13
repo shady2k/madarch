@@ -6,7 +6,6 @@ import { CATALOG_GROUPS, CATALOG_KINDS } from '../src/knowledge/catalog-starter.
 import { readFileSync } from 'node:fs';
 import { parse as parseCatalogYaml } from 'yaml';
 const CATALOG_RELATIONS = parseCatalogYaml(readFileSync(new URL('../catalog/catalog.yaml', import.meta.url), 'utf8')).catalog.relations as Record<string, string | null>;
-import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const row = CATALOG_KINDS.find((kind) => kind.name === 'code.test-quarantine')!;
 const manifest = parseYaml(starterManifestText());
@@ -21,7 +20,6 @@ describe('test quarantine in the starter catalogue', () => {
     });
     expect(CATALOG_GROUPS.find((group) => group.name === row.group)?.parent).toBe('testing');
     expect(CATALOG_KINDS.find((kind) => kind.name === 'code.test-case')?.id).not.toBe(row.id);
-    expect(STARTER_FILES.some((file) => file.path === `templates/${row.template}`)).toBe(true);
   });
 
   test('the manifest keeps the plugin fields, typed references, natural key and discovery dependencies', () => {

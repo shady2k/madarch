@@ -107,7 +107,7 @@ test('malformed declarations and invalid paths never disappear silently', () => 
 test('folder layout preserves declared subgroup keys, reports duplicate names and rejects explicit identity', () => {
   const read = readKindsFrom(source({
     'madarch/catalog.yaml': 'groups:\n  strategy: {en: Strategy, ru: Стратегия}\n  product: {en: Product, ru: Продукт, parent: strategy}\n',
-    'madarch/kinds/strategy/product/domain.yaml': 'source: graph\ntemplate: templates/domain.md\n',
+    'madarch/kinds/strategy/product/domain.yaml': 'source: graph\n\n',
     'madarch/kinds/strategy/zother/domain.yaml': 'source: graph\n',
     'madarch/kinds/strategy/product/invalid.yaml': 'source: graph\ngroup: other\n',
     'templates/domain.md': '# Domain',
@@ -133,7 +133,7 @@ test('flow mappings keep their original diagnostic line', () => {
 test('flow-style metadata composes with folder declarations', () => {
   const read = readKindsFrom(source({
     'madarch/catalog.yaml': '{groups: {code: {en: Code, ru: Код}, code.structure: {parent: code, en: Structure, ru: Структура}}}\n',
-    'madarch/kinds/code/structure/code.file.yaml': 'source: graph\ntemplate: templates/a.liquid\n',
+    'madarch/kinds/code/structure/code.file.yaml': 'source: graph\n\n',
     'templates/a.liquid': '# File',
   }), '/product');
   if (!read.present) throw new Error('declarations must be read');
@@ -152,7 +152,7 @@ test('multiline flow metadata retains nested field diagnostic lines', () => {
 });
 
 test('folder reads parse each changed file once and keep edits and removals visible', () => {
-  const declaration = 'source: graph\ntemplate: templates/fixture.liquid\n';
+  const declaration = 'source: graph\n\n';
   const entries: Record<string, string> = { 'madarch/catalog.yaml': metadata, 'templates/fixture.liquid': '# Fixture' };
   for (let index = 0; index < 12; index++) entries[`madarch/kinds/code/structure/fixture.${index}.yaml`] = declaration;
   const files = source(entries);
@@ -198,7 +198,7 @@ test('aliases resolve only inside their own file and report the alias line', () 
 test('prototype-named kinds are retained', () => {
   const read = readKindsFrom(source({
     'madarch/catalog.yaml': metadata,
-    'madarch/kinds/code/structure/__proto__.yaml': 'source: graph\ntemplate: templates/a.liquid\n',
+    'madarch/kinds/code/structure/__proto__.yaml': 'source: graph\n\n',
     'templates/a.liquid': '# Template',
   }), '/prototype');
   if (!read.present) throw new Error('manifest must be read');
@@ -208,7 +208,7 @@ test('prototype-named kinds are retained', () => {
 test('duplicate kind files still report their own malformed YAML', () => {
   const read = readKindsFrom(source({
     'madarch/catalog.yaml': metadata,
-    'madarch/kinds/code/structure/item.yaml': 'source: graph\ntemplate: templates/a.liquid\n',
+    'madarch/kinds/code/structure/item.yaml': 'source: graph\n\n',
     'madarch/kinds/other/structure/item.yaml': 'source: [\n',
     'templates/a.liquid': '# Template',
   }), '/duplicates');

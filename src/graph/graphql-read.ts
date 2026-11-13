@@ -301,7 +301,8 @@ export class ReadContext {
       this.kindByRoot.set(`all${type}`, kind);
       this.vertexTable.set(kind.name, generatedTableName(kind.name, 'vertex'));
       this.fieldsByType.set(type, new Map(kind.fields.map((field) => [fieldNameOf(field.name), field])));
-      this.titles.set(kind.name, manifest.kinds.get(kind.name)?.title ?? 'label');
+      const title = manifest.kinds.get(kind.name)?.title;
+      if (title !== undefined) this.titles.set(kind.name, title);
     }
     const everyType = ['CatalogueEntity', ...[...this.kindByType.keys()]];
     for (const edge of published.edges) {
@@ -429,23 +430,15 @@ export class ReadContext {
   }
 
   private async labelOf(entity: EntityValue): Promise<string> {
-    const title = this.titles.get(entity.kind) ?? 'label';
-    const field = this.fieldsByType.get(entity.typeName)?.get(fieldNameOf(title));
+    // The label is the field the manifest's `title:` names (decision 0036, section 1): a key field answers its own
+    // value, any other field its agreed opinion. A kind that names no title is labelled by the first text of its key.
+    const title = this.titles.get(entity.kind);
+    const field = title === undefined ? undefined : this.fieldsByType.get(entity.typeName)?.get(fieldNameOf(title));
     if (field !== undefined) {
       if (field.type === 'text' && entity.key[field.name] !== undefined) return String(entity.key[field.name]);
       const read = await this.fieldRead(entity, field);
       if (typeof read.value === 'string' && read.value !== '') return read.value;
       if (read.value !== null && read.value !== undefined) return String(read.value);
-    } else {
-      // A kind that declares no fields still states its label: the field is storage the schema does not publish
-      // (the interface's own `label` is the reader's view of it).
-      await this.ensureFields(entity.kind, entity.nodeId, [title]);
-      const rows = (this.fieldCache.get(entity.kind)?.get(entity.nodeId)?.rows ?? []).filter((row) => row.values[title] !== null && row.values[title] !== undefined);
-      const inLang = rows.filter((row) => row.lang === (entity.lang ?? this.lang));
-      const fallback = rows.filter((row) => row.lang === this.fallbackLang);
-      const chosen = inLang.length > 0 ? inLang : fallback.length > 0 ? fallback : rows.filter((row) => row.lang === null);
-      const value = agreedValue(chosen.length > 0 ? chosen : rows, title);
-      if (typeof value === 'string' && value !== '') return value;
     }
     for (const value of Object.values(entity.key)) if (typeof value === 'string' && value !== '') return value;
     return entity.uid;

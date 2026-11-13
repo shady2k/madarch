@@ -47,14 +47,14 @@ test('scripted Document and Problem producers publish, abstain, fail, retract an
   writeFolderManifest(product, `language: en
 kinds:
   Document:
-    template: templates/item-plain.liquid
+    
     source: graph
     fields:
       - { name: id, type: text }
       - { name: condition, type: text }
     key: [id]
   Problem:
-    template: templates/item-plain.liquid
+    
     source: graph
     findings: true
     derives-from: [Document]

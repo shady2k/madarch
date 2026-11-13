@@ -142,7 +142,7 @@ export type ShownStarterKind = CatalogKindData & {
  */
 export function starterKinds(): readonly ShownStarterKind[] {
   return CATALOG_KINDS.filter(
-    (kind): kind is ShownStarterKind => kind.policy !== 'none' && kind.template !== undefined && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined,
+    (kind): kind is ShownStarterKind => kind.policy !== 'none' && kind.source !== undefined && kind.en !== undefined && kind.ru !== undefined && kind.describe !== undefined,
   );
 }
 

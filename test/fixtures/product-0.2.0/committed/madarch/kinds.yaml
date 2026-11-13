@@ -6,21 +6,21 @@
 # `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.
 kinds:
   product:
-    template: templates/product.md
+    
     source: markdown
     file: docs/product.md
   domain:
-    template: templates/domain.md
+    
     source: markdown
     folder: docs/domains
   code.service:
-    template: templates/service.md
+    
     source: graph
     relations:
       - { type: code.contains, to: "code.package:{span.path|dirname}" }
   code.file:
-    template: templates/file.md
+    
     source: graph
   code.symbol:
-    template: templates/symbol.md
+    
     source: graph

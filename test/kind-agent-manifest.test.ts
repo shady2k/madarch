@@ -12,7 +12,7 @@ const read = (config?: string) => parseKinds(`groups:
   g: { en: Group, ru: Группа, short: { en: Group, ru: Группа } }
 kinds:
   a:
-    template: templates/a.liquid
+    
     source: graph
     group: g
     fields:

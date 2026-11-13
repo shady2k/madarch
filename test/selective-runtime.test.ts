@@ -11,7 +11,7 @@ const folder = mkdtempSync(join(tmpdir(), 'madarch-selected-agent-'));
 mkdirSync(join(folder, 'madarch'));
 mkdirSync(join(folder, 'templates'));
 writeFileSync(join(folder, 'templates/summary.liquid'), '{{ title }}');
-writeFolderManifest(folder, 'kinds:\n  probe.summary: {description: {en: A summary}, template: templates/summary.liquid, source: graph, derives-from: []}\n');
+writeFolderManifest(folder, 'kinds:\n  probe.summary: {description: {en: A summary}, source: graph, derives-from: []}\n');
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
 
 test('a selected fill forwards agent and cap to the run without starting an adapter', async () => {
@@ -33,7 +33,7 @@ test('the product refuses a disabled producer stage before queue acceptance', as
   writeFileSync(join(folder, 'plugins/probe/main.ts'), '');
   writeFolderManifest(folder, `kinds:
   probe.summary:
-    template: templates/summary.liquid
+    
     source: graph
     fields: [{ name: id, type: text }]
     key: [id]

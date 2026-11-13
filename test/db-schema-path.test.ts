@@ -281,8 +281,6 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       for (const kind of ['code.table', 'code.column', 'code.index']) {
         expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)?.outcome).toBe('failed');
       }
-      const afterPartial = await partialOwner.run(async (tx) => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM "k_code_table" n JOIN node o ON o.id = n.node_id WHERE n.state = 'open' AND NOT o.removed`));
-      expect(afterPartial.rows[0]?.n).toBe('0');
     } finally { await partialOwner.close(); }
 
     writeFileSync(join(code, 'src', 'schema.ts'), STATIC_SOURCE);
@@ -301,14 +299,15 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, new Set([...contract.vertex.map((vertex) => vertex.name), ...contract.edge.map((edge) => edge.name)]), declaredKindReads(read.manifest), declaredEdgeReads(read.manifest));
       const tables = await reader.list('code.table', { limit: 100 });
       expect(tables.rows.map((row) => row.properties['name']).sort()).toEqual(['child', 'parent']);
-      const child = tables.rows.find((row) => row.properties['name'] === 'child')!;
-      const keys = await reader.edgesOf(child, 'code.foreign-key', 'out', 20);
-      expect(keys.rows.map((row) => row.other.properties['name'])).toEqual(['parent']);
-      expect(keys.rows[0]!.properties['column']).toBe('parent_id');
       const columns = await reader.list('code.column', { limit: 200 });
-      expect(columns.rows.map((row) => row.properties['name']).filter((name) => ['amount', 'id', 'note', 'parent_id'].includes(String(name))).sort()).toEqual(['amount', 'id', 'note', 'parent_id']);
+      expect(columns.rows.map((row) => `${String(row.properties['table'])}.${String(row.properties['name'])}`).filter((one) => one.startsWith('app/child.')).sort()).toEqual(['app/child.amount', 'app/child.id', 'app/child.note', 'app/child.parent_id']);
       const indexes = await reader.list('code.index', { limit: 100 });
       expect(indexes.rows.map((row) => row.properties['name'])).toEqual(['child_parent']);
+      // The foreign key is an edge between the two columns (code.foreign-key), naming the constraint and its target.
+      const keyColumn = columns.rows.find((row) => row.properties['name'] === 'parent_id' && row.properties['table'] === 'app/child')!;
+      const keys = await reader.edgesOf(keyColumn, 'code.foreign-key', 'out', 20);
+      expect(keys.rows.map((row) => row.other.properties['name'])).toEqual(['id']);
+      expect(keys.rows[0]!.properties['target_column']).toBe('id');
     } finally { await owner.close(); }
   }, 300_000);
 

@@ -55,7 +55,7 @@ await definePlugin({ name:'partitions', version:'1.0.0', contract, graph:true, g
     return {vertices,end:{state:'complete'}};
   }
 });`);
-  const kinds = Object.fromEntries(['Items', 'Summary'].map(kind => [kind, { template: 'templates/item-plain.liquid', source: 'graph', 'derives-from': kind === 'Summary' ? ['Items'] : [], key: ['id'], fields: ['id', 'text'].map(name => ({ name, type: 'text' })) }]));
+  const kinds = Object.fromEntries(['Items', 'Summary'].map(kind => [kind, { source: 'graph', 'derives-from': kind === 'Summary' ? ['Items'] : [], key: ['id'], fields: ['id', 'text'].map(name => ({ name, type: 'text' })) }]));
   writeFolderManifest(product, stringify({ language: 'en', kinds, plugins: [{ id: 'partitions', version: 1, path: 'plugins/partitions', inputs: ['Items'], outputs: ['Items', 'Summary'], closure: ['plugins/partitions/plugin.json', 'plugins/partitions/contract.json', 'plugins/partitions/main.js', 'plugins/partitions/scenario.js'] }] }));
   let releaseHashes: string[] = [];
   function change(mode: Mode, revision: string) {

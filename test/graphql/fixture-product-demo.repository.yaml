@@ -7,7 +7,7 @@ acquisition: [document]
 status: implemented
 relation-constraints: { out: [contains], in: [] }
 template-policy: page
-template: templates/entity.yaml
+
 source: graph
 title: name
 labels:

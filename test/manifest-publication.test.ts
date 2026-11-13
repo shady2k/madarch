@@ -23,7 +23,7 @@ function fixture(): string {
   writeFolderManifest(folder, `kinds:
   term:
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
 `);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  future: { status: planned, stages: [] }\n');
@@ -220,7 +220,7 @@ test('named plugin manifests use the existing plugin validator for missing and m
 kinds:
   term:
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
 `);
   const file = join(folder, 'plugins', 'words', 'plugin.json');
@@ -242,7 +242,7 @@ test('the published declarations answer before any fill, even after the checkout
 kinds:
   term:
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
     details: [summary]
     fields:
@@ -276,7 +276,7 @@ kinds:
   term:
     purpose: understand
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
 `;
   try {

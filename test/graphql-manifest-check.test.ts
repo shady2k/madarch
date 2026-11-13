@@ -28,7 +28,7 @@ function collidingProduct(): string {
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.page.yaml'), [
     'id: practice.page', 'purpose: structure', 'definition: A page of the demo.', 'sources: [https://example.test/standard]',
     'acquisition: [conversation]', 'status: implemented', 'relation-constraints: { out: [], in: [] }',
-    'template-policy: page', 'template: templates/entity.yaml', 'source: graph', 'title: title',
+    'template-policy: page', ' ', 'source: graph', 'title: title',
     'labels:', '  en: { one: Page, many: Pages }', '  ru: { one: Страница, many: Страницы }',
     'description: { en: A page., ru: Страница. }',
     'fields:', '  - { name: title, type: text, producers: [person] }', '  - { name: mentions, type: text, nullable: true, producers: [person] }',

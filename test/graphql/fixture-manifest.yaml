@@ -2,7 +2,7 @@
 # a repeated edge with attributes, and the inverses the edges and the reference make.
 kinds:
   demo.repository:
-    template: templates/entity.yaml
+    
     source: graph
     title: name
     fields:
@@ -15,7 +15,7 @@ kinds:
       - { name: size, type: bigint, nullable: true, producers: [agent] }
     key: [name]
   demo.file:
-    template: templates/entity.yaml
+    
     source: graph
     title: path
     fields:
@@ -29,7 +29,7 @@ kinds:
       - { name: facets, type: json, nullable: true, producers: [agent] }
     key: [repository, path]
   demo.commit:
-    template: templates/entity.yaml
+    
     source: graph
     title: hash
     fields:
@@ -39,7 +39,7 @@ kinds:
       - { name: changed_lines, type: bigint, nullable: true, producers: [agent] }
     key: [hash]
   demo.author:
-    template: templates/entity.yaml
+    
     source: graph
     title: name
     fields:

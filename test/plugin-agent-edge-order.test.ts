@@ -86,9 +86,9 @@ function fixture(agent: boolean) {
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
   const manifestText = `language: en
 kinds:
-  code.file: { template: templates/file.liquid, source: graph, capability: git }
-  code.repository: { template: templates/repository.liquid, source: graph, capability: git }
-  code.directory: { template: templates/directory.liquid, source: graph, capability: git }
+  code.file: { source: graph, capability: git }
+  code.repository: { source: graph, capability: git }
+  code.directory: { source: graph, capability: git }
   probe.summary:
     id: probe.summary
     group: code.structure
@@ -106,7 +106,7 @@ kinds:
     description:
       en: A summary of the fixture documents.
       ru: Сводка документов примера.
-    template: templates/item-plain.liquid
+    
     source: graph
     derives-from: [code.file]
     key: [id]
@@ -150,7 +150,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     manifest.deleteIn(['kinds', 'probe.summary']);
     for (const name of ['probe.a', 'probe.b']) manifest.setIn(['kinds', name], {
       ...probeKind, id: name,
-      template: 'templates/item-plain.liquid', source: 'graph',
+      source: 'graph',
       agent: { plugin: 'agent-fill', fields: '*' },
       'derives-from': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
       fields: [{ name: 'id', type: 'text', binding: { agent: 'Stable identity.' } }, { name: 'title', type: 'text', binding: { agent: 'The title.' } }],

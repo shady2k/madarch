@@ -17,7 +17,7 @@ export async function authoredFixture(home: string, name = 'authored', fill = tr
   writeFileSync(join(draft.folder, 'templates', 'note.liquid'), '{{ entity.title }}');
   rmSync(join(draft.folder, 'madarch', 'kinds'), { recursive: true, force: true });
   writeFolderManifest(draft.folder, stringify({
-    kinds: { note: { source: 'graph', origin: 'person', template: 'templates/note.liquid', title: 'title', fields: [
+    kinds: { note: { source: 'graph', origin: 'person', title: 'title', fields: [
       { name: 'title', type: 'text', producers: ['person'] },
       { name: 'count', type: 'integer', nullable: true, producers: ['person'] },
     ] } },

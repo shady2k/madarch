@@ -36,6 +36,7 @@ import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { headCommitOf } from '../product/fill-updates.js';
@@ -1811,11 +1812,22 @@ export class KnowledgeProduct {
     this.restorePause();
     const read = await this.manifestRead(product.folder);
     const run = await this.runViewOf();
+    // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
+    const runId = this.fillRunId ?? run?.runId;
+    const outcomes = runId === undefined ? undefined : await readProducerOutcomes(this.reader!.owner, { runId }).catch(() => undefined);
+    this.fillExtras = {
+      ...(run === null ? {} : { run }),
+      ...(outcomes === undefined ? {} : { outcomes }),
+      ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
+    };
     const fill = this.statusFill();
+    const manifestFile = join(product.folder, KINDS_FILE);
     const base: WikiStatus = {
       product: { name: product.name, id: product.id },
-      manifest: read.present ? 'ok' : 'not-filled',
-      manifestFile: read.present ? read.manifest.file : join(product.folder, KINDS_FILE),
+      // Three states, never mixed: the file is absent (`no-manifest`), it stands in the repository but no fill has read
+      // it into the graph yet (`not-filled`), or the graph holds it (`ok`).
+      manifest: read.present ? 'not-filled' : existsSync(manifestFile) ? 'not-filled' : 'no-manifest',
+      manifestFile,
       language: read.present ? read.manifest.language ?? 'en' : 'en',
       kinds: [],
       groups: read.present ? groupViews(read.manifest) : [],
@@ -1878,6 +1890,22 @@ export class KnowledgeProduct {
       ...(changed === undefined ? {} : { changed }),
       ...this.fillExtras,
     };
+  }
+
+  /**
+   * What a failed run's message names: the file and line the error was raised at, and the path the run was about. The
+   * message is the engine's own (`<file>:<line>:<column>: <words>`), so the three are read from it rather than guessed.
+   */
+  private errorOf(message: string): FillErrorView {
+    let at = message.indexOf(':');
+    while (at > 0) {
+      const line = message.slice(at + 1).split(':');
+      if (line.length >= 2 && /^\d+$/u.test(line[0]!) && /^\d+$/u.test(line[1]!)) {
+        return { message, file: message.slice(0, at), line: Number(line[0]), path: this.options.productFolder };
+      }
+      at = message.indexOf(':', at + 1);
+    }
+    return { message, path: this.options.productFolder };
   }
 
   /** A complete status before publication, built only from local product files (decision 0036, section 8). */

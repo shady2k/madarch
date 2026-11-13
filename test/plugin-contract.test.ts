@@ -39,7 +39,7 @@ const CONTRACT = {
 const MANIFEST = [
   'kinds:',
   '  doc.term:',
-  '    template: templates/t.liquid',
+  '    ',
   '    source: document',
   '    origin: person',
   '    terms: ["**/glossary*.md"]',
@@ -63,7 +63,7 @@ describe('a kind\'s table comes from the manifest', () => {
   custom.page:
     semantics: other
     source: document
-    template: templates/t.liquid
+    
     fields:
       - { name: id, type: text }
       - { name: title, type: text }

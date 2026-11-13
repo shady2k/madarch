@@ -43,7 +43,6 @@ function product(home: string, folder: string, id: string): void {
   mkdirSync(join(path, 'madarch'));
   writeFolderManifest(path, `kinds:
   document:
-    template: templates/document.liquid
     source: graph
     origin: person
     key: [title]
@@ -54,8 +53,6 @@ function product(home: string, folder: string, id: string): void {
       - { name: anchors, type: json, producers: [fixture] }
       - { name: links, type: json, producers: [fixture] }
 `);
-  mkdirSync(join(path, 'templates'));
-  writeFileSync(join(path, 'templates', 'document.liquid'), '{{ title }}');
   // A product folder is its own Git checkout; the files producer reads it into the graph.
   gitCommit(path);
 }
@@ -172,11 +169,11 @@ test('the home keeps a product whose manifest did not move, and opens one whose 
   writeFileSync(manifest, 'schemaVersion: 1\nid: alpha-id\nname: Alpha renamed\n');
   await Bun.sleep(5_200);
   expect(await nameOf()).toBe('Alpha renamed');
-  // A newly published document opinion is served through the kept entry without a fill or a file parser.
+  // A newly published document opinion is read through the kept entry, from the graph, without a fill or a parser.
   await publishDocument(home, 'alpha', '# alpha vision\n\nThe saved body.\n');
-  const page = await fetch(`${server.url}/products/alpha/api/document?path=docs/vision.md`);
+  const page = await fetch(`${server.url}/products/alpha/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 10) { edges { node { label markdown } } } }' }) });
   expect(page.status).toBe(200);
-  expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
+  expect(JSON.stringify(await page.json())).toContain('The saved body.');
 }, 40_000);
 
 test('a doubled slash under a product mount opens the same app address', async () => {
@@ -226,10 +223,11 @@ test('products-home mode lists products and routes each wiki under its folder', 
   const nestedPage = await fetch(`${server.url}/products/alpha/docs`);
   expect(await nestedPage.text()).toContain('/products/alpha/assets/');
   expect((await fetch(`${server.url}/products/alpha/assets/app.js`)).status).toBe(200);
-  // The wiki's documents are listed product-relative: the app adds its mount base itself.
+  // The wiki's documents are read product-relative through the graph: the app adds its mount base itself.
   await publishDocument(home, 'alpha', '# alpha vision\n');
-  const documents = await (await fetch(`${server.url}/products/alpha/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
-  expect(documents.documents).toContainEqual({ repo: null, path: 'docs/vision.md', title: 'alpha vision' });
+  const documents = await fetch(`${server.url}/products/alpha/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 10) { edges { node { label path } } } }' }) });
+  expect(documents.status).toBe(200);
+  expect(JSON.stringify(await documents.json())).toContain('docs/vision.md');
 });
 
 test('the root opens a product directly: the only one, the last this browser opened, else the most recently changed', async () => {

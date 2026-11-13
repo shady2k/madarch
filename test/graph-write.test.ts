@@ -50,7 +50,7 @@ function product(): string {
   writeFolderManifest(folder, [
     'kinds:',
     '  doc.term:',
-    '    template: templates/t.liquid',
+    '    ',
     '    source: document',
     '    terms: ["**/glossary*.md"]',
     '    semantics: term',

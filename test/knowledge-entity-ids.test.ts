@@ -73,11 +73,11 @@ afterAll(async () => {
 });
 
 test('two repositories sharing docs have two directory ids, each naming its repository', async () => {
-  const answer = await fetch(`${server!.url}/products/shop/api/entities?kind=code.directory&limit=200`, { headers: { accept: 'application/json' } });
+  const answer = await fetch(`${server!.url}/products/shop/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeDirectory(first: 200) { edges { node { id repository path } } } }' }) });
   expect(answer.status).toBe(200);
-  const body = (await answer.json()) as { rows: { id: string; label: string }[]; total: number };
-  const ids = body.rows.map((row) => row.id);
+  const body = (await answer.json()) as { data: { allCodeDirectory: { edges: { node: { id: string; repository: string | null; path: string | null } }[] } } };
+  const rows = body.data.allCodeDirectory.edges.map((edge) => edge.node);
+  const ids = rows.map((row) => row.id);
   expect(new Set(ids).size).toBe(ids.length);
-  expect(ids).toContain('code.directory:first/docs');
-  expect(ids).toContain('code.directory:second/docs');
+  expect(rows.map((row) => `${row.repository ?? ''}:${row.path ?? ''}`)).toEqual(expect.arrayContaining(['first:docs', 'second:docs']));
 }, 30_000);

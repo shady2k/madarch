@@ -15,7 +15,7 @@ const vocabulary = `purposes:
 const body = `kinds:
   sample:
     source: graph
-    template: page.liquid
+    
     purpose: structure
 `;
 test('purpose vocabulary validates complete labels, order and every referenced purpose at its location', () => {
@@ -70,7 +70,7 @@ test('split kind purpose and renamed vocabulary reread without code changes', ()
   mkdirSync(join(root, 'kinds', 'example', 'structure'), { recursive: true });
   const header = join(root, 'catalog.yaml');
   writeFileSync(header, vocabulary + 'groups:\n  example.structure: { en: Structure, ru: Устройство }\n');
-  writeFileSync(join(root, 'kinds', 'example', 'structure', 'sample.yaml'), 'source: graph\ntemplate: page.liquid\npurpose: structure\n');
+  writeFileSync(join(root, 'kinds', 'example', 'structure', 'sample.yaml'), 'source: graph\n\npurpose: structure\n');
   const first = readKinds(folder);
   if (!first.present) throw new Error('manifest absent');
   expect(first.manifest.findings).toEqual([]);

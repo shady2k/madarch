@@ -79,7 +79,7 @@ Checkout asks the payment service to take the card's amount.[^1]
   // is called `pay`, and the changed-page list must say what its page says.
   const kindsFile = join(folder, 'madarch/kinds/code/structure/code.symbol.yaml');
   const kinds = readFileSync(kindsFile, 'utf8');
-  writeFileSync(kindsFile, kinds.replace('template: templates/symbol.md\n', 'template: templates/symbol.md\ntitle: name\n'));
+  writeFileSync(kindsFile, kinds.replace('\n', '\ntitle: name\n'));
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');

@@ -36,7 +36,7 @@ describe('startup manifest publication', () => {
     setManifestPublicationState(folder, { status: 'pending' });
     const { part, reads } = fixture(folder);
     for (const [name, handle] of Object.entries(part)) {
-      if (['identity', 'products', 'status', 'fill', 'fillSelected'].includes(name)) continue;
+      if (['identity', 'products', 'status', 'fill', 'fillSelected', 'graphqlSchema', 'graphql'].includes(name)) continue;
       const handled = await handle(new Request('http://localhost/api/catalog'));
       expect(handled.response.status).toBe(503);
       expect(handled.response.headers.get('retry-after')).toBe('1');

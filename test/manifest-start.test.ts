@@ -90,22 +90,21 @@ test('daemon publishes and refreshes a never-filled catalogue while content rema
     await until(async () => diagnostics.includes('startup listener '));
     expect(diagnostics).toContain('startup manifest.validate ');
     expect(diagnostics).not.toContain('startup catalogue.publish ');
-    const publishing = await fetch(`${base}/catalog`);
-    expect(publishing.status).toBe(503);
+    const publishing = await fetch(`${base}/status`);
+    expect(publishing.status).toBe(200);
     expect(await publishing.json()).toMatchObject({ publication: 'pending' });
-    await until(async () => (await fetch(`${base}/catalog`)).ok);
+    await until(async () => (await (await fetch(`${base}/status`)).json()).publication !== 'pending');
     expect(diagnostics.indexOf('startup listener ')).toBeLessThan(diagnostics.indexOf('startup catalogue.publish '));
-    const initial = await (await fetch(`${base}/status`)).json();
+    const initial = await (await fetch(`${base}/status`)).json() as { manifest: string; filled: boolean; kinds: { kind: string }[] };
     expect(initial).toMatchObject({ manifest: 'not-filled', filled: false });
     // Prime the reader cache before the valid edit; the manifest journal must invalidate it.
-    expect((await (await fetch(`${base}/catalog`)).json()).kinds).toEqual([]);
-    mkdirSync(join(product, 'templates')); writeFileSync(join(product, 'templates', 'term.md'), '# Term');
-    writeFolderManifest(product, 'kinds:\n  term:\n    source: document\n    template: templates/term.md\n    terms: ["docs/*.md"]\n');
-    await until(async () => (await (await fetch(`${base}/catalog`)).json()).kinds.some((one: { kind: string }) => one.kind === 'term'));
+    expect(initial.kinds).toEqual([]);
+    writeFolderManifest(product, 'kinds:\n  term:\n    source: document\n    \n    terms: ["docs/*.md"]\n');
+    await until(async () => ((await (await fetch(`${base}/status`)).json()) as { kinds: { kind: string }[] }).kinds.some((one) => one.kind === 'term'));
     expect(await (await fetch(`${base}/status`)).json()).toMatchObject({ manifest: 'not-filled', filled: false });
     writeFileSync(kinds, 'groups: [\n');
     await until(async () => diagnostics.includes(`${kinds}:`));
-    expect((await (await fetch(`${base}/catalog`)).json()).kinds.map((one: { kind: string }) => one.kind)).toEqual(['term']);
+    expect(((await (await fetch(`${base}/status`)).json()) as { kinds: { kind: string }[] }).kinds.map((one) => one.kind)).toEqual(['term']);
     expect(diagnostics).toMatch(new RegExp(kinds.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\d+:'));
   } finally {
     if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }

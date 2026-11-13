@@ -17,7 +17,7 @@ describe('the bundled general agent producer', () => {
       const file = join(root, 'madarch/catalog.yaml');
       const text = `kinds:
   example.keyless:
-    template: templates/entity.liquid
+    
     source: graph
     fields:
       - { name: title, type: text, binding: { agent: A title. } }
@@ -38,7 +38,7 @@ plugins:
       const { terms: _terms, semantics: _semantics, ...base } = document.kinds['doc.term'];
       document.kinds['example.topic'] = {
         ...base, id: 'example.topic', definition: 'A topic supported by graph evidence.',
-        template: 'templates/entity.liquid', source: 'graph',
+        source: 'graph',
         description: { en: 'A topic supported by graph evidence.', ru: 'A topic supported by graph evidence.' },
         fields: [
           { name: 'name', type: 'text', binding: { agent: 'The topic name stated in the source.' } },
@@ -48,7 +48,7 @@ plugins:
       };
       document.kinds['example.static'] = {
         ...base, id: 'example.static', definition: 'A statically extracted fact.',
-        template: 'templates/entity.liquid', source: 'graph', capability: 'git',
+        source: 'graph', capability: 'git',
         fields: [{ name: 'name', type: 'text', binding: { agent: 'A name.' } }], key: ['name'],
       };
       const manifest = parseKinds(stringify(document), 'madarch/catalog.yaml', root);

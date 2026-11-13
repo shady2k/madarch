@@ -7,7 +7,7 @@ acquisition: [conversation]
 status: implemented
 relation-constraints: { out: [], in: [] }
 template-policy: page
-template: templates/term.yaml
+
 source: graph
 origin: person
 title: title

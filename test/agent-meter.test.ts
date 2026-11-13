@@ -300,7 +300,7 @@ describe('the bounds a product declares for its plugins', () => {
     const text = [
       'kinds:',
       '  doc.term:',
-      '    template: templates/t.liquid',
+      '    ',
       '    source: document',
       '    terms: ["**/glossary*.md"]',
       '    semantics: term',

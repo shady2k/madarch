@@ -75,7 +75,7 @@ const SMALL = [
   '    status: implemented',
   '    relation-constraints: { out: [c4.uses], in: [refines] }',
   '    template-policy: page',
-  '    template: templates/service.liquid',
+  '    ',
   '    source: markdown',
   '    file: docs/widget.md',
   '    labels:',
@@ -229,7 +229,6 @@ describe('a catalog is read as its manifest declares it', () => {
   test('a page kind the product has not translated still shows: the finding names it and its page stays in "kinds"', () => {
     const manifest = withKind(SMALL, 'untranslated-page', {
       'template-policy': 'page',
-      template: 'templates/item.liquid',
       source: 'markdown',
       file: 'docs/untranslated.md',
       labels: '{ en: { one: Page, many: Pages } }',
@@ -255,7 +254,7 @@ describe('a catalog is read as its manifest declares it', () => {
     const seeded = parseKinds(starterManifestText(), 'madarch/catalog.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
-    expect(read.catalog!.kinds.size).toBe(520);
+    expect(read.catalog!.kinds.size).toBe(519);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);
@@ -306,13 +305,13 @@ describe('every field of a catalog row is required, and a wrong one is refused n
   }
 
   test('a kind whose template policy is page declares no member, and one whose policy is member declares one', () => {
-    expectRefused(withKind(SMALL, 'test.kind', { 'template-policy': 'page', template: 'templates/service.liquid', source: 'markdown', file: 'docs/test.md', member: '{ relation: c4.uses, direction: out }' }), 'kind "test.kind": \'template-policy\' is "page", and the kind declares "member": a member\'s row is the policy "member"');
-    expectRefused(withKind(SMALL, 'test.kind', { 'template-policy': 'member', template: 'templates/item.liquid', source: 'markdown', file: 'docs/test.md' }), 'kind "test.kind": "template-policy" is "member", and the kind declares no "member": a member\'s row names the relation to the parent whose page it stands on');
+    expectRefused(withKind(SMALL, 'test.kind', { 'template-policy': 'page', source: 'markdown', file: 'docs/test.md', member: '{ relation: c4.uses, direction: out }' }), 'kind "test.kind": \'template-policy\' is "page", and the kind declares "member": a member\'s row is the policy "member"');
+    expectRefused(withKind(SMALL, 'test.kind', { 'template-policy': 'member', source: 'markdown', file: 'docs/test.md' }), 'kind "test.kind": "template-policy" is "member", and the kind declares no "member": a member\'s row names the relation to the parent whose page it stands on');
   });
 
-  test('a kind the engine cannot make yet declares no page: a template, a source or a member is refused', () => {
-    for (const field of ['template', 'source', 'member'] as const) {
-      expectRefused(withKind(SMALL, 'test.kind', { [field]: field === 'member' ? '{ relation: c4.uses, direction: out }' : '"templates/item.liquid"' }), `kind "test.kind": "${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+  test('a kind the engine cannot make yet declares no page: a source or a member is refused', () => {
+    for (const field of ['source', 'member'] as const) {
+      expectRefused(withKind(SMALL, 'test.kind', { [field]: field === 'member' ? '{ relation: c4.uses, direction: out }' : 'graph' }), `kind "test.kind": "${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
     }
   });
 });
@@ -380,7 +379,6 @@ describe('one defect in the manifest is one problem', () => {
     ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "code.service": "sources" holds "nowhere"'],
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
     ['a role leading a group nobody declares', withPlant('roles:\n', 'roles:\n  probe: { lead: [nowhere] }\n'), 'role "probe": "nowhere" is not a group of "groups"'],
-    ['a role opening a block outside the library', withPlant('roles:\n', 'roles:\n  probe: { open: [nothing], lead: [] }\n'), 'role "probe": "nothing" is not a block of the library'],
   ];
   for (const [what, manifest, names] of cases) {
     test(`${what} is one problem, naming it`, () => {

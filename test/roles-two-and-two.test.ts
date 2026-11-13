@@ -100,12 +100,12 @@ function postmastersUnder(root: string): number[] {
 describe.skipIf(skip)('two api and two fill instances against one store', () => {
   test('one press fills the product once, every unit publishes once, and both api instances answer from it', async () => {
     const base = (instance: StartedServer): string => `${instance.url}/products/shop`;
-    // The wiki is open before the press, as a reader's browser has it: a page that the fill has not written yet answers 404.
-    for (const path of ['/api/status', '/api/entities?kind=code.file&limit=100', `/api/page?id=${encodeURIComponent(PAY)}`]) {
-      const response = await fetch(base(api[0]!) + path);
-      const body = await response.text();
-      expect([200, 404], `${path}: ${body}`).toContain(response.status);
-    }
+    /** One GraphQL operation against one api instance, as a page asks it. */
+    const graphql = async (instance: StartedServer, query: string): Promise<Response> => await fetch(`${base(instance)}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) });
+    // The wiki is open before the press, as a reader's browser has it: the graph answers, with nothing of the fill yet.
+    expect((await fetch(`${base(api[0]!)}/api/status`)).status).toBe(200);
+    expect((await graphql(api[0]!, '{ allCodeFile(first: 100) { totalCount } }')).status).toBe(200);
+    expect((await graphql(api[0]!, `{ entity(id: ${JSON.stringify(PAY)}) { id } }`)).status).toBe(200);
     // The press goes to the first api instance; the fill is claimed by one of the two fill processes.
     const press = await fetch(`${base(api[0]!)}/api/fill`, { method: 'POST' });
     expect(press.status).toBe(202);
@@ -141,16 +141,16 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // Both api instances answer the pages the fill published, and they answer the same thing: the pages themselves are
     // identical byte for byte, and the status answers the same kinds and repository (the moment each process learned of
     // the run is its own, so the fill's own timestamps are not compared).
-    for (const path of ['/api/entities?kind=code.file&limit=100', '/api/entities?kind=code.symbol&limit=100', '/api/documents']) {
-      const first = await fetch(base(api[0]!) + path);
-      const second = await fetch(base(api[1]!) + path);
-      expect(first.status, path).toBe(200);
-      expect(second.status, path).toBe(200);
-      expect(await first.text(), path).toBe(await second.text());
+    for (const query of ['{ allCodeFile(first: 100) { totalCount } }', '{ allCodeSymbol(first: 100) { totalCount } }', '{ allDocument(first: 100) { totalCount } }']) {
+      const first = await graphql(api[0]!, query);
+      const second = await graphql(api[1]!, query);
+      expect(first.status, query).toBe(200);
+      expect(second.status, query).toBe(200);
+      expect(await first.text(), query).toBe(await second.text());
     }
-    const statuses = await Promise.all(api.map(async (instance) => await (await fetch(`${base(instance)}/api/status`)).json() as { fill: { state: string }; kinds: unknown; repository: unknown }));
+    const statuses = await Promise.all(api.map(async (instance) => await (await fetch(`${base(instance)}/api/status`)).json() as { fill: { state: string }; kinds: unknown; repositories: unknown }));
     for (const status of statuses) expect(status.fill.state).toBe('done');
     expect(statuses[1]!.kinds).toEqual(statuses[0]!.kinds);
-    expect(statuses[1]!.repository).toEqual(statuses[0]!.repository);
+    expect(statuses[1]!.repositories).toEqual(statuses[0]!.repositories);
   }, 900_000);
 });

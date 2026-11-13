@@ -439,9 +439,11 @@ describe('madarch serve: an existing product served', () => {
     const address = await whenServing(serve);
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body).toEqual({ id: 'demo-id', name: 'named' });
-    const vision = (await (await fetch(`${address}/api/document?path=docs/vision.md`)).json()) as { title: string; markdown: string };
-    expect(vision.title).toBe('Vision');
-    expect(vision.markdown).toBe('# Vision\n\nWhat it is for.\n');
+    // A document is a graph entity, read through the one read API (decision 0036, section 8).
+    const vision = await fetch(`${address}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 20) { edges { node { label markdown } } } }' }) });
+    expect(vision.status).toBe(200);
+    const visionBody = await vision.json() as { data: { allDocument: { edges: { node: { label: string; markdown: string } }[] } } };
+    expect(visionBody.data.allDocument.edges.map((edge) => edge.node)).toContainEqual({ label: 'Vision', markdown: '# Vision\n\nWhat it is for.\n' });
     // The app's files come from the built app, and the page route answers through index.html.
     const home = await (await fetch(`${address}/`)).text();
     expect(home).toContain('<!doctype html>');
@@ -481,8 +483,9 @@ describe('madarch serve: an existing product served', () => {
     const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
     expect(body.id).toBe('8f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
     expect(body.name).toBe('leftover-listings');
-    const documents = (await (await fetch(`${address}/api/documents`)).json()) as { documents: { repo: string | null; path: string }[] };
-    const paths = documents.documents.map((document) => document.path);
+    const documents = await fetch(`${address}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 200) { edges { node { path } } } }' }) });
+    expect(documents.status).toBe(200);
+    const paths = ((await documents.json()) as { data: { allDocument: { edges: { node: { path: string } }[] } } }).data.allDocument.edges.map((edge) => edge.node.path);
     expect(paths).toContain('docs/vision.md');
     expect(paths).toContain('docs/requirements/FR-001-list-in-a-minute.md');
     await serve.finish();
