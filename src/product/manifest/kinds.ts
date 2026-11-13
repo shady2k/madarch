@@ -1559,6 +1559,12 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const audience = audienceOf(decl['audience'], ['audience']);
     const purpose = decl['purpose'];
     if ((rawPurposes !== undefined || purpose !== undefined) && (typeof purpose !== 'string' || !purposes.has(purpose))) catalogProblem(['purpose'], `purpose names a declared purpose (${[...purposes.keys()].join(', ')}), got ${JSON.stringify(purpose)}`);
+    // The catalogue's row carries the purpose and audience its file declares, so a kind the product does not take
+    // still says what it is for and whom it serves (decision 0036, the catalogue entity's fields).
+    const catalogEntry = catalogEntries.get(name);
+    if (catalogEntry !== undefined && (typeof purpose === 'string' || audience !== undefined)) {
+      catalogEntries.set(name, { ...catalogEntry, ...(typeof purpose === 'string' ? { purpose } : {}), ...(audience === undefined ? {} : { audience }) });
+    }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
       for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);

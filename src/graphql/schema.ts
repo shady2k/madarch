@@ -114,7 +114,8 @@ class Builder {
   /** The types, interfaces, scalars and enums the mechanism owns; a manifest name may not take one of them. */
   private claimOwnTypes(): void {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
-      'EntityEdge', 'EntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
+      'EntityEdge', 'EntityConnection', 'CatalogueEntity', 'CatalogueField', 'CatalogueEntityEdge', 'CatalogueEntityConnection',
+      'PageTemplate', 'Bootstrap', 'BootstrapHome', 'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
@@ -146,8 +147,56 @@ class Builder {
       { name: 'templates', type: '[PageTemplate!]!' },
     ]);
     this.interfaceType('Entity', entityFields());
+    this.buildCatalogue();
     this.enumeration('OrderDirection', ['ASC', 'DESC']);
     this.enumeration('NullsOrder', ['FIRST', 'LAST']);
+  }
+
+  /**
+   * The catalogue entity (decision 0036, section 1 and the owner's 2026-11-13 scope): every entry of the product's
+   * catalogue is a graph entity, whether the product takes it or not, with what its catalogue file declares and its
+   * derivation relations both ways.
+   */
+  private buildCatalogue(): void {
+    const scalars: PublishedField[] = [
+      { name: 'name', type: 'text' },
+      { name: 'title', type: 'text', nullable: true },
+      { name: 'definition', type: 'text', nullable: true },
+      { name: 'group', type: 'text' },
+      { name: 'subgroup', type: 'text' },
+      { name: 'purpose', type: 'text', nullable: true },
+      { name: 'status', type: 'text', nullable: true },
+      { name: 'taken', type: 'boolean' },
+    ];
+    const connection = 'CatalogueEntityConnection';
+    this.type('CatalogueField', [
+      { name: 'name', type: 'String!' },
+      { name: 'type', type: 'String!' },
+      { name: 'nullable', type: 'Boolean!' },
+      { name: 'reference', type: 'String' },
+      { name: 'producers', type: '[String!]!' },
+    ]);
+    this.type('CatalogueEntityEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'CatalogueEntity!' }]);
+    this.type(connection, connectionFields('CatalogueEntityEdge'));
+    this.buildWhereAndOrder('catalogue', 'CatalogueEntity', scalars);
+    const relationArgs = connectionArgs(this.whereOf.get('CatalogueEntity'), this.orderOf.get('CatalogueEntity'));
+    this.type('CatalogueEntity', [
+      ...entityFields(),
+      { name: 'name', type: 'String!' },
+      { name: 'title', type: 'String' },
+      { name: 'definition', type: 'String' },
+      { name: 'group', type: 'String!' },
+      { name: 'subgroup', type: 'String!' },
+      { name: 'purpose', type: 'String' },
+      { name: 'status', type: 'String' },
+      { name: 'audience', type: '[String!]!' },
+      { name: 'standards', type: '[String!]!' },
+      { name: 'taken', type: 'Boolean!' },
+      { name: 'plugins', type: '[String!]!' },
+      { name: 'fields', type: '[CatalogueField!]!' },
+      { name: 'derivesFrom', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
+      { name: 'derivedBy', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
+    ], ['Entity']);
   }
 
   private type(name: string, fields: readonly FieldDef[], implementsList?: readonly string[]): void {
@@ -244,8 +293,10 @@ class Builder {
         if (!this.kinds.has(end)) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${end}", and the manifest declares no such kind: declare it or change the edge's ends`);
       }
       const record = `${typeNameOf(edge.name)}Edge`;
+      const wrapper = `${typeNameOf(edge.name)}ConnectionEdge`;
       const connection = `${typeNameOf(edge.name)}Connection`;
       this.registry.claimGeneratedType(record, `the edge "${edge.name}"`);
+      this.registry.claimGeneratedType(wrapper, `the connection edge of "${edge.name}"`);
       this.registry.claimGeneratedType(connection, `the edge "${edge.name}"`);
       const fields: FieldDef[] = [
         { name: 'id', type: 'ID!' },
@@ -267,7 +318,8 @@ class Builder {
       }
       fields.push({ name: 'node', type: 'Entity!' });
       this.type(record, fields);
-      this.type(connection, connectionFields(record));
+      this.type(wrapper, [{ name: 'cursor', type: 'String!' }, { name: 'node', type: `${record}!` }]);
+      this.type(connection, connectionFields(wrapper));
       this.buildWhereAndOrder(edge.name, record, edge.fields);
       for (const from of edge.from) {
         const type = this.kindTypes.get(from)!;
@@ -316,7 +368,15 @@ class Builder {
       this.registry.claimField('Query', name, `the list root of the kind "${kind.name}"`);
       fields.push({ name, type: `${type}Connection!`, args: [...connectionArgs(this.whereOf.get(type), this.orderOf.get(type)), { name: 'lang', type: 'String' }] });
     }
+    const catalogueWhere = this.whereOf.get('CatalogueEntity');
+    const catalogueOrder = this.orderOf.get('CatalogueEntity');
+    this.registry.claimField('Query', 'catalogueEntity', 'the catalogue entity root');
+    this.registry.claimField('Query', 'allCatalogueEntity', 'the catalogue list root');
+    this.registry.claimField('Query', 'home', 'the home root');
     fields.push(
+      { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
+      { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
+      { name: 'home', type: 'Entity', args: [{ name: 'lang', type: 'String' }] },
       { name: 'search', type: 'EntityConnection!', args: [{ name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
     );

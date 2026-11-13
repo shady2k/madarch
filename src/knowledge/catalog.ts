@@ -85,6 +85,10 @@ export interface CatalogEntry {
   /** How the kind can be acquired: `extractor <id>` or one of the catalog's origin marks. */
   readonly acquisition: readonly string[];
   readonly status: string;
+  /** The purpose the kind's declaration names, when it names one of the manifest's purposes. */
+  readonly purpose?: string;
+  /** The roles the kind's declaration names as its audience, when it names any. */
+  readonly audience?: readonly string[];
   readonly relationsOut: readonly string[];
   readonly relationsIn: readonly string[];
   readonly templatePolicy: string;

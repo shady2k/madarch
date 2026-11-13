@@ -75,6 +75,16 @@ describe('the schema of a published manifest', () => {
     expect(sdl).toContain('pathOpinions: [Opinion!]!');
   });
 
+  test('shows the catalogue as an entity type with its own roots', () => {
+    const sdl = graphqlSchemaOf(publishedManifestOf(fixtureManifest()));
+    expect(sdl).toContain('type CatalogueEntity implements Entity {');
+    expect(sdl).toContain('catalogueEntity(name: String!, lang: String): CatalogueEntity');
+    expect(sdl).toContain('allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!');
+    expect(sdl).toContain('home(lang: String): Entity');
+    expect(sdl).toContain('derivesFrom(where: CatalogueEntityWhere');
+    expect(sdl).toContain('fields: [CatalogueField!]!');
+  });
+
   test('keeps the mechanism\'s page template apart from a product kind named template', () => {
     const sdl = graphqlSchemaOf(publishedManifestOf(manifestOf(`
 kinds:

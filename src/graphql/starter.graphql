@@ -94,10 +94,57 @@ type BootstrapHome {
   template: String!
 }
 
-type CodeAsIsConnection {
-  edges: [CodeAsIsEdge!]!
+type CatalogueEntity implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String!
+  title: String
+  definition: String
+  group: String!
+  subgroup: String!
+  purpose: String
+  status: String
+  audience: [String!]!
+  standards: [String!]!
+  taken: Boolean!
+  plugins: [String!]!
+  fields: [CatalogueField!]!
+  derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+}
+
+type CatalogueEntityConnection {
+  edges: [CatalogueEntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CatalogueEntityEdge {
+  cursor: String!
+  node: CatalogueEntity!
+}
+
+type CatalogueField {
+  name: String!
+  type: String!
+  nullable: Boolean!
+  reference: String
+  producers: [String!]!
+}
+
+type CodeAsIsConnection {
+  edges: [CodeAsIsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeAsIsConnectionEdge {
+  cursor: String!
+  node: CodeAsIsEdge!
 }
 
 type CodeAsIsEdge {
@@ -135,9 +182,14 @@ type CodeAuthorEdge {
 }
 
 type CodeAuthoredConnection {
-  edges: [CodeAuthoredEdge!]!
+  edges: [CodeAuthoredConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeAuthoredConnectionEdge {
+  cursor: String!
+  node: CodeAuthoredEdge!
 }
 
 type CodeAuthoredEdge {
@@ -361,9 +413,14 @@ type CodeComposeServiceEdge {
 }
 
 type CodeContainsConnection {
-  edges: [CodeContainsEdge!]!
+  edges: [CodeContainsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeContainsConnectionEdge {
+  cursor: String!
+  node: CodeContainsEdge!
 }
 
 type CodeContainsEdge {
@@ -469,9 +526,14 @@ type CodeDebtEdge {
 }
 
 type CodeDeclaredInConnection {
-  edges: [CodeDeclaredInEdge!]!
+  edges: [CodeDeclaredInConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeDeclaredInConnectionEdge {
+  cursor: String!
+  node: CodeDeclaredInEdge!
 }
 
 type CodeDeclaredInEdge {
@@ -737,9 +799,14 @@ type CodeFileEdge {
 }
 
 type CodeForeignKeyConnection {
-  edges: [CodeForeignKeyEdge!]!
+  edges: [CodeForeignKeyConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeForeignKeyConnectionEdge {
+  cursor: String!
+  node: CodeForeignKeyEdge!
 }
 
 type CodeForeignKeyEdge {
@@ -792,9 +859,14 @@ type CodeGitlinkEdge {
 }
 
 type CodeHasColumnConnection {
-  edges: [CodeHasColumnEdge!]!
+  edges: [CodeHasColumnConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeHasColumnConnectionEdge {
+  cursor: String!
+  node: CodeHasColumnEdge!
 }
 
 type CodeHasColumnEdge {
@@ -805,9 +877,14 @@ type CodeHasColumnEdge {
 }
 
 type CodeHasIndexConnection {
-  edges: [CodeHasIndexEdge!]!
+  edges: [CodeHasIndexConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeHasIndexConnectionEdge {
+  cursor: String!
+  node: CodeHasIndexEdge!
 }
 
 type CodeHasIndexEdge {
@@ -858,9 +935,14 @@ type CodeHealthcheckEdge {
 }
 
 type CodeHistoryConnection {
-  edges: [CodeHistoryEdge!]!
+  edges: [CodeHistoryConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeHistoryConnectionEdge {
+  cursor: String!
+  node: CodeHistoryEdge!
 }
 
 type CodeHistoryEdge {
@@ -1300,9 +1382,14 @@ type CodePackageEdge {
 }
 
 type CodeParentConnection {
-  edges: [CodeParentEdge!]!
+  edges: [CodeParentConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeParentConnectionEdge {
+  cursor: String!
+  node: CodeParentEdge!
 }
 
 type CodeParentEdge {
@@ -1376,9 +1463,14 @@ type CodeProcessEdge {
 }
 
 type CodeRenamedFromConnection {
-  edges: [CodeRenamedFromEdge!]!
+  edges: [CodeRenamedFromConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeRenamedFromConnectionEdge {
+  cursor: String!
+  node: CodeRenamedFromEdge!
 }
 
 type CodeRenamedFromEdge {
@@ -1688,9 +1780,14 @@ type CodeTestQuarantineEdge {
 }
 
 type CodeTouchedConnection {
-  edges: [CodeTouchedEdge!]!
+  edges: [CodeTouchedConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type CodeTouchedConnectionEdge {
+  cursor: String!
+  node: CodeTouchedEdge!
 }
 
 type CodeTouchedEdge {
@@ -2107,9 +2204,14 @@ type Evidence {
 }
 
 type FixedByConnection {
-  edges: [FixedByEdge!]!
+  edges: [FixedByConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type FixedByConnectionEdge {
+  cursor: String!
+  node: FixedByEdge!
 }
 
 type FixedByEdge {
@@ -2242,9 +2344,14 @@ type ProductEdge {
 }
 
 type QuarantinesConnection {
-  edges: [QuarantinesEdge!]!
+  edges: [QuarantinesConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type QuarantinesConnectionEdge {
+  cursor: String!
+  node: QuarantinesEdge!
 }
 
 type QuarantinesEdge {
@@ -2517,6 +2624,9 @@ type Query {
   allTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String, lang: String): TaskConnection!
   allTemplate(where: TemplateWhere, orderBy: [TemplateOrder!], first: Int, after: String, lang: String): TemplateConnection!
   allUserGuide(where: UserGuideWhere, orderBy: [UserGuideOrder!], first: Int, after: String, lang: String): UserGuideConnection!
+  catalogueEntity(name: String!, lang: String): CatalogueEntity
+  allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
 }
@@ -2625,6 +2735,83 @@ input AdministratorGuideWhere {
   links: AdministratorGuideLinksFilter
   findings: AdministratorGuideFindingsFilter
   ungrounded: AdministratorGuideUngroundedFilter
+}
+
+input CatalogueEntityDefinitionFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityGroupFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityNameFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityOrder {
+  field: CatalogueEntityOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CatalogueEntityPurposeFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityStatusFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntitySubgroupFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityTakenFilter {
+  _eq: Boolean
+}
+
+input CatalogueEntityTitleFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityWhere {
+  name: CatalogueEntityNameFilter
+  title: CatalogueEntityTitleFilter
+  definition: CatalogueEntityDefinitionFilter
+  group: CatalogueEntityGroupFilter
+  subgroup: CatalogueEntitySubgroupFilter
+  purpose: CatalogueEntityPurposeFilter
+  status: CatalogueEntityStatusFilter
+  taken: CatalogueEntityTakenFilter
 }
 
 input CodeAuthorEmailFilter {
@@ -4550,6 +4737,17 @@ enum AdministratorGuideOrderField {
   links
   findings
   ungrounded
+}
+
+enum CatalogueEntityOrderField {
+  name
+  title
+  definition
+  group
+  subgroup
+  purpose
+  status
+  taken
 }
 
 enum CodeAuthorOrderField {

@@ -32,6 +32,48 @@ type BootstrapHome {
   template: String!
 }
 
+type CatalogueEntity implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String!
+  title: String
+  definition: String
+  group: String!
+  subgroup: String!
+  purpose: String
+  status: String
+  audience: [String!]!
+  standards: [String!]!
+  taken: Boolean!
+  plugins: [String!]!
+  fields: [CatalogueField!]!
+  derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+}
+
+type CatalogueEntityConnection {
+  edges: [CatalogueEntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CatalogueEntityEdge {
+  cursor: String!
+  node: CatalogueEntity!
+}
+
+type CatalogueField {
+  name: String!
+  type: String!
+  nullable: Boolean!
+  reference: String
+  producers: [String!]!
+}
+
 type DemoAuthor implements Entity {
   id: ID!
   kind: String!
@@ -63,9 +105,14 @@ type DemoAuthorEdge {
 }
 
 type DemoAuthoredConnection {
-  edges: [DemoAuthoredEdge!]!
+  edges: [DemoAuthoredConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type DemoAuthoredConnectionEdge {
+  cursor: String!
+  node: DemoAuthoredEdge!
 }
 
 type DemoAuthoredEdge {
@@ -110,9 +157,14 @@ type DemoCommitEdge {
 }
 
 type DemoContainsConnection {
-  edges: [DemoContainsEdge!]!
+  edges: [DemoContainsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type DemoContainsConnectionEdge {
+  cursor: String!
+  node: DemoContainsEdge!
 }
 
 type DemoContainsEdge {
@@ -215,9 +267,14 @@ type DemoRepositoryEdge {
 }
 
 type DemoTouchedConnection {
-  edges: [DemoTouchedEdge!]!
+  edges: [DemoTouchedConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+type DemoTouchedConnectionEdge {
+  cursor: String!
+  node: DemoTouchedEdge!
 }
 
 type DemoTouchedEdge {
@@ -301,8 +358,88 @@ type Query {
   allDemoCommit(where: DemoCommitWhere, orderBy: [DemoCommitOrder!], first: Int, after: String, lang: String): DemoCommitConnection!
   allDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String, lang: String): DemoFileConnection!
   allDemoRepository(where: DemoRepositoryWhere, orderBy: [DemoRepositoryOrder!], first: Int, after: String, lang: String): DemoRepositoryConnection!
+  catalogueEntity(name: String!, lang: String): CatalogueEntity
+  allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
+}
+
+input CatalogueEntityDefinitionFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityGroupFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityNameFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityOrder {
+  field: CatalogueEntityOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CatalogueEntityPurposeFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityStatusFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntitySubgroupFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityTakenFilter {
+  _eq: Boolean
+}
+
+input CatalogueEntityTitleFilter {
+  _eq: String
+  _in: [String!]
+  _contains: String
+  _lt: String
+  _gt: String
+}
+
+input CatalogueEntityWhere {
+  name: CatalogueEntityNameFilter
+  title: CatalogueEntityTitleFilter
+  definition: CatalogueEntityDefinitionFilter
+  group: CatalogueEntityGroupFilter
+  subgroup: CatalogueEntitySubgroupFilter
+  purpose: CatalogueEntityPurposeFilter
+  status: CatalogueEntityStatusFilter
+  taken: CatalogueEntityTakenFilter
 }
 
 input DemoAuthorCommitsFilter {
@@ -581,6 +718,17 @@ input DemoTouchedEdgeWhere {
   weight: DemoTouchedEdgeWeightFilter
   binary: DemoTouchedEdgeBinaryFilter
   meta: DemoTouchedEdgeMetaFilter
+}
+
+enum CatalogueEntityOrderField {
+  name
+  title
+  definition
+  group
+  subgroup
+  purpose
+  status
+  taken
 }
 
 enum DemoAuthorOrderField {
