@@ -181,12 +181,25 @@ describe('an empty product', () => {
     expect([catalog.groups.filter((group: { parent?: string }) => group.parent === undefined).length, catalog.groups.filter((group: { parent?: string }) => group.parent !== undefined).length]).toEqual([28, 106]);
     expect(catalog.findings).toEqual([]);
     const empty = catalog.kinds.find((kind) => kind.kind === 'domain-repository');
-    expect(empty).toMatchObject({ count: 0, filled: false, page: false });
+    const emptyDeclaration = seeded.catalog!.kinds.get('domain-repository')!;
+    expect(empty).toEqual({
+      kind: emptyDeclaration.name, subgroup: emptyDeclaration.subgroup,
+      labels: emptyDeclaration.labels, descriptions: emptyDeclaration.descriptions,
+      count: 0, page: false, state: 'never', sourcesAvailable: emptyDeclaration.sources.length > 0,
+    });
     expect(empty.producer).toBeUndefined();
     expect(empty.labels).toEqual({ en: { one: 'Domain repository', many: 'Domain repositories' }, ru: { one: 'Репозиторий предметной области', many: 'Репозитории предметной области' } });
     expect(empty.descriptions.ru).toBe('Интерфейс предметной области, дающий доступ к агрегатам как к коллекции; это не репозиторий системы контроля версий.');
-    const filled = catalog.kinds.find((kind) => kind.kind === 'code.service');
-    expect(filled).toMatchObject({ count: 0, filled: true, page: true, producer: 'extract', subgroup: 'code.structure' });
+    const service = catalog.kinds.find((kind) => kind.kind === 'code.service');
+    const serviceDeclaration = seeded.catalog!.kinds.get('code.service')!;
+    expect(service).toMatchObject({
+      kind: serviceDeclaration.name, subgroup: serviceDeclaration.subgroup,
+      labels: serviceDeclaration.labels, descriptions: serviceDeclaration.descriptions,
+      count: 0, page: serviceDeclaration.templatePolicy === 'page' && seeded.kinds.has('code.service'), state: 'never',
+    });
+    // A page declaration is not a successful producer run; summaries omit the derivable filled flag.
+    expect(service.producer).toBeUndefined();
+    expect(service.filled).toBeUndefined();
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(300_000);
   }, 90_000);
 
