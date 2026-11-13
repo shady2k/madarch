@@ -481,6 +481,7 @@ export class GraphReader {
 
   /** Every file of a repository's current tree, in code point order: the product repository read whole once per revision. */
   async fileIndex(repository: string): Promise<readonly FileRecord[]> {
+    if (!this.holds(GIT_KINDS.file)) return [];
     return await repositoryFileIndex(this.storeOwner(), repository).catch((error: unknown) => {
       if (error instanceof RecordGap) return [] as readonly FileRecord[];
       throw error;

@@ -502,7 +502,10 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     const repository = productRepositoryId(product);
     const owner = snapshot?.owner ?? await this.open();
-    const reader = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
+    const manifest = await this.manifestFrom(product.folder, snapshot);
+    const kinds = manifest.present ? graphKindsOf(manifest.manifest) : undefined;
+    const reader = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction,
+      kinds?.declared ?? new Set<string>(), kinds?.generated, kinds?.edges);
     const seq = this.reader?.seq ?? 0;
     const held = this.filesMemo;
     // A page's transaction reads the text in that transaction; the index is the revision's and is reused.
