@@ -1,5 +1,5 @@
 /** Repository interpretation belongs to this shipped plugin, not to the host. */
-import * as languages from 'linguist-languages';
+import languages from './languages.json';
 import { gitStream, gitText, blobContents } from './git-bytes.js';
 const byCodePoint = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 export interface RepositoryAt { readonly repository: string; readonly root: string; readonly commit: string; readonly url?: string; readonly defaultBranch?: string }
@@ -98,8 +98,8 @@ async function emptyTreeOf(root: string): Promise<string> {
 
 /**
  * The dataset's reverse index, built once: an extension or a file name to the languages the
- * dataset gives it. Nothing here is a table of ours — `linguist-languages` (MIT, pinned in
- * package.json at an exact version) is the one source, and a key it does not name is unknown.
+ * dataset gives it. The full `linguist-languages` 9.5.0 dataset is generated into languages.json
+ * (see LANGUAGES.md); a key it does not name is unknown.
  */
 let datasetIndex: { extensions: Map<string, string[]>; names: Map<string, string[]> } | undefined;
 function indexOfDataset(): { extensions: Map<string, string[]>; names: Map<string, string[]> } {

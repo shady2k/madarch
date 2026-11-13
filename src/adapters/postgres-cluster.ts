@@ -687,7 +687,18 @@ async function stopCluster(options: { readonly dataDir: string; readonly socketD
   }
   try {
     if (await answering(socketDir)) {
-      runBinary(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { allowFailure: true });
+      // Independent stores may stop together; a checkpoint must not block their owners' event loop.
+      const postmaster = process.platform === 'win32' ? holderOf(dataDir) : null;
+      const stopping = Bun.spawn([join(bin, postgresProgram('pg_ctl')), '-D', dataDir, '-m', 'fast', '-w', 'stop'], {
+        stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 90_000,
+        env: { ...process.env, LC_ALL: 'C' },
+      });
+      const code = await stopping.exited;
+      if (process.platform === 'win32') {
+        if (code !== 0 && holderOf(dataDir) !== null) throw new Error(`${dataDir}:1: pg_ctl failed to stop the PostgreSQL server (exit ${code})`);
+        if (holderOf(dataDir) !== null || (postmaster !== null && alive(postmaster))) throw new Error(`${dataDir}:1: PostgreSQL still holds postmaster.pid after pg_ctl stop`);
+      }
+      if (code !== 0) return;
     }
     removeSocketFiles(socketDir);
   } finally {

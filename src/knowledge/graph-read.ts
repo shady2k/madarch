@@ -794,27 +794,45 @@ export class GraphReader {
          WHERE rk.name = ANY($1::text[]) AND (e.from_node = ANY($2::bigint[]) OR e.to_node = ANY($2::bigint[]))`,
         [`{${[...new Set(wanted.map((one) => one.graph.kind))].join(',')}}`, `{${entity.nodeIds.join(',')}}`],
       );
-      const groups: NeighborGroup[] = [];
+      const declarations = [...this.generated?.values() ?? []];
+      if (declarations.length === 0) return [];
+      const farIds = [...new Set(found.rows.flatMap((row) => [row['from_node']!, row['to_node']!]))];
+      // Sort the lightweight identities first. A commit can touch thousands of files while the block shows ten;
+      // reading every file's opinions and evidence to choose those ten makes the page scale with the whole commit.
+      const identities = await tx.query<{ node: string; uid: string; key: Record<string, unknown>; kind: string }>(
+        declarations.map((decl) => `SELECT n.id::text AS node, n.uid::text AS uid, n.key, ${quoteLiteral(decl.kind)} AS kind
+          FROM node n WHERE n.id = ANY($1::bigint[]) AND n.entity_id = (SELECT id FROM entity WHERE name = ${quoteLiteral(decl.kind)})
+          AND n.context_id = 1 AND NOT n.removed
+          AND EXISTS (SELECT 1 FROM ${decl.table} t WHERE t.node_id = n.id AND t.state = 'open' AND t.context_id = 1)`).join(' UNION ALL '),
+        [`{${farIds.join(',')}}`],
+      );
+      const keys = new Map(identities.rows.map((row) => {
+        const decl = this.generated!.get(row.kind)!;
+        const value = decl.key.length === 0 ? row.uid : decl.key.map((column) => String(row.key[column] ?? '')).join('/');
+        return [row.node, `${decl.kind}:${value}`];
+      }));
+      const planned: { relation: string; direction: 'out' | 'in'; total: number; edges: number; shown: { id: string; count: number }[] }[] = [];
       for (const direction of directions) {
         const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
         const relevant = found.rows.filter((row) => entity.nodeIds.includes(row[self]!) && wanted.some((one) => one.graph.kind === row['relation']));
         const byRelation = new Map<string, Map<string, number>>();
         for (const row of relevant) {
-          const relationName = row['relation']!;
-          const wiki = relationName;
-          const held = byRelation.get(wiki) ?? new Map<string, number>();
+          const relation = row['relation']!;
+          const held = byRelation.get(relation) ?? new Map<string, number>();
           const other = row[far]!;
           held.set(other, (held.get(other) ?? 0) + 1);
-          byRelation.set(wiki, held);
+          byRelation.set(relation, held);
         }
         for (const [relation, byOther] of [...byRelation].sort((a, b) => byCodePoint(a[0], b[0]))) {
-          const ids = [...byOther.keys()];
-          const entities = await this.entitiesOfIds(tx, ids);
-          const ordered = ids.map((id) => ({ id, entity: entities.get(id) })).filter((one): one is { id: string; entity: GraphEntity } => one.entity !== undefined).sort((a, b) => byCodePoint(a.entity.key, b.entity.key));
-          const shown = ordered.slice(0, options.limit);
-          groups.push({ relation, direction, total: ordered.length, edges: [...byOther.values()].reduce((sum, count) => sum + count, 0), rows: shown.map((one) => ({ entity: one.entity, edges: byOther.get(one.id) ?? 1 })) });
+          const ordered = [...byOther.keys()].filter((id) => keys.has(id)).sort((a, b) => byCodePoint(keys.get(a)!, keys.get(b)!));
+          planned.push({ relation, direction, total: ordered.length, edges: [...byOther.values()].reduce((sum, count) => sum + count, 0), shown: ordered.slice(0, options.limit).map((id) => ({ id, count: byOther.get(id)! })) });
         }
       }
+      const entities = await this.entitiesOfIds(tx, [...new Set(planned.flatMap((group) => group.shown.map((row) => row.id)))]);
+      const groups: NeighborGroup[] = planned.map(({ shown, ...group }) => ({ ...group, rows: shown.flatMap(({ id, count }) => {
+        const entity = entities.get(id);
+        return entity === undefined ? [] : [{ entity, edges: count }];
+      }) }));
       return groups;
     });
   }

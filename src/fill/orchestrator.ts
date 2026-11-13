@@ -1090,6 +1090,11 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
   const plans = await runPlans(orchestrator, run.runId);
   const withoutPlan = units.filter((unit) => unit.state === 'planned' && !plans.has(unit.unitId));
   const candidates = units.filter((unit) => unit.state === 'planned' && plans.has(unit.unitId));
+  const outcomeKey = (unitId: string, generation: number): string => JSON.stringify([unitId, generation]);
+  // A sealed publication's completion record is immutable. Mutable state and generation are still read under the lock.
+  const publishedOutcomes = new Map((await readProducerOutcomes(database, { runId: run.runId }))
+    .map((outcome) => [outcomeKey(outcome.unitId, outcome.generation), outcome]));
+  for (const [key, outcome] of publishedOutcomes) if (!producerSucceeded(outcome.outcome)) publishedOutcomes.delete(key);
   const ordered = admissionOrder(
     candidates.map((unit) => ({ unitId: unit.unitId, stagePosition: plans.get(unit.unitId)!.stagePosition, planPosition: plans.get(unit.unitId)!.planPosition, plannedAt: plans.get(unit.unitId)!.plannedAt })),
     { at, ageingStepMs: orchestrator.limits.ageingStepMs },
@@ -1108,7 +1113,18 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
   // admission, so this is an early answer and never the decision.
   let held = 0;
   const heldByStage = new Map<string, number>();
+  const unitsById = new Map(units.map((unit) => [unit.unitId, unit]));
+  const statesByUnit = new Map(units.map((unit) => [unit.unitId, unit.state]));
+  const heldByGroup = new Map<string, number>();
+  const groupKey = (stageId: string, group: string): string => JSON.stringify([stageId, group]);
   for (const unit of units) {
+    if (ADMITTED_STATES.includes(unit.state) || unit.state === 'retry_wait') {
+      const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(unit.unitId.slice(`${unit.stageId}/`.length));
+      if (scheduling !== undefined) {
+        const key = groupKey(unit.stageId, scheduling.group);
+        heldByGroup.set(key, (heldByGroup.get(key) ?? 0) + 1);
+      }
+    }
     if (!(ADMITTED_STATES as readonly string[]).includes(unit.state)) continue;
     held += 1;
     heldByStage.set(unit.stageId, (heldByStage.get(unit.stageId) ?? 0) + 1);
@@ -1127,6 +1143,28 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       waitingForSlot.push(unit.unitId);
       continue;
     }
+    const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
+    if (scheduling !== undefined) {
+      // Reject known waits in dependency order; unknown states and plugin outcomes need the locked failure check.
+      let dependenciesKnown = true;
+      let waiting = false;
+      for (const dependency of scheduling.after) {
+        const dependencyId = unitIdFor(unit.stageId, dependency);
+        const state = statesByUnit.get(dependencyId);
+        const previous = unitsById.get(dependencyId);
+        if (state === undefined || ['failed', 'blocked', 'cancelled'].includes(state)
+          || (state === 'published' && unit.stageId === 'plugin-turns'
+            && (previous === undefined || !publishedOutcomes.has(outcomeKey(dependencyId, previous.generation))))) {
+          dependenciesKnown = false;
+          break;
+        }
+        if (state !== 'published') { waiting = true; break; }
+      }
+      if (waiting || (dependenciesKnown && (heldByGroup.get(groupKey(unit.stageId, scheduling.group)) ?? 0) >= scheduling.concurrency)) {
+        waitingForSlot.push(unit.unitId);
+        continue;
+      }
+    }
     const priority = ordered.length - index;
     const outcome = await ownTransaction(here(), orchestrator, `admitUnit(${unit.unitId}/${unit.generation})`, ['fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
       // The run's own row is taken first: two admission passes of one run are serialized here, so the
@@ -1142,8 +1180,10 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
           );
           const dependencyId = unitIdFor(unit.stageId, dependency);
           const state = previous.rows[0]?.state;
-          const results = state === 'published' ? await readProducerOutcomesIn(executor, { unitId: dependencyId, generation: Number(previous.rows[0]!.generation) }) : [];
-          const latest = results.at(-1);
+          const generation = Number(previous.rows[0]?.generation);
+          const cached = state === 'published' ? publishedOutcomes.get(outcomeKey(dependencyId, generation)) : undefined;
+          const latest = cached ?? (state === 'published'
+            ? (await readProducerOutcomesIn(executor, { unitId: dependencyId, generation })).at(-1) : undefined);
           if (['failed', 'blocked', 'cancelled'].includes(state ?? '') || (state === 'published' && unit.stageId === 'plugin-turns' && (latest === undefined || !producerSucceeded(latest.outcome)))) {
             // Planned units cannot block directly: admit without enqueueing, then take the ordinary block step.
             const admitted = await advanceUnitIn(executor, { unitId: unit.unitId, event: { type: 'admit', at, generation: unit.generation } });
@@ -1192,6 +1232,11 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
     }
     held += 1;
     heldByStage.set(unit.stageId, (heldByStage.get(unit.stageId) ?? 0) + 1);
+    statesByUnit.set(unit.unitId, 'ready');
+    if (scheduling !== undefined) {
+      const key = groupKey(unit.stageId, scheduling.group);
+      heldByGroup.set(key, (heldByGroup.get(key) ?? 0) + 1);
+    }
     admitted.push({ unitId: unit.unitId, generation: unit.generation, stageId: unit.stageId, priority, jobId: outcome.jobId });
     await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-admitted', summary: `admitted ${unit.unitId} at priority ${priority}${outcome.jobId === null ? ' (its job was already queued)' : ''}` });
   }

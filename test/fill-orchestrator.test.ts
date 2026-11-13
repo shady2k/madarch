@@ -586,6 +586,86 @@ describe('planning from the registry', () => {
 });
 
 describe('admission within the slots, by priority', () => {
+  test('a cached successful publication cannot authorize a different current generation', async () => {
+    const lent = await createTestDatabaseOwner();
+    let enter: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    let intercept = false;
+    const gated = Object.create(lent) as DatabaseOwner;
+    gated.transaction = async (kind, work) => {
+      if (kind === 'write' && intercept) {
+        intercept = false;
+        enter!();
+        await released;
+      }
+      return await lent.transaction(kind, work);
+    };
+    const stage = draftingStage('plugin-turns', { units: ['producer', 'consumer'], concurrency: 2 });
+    stage.unitScheduling = (id) => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
+    stage.execute = (_unit, context) => {
+      context.draft.write({ kind: 'producer-outcome', evidence: 'Document', value: { plugin: 'example', kind: 'Document', outcome: 'completed', produced: 1 } });
+      return { outcome: 'draft' };
+    };
+    try {
+      const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), owner: gated });
+      expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(1);
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+      intercept = true;
+      const admission = admitUnits(opened.orchestrator, { runId });
+      await entered;
+      // A different writer seals a new, abstaining generation after the pass captured the old success.
+      await lent.transaction('write', async (tx) => {
+        const id = 'plugin-turns/producer';
+        await tx.query(`INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at)
+          SELECT unit_id, generation + 1, run_id, state, inputs_digest, fence + 1, context, updated_at
+          FROM fill_unit_generation WHERE unit_id = $1 AND generation = 1`, [id]);
+        await tx.query('UPDATE fill_unit SET generation = 2 WHERE unit_id = $1', [id]);
+        await tx.query(`INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at)
+          VALUES ($1, 2, 'abstained', $2::jsonb, $3)`, [id, JSON.stringify([{ kind: 'producer-outcome', value: { plugin: 'example', kind: 'Document', outcome: 'abstained', produced: 0 } }]), NOW]);
+        await tx.query(`INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at)
+          VALUES ($1, 2, 'abstained', 0, $2)`, [id, NOW]);
+      });
+      release!();
+      expect((await admission).admittedNow).toBe(0);
+      expect((await readUnit(opened.owner, 'plugin-turns/consumer'))?.state).toBe('blocked');
+    } finally {
+      release!();
+      await lent.close();
+    }
+  }, 120_000);
+
+  test('waiting dependencies and full producer groups do not open one admission transaction per candidate', async () => {
+    const producers = ['root', ...Array.from({ length: 20 }, (_, index) => `producer-${index}`)];
+    const consumers = Array.from({ length: 20 }, (_, index) => `consumer-${index}`);
+    const stage = draftingStage('graph', { units: [...producers, ...consumers], concurrency: 100 });
+    stage.unitScheduling = (id) => ({
+      after: consumers.includes(id) ? ['root'] : [],
+      group: consumers.includes(id) ? 'consumers' : 'producers', concurrency: 1,
+    });
+    const lent = await createTestDatabaseOwner();
+    let transactions = 0;
+    const counting = Object.create(lent) as DatabaseOwner;
+    counting.transaction = async (kind, work) => { transactions += 1; return await lent.transaction(kind, work); };
+    try {
+      const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { maxInFlight: 100 }, owner: counting });
+      let before = transactions;
+      const first = await admitUnits(opened.orchestrator, { runId });
+      expect(first.admitted.map((unit) => unit.unitId)).toEqual(['graph/root']);
+      expect(first.waitingForSlot).toHaveLength(40);
+      expect(transactions - before).toBeLessThanOrEqual(12);
+      before = transactions;
+      expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(0);
+      expect(transactions - before).toBeLessThanOrEqual(12);
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+      const next = await admitUnits(opened.orchestrator, { runId });
+      expect(next.admitted.map((unit) => unit.unitId)).toEqual(['graph/producer-0', 'graph/consumer-0']);
+    } finally {
+      await lent.close();
+    }
+  }, 120_000);
+
   test('a pass admits up to the run\'s slots and walks no further, whatever the plan holds', async () => {
     // Sixty units, one slot: the pass admits the first and stops, instead of opening a transaction for
     // every candidate that finds no slot. A run of a few thousand units measured 27 s of a 27.6 s unit

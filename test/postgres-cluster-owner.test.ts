@@ -81,6 +81,33 @@ test('one process opening a store twice runs one server, and the last hold stops
   expect(await answering(store)).toBe(false);
 }, 120_000);
 
+test('independent stores stop together without blocking the event loop and leave no server alive', async () => {
+  const stores = [storeOf('concurrent-stop-a'), storeOf('concurrent-stop-b')];
+  const clusters = [];
+  try {
+    for (const store of stores) clusters.push(await openCluster({ ...clusterPaths(store) }));
+    const postmasters = stores.map(postmasterOf);
+    expect(postmasters.every((pid) => pid !== null && alive(pid))).toBe(true);
+    let stopping = true;
+    let tickedDuringStop = false;
+    const timer = setTimeout(() => { tickedDuringStop = stopping; }, 20);
+    try {
+      await Promise.all(clusters.map((cluster) => cluster.stop()));
+      stopping = false;
+      expect(tickedDuringStop).toBe(true);
+      for (let index = 0; index < stores.length; index++) {
+        expect(await answering(stores[index]!)).toBe(false);
+        expect(postmasterOf(stores[index]!)).toBe(null);
+        expect(alive(postmasters[index]!)).toBe(false);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  } finally {
+    await Promise.all(clusters.map((cluster) => cluster.stop()));
+  }
+}, 120_000);
+
 test('a process that attaches and leaves keeps the server answering for the one that started it', async () => {
   const store = storeOf('attached');
   const held = await openCluster({ ...clusterPaths(store) });
