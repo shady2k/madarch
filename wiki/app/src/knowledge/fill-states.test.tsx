@@ -9,7 +9,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { FillCard } from './pages.js';
-import { fillShare, fillWords } from './fill-words.js';
+import { fillShare } from './fill-words.js';
 import type { FillErrorView, FillProgressView, RepositoryCounts, WikiStatus } from './types.js';
 
 beforeAll(async () => {
@@ -75,7 +75,6 @@ describe('the fill card over the trace', () => {
     const container = into(createElement(FillCard, { status: held, refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-progress-spans]') !== null, 'the spans');
     expect(container.querySelector('[data-testid=fill-progress-spans]')!.textContent).toBe('The run has written 40 spans of its trace so far');
-    expect(fillWords(held.fill, (key, options) => `${key} ${JSON.stringify(options ?? {})}`)).toContain('fillSpans');
   });
 
   test('a failed fill names the file, the line and the path its error stands at', async () => {

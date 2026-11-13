@@ -697,6 +697,8 @@ export interface FillErrorView {
 }
 
 export interface FillState {
+  /** Canonical fill_run identity, available before the first trace span. */
+  runId?: string;
   /** The index was rebuilt because its deterministic readers changed. */
   rebuilt?: 'extractors-changed';
   /**

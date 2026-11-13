@@ -1,5 +1,5 @@
-import { KLink } from './blocks.js';
-import { ShellSidebar, ShellMain, ShellFixed, ShellRow, ShellScroll, ShellDocument, ShellToolbar, ShellActions, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellTabs, ShellTab, ShellTabTrigger, ShellTabClose, ShellMenuButton, ShellError, ShellStatusButton, ShellStatusWrap, ShellStatusLabel, ShellStatusWords, ShellStatusCount, ShellStatusBody, ShellStatusLine, ShellStatusMessage, ShellStatusDot, ShellBrandMark, ShellProductMenu, ShellProductLink, ShellLanguageButton, ShellFillContent, ShellFillChoice, ShellHomeLink, ShellAnswersLink, ShellAnswersWords, ShellAnswersCount, ShellNavigationLoading, ShellToolbarLoading, ShellNavigationSheet } from '@/components/ui/shell.js';
+
+import { ShellSidebar, ShellMain, ShellFixed, ShellRow, ShellScroll, ShellDocument, ShellToolbar, ShellActions, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellTabs, ShellTab, ShellTabTrigger, ShellTabClose, ShellMenuButton, ShellError, ShellBrandMark, ShellProductMenu, ShellProductLink, ShellLanguageButton, ShellHomeLink, ShellAnswersLink, ShellAnswersWords, ShellAnswersCount, ShellNavigationLoading, ShellToolbarLoading, ShellNavigationSheet } from '@/components/ui/shell.js';
 import { NavigationLink, NavigationLabel, NavigationCount, NavigationPending, NavigationScroll, NavigationSection, NavigationHeading, NavigationGroup, NavigationGroupTrigger, NavigationSubheading, NavigationFooter, ProductButton, BrandLink } from '@/components/ui/navigation.js';
 import { Stack, Text, Paragraph } from '@/components/ui/typography.js';
 import { AuthoredPage } from './authored.js';
@@ -12,35 +12,36 @@ import { AuthoredPage } from './authored.js';
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, FolderGit2Icon, FolderIcon, FileTextIcon, RefreshCwIcon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, PauseIcon, SettingsIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, FolderGit2Icon, FolderIcon, FileTextIcon, RefreshCwIcon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
 import { activateTab, closeTab, linkHandlers, useTabs } from './tabs.js';
 import { Badge } from '@/components/ui/badge.js';
+import { Button } from '@/components/ui/button.js';
 import { Sheet, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu.js';
-import { getProducts } from './api.js';
-import { Card } from '@/components/ui/card.js';
-import { RunControls, runIsPaused, runIsStopped } from './run-controls.js';
+import { getFillRun, getProducts } from './api.js';
+
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, NewHome, SourcePage, StatementPage, Overview } from './pages.js';
 import { FillPage } from './fill-page.js';
+import { SelectionRunPage } from './fill-runs.js';
 import { RunPage } from './repository.js';
-import { unitName } from './writer.js';
+
 import { GlossaryProvider, GlossaryPage } from './glossary.js';
 import { FactsHome } from './facts.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
+import { addressOfFillRun, addressOfKind, WIKI_CATALOGUE, WIKI_DOCS, WIKI_FILL, WIKI_GLOSSARY, WIKI_HOME, WIKI_PROBLEMS, WIKI_QUESTIONS, WIKI_SETTINGS, wikiRouteOf, type WikiRoute } from './routes.js';
 import { ProblemsPage } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
-import { fillWords } from './fill-words.js';
-import { FailureNote } from './errors.js';
+
+
 import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
-import { useWikiStatus } from './live.js';
+import { useRead, useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { SettingsPage } from './settings.js';
 import { KitPage } from './kit-page.js';
@@ -326,176 +327,19 @@ function LanguageMenu(): ReactElement {
   );
 }
 
-/** The pages the product holds, for the status line: the Markdown kinds' entities. */
-function pagesOf(status: WikiStatus): number {
-  return status.kinds.filter((kind) => kind.source === 'markdown' && !inLoop(kind)).reduce((sum, kind) => sum + kind.count, 0);
+/** The fill entry always opens selection or the active run, never a status popover. */
+export function FillButton({ status, version = 0 }: { status: WikiStatus; version?: number }): ReactElement {
+  const { t } = useTranslation();
+  const run = status.fill;
+  const active = run.runId !== undefined && (run.state === 'running' || run.state === 'paused');
+  const detail = useRead(`fill-button:${run.runId ?? ''}`, version, (signal) => active ? getFillRun(run.runId!, signal) : Promise.resolve(null)).data?.run;
+  const address = active ? addressOfFillRun(run.runId!) : WIKI_FILL;
+  return <Button variant="default" size="default" data-testid="fill-button" onClick={() => navigateTo(appPath(address))}>
+    {active ? detail !== undefined && detail.units.length > 0 ? t('knowledge.fillRun.active', { done: detail.publishedUnits, total: detail.units.length }) : t('knowledge.fillRun.planning') : t('knowledge.fillRun.open')}
+  </Button>;
 }
 
-/**
- * The fill status and current run controls. Starting a fill belongs to /fill;
- * the toolbar menu only links there.
- */
-export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
-  const { t, i18n } = useTranslation();
-  // The badge's panel is a plain dialog in the toolbar, not a menu with a portal of its own: a badge is a button, and
-  // what it opens is reached by the keyboard (madarch-m38l.23) — Tab from the badge opens it and moves into it, Escape
-  // closes it and puts focus back on the badge. Its height is what the window leaves beside the badge, and the words
-  // that do not fit scroll inside it instead of reaching past the bottom of the window.
-  const chip = useRef<HTMLButtonElement | null>(null);
-  const wrap = useRef<HTMLDivElement | null>(null);
-  const focusPanel = useRef(false);
-  const [open, setOpen] = useState(false);
-  /** The menu opened by the status badge. */
-  const panelNode = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="fill-menu"]');
-  const openPanel = (): void => {
-    setOpen(true);
-    focusPanel.current = true;
-  };
-  // The first thing the panel offers takes focus when it opens, so Tab from the badge lands on a real control.
-  useEffect(() => {
-    if (!open || !focusPanel.current) return;
-    focusPanel.current = false;
-    panelNode()?.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])')?.focus();
-  }, [open]);
-  // A press anywhere else closes it, and so does tabbing out of it.
-  useEffect(() => {
-    if (!open) return undefined;
-    const outside = (event: Event): void => {
-      const target = event.target as Node | null;
-      if (target === null) return;
-      if (panelNode()?.contains(target) === true || chip.current?.contains(target) === true) return;
-      setOpen(false);
-    };
-    document.addEventListener('pointerdown', outside, true);
-    return () => { document.removeEventListener('pointerdown', outside, true); };
-  }, [open]);
-  const fill = status.fill;
-  const writer = status.writer;
-  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  if (status.manifest !== 'ok') return null;
-  // The stages of the agent named the way a reader knows them: the kind's name and the page's title (madarch-m38l.23).
-  // A run a person holds or ended is read before the stages (madarch-m38l.17): a paused one writes nothing, and «Заполнено»
-  // would be a lie about a run that stands ready to be taken up.
-  const paused = runIsPaused(status);
-  const stopped = runIsStopped(status);
-  const authoring = !paused && (writer.state === 'running' || writer.state === 'waiting');
-  // A graph fill is a live run too: no agent, no pages counted yet, but a person can still pause or stop it (madarch-m38l.17).
-  const filling = !paused && !stopped && fill.state === 'running';
-  const written = writer.units.filter((unit) => unit.state === 'written').length;
-  // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes from the
-  // writer before its first unit and grows only when the product page declares more domains; until it is there the count
-  // stands alone («12»), never against a denominator made of what has merely been taken up.
-  const count = `${written}${writer.total === undefined ? '' : `/${writer.total}`}`;
-  const current = writer.units.find((unit) => unit.unit === writer.current) ?? writer.units.find((unit) => unit.state === 'writing');
-  const currentName = current === undefined ? null : unitName(current, status.kinds, language);
-  let label: string;
-  let solid = false;
-  /** The badge's phone-width form, when the whole sentence does not fit there; null keeps the sentence alone. */
-  let narrow: string | null = null;
-  const pagesTotal = writer.total;
-  if (paused) label = pagesTotal === undefined ? t('knowledge.fillPage.paused') : t('knowledge.fillPage.pausedCount', { done: written, total: pagesTotal });
-  else if (stopped) label = pagesTotal === undefined ? t('knowledge.fillPage.stopped') : t('knowledge.fillPage.stoppedCount', { done: written, total: pagesTotal });
-  else if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
-  else if (fill.state === 'failed') label = t('knowledge.fillFailed');
-  else if (authoring) {
-    label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${count}`;
-    solid = true;
-  }
-  else if (status.filled) label = t('knowledge.sync');
-  // A product with a repository and no fill yet offers Fill in the top bar (the owner, 2026-11-10): the press opens the
-  // setup page, where the person chooses the sections and the agent and reads the estimate before pressing. A
-  // product with no repository has nothing to fill and says so on its home page instead.
-  else if (status.repositories.length > 0) { label = t('knowledge.fillButton'); solid = true; }
-  else return null;
-  // Below a phone's width the badge is its state's mark and the count on one line; its name and the popover keep the
-  // whole sentence. A held or ended run has its figures in its sentence, so its count stands only where the words go.
-  const compact = authoring && writer.units.length > 0;
-  const held = (paused || stopped) && writer.units.length > 0;
-  return (
-    <ShellStatusWrap
-      ref={wrap}
-      onKeyDown={(event) => {
-        // Escape gives the badge back its focus, wherever in the panel it was pressed.
-        if (event.key !== 'Escape' || !open) return;
-        event.stopPropagation();
-        setOpen(false);
-        chip.current?.focus();
-      }}
-      onBlur={(event) => {
-        const next = event.relatedTarget as Node | null;
-        if (!open || next === null || wrap.current?.contains(next) === true) return;
-        setOpen(false);
-      }}
-    >
-      <ShellStatusButton
-        ref={chip}
-        type="button"
-        compact={compact}
-        data-testid="fill-chip"
-        aria-label={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls="fill-menu-panel"
-        title={authoring ? label : t('knowledge.fillMenuTitle')}
-        onClick={() => { if (open) setOpen(false); else openPanel(); }}
-        onKeyDown={(event) => {
-          // Tab from the closed badge opens the panel and lands on its first control; it never swallows a Tab elsewhere.
-          if (open || event.shiftKey || (event.key !== 'Tab' && event.key !== 'ArrowDown')) return;
-          event.preventDefault();
-          openPanel();
-        }}
-      >
-        <Badge variant={solid ? 'solid' : 'outline'}>
-          <FillDot status={status} />
-          {paused && <PauseIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3.5" data-testid="fill-chip-pause" />}
-          {stopped && <SquareIcon aria-hidden="true" className="fill-chip-state-icon mr-1 size-3" data-testid="fill-chip-stop" />}
-          <ShellStatusLabel>
-            {compact
-              ? <><ShellStatusWords>{t('knowledge.fillWriting')} · </ShellStatusWords><ShellStatusCount>{count}</ShellStatusCount></>
-              : held
-                ? <><ShellStatusWords>{label}</ShellStatusWords><ShellStatusCount narrow>{count}</ShellStatusCount></>
-                : narrow === null
-                  ? label
-                  : <><ShellStatusWords>{label}</ShellStatusWords><ShellStatusCount narrow>{narrow}</ShellStatusCount></>}
-          </ShellStatusLabel>
-        </Badge>
-      </ShellStatusButton>
-      {open && (
-        <Card id="fill-menu-panel" role="dialog" aria-label={t('knowledge.fillMenuTitle')} data-testid="fill-menu" floating>
-          <ShellFillContent>
-            <ShellFillChoice href={appPath(WIKI_FILL)} {...linkHandlers(WIKI_FILL)} data-testid="fill-menu-choose" >{t('knowledge.fillChoose')}</ShellFillChoice>
-            {(authoring || filling) && (
-              // While the agent writes or the graph is read: the whole sentence and, when there is one, what is being written
-              // now, and the way to the fill page (never the paths: the menu is anchored to the top bar and must stay inside
-              // a narrow viewport). A fill with no agent still offers the two presses here (madarch-m38l.17).
-              <ShellStatusBody data-testid="fill-menu-live">
-                <ShellStatusLine data-testid="fill-menu-total">{label}</ShellStatusLine>
-                {authoring && <ShellStatusLine data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</ShellStatusLine>}
-                <ShellStatusLine><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></ShellStatusLine>
-                <RunControls status={status} refresh={refresh} where="menu" />
-              </ShellStatusBody>
-            )}
-            {paused && (
-              // The run stands where the person left it: what it wrote, the way to its page, and the two presses that take it
-              // up again or end it (madarch-m38l.17).
-              <ShellStatusBody data-testid="fill-menu-paused">
-                <ShellStatusLine data-testid="fill-menu-total">{label}</ShellStatusLine>
-                <ShellStatusLine><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></ShellStatusLine>
-                <RunControls status={status} refresh={refresh} where="menu" />
-              </ShellStatusBody>
-            )}
-            {!authoring && writer.units.length > 0 && <ShellStatusLine inset data-testid="fill-menu-open-line"><KLink href={WIKI_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></ShellStatusLine>}
-            {writer.asked !== undefined && writer.asked > 0 && <ShellStatusLine inset data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</ShellStatusLine>}
-            {writer.message !== undefined && <ShellStatusMessage data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></ShellStatusMessage>}
-            {fill.message !== undefined && fill.state === 'failed' && <ShellStatusMessage><FailureNote scope="fill" code={fill.code} message={fill.message} /></ShellStatusMessage>}
-          </ShellFillContent>
-        </Card>
-      )}
-    </ShellStatusWrap>
-  );
-}
-
-export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
+export function Toolbar({ status, route, menu, version = 0, products, current }: { status: WikiStatus; route: WikiRoute; menu: ReactNode; refresh: () => void; version?: number; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const where = route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'run' ? t('knowledge.run.title') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
@@ -513,64 +357,12 @@ export function Toolbar({ status, route, menu, refresh, products, current }: { s
           </ShellAnswersLink>
         )}
         {menu}
-        {status.own !== true && <FillMenu status={status} refresh={refresh} />}
+        <FillButton status={status} version={version} />
         <RoleMenu />
         <HelpLink products={products} current={current} />
         <LanguageMenu />
       </ShellActions>
     </ShellToolbar>
-  );
-}
-
-/** The fill's state as the header's dot tells it (madarch-stm0.6, the owner 2026-11-10). */
-export type FillDotState = 'up-to-date' | 'stale' | 'running' | 'failed';
-
-/**
- * Which of the four states a product's fill stands in: a run under way, a run that failed, the graph short of what the
- * checkouts hold (some files or commits are not read), or up to date. The app reads only the status: the engine keeps no
- * second copy of this answer.
- */
-export function fillDotState(status: WikiStatus): FillDotState {
-  if (status.fill.state === 'running' || status.writer.state === 'running' || status.writer.state === 'waiting') return 'running';
-  if (status.fill.state === 'failed' || status.writer.state === 'failed') return 'failed';
-  if (status.incomplete || status.repositories.some((repository) => !repository.filled)) return 'stale';
-  return 'up-to-date';
-}
-
-/**
- * The dot's words: the commit the graph describes and the counts the run published, in the reader's language. A state
- * without a commit says so rather than naming an empty one.
- */
-export function fillDotTitle(status: WikiStatus, t: (key: string, args?: Record<string, string | number>) => string): string {
-  const commit = status.repository?.asIsCommit ?? null;
-  const short = commit === null ? null : commit.slice(0, 7);
-  const counts = status.fill.counts ?? status.repository?.counts;
-  const figures = { files: counts?.files ?? 0, commits: counts?.commits ?? 0 };
-  const state = fillDotState(status);
-  if (state === 'running') return short === null ? t('knowledge.fillDot.runningNoCommit', figures) : t('knowledge.fillDot.running', { ...figures, commit: ` at ${short}` });
-  if (state === 'failed') return t('knowledge.fillDot.failed');
-  if (state === 'stale') return short === null ? t('knowledge.fillDot.staleNoCommit', figures) : t('knowledge.fillDot.stale', { ...figures, commit: short });
-  return short === null ? t('knowledge.fillDot.upToDateNoCommit', figures) : t('knowledge.fillDot.upToDate', { ...figures, commit: short });
-}
-
-/**
- * The one dot on the Fill/Sync button: a filled dot when the graph stands up to date, a hollow one when it is stale, a
- * pulsing one while a run works and a barred one when a run failed. The state is told by its shape and its word, never by
- * hue (the design tokens are the graphite pair), and its title says the commit and the counts.
- */
-export function FillDot({ status }: { status: WikiStatus }): ReactElement {
-  const { t, i18n } = useTranslation();
-  const state = fillDotState(status);
-  let words = fillDotTitle(status, t);
-  if (status.filled && (state === 'up-to-date' || state === 'stale') && !runIsPaused(status) && !runIsStopped(status)) {
-    const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-    const when = status.fill.finishedAt;
-    if (when !== undefined) words += ` · ${t('knowledge.fillDot.finished', { date: new Date(when).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' }) })}`;
-    words += ` · ${t('knowledge.fillDot.pages', { count: pagesOf(status) })}`;
-    if (status.fill.rebuilt === 'extractors-changed') words += ` · ${t('knowledge.fillRebuiltExtractors')}`;
-  }
-  return (
-    <ShellStatusDot state={state} data-testid="fill-dot" data-state={state} title={words} aria-label={words} role="img" />
   );
 }
 
@@ -681,7 +473,7 @@ export function KnowledgeApp(): ReactElement {
       </ShellNavigationSheet>
     </Sheet>
   );
-  const contentPage = !['kind', 'catalogue', 'dependencies', 'settings', 'fill', 'run', 'journal'].includes(route.name);
+  const contentPage = !['kind', 'catalogue', 'dependencies', 'settings', 'fill', 'fill-run', 'run', 'journal'].includes(route.name);
   let view: ReactElement;
   // No store, no home page: until a fill runs the home is the introduction, even when the product repository holds a
   // page a later stage will read. Nothing of the product is parsed before the fill writes it.
@@ -695,7 +487,8 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'problems') view = <ProblemsPage version={version} refresh={refresh} />;
   else if (route.name === 'settings') view = <SettingsPage version={version} status={status} refresh={refresh} />;
   else if (route.name === 'journal') view = <JournalPage key={`${route.id}\0${route.run ?? ''}`} id={route.id} run={route.run} version={version} />;
-  else if (route.name === 'fill') view = <FillPage status={status} refresh={refresh} />;
+  else if (route.name === 'fill') view = <FillPage status={status} refresh={refresh} version={version} />;
+  else if (route.name === 'fill-run') view = <SelectionRunPage key={route.run} runId={route.run} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = publication === undefined ? <CataloguePage version={version} />
@@ -717,7 +510,7 @@ export function KnowledgeApp(): ReactElement {
         <ShellMain>
           {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
           <ShellFixed data-testid="shell-fixed">
-            <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
+            <Toolbar status={status} route={route} menu={menu} refresh={refresh} version={version} products={products} current={currentFolder} />
             <TabBar />
           </ShellFixed>
           <ShellRow>

@@ -14,7 +14,7 @@ import { addressOfEntity } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, Problem, ProblemCategory, ProblemSection, ProblemSource, RefreshPlan } from './types.js';
+import type { Author, Problem, ProblemCategory, ProblemSection, ProblemSource } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -271,46 +271,5 @@ export function ProblemsPage({ version, refresh = () => undefined }: { version: 
       </PlainList>
       {(data.dismissed ?? 0) > 0 && <Paragraph className="text-small text-muted" data-testid="problems-dismissed">{t('loop.problemDismissedCount', { count: data.dismissed })}</Paragraph>}
     </PageSection>
-  );
-}
-
-// ---- the refresh plan -------------------------------------------------------------------------
-
-function ReasonText({ reason }: { reason: RefreshPlan['pages'][number]['reasons'][number] }): ReactElement {
-  const { t } = useTranslation();
-  switch (reason.kind) {
-    case 'missing': return <>{t('loop.reason.missing')}</>;
-    case 'language': return <>{t('loop.reason.language', { from: reason.from ?? '?', to: reason.to })}</>;
-    case 'ground-changed': return <>{t('loop.reason.groundChanged', { ground: reason.ground, statement: reason.statement })}</>;
-    case 'ground-removed': return <>{t('loop.reason.groundRemoved', { ground: reason.ground, statement: reason.statement })}</>;
-    case 'answer': return <>{t('loop.reason.answer', { title: reason.title })}</>;
-    case 'correction': return <>{t('loop.reason.correction', { statement: reason.statement.slice(reason.statement.indexOf('#') + 1) })}</>;
-    case 'new-service': return <>{t('loop.reason.newService', { services: reason.services.join(', ') })}</>;
-    case 'missing-domain': return <>{t('loop.reason.missingDomain', { domain: reason.domain })}</>;
-    case 'task': return <>{t('loop.reasonTask', { title: reason.title })}</>;
-  }
-}
-
-/** The pages a refresh touches and why, and how many it leaves alone. */
-export function PlanList({ plan, compact = false }: { plan: RefreshPlan; compact?: boolean }): ReactElement {
-  const { t } = useTranslation();
-  return (
-    <Stack data-testid="refresh-plan">
-      {plan.pages.length === 0
-        ? <Paragraph className="m-0 text-small" data-testid="plan-nothing">{t('loop.plan.nothing')}</Paragraph>
-        : <Paragraph className="mb-2 mt-0 text-small font-medium text-ink" data-testid="plan-summary">{t('loop.plan.touches', { count: plan.pages.length })}{plan.unchanged.length > 0 && <Text className="font-normal text-muted"> {t('loop.plan.leaves', { count: plan.unchanged.length })}</Text>}</Paragraph>}
-      <PlainList className="m-0 list-none p-0 text-small" data-testid="plan-pages">
-        {plan.pages.map((page) => (
-          <ListItem key={page.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="plan-page" data-path={page.path}>
-            <InlineCode>{page.path}</InlineCode>
-            <PlainList className={`m-0 list-disc ps-5 text-secondary ${compact ? 'mt-0.5' : 'mt-1'}`}>
-              {page.reasons.map((reason, index) => <ListItem key={index} data-testid="plan-reason" data-kind={reason.kind}><ReasonText reason={reason} /></ListItem>)}
-            </PlainList>
-          </ListItem>
-        ))}
-      </PlainList>
-      {plan.unplaced.map((miss) => <Paragraph key={`${miss.kind}:${miss.slug}`} className="mb-0 mt-2 text-small" role="alert" data-testid="plan-unplaced">{t('loop.plan.unplaced', { title: miss.title })} {miss.reason}</Paragraph>)}
-      {plan.problems.map((line) => <Paragraph key={line} className="mb-0 mt-2 text-small" role="alert" data-testid="plan-problem"><InlineCode>{line}</InlineCode></Paragraph>)}
-    </Stack>
   );
 }
