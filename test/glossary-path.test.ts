@@ -1,3 +1,4 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The glossary's path end to end (decisions 0034 item 14 and 0035 items 6, 15, 16, 17, 18): a product's manifest
  * declares the term kind's fields as bindings to a plugin's fields, the plugin's own contract states their types, and
@@ -5,6 +6,7 @@
  * the listing and the term's page read only the graph — and a second fill follows the document: an edited definition
  * changes, a deleted term disappears, and a kind taken out of the manifest takes its table with it.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -108,8 +110,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     const manifest = join(folder, 'workspace.yaml');
     writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'app', linked: true }));
     // The debug journal keeps every request the plugin makes, its reads included (stage 2).
-    const kindsFile = join(folder, 'madarch', 'catalog.yaml');
-    writeFileSync(kindsFile, `${readFileSync(kindsFile, 'utf8')}\njournal:\n  debug: true\n`);
+    writeFolderManifest(folder, `${readFolderManifestText(folder)}\njournal:\n  debug: true\n`);
   });
 
   afterAll(async () => {
@@ -120,6 +121,8 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
 
   test('the starter authored terms do not run an unbound glossary plugin', async () => {
     writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);
+    const authoredKinds = readFolderManifestText(folder);
+    useFixturePlugins(folder, ['disk', 'git']);
     commit('A glossary document beside authored terms');
     closePreparation = await prepareTestProduct(folder, join(work, 'home'), join(work, 'store'));
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
@@ -128,7 +131,9 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
       expect((await product.glossary()).terms).toEqual([]);
     } finally {
       await product.close();
+      writeFolderManifest(folder, authoredKinds);
       useExtractedGlossary(folder);
+      useFixturePlugins(folder, ['disk', 'git', 'glossary']);
     }
   }, 300_000);
 
@@ -158,9 +163,15 @@ describe.skipIf(sandboxProblem !== undefined)('a product glossary, filled throug
     // declared, the opinions it opened and the requests it made (the debug setting is on).
     const storeOwner = await createTestDatabaseOwner({ store: join(productStoreFolder(folder, join(work, 'store')), 'graph'), btreeGist: true });
     const journal = await storeOwner.transaction('snapshot', async (tx) => await tx.query<{ author: string; change: { vertices: { entity: string }[]; opinions: { state: string }[]; reads?: { method: string; size: number; outcome?: string; cause?: string }[] } }>('SELECT author, change FROM operation ORDER BY seq'));
-    await storeOwner.close();
     const plugin = journal.rows.filter((one) => one.author === 'glossary@1.0.0');
-    expect(plugin).toHaveLength(1);
+    const generations = plugin.length === 1 ? undefined : await storeOwner.transaction('snapshot', async (tx) => await tx.query(
+      `SELECT u.unit_id, g.generation, g.state, g.run_id
+         FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id
+        WHERE u.stage_id = 'plugin-turns' AND u.scope_key LIKE 'glossary:%'
+        ORDER BY u.unit_id, g.generation`,
+    ));
+    await storeOwner.close();
+    expect(plugin, JSON.stringify({ operations: plugin, generations: generations?.rows })).toHaveLength(1);
     expect(plugin[0]?.change.vertices.map((one) => one.entity)).toEqual(['doc.term', 'doc.term']);
     expect(plugin[0]?.change.opinions.every((one) => one.state === 'opened')).toBe(true);
     // The bounded journal records requests at the host — its introduction too — with their outcomes and answer

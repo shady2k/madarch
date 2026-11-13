@@ -187,7 +187,7 @@ describe('the catalogue view lists every declared kind', () => {
     }
   });
 
-  test('plugin folders come only from configured field-bound plugins, not from their names', async () => {
+  test('plugin folders come only from declared producers, not field bindings', async () => {
     const ctx = context();
     const decl = ctx.manifest.kinds.get('written')!;
     const kinds = new Map(ctx.manifest.kinds);
@@ -198,7 +198,7 @@ describe('the catalogue view lists every declared kind', () => {
         binding: { kind: 'plugin' as const, plugin, major: '1', field: 'value' },
       })),
     });
-    const plugin = (id: string, path?: string) => ({ id, version: '1', inputs: [], outputs: ['written'], closure: [], line: 1, ...(path === undefined ? {} : { path }) });
+    const plugin = (id: string, path?: string) => ({ id, version: '1', inputs: [], outputs: ['written'], closure: [], declaration: { name: id, version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun' as const, version: '1' }, produces: [{ kind: id === 'unbound' ? 'other' : 'written', fields: '*' as const, reads: [] }] }, line: 1, ...(path === undefined ? {} : { path }) });
     const plugins = new Map([
       ['zebra', plugin('zebra', 'custom/z-reader')],
       ['alpha', plugin('alpha', 'custom/a-reader')],
@@ -207,10 +207,10 @@ describe('the catalogue view lists every declared kind', () => {
     ]);
     const manifest = { ...ctx.manifest, kinds, plugins };
     const written = (await catalogKinds({ ...ctx, manifest })).find((kind) => kind.kind === 'written')!;
-    expect(written.plugins).toEqual(['alias', 'alpha', 'unknown', 'zebra']);
+    expect(written.plugins).toEqual(['alias', 'alpha', 'zebra']);
     expect(written.pluginFolders).toEqual(['custom/a-reader', 'custom/z-reader']);
     const unresolved = (await catalogKinds({ ...ctx, manifest: { ...manifest, plugins: new Map() } })).find((kind) => kind.kind === 'written')!;
-    expect(unresolved.plugins).toEqual(written.plugins);
+    expect(unresolved.plugins).toBeUndefined();
     expect(unresolved.pluginFolders).toBeUndefined();
     expect((await catalogKinds(ctx)).every((kind) => kind.pluginFolders === undefined)).toBe(true);
   });
@@ -226,15 +226,15 @@ describe('the catalogue view lists every declared kind', () => {
   test('a kind the graph holds is listed with its count and its stage, and a kind no stage fills with zero and no producer', async () => {
     const kinds = await catalogKinds(context());
     expect(kinds.map((kind) => kind.kind)).toEqual(['filled', 'empty', 'written', 'by-person']);
-    expect(kinds.find((kind) => kind.kind === 'filled')).toMatchObject({ subgroup: 'area.one', count: 3, page: false, producer: 'extract', filled: true });
+    expect(kinds.find((kind) => kind.kind === 'filled')).toMatchObject({ subgroup: 'area.one', count: 3, page: false, filled: true });
     expect(kinds.find((kind) => kind.kind === 'empty')).toMatchObject({ count: 0, page: false, filled: false });
-    expect(kinds.find((kind) => kind.kind === 'empty')!.producer).toBeUndefined();
+    expect(kinds.find((kind) => kind.kind === 'empty')).not.toHaveProperty('producer');
   });
 
   test('a Markdown page counts its entities and names the writer; a page a person writes is not a stage', async () => {
     const kinds = await catalogKinds(context());
-    expect(kinds.find((kind) => kind.kind === 'written')).toMatchObject({ count: 1, page: true, producer: 'writer', filled: true });
-    expect(kinds.find((kind) => kind.kind === 'by-person')).toMatchObject({ count: 2, page: true, producer: 'person', filled: false });
+    expect(kinds.find((kind) => kind.kind === 'written')).toMatchObject({ count: 1, page: true, filled: true });
+    expect(kinds.find((kind) => kind.kind === 'by-person')).toMatchObject({ count: 2, page: true, filled: true });
   });
 
   test('the words travel in both languages, so the page never falls back to an English name in Russian', async () => {
@@ -265,7 +265,7 @@ describe('the catalogue view lists every declared kind', () => {
     const manifest = parseKinds(bare, 'madarch/catalog.yaml', TEMPLATES);
     const kinds = await catalogKinds({ ...context(), manifest } as unknown as RenderContext);
     expect(kinds.map((kind) => kind.kind)).toEqual(['written']);
-    expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, producer: 'writer', filled: true });
+    expect(kinds[0]).toMatchObject({ subgroup: 'area.one', count: 1, page: true, filled: true });
     expect(kinds[0]!.sources).toBeUndefined();
 
   });

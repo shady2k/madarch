@@ -220,6 +220,8 @@ export interface GraphVerdictRunOptions {
   readonly judgeFor?: GraphJudgeFactory;
   /** Reads a cited file at the fill's commit. Absent means no evidence can be resolved. */
   readonly readEvidence?: GraphEvidenceReader;
+  /** Stops evidence collection when its owning product closes. */
+  readonly signal?: AbortSignal;
   /** The rule set; the default is the manifest of rules in `graph-verdict-rules.ts`. */
   readonly rules?: GraphRuleSet;
   readonly now?: () => Date;
@@ -633,13 +635,14 @@ function evidencePaths(value: unknown): string[] {
  * pinned repository is what decides, and a graph that disagrees with it has
  * to be looked at, never confirmed by its own claim.
  */
-async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader | undefined): Promise<Map<string, ResolvedFile>> {
+async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader | undefined, signal?: AbortSignal): Promise<Map<string, ResolvedFile>> {
   const declared = declaredFiles(snapshot);
   const paths = new Set<string>(declared.keys());
   for (const node of snapshot.nodes) for (const path of evidencePaths(node.properties)) paths.add(path);
   for (const edge of snapshot.edges) for (const path of evidencePaths(edge.properties)) paths.add(path);
   const files = new Map<string, ResolvedFile>();
   for (const path of [...paths].sort(byCodePoint)) {
+    signal?.throwIfAborted();
     const held = declared.get(path);
     if (reader === undefined) {
       files.set(path, { ...(held ?? { path }), problem: 'no pinned repository reader was configured, so the file was not read at the fill\'s commit' });
@@ -648,7 +651,9 @@ async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader
     let content: GraphEvidenceContent | undefined;
     try {
       content = await reader(path);
+      signal?.throwIfAborted();
     } catch (error) {
+      signal?.throwIfAborted();
       files.set(path, { ...(held ?? { path }), problem: `the pinned repository could not be read at ${JSON.stringify(path)}: ${oneLine(error instanceof Error ? error.message : String(error))}` });
       continue;
     }
@@ -773,7 +778,7 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
   const generatedAt = now().toISOString();
   const snapshot = options.snapshot;
   const nodes = new Map(snapshot.nodes.map((node) => [node.id, node]));
-  const files = await resolveFiles(snapshot, options.readEvidence);
+  const files = await resolveFiles(snapshot, options.readEvidence, options.signal);
   const edgesByNode = new Map<string, GraphEdgeItem[]>();
   for (const edge of snapshot.edges) {
     for (const id of new Set([edge.from, edge.to])) {

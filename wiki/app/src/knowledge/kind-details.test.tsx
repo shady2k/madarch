@@ -48,13 +48,13 @@ const CATALOG: CatalogView = {
     kind('doc.term', {
       labels: { en: { one: 'Term', many: 'Terms' } }, descriptions: { en: 'A word with one agreed meaning.' },
       sources: ['https://example.test/standard'],
-      pluginFolders: ['plugins/glossary'],
-      dependsOn: ['code.file'], state: 'partial', turn: 'failed',
+      plugins: ['glossary'], pluginFolders: ['plugins/glossary'],
+      derivesFrom: ['code.file'], state: 'partial', turn: 'failed',
       declaration: { file: 'madarch/kinds.yaml', line: 12 },
       fields: [{ name: 'definition', labels: { en: 'Definition', ru: 'Определение' }, declaration: { file: 'madarch/kinds.yaml', line: 18 }, meaning: 'The words that define the term.' }, { name: 'parent', labels: { en: 'Broader term' }, meaning: 'The term this one belongs under.', reference: 'doc.term' }],
       relations: [{ direction: 'out', name: 'defined_in', kind: 'code.file' }, { direction: 'in', name: 'uses', kind: 'doc.rule' }],
     }),
-    kind('doc.rule', { dependsOn: ['doc.term'] }),
+    kind('doc.rule', { derivesFrom: ['doc.term'] }),
     kind('unrelated'),
   ],
 };
@@ -112,7 +112,7 @@ test('records remain usable when the catalogue is unavailable', async () => {
 });
 
 test('a catalogue-only kind shows details without inventing fields or targets', async () => {
-  stub({ ...CATALOG, kinds: [kind('member', { page: false, fillWith: 'person', fields: [{ name: 'public', labels: { en: 'Public property' } }], relations: [{ direction: 'out', name: 'contains' }] })] });
+  stub({ ...CATALOG, kinds: [kind('member', { page: false, fields: [{ name: 'public', labels: { en: 'Public property' } }], relations: [{ direction: 'out', name: 'contains' }] })] });
   const page = into(createElement(KindDetails, { kind: 'member', version: 0 }));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'member declaration');
   expect(page.querySelector('h1')).toBeNull();
@@ -120,7 +120,7 @@ test('a catalogue-only kind shows details without inventing fields or targets', 
   expect(page.querySelector('[data-testid="kind-fields"]')!.textContent).toContain('No meaning is published for this property.');
   expect(page.querySelector('[data-testid="kind-relations"]')!.textContent).toContain('contains →');
   expect(page.querySelector('[data-testid="kind-relations"] a')).toBeNull();
-  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('a person');
+  expect(page.querySelector('[data-testid="kind-producer"]')!.textContent).toBe('No enabled producer plugin');
 });
 
 test('field labels use the selected Russian publication label without engine keys', async () => {
@@ -145,7 +145,7 @@ test('person-origin kind pages include their declaration and catalogue-only kind
   const page = into(createElement(KindLabels.Provider, { value: [{ kind: 'member', source: 'graph', count: 0, single: false, origins: ['person'] }] }, createElement(KindPage, { kind: 'member', version: 0 })));
   await until(() => page.querySelector('[data-testid="kind-details"]') !== null, 'authored declaration');
   expect(page.querySelector('[data-testid="authored-kind-page"]')).not.toBeNull();
-  expect(page.querySelector('[data-testid="kind-producer"]')?.textContent).toBe('No producer is declared');
+  expect(page.querySelector('[data-testid="kind-producer"]')?.textContent).toBe('No enabled producer plugin');
   expect(localeKeyIn(renderedText(page))).toBeUndefined();
 });
 for (const language of ['en', 'ru'] as const) {

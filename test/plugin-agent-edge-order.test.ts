@@ -1,8 +1,10 @@
-import { writeFolderManifest } from './catalog-folder-fixture.js';
+import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
@@ -78,7 +80,7 @@ function fixture(agent: boolean) {
   const product = makeProduct(home, 'agent-fixture', repo, 'repo');
   const folder = join(product, 'plugins/probe-summary');
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
+  writeFileSync(join(folder, 'plugin.json'), JSON.stringify({ name: 'probe-summary', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'probe.summary', fields: '*', reads: ['code.file'] }], runtime: { name: 'bun', version: Bun.version }, ...(agent ? { agent: { prompt: 'prompt.md', roots: ['repo/docs'] } } : {}) }));
   writeFileSync(join(folder, 'prompt.md'), 'Read both allowed documents and state one evidenced summary.');
   writeFileSync(join(folder, 'contract.json'), JSON.stringify({ id: 'probe-summary', version: '1.0.0', outputs, rights: { network: 'none', graph: true } }));
   writeFileSync(join(folder, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';\nawait definePlugin({name:'probe-summary',version:'1.0.0',graph:true,contract:${JSON.stringify(outputs)},extract:async(unit,context)=>${agent ? 'await context.agent(unit.inputs)' : `(${JSON.stringify(answer)})`}});\n`);
@@ -88,9 +90,25 @@ kinds:
   code.repository: { template: templates/repository.liquid, source: graph, capability: git }
   code.directory: { template: templates/directory.liquid, source: graph, capability: git }
   probe.summary:
+    id: probe.summary
+    group: code.structure
+    purpose: structure
+    audience: [developer, architect]
+    definition: A summary of the fixture documents.
+    sources: ["https://example.test/probe-summary"]
+    acquisition: [agent-from-graph]
+    status: implemented
+    relation-constraints: { out: [], in: [] }
+    template-policy: page
+    labels:
+      en: { one: Summary, many: Summaries }
+      ru: { one: Сводка, many: Сводки }
+    description:
+      en: A summary of the fixture documents.
+      ru: Сводка документов примера.
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     key: [id]
     fields:
       - { name: id, type: text, binding: "probe-summary@1.id" }
@@ -102,8 +120,20 @@ plugins:
   - { id: probe-summary, version: 1, path: plugins/probe-summary, inputs: [code.file], outputs: [probe.summary], closure: [plugins/probe-summary/contract.json, plugins/probe-summary/main.ts, plugins/probe-summary/plugin.json, plugins/probe-summary/prompt.md] }
 `;
   writeFolderManifest(product, manifestText);
+  const manifest = parseDocument(readFolderManifestText(product));
+  const starter = parseDocument(starterManifestText()).toJS();
+  for (const key of ['catalog', 'groups', 'properties', 'purposes', 'roles']) manifest.set(key, starter[key]);
+  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) {
+    manifest.setIn(['kinds', name], starter.kinds[name]);
+  }
+  writeFolderManifest(product, manifest.toString());
   const closure = closureOf(folder).hash;
   writeFileSync(join(product, 'madarch/plugins.lock'), `plugins:\n  - { id: probe-summary, version: 1.0.0, closure: ${closure}, path: plugins/probe-summary }\n`);
+  useRepositoryPlugins(product);
+  const agentManifestFile = join(product, 'plugins/agent-fill/plugin.json');
+  const agentManifest = JSON.parse(readFileSync(agentManifestFile, 'utf8'));
+  agentManifest.produces[0].reads = ['code.file'];
+  writeFileSync(agentManifestFile, JSON.stringify(agentManifest));
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'plugin');
   const fake = join(root, 'fake-acp.ts');
@@ -115,11 +145,14 @@ plugins:
 describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges', () => {
   test('the first fill publishes an edge in its later endpoint turn', async () => {
     const f = fixture(true);
-    const manifest = parseDocument(f.manifestText);
+    const manifest = parseDocument(readFolderManifestText(f.product));
+    const probeKind = (manifest.toJS() as { kinds: Record<string, Record<string, unknown>> }).kinds['probe.summary']!;
     manifest.deleteIn(['kinds', 'probe.summary']);
     for (const name of ['probe.a', 'probe.b']) manifest.setIn(['kinds', name], {
+      ...probeKind, id: name,
       template: 'templates/item-plain.liquid', source: 'graph',
-      'depends-on': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
+      agent: { plugin: 'agent-fill', fields: '*' },
+      'derives-from': [name === 'probe.a' ? 'code.file' : 'probe.a'], key: ['id'],
       fields: [{ name: 'id', type: 'text', binding: { agent: 'Stable identity.' } }, { name: 'title', type: 'text', binding: { agent: 'The title.' } }],
     });
     manifest.setIn(['edges'], [...(manifest.toJS() as { edges: Record<string, unknown>[] }).edges, { name: 'probe.link', from: ['probe.a'], to: ['probe.b'], capability: 'agent-fill' }]);
@@ -127,6 +160,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     writeFolderManifest(f.product, manifest.toString());
     const closure = closureOf(join(f.product, 'plugins/agent-fill')).hash;
     writeFileSync(join(f.product, 'madarch/plugins.lock'), `plugins:\n  - { id: agent-fill, version: 1.0.0, closure: ${closure}, path: plugins/agent-fill }\n`);
+    useRepositoryPlugins(f.product);
     const declarations = readKinds(f.product);
     if (!declarations.present) throw new Error('Missing manifest');
     expect(declarations.manifest.findings).toEqual([]);
@@ -135,7 +169,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [closure], steps: ['repository-tree', 'plugin-turns'], pluginAgent: {
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (report) => sessions.push(report),

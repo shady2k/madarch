@@ -1,5 +1,5 @@
 /** Composite values exist only to exercise the shared validator in unit tests. */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
@@ -39,4 +39,19 @@ export function writeFolderManifest(folder: string, text: string): void {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, stringify(body, { lineWidth: 0 }));
   }
+}
+
+/** Read raw declarations together for fixture edits, without changing their disk layout. */
+export function readFolderManifestText(folder: string): string {
+  const metadata = parse(readFileSync(join(folder, 'madarch/catalog.yaml'), 'utf8'));
+  const kinds: Record<string, unknown> = {};
+  const root = join(folder, 'madarch/kinds');
+  for (const relative of readdirSync(root, { recursive: true, encoding: 'utf8' })) {
+    if (!relative.endsWith('.yaml')) continue;
+    const segments = relative.split('/');
+    const name = segments.pop()!.slice(0, -5);
+    const group = metadata.groups?.[segments[1]!]?.parent === segments[0] ? segments[1] : segments.join('.');
+    kinds[name] = { ...parse(readFileSync(join(root, relative), 'utf8')), group };
+  }
+  return stringify({ ...metadata, kinds }, { lineWidth: 0 });
 }

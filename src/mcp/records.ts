@@ -65,7 +65,7 @@ function fail(code: string, message: string, step?: string): RecordToolAnswer {
 
 /** The refusal of a store that holds no repository yet: the step that would put it there is named. */
 function notRun(repository: string, step: string, detail: string): RecordToolAnswer {
-  return fail('step-not-run', `${detail}; the step "${step}" has not run for ${repository}, so this answer would be empty (src/mcp/records.ts)`, step);
+  return fail('step-not-run', `${detail}; the producer "${step}" has not published the required records for ${repository}, so this answer would be empty (src/mcp/records.ts)`, step);
 }
 
 const object = (properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
@@ -133,8 +133,8 @@ const readerOf = (context: RecordContext): GraphReader => new GraphReader(contex
 /** The repository's own facts, or the refusal a store without one answers. */
 async function factsOf(context: RecordContext): Promise<{ ok: true; facts: NonNullable<Awaited<ReturnType<GraphReader['repository']>>> } | { ok: false; answer: RecordToolAnswer }> {
   const facts = await readerOf(context).repository(context.repository);
-  if (facts === null) return { ok: false, answer: notRun(context.repository, 'repository-tree', 'the store holds no repository node') };
-  if (facts.asIsCommit === null) return { ok: false, answer: notRun(context.repository, 'repository-tree', 'the store holds the repository but no as-is commit') };
+  if (facts === null) return { ok: false, answer: notRun(context.repository, 'disk', 'the store holds no repository node') };
+  if (facts.asIsCommit === null) return { ok: false, answer: notRun(context.repository, 'disk', 'the store holds the repository but no as-is commit') };
   return { ok: true, facts };
 }
 
@@ -173,7 +173,7 @@ async function listFilesAnswer(context: RecordContext, args: Record<string, unkn
       isError: false,
     };
   } catch (error) {
-    if (error instanceof RecordGap) return notRun(context.repository, 'repository-tree', error.message);
+    if (error instanceof RecordGap) return notRun(context.repository, 'disk', error.message);
     throw error;
   }
 }
@@ -211,7 +211,7 @@ async function getFileHistoryAnswer(context: RecordContext, args: Record<string,
   if (!held.ok) return held.answer;
   if (held.facts.counts.commits === 0) {
     const isFile = await readerOf(context).file(context.repository, path);
-    if (isFile !== null) return notRun(context.repository, 'repository-history', `the store holds the file ${JSON.stringify(path)} but no commit touched it`);
+    if (isFile !== null) return notRun(context.repository, 'git', `the store holds the file ${JSON.stringify(path)} but no commit touched it`);
   }
   const page = await readerOf(context).fileHistory(context.repository, path, { limit, ...(after === undefined ? {} : { after: after.value }) });
   return {
@@ -235,7 +235,7 @@ async function getCommitAnswer(context: RecordContext, args: Record<string, unkn
   if (typeof hash !== 'string') return hash;
   const held = await factsOf(context);
   if (!held.ok) return held.answer;
-  if (held.facts.counts.commits === 0) return notRun(context.repository, 'repository-history', 'the store holds no commit');
+  if (held.facts.counts.commits === 0) return notRun(context.repository, 'git', 'the store holds no commit');
   const commit = await readerOf(context).commit(context.repository, hash);
   if (commit === null) return fail('no-such-commit', `the store holds no commit ${JSON.stringify(hash)} of ${context.repository}; get_file_history answers the hashes it holds (src/mcp/records.ts)`);
   return {
@@ -262,7 +262,7 @@ async function getCommitAnswer(context: RecordContext, args: Record<string, unkn
 /** One repository and what the graph holds for it. */
 async function getRepositoryAnswer(context: RecordContext): Promise<RecordToolAnswer> {
   const facts = await readerOf(context).repository(context.repository);
-  if (facts === null) return notRun(context.repository, 'repository-tree', 'the store holds no repository node');
+  if (facts === null) return notRun(context.repository, 'disk', 'the store holds no repository node');
   return {
     answer: {
       ...envelope(context, facts.historyShallow),
@@ -272,8 +272,8 @@ async function getRepositoryAnswer(context: RecordContext): Promise<RecordToolAn
       asIsCommit: facts.asIsCommit,
       counts: facts.counts,
       steps: {
-        'repository-tree': facts.asIsCommit !== null,
-        'repository-history': facts.counts.commits > 0,
+        'disk': facts.asIsCommit !== null,
+        'git': facts.counts.commits > 0,
       },
     },
     isError: false,
@@ -329,7 +329,7 @@ export function laterStepAnswer(tool: string, repository: string): RecordToolAns
   const step = LATER_TOOL_STEPS[tool] ?? 'unknown';
   return fail(
     'step-not-run',
-    `the step "${step}" has not run: this fill runs repository-tree and repository-history, and ${JSON.stringify(tool)} answers what "${step}" publishes; nothing is answered for ${repository} until that step runs (src/mcp/records.ts)`,
+    `the producer "${step}" has not published the records ${JSON.stringify(tool)} reads; nothing is answered for ${repository} until a declared plugin publishes those records (src/mcp/records.ts)`,
     step,
   );
 }
@@ -356,7 +356,7 @@ async function dispatch(tool: string, args: Record<string, unknown>, context: Re
             kind: kind.name,
             ...(kind.labels === undefined ? {} : { labels: kind.labels }),
             fields: kind.fields ?? [],
-            dependsOn: dependencies.filter((edge) => edge.workflow === undefined && edge.to === kind.name).map((edge) => edge.from).sort(byCodePoint),
+            derivesFrom: dependencies.filter((edge) => edge.workflow === undefined && edge.to === kind.name).map((edge) => edge.from).sort(byCodePoint),
           })),
           relations: [...(manifest.edges?.values() ?? [])].sort((a, b) => byCodePoint(a.name, b.name)),
           workflowDependencies: dependencies.filter((edge) => edge.workflow !== undefined),

@@ -62,7 +62,7 @@ beforeAll(async () => {
   put(PRODUCT, 'madarch/workflows.yaml', `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
   put(PRODUCT, 'src/total.ts', 'export function total(): number {\n  return 42;\n}\n');
   run(PRODUCT, 'init', '-q', '-b', 'main');

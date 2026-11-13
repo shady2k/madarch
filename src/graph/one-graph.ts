@@ -4,13 +4,10 @@ import { requireSchema } from '../adapters/store-readiness.js';
 import { graphSchemaStamp } from '../adapters/schemas/graph-definition.js';
 import { EMPTY_CONTRACT, generatedTableName, type GraphContract } from './contract.js';
 
-export { FILE_PATH_TABLE, FILE_BLOB_TABLE, FILE_ENTRY_TABLE } from './file-tables.js';
-
 /** Requires the graph prepared for this contract; reset and reconciliation belong to store preparation. */
 export async function createOneGraphSchema(owner: DatabaseOwner, contract: GraphContract = EMPTY_CONTRACT): Promise<{ reset: boolean }> {
   await requireSchema(owner, 'one-graph', graphSchemaStamp(contract));
-  const tables = ['entity', 'context', 'node', 'edge', 'operation', 'unresolved_reference', 'file_entry',
-    generatedTableName('path', 'dictionary'), generatedTableName('blob', 'dictionary'),
+  const tables = ['entity', 'context', 'node', 'edge', 'operation', 'unresolved_reference',
     ...contract.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
     ...contract.edge.map((kind) => generatedTableName(kind.name, 'edge')),
     ...contract.dictionary.map((kind) => generatedTableName(kind.name, 'dictionary'))];

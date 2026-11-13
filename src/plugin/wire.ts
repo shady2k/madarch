@@ -4,7 +4,20 @@
  * A reader that meets a longer line fails at once — it does not keep the
  * plugin's flood in memory to read it later.
  */
-import type { PluginErrorReport, PluginHeartbeat, PluginProgress } from './protocol.js';
+import { PluginProtocolMessage, type PluginErrorReport, type PluginHeartbeat, type PluginProgress } from './protocol.js';
+import { Value } from 'typebox/value';
+
+/** Validate the whole union, then explain a known method using its own schema. */
+export function protocolMessageProblem(value: unknown): string | undefined {
+  if (Value.Check(PluginProtocolMessage, value)) return undefined;
+  const method = typeof value === 'object' && value !== null && 'method' in value ? value.method : undefined;
+  const schema = typeof method === 'string'
+    ? PluginProtocolMessage.anyOf.find((variant) => 'method' in variant.properties && variant.properties.method.const === method)
+    : undefined;
+  const first = [...Value.Errors(schema ?? PluginProtocolMessage, value)][0];
+  if (first === undefined) return 'the message does not fit the protocol';
+  return `${schema === undefined ? '' : `${String(method)}: `}${first.instancePath === '' ? 'the message' : first.instancePath.slice(1)} ${first.message}`;
+}
 
 /** The JSON-RPC error codes this protocol uses (the specification's own, and the plugin's range). */
 export const RPC_PARSE_ERROR = -32700;

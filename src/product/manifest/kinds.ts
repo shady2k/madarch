@@ -160,8 +160,8 @@ export interface PluginOutputKind {
 /** One edge kind a plugin's own contract declares, with the kinds of its ends and its fields. */
 export interface PluginOutputEdge {
   readonly kind: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from: string | readonly string[];
+  readonly to: string | readonly string[];
   readonly fields: readonly PluginFieldDecl[];
 }
 
@@ -200,6 +200,9 @@ export interface PluginDecl {
   readonly inputs: readonly string[];
   readonly outputs: readonly string[];
   readonly closure: readonly string[];
+  readonly declaration?: PluginManifest;
+  readonly declarationFile?: string;
+  readonly declarationText?: string;
   /** The plugin's own contract, read from its folder (`contract.json`); absent when the folder holds none. */
   readonly contract?: PluginContract;
   /** The bounds one run of its agent part is held to (decision 0035, item 22); absent declares none. */
@@ -359,7 +362,9 @@ export interface KindDecl {
   /** The capability that fills the kind. */
   capability?: string;
   /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
-  dependsOn?: readonly string[];
+  derivesFrom?: readonly string[];
+  /** Explicit ordinary plugin output for these fields; overlap requires named refinements. */
+  agent?: { readonly plugin: string; readonly fields: '*' | readonly string[]; readonly refines?: readonly string[] };
   line: number;
 }
 
@@ -590,7 +595,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 const KIND_KEYS = new Set([
   'purpose', 'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'depends-on',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -1799,8 +1804,27 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
     const capability = decl['capability'];
     if (capability !== undefined && (typeof capability !== 'string' || !/^[a-z][a-z0-9-]*$/.test(capability))) problem(['capability'], '"capability" is the name of the capability that fills the kind');
-    const dependsOn = decl['depends-on'];
-    if (dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['depends-on'], '"depends-on" is a list of the kinds whose discovery must finish first');
+    const rawAgent = decl['agent'];
+    let agent: KindDecl['agent'];
+    if (rawAgent !== undefined) {
+      if (!isRecord(rawAgent)) problem(['agent'], '"agent" is { plugin, fields, refines? }');
+      else {
+        for (const field of Object.keys(rawAgent)) if (!['plugin', 'fields', 'refines'].includes(field)) problem(['agent', field], `"${field}" is not a field of "agent": the fields are plugin, fields and refines`);
+        const plugin = rawAgent['plugin'];
+        const agentFields = rawAgent['fields'];
+        const refines = rawAgent['refines'];
+        const names = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
+        const validPlugin = typeof plugin === 'string' && /^[a-z][a-z0-9-]*$/.test(plugin);
+        const validFields = agentFields === '*' || names(agentFields);
+        const validRefines = refines === undefined || names(refines);
+        if (!validPlugin) problem(plugin === undefined ? ['agent'] : ['agent', 'plugin'], '"plugin" names the enabled plugin that fills these fields');
+        if (!validFields) problem(agentFields === undefined ? ['agent'] : ['agent', 'fields'], '"fields" is "*" or a list of field names');
+        if (!validRefines) problem(['agent', 'refines'], '"refines" is a list of plugin names');
+        if (validPlugin && validFields && validRefines) agent = { plugin, fields: agentFields, ...(refines === undefined ? {} : { refines }) };
+      }
+    }
+    const derivesFrom = decl['derives-from'];
+    if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
     const rawLabels = decl['labels'];
     if (rawLabels !== undefined) {
@@ -1858,7 +1882,8 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(facts.length === 0 ? {} : { facts }),
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
-      ...(Array.isArray(dependsOn) ? { dependsOn: dependsOn as string[] } : {}),
+      ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
+      ...(agent === undefined ? {} : { agent }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
       line,
@@ -1956,7 +1981,17 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (typeof path !== 'string' || path === '' || path.startsWith('/') || path.split('/').some((leg) => leg === '' || leg === '.' || leg === '..')) { findings.push({ file, line: at(['plugins', index, 'path']), message: `plugin "${id}": "path" is the plugin's folder in the product repository, relative and with no ".."` }); return; }
       const contract = readPluginContract(files, id, path, file, at(['plugins', index, 'path']), findings);
       const bounds = readPluginBounds(body['bounds'], id, file, at(['plugins', index, 'bounds']), findings);
-      plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), ...(bounds === undefined ? {} : { bounds }), line });
+      const declarationFile = resolve(productFolder, path, 'plugin.json');
+      let declarationText: string | undefined;
+      let declaration: PluginManifest | undefined;
+      try {
+        declarationText = files.text(`${path}/plugin.json`);
+        if (declarationText !== undefined) {
+          const parsed: unknown = JSON.parse(declarationText);
+          if (Value.Check(PluginManifest, parsed)) declaration = parsed;
+        }
+      } catch { /* readPluginContract reports unreadable or malformed plugin manifests. */ }
+      plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), ...(bounds === undefined ? {} : { bounds }), ...(declaration === undefined ? {} : { declaration }), declarationFile, ...(declarationText === undefined ? {} : { declarationText }), line });
     });
   }
   // Declaration producers own their schema before any content-producing plugin derives its outputs.
@@ -1967,27 +2002,15 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...field, producers: [declaration.capability], line: kind.line,
     })) });
   }
-  // A catalogue agent declares the algorithm, not product kinds. Its effective outputs come only from this manifest.
-  const catalogueAgents = [...plugins.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true);
-  if (catalogueAgents.length > 1) findings.push({ file, line: catalogueAgents[1]!.line, message: 'only one catalogue agent plugin may fill kinds without another producer' });
-  const catalogueAgent = catalogueAgents[0];
-  if (catalogueAgent?.contract !== undefined) {
-    const candidates = [...kinds.values()].filter((kind) => kind.fields !== undefined && kind.fields.length > 0
-      && !(kind.fields ?? []).some((field) => field.binding?.kind === 'plugin')
-      && ![...plugins.values()].some((plugin) => plugin !== catalogueAgent && (plugin.outputs.includes(kind.name) || plugin.contract?.vertices.some((vertex) => vertex.kind === kind.name)))
-      && (kind.capability === undefined || kind.capability === catalogueAgent.id)
-      && !(kind.fields ?? []).some((field) => field.producers?.some((producer) => producer !== catalogueAgent.id))).sort((left, right) => byCodePoint(left.name, right.name));
-    for (const kind of candidates) if (kind.key === undefined || kind.key.length === 0) findings.push({ file, line: kind.line, source: isAbsolute(file) ? file : resolve(productFolder, file), message: `kind "${kind.name}": the catalogue agent "${catalogueAgent.id}" fills it, and the manifest declares no "key": a table is unique by its kind's natural key` });
-    const keyed = candidates.filter((kind) => kind.key !== undefined && kind.key.length > 0);
-    const vertices: PluginOutputKind[] = keyed.map((kind) => ({ kind: kind.name, key: kind.key!, fields: (kind.fields ?? []).map((field) => ({
-      name: field.name, type: field.type, meaning: field.binding?.kind === 'agent' ? field.binding.description : field.name,
+  // A catalogue agent's effective contract comes from the product declarations, never field binding routing.
+  for (const catalogueAgent of [...plugins.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true)) {
+    const candidates = [...kinds.values()].sort((left, right) => byCodePoint(left.name, right.name));
+    const vertices: PluginOutputKind[] = candidates.map((kind) => ({ kind: kind.name, key: kind.key ?? [], fields: (kind.fields ?? []).map((field) => ({
+      name: field.name, type: field.type, meaning: field.binding?.kind === 'agent' ? field.binding.description : Object.values(kind.descriptions ?? {}).join(' ') || field.name,
       example: null, required: (kind.key ?? []).includes(field.name) || field.nullable !== true, evidence: field.evidence ?? true, ...(field.reference === undefined ? {} : { reference: field.reference }),
     })) }));
-    for (const kind of keyed) kinds.set(kind.name, { ...kind, fields: kind.fields!.map((field) => field.binding !== undefined ? field : { ...field, binding: { kind: 'agent', description: Object.values(kind.descriptions ?? {}).join(' ') || field.name } }) });
-    const names = new Set(keyed.map((kind) => kind.name));
-    for (const edge of edges.values()) if (edge.capability === catalogueAgent.id && (edge.from.length !== 1 || edge.to.length !== 1)) findings.push({ file, line: edge.line, message: `edge "${edge.name}": a catalogue agent edge must name one from kind and one to kind; union ends cannot be silently dropped` });
-    const agentEdges: PluginOutputEdge[] = [...edges.values()].filter((edge) => edge.capability === catalogueAgent.id && edge.from.length === 1 && edge.to.length === 1 && (names.has(edge.from[0]!) || names.has(edge.to[0]!))).map((edge) => ({ kind: edge.name, from: edge.from[0]!, to: edge.to[0]!, fields: edge.fields.map((field) => ({ name: field.name, type: field.type, meaning: field.name, example: null, required: field.nullable !== true, evidence: field.evidence ?? true })) }));
-    plugins.set(catalogueAgent.id, { ...catalogueAgent, outputs: keyed.map((kind) => kind.name), contract: { ...catalogueAgent.contract, vertices, edges: agentEdges } });
+    const agentEdges: PluginOutputEdge[] = [...edges.values()].filter((edge) => edge.from.length === 1 && edge.to.length === 1).map((edge) => ({ kind: edge.name, from: edge.from[0]!, to: edge.to[0]!, fields: edge.fields.map((field) => ({ name: field.name, type: field.type, meaning: field.name, example: null, required: field.nullable !== true, evidence: field.evidence ?? true })) }));
+    plugins.set(catalogueAgent.id, { ...catalogueAgent, outputs: candidates.map((kind) => kind.name), contract: { ...catalogueAgent.contract!, vertices, edges: agentEdges } });
   }
   // The plugin lock and the field bindings (decision 0035, items 17, 18, 19 and 20): the lock names each plugin's exact
   // version and closure, a field binds to a field its plugin declares, the type is the plugin's, and a required field
@@ -2063,11 +2086,11 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   // authoritative), the dependency graph is acyclic and declared, and a plugin reads only what the
   // closure of its earliest output kind holds. No fill starts while any finding stands.
   const dependencies = new Map<string, readonly string[]>();
-  for (const [name, kind] of kinds) dependencies.set(name, kind.dependsOn ?? []);
+  for (const [name, kind] of kinds) dependencies.set(name, kind.derivesFrom ?? []);
   for (const [name, deps] of dependencies) {
     const kind = kinds.get(name)!;
     for (const dependency of deps) {
-      if (!kinds.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "depends-on" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
+      if (!kinds.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
     }
   }
   const cycle = findDependencyCycle(dependencies);
@@ -2075,21 +2098,14 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const first = cycle[0]!;
     findings.push({ file, line: kinds.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
   }
-  const order = cycle === undefined ? dependencyOrder(dependencies) : undefined;
-  const orderIndex = new Map((order ?? []).map((name, index) => [name, index] as const));
-  const closureOf = (kind: string): Set<string> => {
-    const held = new Set<string>([kind]);
-    const walk = (name: string): void => { for (const dependency of dependencies.get(name) ?? []) if (!held.has(dependency)) { held.add(dependency); walk(dependency); } };
-    walk(kind);
-    return held;
-  };
   const checkField = (owner: string, field: FieldDecl, ownerLine: number, edge: boolean): void => {
     const line = field.line ?? ownerLine;
     const what = edge ? 'edge kind' : 'kind';
     const producers = field.producers ?? [];
     // A field with a binding names its producer there, and the plugin's own declaration states its type.
     if (field.binding === undefined) {
-      if (producers.length === 0) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
+      const declared = !edge && [...plugins.values()].some((plugin) => plugin.declaration?.produces.some((output) => (output.kind === '*' || output.kind === owner) && (output.fields === '*' || output.fields.includes(field.name))));
+      if (producers.length === 0 && !declared) findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names no producer` });
     } else if (producers.length > 0) {
       findings.push({ file, line, message: `${what} "${owner}": field "${field.name}" names its producer twice, as a binding and as producers: a field names one` });
     }
@@ -2107,15 +2123,6 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   for (const plugin of plugins.values()) {
     for (const output of plugin.outputs) if (!kinds.has(output)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": output ${JSON.stringify(output)} is not a kind the manifest declares` });
     for (const input of plugin.inputs) if (!kinds.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is not a kind the manifest declares` });
-    if (orderIndex.size === 0) continue;
-    const declaredOutputs = plugin.outputs.filter((output) => orderIndex.has(output));
-    if (declaredOutputs.length === 0) continue;
-    // A plugin that reads the whole graph asks for no particular kind as its input: the graph is its input, and the
-    // declared list names what a person should see it read, not a dependency closure (madarch-stm0.7.1, piece 3).
-    if (plugin.contract?.reads === 'whole-graph') continue;
-    const earliest = declaredOutputs.reduce((first, next) => (orderIndex.get(next)! < orderIndex.get(first)! ? next : first));
-    const closure = closureOf(earliest);
-    for (const input of plugin.inputs) if (!closure.has(input)) findings.push({ file, line: plugin.line, message: `plugin "${plugin.id}": input ${JSON.stringify(input)} is outside the dependency closure of its earliest output kind ${JSON.stringify(earliest)}` });
   }
   // `journal: { debug: true }` keeps every request a plugin makes, its reads included, in the journal; off by default,
   // and a plugin never logs itself.
@@ -2192,7 +2199,7 @@ export function matchesAny(patterns: readonly string[], path: string): boolean {
  * The manifest's check refuses a cycle before a fill starts, so the order stands whenever a fill reads it.
  */
 export function kindsInDependencyOrder(manifest: KindsManifest): string[] {
-  const dependencies = new Map<string, readonly string[]>([...manifest.kinds].map(([name, kind]) => [name, kind.dependsOn ?? []]));
+  const dependencies = new Map<string, readonly string[]>([...manifest.kinds].map(([name, kind]) => [name, kind.derivesFrom ?? []]));
   return dependencyOrder(dependencies);
 }
 

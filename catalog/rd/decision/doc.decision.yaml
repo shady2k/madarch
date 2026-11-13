@@ -48,3 +48,4 @@ labels:
 description:
   en: 'An architecture decision record (ADR-0001 ...): what was decided and why.'
   ru: 'Запись об архитектурном решении (ADR-0001 ...): что решили и почему.'
+key: []

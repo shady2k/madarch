@@ -73,7 +73,7 @@ describe('madarch trace', () => {
       expect(run.report.spanCount).toBeGreaterThan(10);
       expect(run.endedAtMs - run.startedAtMs).toBeCloseTo(run.report.wallMs, 0);
       // The two steps of this fill, in the order their work started, each with the numbers the run page shows.
-      expect(run.steps.map((step) => step.step).sort()).toEqual(['repository-history', 'repository-tree']);
+      expect(run.steps.map((step) => step.step).sort()).toEqual(['plugin-turns']);
       for (const step of run.steps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);

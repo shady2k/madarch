@@ -67,7 +67,7 @@ export interface CatalogKindData {
   /** The kind's contract: its typed fields, its natural key and the kinds its discovery depends on. */
   readonly fields?: readonly ContractFieldData[];
   readonly key?: readonly string[];
-  readonly dependsOn?: readonly string[];
+  readonly derivesFrom?: readonly string[];
 }
 
 /** One typed field of a starter kind's contract. */
@@ -126,7 +126,7 @@ function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
   const {
     group, id, definition, sources, acquisition, status, 'relation-constraints': constraints,
     'template-policy': policy, template, source, origin, labels, description, fields, key,
-    'depends-on': dependsOn, 'definition-block': definitionBlock, details,
+    'derives-from': derivesFrom, 'definition-block': definitionBlock, details,
     card, history, views, er, sequence, system, listing, nav, capability, ...remaining
   } = raw;
   const names = labels as Record<string, { one: string; many: string }> | undefined;
@@ -140,7 +140,7 @@ function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
     ...(names?.ru === undefined ? {} : { ru: [names.ru.one, names.ru.many] }),
     ...(descriptions?.en === undefined || descriptions.ru === undefined ? {} : { describe: [descriptions.en, descriptions.ru] }),
     ...(fields === undefined ? {} : { fields }), ...(key === undefined ? {} : { key }),
-    ...(dependsOn === undefined ? {} : { dependsOn }), ...(definitionBlock === undefined ? {} : { definitionBlock }),
+    ...(derivesFrom === undefined ? {} : { derivesFrom }), ...(definitionBlock === undefined ? {} : { definitionBlock }),
     ...(details === undefined ? {} : { details }), ...(card === undefined ? {} : { card }),
     ...(history === undefined ? {} : { history }), ...(views === undefined ? {} : { views }),
     ...(er === undefined ? {} : { er }), ...(sequence === undefined ? {} : { sequence }),

@@ -10,7 +10,6 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
-import { assertFillGitVersion } from '../fill/git-version.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
@@ -80,14 +79,16 @@ function commandHelp(command: string): string {
     // The fill's own usage: the probe is part of it, and it takes no agent of its own (the product's fill runs the
     // stages its workflow names; an agent's choice belongs to the wiki's wizard).
     return [
-      'usage: madarch fill [--product <folder>] [--home <folder>] [--entity <kind>]... [--vertex <entity id>] [--workers <n>] [--json] [--probe-acp]',
+      'usage: madarch fill [--product <folder>] [--home <folder>] [--entity <kind>]... [--vertex <entity id>] [--workers <n>] [--agent <id>] [--token-cap <n>] [--json] [--probe-acp]',
       '',
       'Options:',
       '  --home <folder>       Products home',
       '  --product <folder>    Product folder',
-      '  --entity <kind>       Fill this entity of the catalogue, the kinds it needs and the kinds that need it; repeat it',
+      '  --entity <kind>       Fill this kind and its transitive derives-from prerequisites only; repeat it',
       '  --vertex <entity id>  Rewrite only this one entity, such as doc.term:Fill',
       '  --workers <n>         Units the run holds in hand at once (16 by default)',
+      '  --agent <id>          Offer this agent to every plugin that requests one',
+      '  --token-cap <n>       Maximum tokens for this fill, a positive integer',
       '  --json                Print one object of machine-readable facts',
       '  --probe-acp           Report the agents on this machine that speak the Agent Client Protocol, and fill nothing',
       '',
@@ -195,6 +196,7 @@ interface Parsed {
   store: string | undefined;
   probe: boolean;
   agent: string | undefined;
+  tokenCap?: number;
   /** `--entity`, repeated: the kinds a selective fill was asked for (madarch-stm0.6). */
   entities?: readonly string[];
   /** `--vertex`: the one entity a vertex fill rewrites, as `<kind>:<key values>`. */
@@ -221,6 +223,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
     ...(flags.store ? ['--store'] : []),
     ...(flags.probe ? ['--probe-acp'] : []),
     ...(flags.agent ? ['--agent'] : []),
+    ...(flags.entity ? ['--token-cap'] : []),
     ...(flags.entity ? ['--entity'] : []),
     ...(flags.vertex ? ['--vertex'] : []),
     ...(flags.template ? ['--template'] : []),
@@ -352,6 +355,15 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--run', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.run = value!.trim();
+      continue;
+    }
+    if (name === '--token-cap' && spec === COMMANDS['fill']) {
+      const value = flagValue();
+      if (value === undefined || !/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        console.error('command line:1: --token-cap must be a positive integer');
+        return 2;
+      }
+      parsed.tokenCap = Number(value);
       continue;
     }
     if (name === '--agent') {
@@ -815,7 +827,6 @@ function productHomeOf(named: string | undefined): string {
  * the database it opened before it returns, whether the run succeeded or not.
  */
 async function fillStagesCommand(parsed: Parsed, home: string | undefined): Promise<number> {
-  assertFillGitVersion();
   const { runFill } = await import('../fill/run.js');
   const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
   const { createDatabaseOwner } = await import('../adapters/database-owner.js');
@@ -958,12 +969,8 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   const probe = parsed.probe;
   const json = parsed.json === true;
   // A probe reports what this machine can connect and fills nothing: an agent named beside it has nothing to drive.
-  if (probe && parsed.agent !== undefined) {
-    console.error('--probe-acp reports the agents on this machine and fills nothing: drop --agent');
-    return 2;
-  }
-  if (parsed.agent !== undefined) {
-    console.error(`--agent is no option of madarch fill: a product's fill runs the stages its workflow names, and an agent is chosen in its wiki (${FILL_USAGE})`);
+  if (probe && (parsed.agent !== undefined || parsed.tokenCap !== undefined)) {
+    console.error('--probe-acp reports the agents on this machine and fills nothing: drop --agent and --token-cap');
     return 2;
   }
   if (probe) {
@@ -995,7 +1002,6 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
     if (!read.ok) { console.error(read.message); return 1; }
     for (const entry of read.targets.entries) {
       if (entry.reason === 'dependency') console.log(`Also filling ${entry.kind}, needed by ${entry.namedBy}.`);
-      if (entry.reason === 'dependant') console.log(`Also filling ${entry.kind}, which depends on ${entry.namedBy}.`);
     }
     console.log(read.targets.vertex === undefined
       ? `Filling in dependency order: ${read.targets.order.join(', ')}.`
@@ -1004,9 +1010,10 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   }
   let run;
   try {
-    assertFillGitVersion();
     await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder));
-    run = await startKnowledgeFill({ productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
+    const { pluginAgentOptions } = await import('../knowledge/agents.js');
+    const pluginAgent = parsed.agent === undefined ? undefined : pluginAgentOptions(parsed.agent, process.env as DraftEnv, join(storeFolder, 'agent-runs'));
+    run = await startKnowledgeFill({ ...(pluginAgent === undefined ? {} : { pluginAgent }), ...(parsed.tokenCap === undefined ? {} : { tokenCap: parsed.tokenCap }), productFolder: folder, storeFolder, runId, prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract), database: await createDatabaseOwner({ store: storeDatabasePath(storeFolder), connectOnly: true }), ...(targets === undefined ? {} : { targets }), ...(parsed.workers === undefined ? {} : { workers: parsed.workers }) });
   } catch (error) {
     console.error((error as Error).message);
     return 1;
@@ -1027,7 +1034,6 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   return 0;
 }
 
-const FILL_USAGE = 'usage: madarch fill [--product <folder>] [--home <folder>] [--entity <kind>]... [--vertex <entity id>] [--workers <n>] [--json] [--probe-acp]';
 
 function displayPath(folder: string): string {
   const home = process.env.HOME;

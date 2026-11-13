@@ -16,14 +16,13 @@ import { log } from '../obs/log.js';
 import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
-import { fillSteps, type RecordPassWiring } from './steps.js';
-import { assertFillGitVersion } from './git-version.js';
+import { fillSteps } from './steps.js';
+import { createRunRepositoryInputs } from '../plugin/repository-input.js';
 
-;
 import type { StageRegistry } from './registry.js';
 import { createStagesFill, type StagesFillOptions, type UnreadRepository } from '../product/fill-stages.js';
-import { publishHistory, publishTree } from '../graph/index.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
+import { AgentRunBudget } from './agent-meter.js';
 
 /** What one fill is asked for. */
 export interface RunFillOptions {
@@ -46,6 +45,8 @@ export interface RunFillOptions {
   readonly releaseHashes?: readonly string[];
   /** The supervised ACP adapter available to agent plugin turns, only for this run. */
   readonly pluginAgent?: PluginAgentOptions;
+  /** Maximum reported tokens shared by every plugin agent in this run. */
+  readonly tokenCap?: number;
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
   /** The content language the press named, when it named one: recorded on the run's root span, never a statement. */
@@ -89,15 +90,6 @@ export type FillRunAnswer =
   })
   | RefusedFillRun;
 
-/** The record wiring one fill publishes through: the process's one owner, and the paths it covers. */
-function recordsOf(options: RunFillOptions): RecordPassWiring {
-  return {
-    publishTree: (input) => publishTree(options.database, input),
-    publishHistory: (input) => publishHistory(options.database, input),
-    ...(options.paths === undefined ? {} : { paths: options.paths }),
-  };
-}
-
 /**
  * One list with the steps a caller did not name disabled: the derived graph plans only
  * the requested steps and what they declare they depend on, and never a step outside
@@ -127,10 +119,8 @@ function narrowed(wiring: Awaited<ReturnType<typeof createStagesFill>>['wiring']
  * the caller's to report: this function never turns a failure into a smaller success.
  */
 export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
-  // The fill reads git, and the passes use options older versions do not have: a machine's git is named here, before
-  // the run stands up, so an older one is refused with the version found and the one needed (item 6).
-  assertFillGitVersion();
   const product = resolve(options.product);
+  if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${resolve(product, 'madarch/catalog.yaml')}:1: token cap must be a positive integer`);
   const runId = options.runId ?? `fill-${String(Date.now())}`;
   const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
   const traced = openTrace({ store, runId, keep: traceKeepOf(process.env as Record<string, string | undefined>) });
@@ -164,33 +154,38 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   const held = new Set(fillSteps());
   const unknown = [...wanted].filter((step) => !held.has(step));
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
-  const fill = await createStagesFill({ product, database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, records: recordsOf(options), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
-  const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
-  // Reading the pins is what names a checkout with no commit: the answer says what the run did for
-  // it once the run has settled, and a run of this product still reads every other repository.
-  await fill.wiring.snapshot();
-  const service = createFillOrchestratorService({
-    owner: options.database as never,
-    registry: fill.registry,
-    wiring: () => wiring,
-    ...(options.clock === undefined ? {} : { clock: options.clock }),
-    ...(options.limits === undefined ? {} : { limits: options.limits }),
-    ...(options.log === undefined ? {} : { log: options.log }),
-    ...(options.sink === undefined ? {} : { sink: options.sink }),
-    ...(options.workers === undefined ? {} : { workers: options.workers }),
-    ...(options.maxPasses === undefined ? {} : { maxPasses: options.maxPasses }),
-  });
-  options.onService?.(service);
+  const repositoryInputs = createRunRepositoryInputs();
   try {
-    const result = await service.run({ product: fill.product, runId });
-    const unread = fill.unread();
-    // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
-    const kinds = fill.kinds;
-    const declaredKinds = kinds === undefined ? undefined : kinds === false ? [] : [...kinds.vertex, ...kinds.edge];
-    const withKind = declaredKinds === undefined ? result : { ...result, declaredKinds };
-    if (unread.length === 0) return withKind;
-    return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
+    const fill = await createStagesFill({ product, prepareRepositoryInputs: repositoryInputs.prepare, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }) }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
+    const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
+    // Reading the pins is what names a checkout with no commit: the answer says what the run did for
+    // it once the run has settled, and a run of this product still reads every other repository.
+    await fill.wiring.snapshot();
+    const service = createFillOrchestratorService({
+      owner: options.database as never,
+      registry: fill.registry,
+      wiring: () => wiring,
+      ...(options.clock === undefined ? {} : { clock: options.clock }),
+      ...(options.limits === undefined ? {} : { limits: options.limits }),
+      ...(options.log === undefined ? {} : { log: options.log }),
+      ...(options.sink === undefined ? {} : { sink: options.sink }),
+      ...(options.workers === undefined ? {} : { workers: options.workers }),
+      ...(options.maxPasses === undefined ? {} : { maxPasses: options.maxPasses }),
+    });
+    try {
+      options.onService?.(service);
+      const result = await service.run({ product: fill.product, runId });
+      const unread = fill.unread();
+      // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
+      const kinds = fill.kinds;
+      const declaredKinds = kinds === undefined ? undefined : kinds === false ? [] : [...kinds.vertex, ...kinds.edge];
+      const withKind = declaredKinds === undefined ? result : { ...result, declaredKinds };
+      if (unread.length === 0) return withKind;
+      return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
+    } finally {
+      if (options.keepService !== true) await service.stop();
+    }
   } finally {
-    if (options.keepService !== true) await service.stop();
+    await repositoryInputs.close();
   }
 }

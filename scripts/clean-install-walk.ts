@@ -171,7 +171,7 @@ async function serveCheck(): Promise<void> {
     if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/catalog.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/catalog.yaml: ${last}`);
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
-    // out of this fixture, not out of the engine. Fill still reads and publishes the product's committed files.
+    // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
     rmSync(join(facts.folder, 'madarch/kinds'), { recursive: true });
     mkdirSync(join(facts.folder, 'madarch/kinds/code/files'), { recursive: true });

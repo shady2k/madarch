@@ -1,3 +1,4 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { byCodePoint } from '../src/model/order.js';
@@ -37,24 +38,25 @@ let home = '';
 let app = '';
 
 /** A product whose one repository is the folder named: the fixture writes the files, this makes the product. */
-function product(name: string, write: (repository: string) => void): { folder: string; repository: string } {
+function product(name: string, write: (repository: string) => void, plugins: readonly string[] = ['disk', 'git']): { folder: string; repository: string } {
   const repository = join(root, `${name}-code`);
   mkdirSync(repository, { recursive: true });
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name, repository, `${name}-code`);
+  useFixturePlugins(folder, plugins);
   nativeWorkflow(folder);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-q', '--allow-empty', '-m', `the product ${name}`);
   return { folder, repository };
 }
 
-/** Repository views need the native tree and history, not external plugin sandboxes. */
+/** Repository views run the fixture's declared ordinary producers in the plugin stage. */
 function nativeWorkflow(folder: string): void {
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
 }
 
@@ -144,7 +146,7 @@ git(folder,'commit','-qm','the nested file moves');
       expect((run['wallMs'] as number)).toBeGreaterThan(0);
       const runSteps = run['steps'] as FillStepView[];
       // Every stage the fixture workflow enables reports its own measured work.
-      expect(runSteps.map((step) => step.step).sort()).toEqual(['repository-history', 'repository-tree']);
+      expect(runSteps.map((step) => step.step).sort()).toEqual(['plugin-turns']);
       for (const step of runSteps) {
         expect(step.wallMs).toBeGreaterThan(0);
         expect(step.peakRssBytes).toBeGreaterThanOrEqual(step.startRssBytes);
@@ -298,6 +300,7 @@ git(folder,'commit','-qm','the nested file moves');
     git(committed, 'add', '-A');
     git(committed, 'commit', '-qm', 'the committed repository');
     const folder = makeProduct(home, 'half', committed, 'committed-code');
+    useFixturePlugins(folder, ['disk', 'git']);
     nativeWorkflow(folder);
     // This case compares the unread-checkout finding before and after the fill. Other rule predicates are outside
     // its scope: the product's bundled plugin files are not the source files this fixture measures.
@@ -377,15 +380,15 @@ git(folder,'commit','-qm','the nested file moves');
       writeFileSync(join(repository, 'src', 'a.ts'), 'export const a = 1;\n');
       git(repository, 'add', '-A');
       git(repository, 'commit', '-qm', 'one commit');
-    });
-    // The store the product reads, filled by the tree pass alone: the history step did not run. It is
+    }, ['disk']);
+    // Only disk is declared: git history does not run merely because both producers share a stage. This is
     // the one store every surface resolves (`productStoreFolder`), under the home's knowledge root.
     const store = productStoreFolder(folder, knowledgeRootOf(home));
     mkdirSync(join(store, 'graph'), { recursive: true });
     const owner = await createTestDatabaseOwner({ store: join(store, 'graph'), btreeGist: true });
     try {
       await prepareStore(owner, { contract: await readPinnedGraphContract(folder) });
-      const run = await runFill({ product: folder, database: owner, steps: ['repository-tree'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
+      const run = await runFill({ product: folder, database: owner, steps: ['plugin-turns'], runId: 'tree-only', store, home: store, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
     } finally {
       await owner.close();

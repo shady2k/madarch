@@ -13,13 +13,13 @@ import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { listFiles, repositoryFacts } from '../src/graph/index.js';
 import { runFill } from '../src/fill/run.js';
-import { writeFirstFillWorkflow } from './fill-workflow-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { readFillEnd } from '../src/fill/orchestrator-store.js';
 import { readRun } from '../src/fill/state-store.js';
 import { startKnowledgeFill } from '../src/knowledge/fill-run.js';
 import { fillSteps } from '../src/fill/steps.js';
+import { seedRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 let root = '';
 let product = '';
@@ -45,7 +45,8 @@ beforeAll(async () => {
   writeFileSync(join(product, 'workspace.yaml'), [
     'schemaVersion: 1', 'id: 5c2e8a52-9c3e-4f7a-8b21-6d2e9c0a5b41', 'name: run-product', 'repos:', '  - name: repo', '    url: file:///repo', '',
   ].join('\n'));
-  writeFirstFillWorkflow(product);
+  // The selected starter files already include the canonical first-fill workflow.
+  seedRepositoryPlugins(product);
   git('init', '-q');
   git('config', 'user.name', 'Fixture');
   git('config', 'user.email', 'fixture@example.invalid');
@@ -63,7 +64,7 @@ describe('the one fill', () => {
   test('names this step\'s passes and nothing else', () => {
     // The tree and the history, and the plugin turn that reads the file vertices the tree published
     // (decision 0035, items 6 and 15).
-    expect(fillSteps()).toEqual(['plugin-turns', 'repository-history', 'repository-tree', 'whole-graph-turns']);
+    expect(fillSteps()).toEqual(['plugin-turns']);
   }, 120_000);
 
   test('runs every step through one function', async () => {
@@ -74,7 +75,7 @@ describe('the one fill', () => {
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.state).toBe('succeeded');
-    expect([...new Set(run.units.map((unit) => unit.stageId))].sort()).toEqual(['repository-history', 'repository-tree']);
+    expect([...new Set(run.units.map((unit) => unit.stageId))].sort()).toEqual(['plugin-turns']);
     const facts = await repositoryFacts(owner, 'repo');
     expect(facts?.fileCount).toBe(2);
     expect(facts?.commitCount).toBe(1);
@@ -86,10 +87,10 @@ describe('the one fill', () => {
     const alone = await createTestDatabaseOwner({ btreeGist: true });
     try {
       await prepareStore(alone, { contract: await readPinnedGraphContract(product) });
-      const run = await runFill({ product, database: alone, steps: ['repository-tree'], runId: 'one-step', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(alone, { contract }); } });
+      const run = await runFill({ product, database: alone, steps: ['plugin-turns'], targets: { kinds: ['code.file'] }, runId: 'one-step', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(alone, { contract }); } });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
-      expect([...new Set(run.units.map((unit) => unit.stageId))]).toEqual(['repository-tree']);
+      expect([...new Set(run.units.map((unit) => unit.stageId))]).toEqual(['plugin-turns']);
       const facts = await repositoryFacts(alone, 'repo');
       expect(facts?.fileCount).toBe(2);
       // The history step did not run: no commit's own row stands.
@@ -105,7 +106,7 @@ describe('the one fill', () => {
     const narrow = await createTestDatabaseOwner({ btreeGist: true });
     try {
       await prepareStore(narrow, { contract: await readPinnedGraphContract(product) });
-      const run = await runFill({ product, database: narrow, steps: ['repository-tree'], paths: ['src/'], runId: 'paths', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(narrow, { contract }); } });
+      const run = await runFill({ product, database: narrow, steps: ['plugin-turns'], paths: ['src/'], runId: 'paths', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(narrow, { contract }); } });
       expect(run.ok).toBe(true);
       const files = await listFiles(narrow, { repository: 'repo', limit: 100 });
       expect(files.rows.map((row) => row.path)).toEqual(['src/a.ts']);
@@ -135,7 +136,7 @@ describe('the one fill', () => {
       inCode('add', '-A');
       inCode('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'two');
       await prepareStore(store, { contract: await readPinnedGraphContract(product) });
-      const scoped = await runFill({ product, database: store, steps: ['repository-tree'], paths: ['src/'], runId: 'scoped-tree', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
+      const scoped = await runFill({ product, database: store, steps: ['plugin-turns'], paths: ['src/'], runId: 'scoped-tree', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
       expect(scoped.ok).toBe(true);
       if (!scoped.ok) return;
       expect(scoped.state).toBe('succeeded');

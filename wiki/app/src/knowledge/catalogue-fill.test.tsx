@@ -49,7 +49,7 @@ const CATALOG: CatalogView = {
   groups: [{ group: 'code', labels: { en: 'Code', ru: 'Код' } }, { group: 'requirements', labels: { en: 'Requirements', ru: 'Требования' } }, { group: 'vocabulary', parent: 'requirements', labels: { en: 'Vocabulary', ru: 'Словарь' } }],
   kinds: [
     { kind: 'code.file', area: 'code', subgroup: '', count: 12, page: true, filled: true, plugins: ['files'], state: 'filled', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } }, descriptions: { en: 'Source files', ru: 'Исходные файлы' } },
-    { kind: 'doc.term', area: 'requirements', subgroup: 'vocabulary', count: 3, page: true, filled: true, plugins: ['glossary'], dependsOn: ['code.file'], state: 'partial', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Term', many: 'Terms' } } },
+    { kind: 'doc.term', area: 'requirements', subgroup: 'vocabulary', count: 3, page: true, filled: true, plugins: ['glossary'], derivesFrom: ['code.file'], state: 'partial', estimate: { volume: 12, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Term', many: 'Terms' } } },
     { kind: 'doc.use-case', area: 'requirements', subgroup: '', count: 0, page: true, filled: false, state: 'never', estimate: { volume: 0, unit: 'vertices', tokensPerUnit: null, secondsPerUnit: null, tokens: null, seconds: null }, labels: { en: { one: 'Use case', many: 'Use cases' } } },
   ],
   findings: [],

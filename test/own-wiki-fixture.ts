@@ -59,7 +59,7 @@ export function makeWikiRepository(folder: string, extra: Record<string, string>
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
   writeFileSync(join(folder, 'docs', 'product.md'), PRODUCT_PAGE);
   writeFileSync(join(folder, 'docs', 'glossary.md'), GLOSSARY);

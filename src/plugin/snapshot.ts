@@ -68,9 +68,14 @@ export async function snapshotClosure(closure: Closure, parent: string, name?: s
   mkdirSync(parent, { recursive: true });
   const folder = mkdtempSync(join(parent, name === undefined ? 'closure-' : `${name}-`));
   try {
+    const directories = new Set<string>();
     for (const file of closure.files) {
       const target = join(folder, file.path);
-      mkdirSync(dirname(target), { recursive: true });
+      const directory = dirname(target);
+      if (!directories.has(directory)) {
+        mkdirSync(directory, { recursive: true });
+        directories.add(directory);
+      }
       if (file.content === undefined) copyFileSync(join(closure.folder, file.path), target);
       else writeFileSync(target, file.content);
       chmodSync(target, file.mode);

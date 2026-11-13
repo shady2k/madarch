@@ -17,7 +17,8 @@ import { fillFolderIdentity, productRepositoryId } from '../product/identity.js'
 import { productsHome, type DraftEnv } from '../product/home.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { headCommit } from './git.js';
-import { createRecordSchema } from '../graph/index.js';
+import { createOneGraphSchema } from '../graph/one-graph.js';
+import { withManifestContract } from '../graph/manifest-contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../graph/manifest-publication.js';
 
@@ -216,7 +217,7 @@ export async function openRepositoryGraph(options: {
     let fill = readFillOutcome(folder);
     let filled = false;
     if (validated?.ok === true && validated.value !== undefined) {
-      await createRecordSchema(openedOwner, graphContractOf(validated.value.manifest));
+      await createOneGraphSchema(openedOwner, withManifestContract(graphContractOf(validated.value.manifest)));
       await publishValidatedManifests(openedOwner, validated.value);
     }
     const heldCommit = await asIsCommitOf(openedOwner, productId);

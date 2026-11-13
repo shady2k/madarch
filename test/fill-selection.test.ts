@@ -1,3 +1,4 @@
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /** The fill page's press uses the same target resolution and engine as the CLI, without saving a draft selection. */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -6,11 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { readFillEnd } from '../src/fill/orchestrator-store.js';
-import { readRunUnits } from '../src/fill/state-store.js';
 import { checkCgroupDelegation, cgroupParent } from '../src/plugin/cgroup.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
-import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
@@ -18,6 +17,8 @@ import { createKnowledgePart } from '../src/server/knowledge.js';
 import type { KnowledgeProduct } from '../src/knowledge/product.js';
 import { gitEnv } from './git-env.js';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
+import { parseDocument } from 'yaml';
+import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -59,14 +60,14 @@ describe('fill request settings', () => {
     errorLog: () => undefined,
   }, { folder: join(tmpdir(), 'madarch-fill-selection-settings') } as KnowledgeProduct, () => []);
 
-  for (const [field, value] of [['agent', 'codex'], ['tokenCap', 20_000]] as const) {
-    test(`refuses unsupported ${field} instead of silently ignoring it`, async () => {
+  for (const [field, value] of [['agent', 42], ['tokenCap', -1]] as const) {
+    test(`refuses invalid ${field} instead of silently ignoring it`, async () => {
       const answer = await part.fillSelected(new Request('http://wiki.test/api/fill-selected', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ selected: ['doc.term'], [field]: value }),
       }));
       expect(answer.response.status).toBe(400);
-      expect((await answer.response.json()).error).toMatchObject({ field, message: expect.stringContaining('not supported') });
+      expect((await answer.response.json()).error).toMatchObject({ field });
     });
   }
 });
@@ -79,6 +80,10 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
     useExtractedGlossary(folder);
+    const kinds = parseDocument(readFolderManifestText(folder));
+    // Agent capability alone does not select a producer; this fixture explicitly requests its refinement.
+    kinds.setIn(['kinds', 'doc.term', 'agent'], { plugin: 'agent-fill', fields: ['definition'], refines: ['glossary'] });
+    writeFolderManifest(folder, kinds.toString());
     product = draft.name;
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });
@@ -115,72 +120,23 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(notJson.status).toBe(415);
   }, 120_000);
 
-  test('the fill page request fills exactly the selected kinds, with the kinds their dependencies add, and no agent', async () => {
+  test('a selected kind requiring the enabled general agent refuses explicit no-agent before accepting work', async () => {
     const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: null, tokenCap: null }) });
-    expect(pressed.status).toBe(202);
-    expect(pressed.body.runId).toBeString();
-    const requested = await call(`/api/fill-runs?run=${encodeURIComponent(pressed.body.runId)}`);
-    expect(requested.status).toBe(200);
-    expect(requested.body.run).toMatchObject({ runId: pressed.body.runId, selected: ['doc.term'], order: pressed.body.order });
-    // The order the engine runs them in: the kinds doc.term needs come first.
-    expect(pressed.body.order).toEqual(['code.repository', 'code.directory', 'code.file', 'doc.term']);
-    // The fill is the product's own: wait for its end, then read what it ran.
-    for (let attempt = 0; attempt < 600; attempt += 1) {
-      const state = (await call('/api/status')).body.fill?.state as string;
-      if (state !== 'running') break;
-      await new Promise((rest) => setTimeout(rest, 500));
-    }
-    const status = await call('/api/status');
-    expect(status.body.fill.state).toBe('done');
-    const latest = await call('/api/run');
-    expect(latest.status).toBe(200);
-    expect(latest.body.run).toMatchObject({ state: 'succeeded', selection: { kinds: ['code.repository', 'code.directory', 'code.file', 'doc.term'] } });
-    const reopened = new (await import('../src/knowledge/product.js')).KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
-    try {
-      expect((await reopened.runView())?.runId).toBe(latest.body.run.runId);
-      expect(await reopened.runView()).toMatchObject({ state: 'succeeded', selection: latest.body.run.selection });
-      expect((await reopened.status()).fill.run?.runId).toBe(latest.body.run.runId);
-    } finally { await reopened.close(); }
-    const history = await call('/api/fill-runs');
-    expect(latest.body.run.runId).toBe(pressed.body.runId);
-    expect(history.body.runs.filter((run: { runId: string }) => run.runId === pressed.body.runId)).toHaveLength(1);
-    expect(history.body.runs[0]).toMatchObject({ runId: latest.body.run.runId, state: 'succeeded', remainingMs: 0, selected: ['doc.term'], order: pressed.body.order });
-    const detail = await call(`/api/fill-runs?run=${encodeURIComponent(latest.body.run.runId)}`);
-    expect(detail.status).toBe(200);
-    expect(detail.body.run).toMatchObject({ runId: latest.body.run.runId, state: latest.body.run.state, selected: ['doc.term'], order: latest.body.run.selection.kinds, summary: latest.body.run });
-    const refusedHistoricalPause = await call(`/api/pause?run=${encodeURIComponent(pressed.body.runId)}`, { method: 'POST' });
-    expect(refusedHistoricalPause.status).toBe(409);
+    expect(pressed.status).toBe(409);
+    expect(JSON.stringify(pressed.body)).toMatch(/plugin\.json:\d+/);
+    expect(JSON.stringify(pressed.body)).toContain('requested an agent but none is selected');
+  });
 
-    const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
-    try {
-      const rows = await owner.run(async (tx) => await tx.query<{ run_id: string }>('SELECT run_id FROM fill_unit_generation ORDER BY updated_at DESC LIMIT 1'));
-      const runId = rows.rows[0]?.run_id;
-      expect(runId).toBeString();
-      const units = (await readRunUnits(owner, runId!)).map((unit) => unit.unitId).sort();
-      expect(units.filter((unit) => unit.startsWith('plugin-turns/'))).toEqual(['plugin-turns/glossary:doc.term']);
-    } finally {
-      await owner.close();
-    }
-    // The catalogue says what stands: the term kind is filled, and the state comes from the graph and the turn.
-    const catalogue = await call('/api/catalog');
-    const counts = (rows: { kind: string; count: number }[]) => rows.map(({ kind, count }) => ({ kind, count }));
-    expect(counts(status.body.kinds)).toEqual(counts(catalogue.body.kinds));
-    const term = (catalogue.body.kinds as { kind: string; state: string; plugins?: string[]; dependsOn?: string[]; estimate?: { volume: number | null; tokensPerUnit: number | null; tokens: number | null } }[]).find((kind) => kind.kind === 'doc.term');
-    expect(term?.state).toBe('filled');
-    expect(term?.plugins).toEqual(['glossary']);
-    expect(term?.dependsOn).toEqual(['code.file']);
-    // No producer declares a per-unit figure: the row carries no estimate at all, and the page says the cost is unknown.
-    expect(term?.estimate).toBeUndefined();
-    // A kind with no table of its own carries no estimate either.
-    const useCase = (catalogue.body.kinds as { kind: string; estimate?: { volume: number | null } }[]).find((kind) => kind.kind === 'doc.use-case');
-    expect(useCase?.estimate).toBeUndefined();
-    expect(status.body.fill.run).toMatchObject({ runId: latest.body.run.runId, selection: latest.body.run.selection, state: 'succeeded' });
-    // A newer persisted run with no trace must win over the older, much larger completed trace.
+  test('durable run selection survives reopening and status readers do not hide store faults', async () => {
+    // Durable run metadata is readable even when no plugin execution trace exists.
     const newerOwner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
     const { createRun } = await import('../src/fill/state-store.js');
     const { recordRunConfiguration } = await import('../src/fill/orchestrator-store.js');
+    // Order fixture rows explicitly in the past so they cannot outrank the next native request.
+    const createdAt = Date.now() - 2000;
     try {
-      await createRun(newerOwner, { runId: 'newer-without-trace', product, at: Date.now() });
+      await createRun(newerOwner, { runId: 'older-without-trace', product, at: createdAt });
+      await createRun(newerOwner, { runId: 'newer-without-trace', product, at: createdAt + 1 });
       expect((await call('/api/run')).body.run.selection).toBeUndefined();
       await recordRunConfiguration(newerOwner, { runId: 'newer-without-trace', digest: 'fixture', at: Date.now(), snapshot: { repository: folder, defaultBranch: 'main', commit: 'fixture', registryHash: 'fixture', targets: { kinds: ['doc.term'], vertex: 'named-term' } } });
       const newest = await call('/api/run');
@@ -189,12 +145,17 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
       expect(savedHistory.body.runs.filter((run: { runId: string }) => run.runId === 'newer-without-trace')).toHaveLength(1);
       const savedDetail = await call('/api/fill-runs?run=newer-without-trace');
       expect(savedDetail.body.run).toMatchObject({ runId: 'newer-without-trace', state: 'created', selected: null, order: ['doc.term'], vertex: 'named-term', summary: newest.body.run });
-      const named = await call(`/api/run?run=${encodeURIComponent(latest.body.run.runId)}`);
-      expect(named.body.run.runId).toBe(latest.body.run.runId);
+      const named = await call('/api/run?run=older-without-trace');
+      expect(named.body.run.runId).toBe('older-without-trace');
+      const reopened = new (await import('../src/knowledge/product.js')).KnowledgeProduct({ productFolder: folder, storeRoot: join(home, '.madarch', 'knowledge') });
+      try {
+        expect(await reopened.runView()).toMatchObject({ runId: 'newer-without-trace', state: 'created', selection: newest.body.run.selection });
+        expect((await reopened.status()).fill.run?.runId).toBe('newer-without-trace');
+      } finally { await reopened.close(); }
       const newestStatus = await call('/api/status');
       expect(newestStatus.body.fill.run.runId).toBe('newer-without-trace');
       expect(newestStatus.body.fill.run.finishedAt).toBeUndefined();
-      await createRun(newerOwner, { runId: 'failed-before-configuration', product, at: Date.now() });
+      await createRun(newerOwner, { runId: 'failed-before-configuration', product, at: createdAt + 2 });
       await newerOwner.transaction('write', async (tx) => {
         await tx.query("UPDATE fill_run SET state = 'failed' WHERE run_id = $1", ['failed-before-configuration']);
       });
@@ -212,9 +173,12 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     writeFileSync(workflow, 'workflows: [broken\n');
     execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(IDENTITY) });
     execFileSync('git', ['commit', '--quiet', '-m', 'Broken workflow fixture'], { cwd: folder, env: gitEnv(IDENTITY) });
+    // Acceptance validates the working tree; initialization reads the pinned commit.
+    // Keep the checkout valid while the committed workflow exercises that later failure.
+    writeFileSync(workflow, previous);
     try {
-      const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'] }) });
-      expect(pressed.status).toBe(202);
+      const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.file'] }) });
+      expect(pressed.status, JSON.stringify(pressed.body)).toBe(202);
       const runId = pressed.body.runId as string;
       let detail: any;
       for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -222,7 +186,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
         if (detail.state === 'failed') break;
         await new Promise((rest) => setTimeout(rest, 250));
       }
-      expect(detail).toMatchObject({ runId, state: 'failed', selected: ['doc.term'] });
+      expect(detail).toMatchObject({ runId, state: 'failed', selected: ['code.file'] });
       const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
       try { expect((await readFillEnd(owner, runId))?.state).toBe('failed'); } finally { await owner.close(); }
       const status = (await call('/api/status')).body;

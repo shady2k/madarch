@@ -21,6 +21,7 @@
 import { type TSchema } from 'typebox';
 import type { AcpMcpServer } from './acp.js';
 import type { EdgeDraft, EdgeRemovalDraft, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
+import type { ProducerOutcomeDraft } from './producer-outcomes.js';
 
 /** How much of the product one capability or fact kind is about. */
 type CapabilityScope = 'product' | 'repository' | 'package' | 'cluster' | 'file';
@@ -128,6 +129,8 @@ export interface StagePlan {
    * (decision 0027, "no producer" from "producer found nothing").
    */
   coverage?: 'planned' | 'nothing-found';
+  /** Selected kinds without executable work, reported without pretending a producer succeeded. */
+  kindOutcomes?: readonly { readonly kind: string; readonly outcome: 'abstained'; readonly reason: string }[];
 }
 
 /** A tracked graph read: the query and its result membership are recorded for staleness. */
@@ -166,6 +169,9 @@ interface StaticEdgeDraft {
  * a second pair of ends could state an edge whose ends nothing publishes.
  */
 export type StageDraftWrite =
+  | { kind: 'plugin-partition'; evidence: string; value: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly writes: readonly StageDraftWrite[] } | { readonly partitions: readonly { readonly runId: string; readonly unitId: string; readonly generation: number }[] } }
+  | { kind: 'plugin-aggregate'; evidence: string; value: { readonly partitions: readonly { readonly runId: string; readonly unitId: string; readonly generation: number }[] } }
+  | { kind: 'producer-outcome'; evidence: string; value: ProducerOutcomeDraft }
   | { kind: 'fact'; evidence: string; value: unknown }
   | { kind: 'entity'; evidence: string; value: unknown }
   | { kind: 'link'; evidence: string; value: unknown }
@@ -274,6 +280,8 @@ export interface StageUnitTools {
 
 /** What a stage's `execute` runs in: never a database, never a file path. */
 export interface StageContext {
+  /** The run owning this attempt; omitted only by standalone stage callers. */
+  readonly runId?: string;
   /** The unit being run. */
   unit: StageUnit;
   /**
@@ -337,6 +345,8 @@ export interface FillStage {
   defaults: StageDefaults;
   /** A semantic bound when units must publish in plan order. Larger configured concurrency is refused. */
   readonly maxConcurrency?: number;
+  /** Declaration-derived dependencies and a shared admission limit for one unit's producer. */
+  unitScheduling?(id: string): { readonly after: readonly string[]; readonly group: string; readonly concurrency: number };
   /**
    * Whether the stage is one of decision 0033's static stages: its units read one
    * file's bytes and bounded graph queries through `StageContext.static`, and its

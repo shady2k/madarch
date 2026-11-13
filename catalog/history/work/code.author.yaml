@@ -15,7 +15,6 @@ relation-constraints:
 template-policy: page
 template: templates/author.liquid
 source: graph
-capability: git
 fields:
 - name: name
   type: text
@@ -28,8 +27,6 @@ fields:
 key:
 - name
 - email
-depends-on:
-- code.commit
 origin: history
 history: author
 labels:
@@ -42,3 +39,5 @@ labels:
 description:
   en: A person who made commits.
   ru: Человек, который делал коммиты.
+derives-from:
+- code.commit

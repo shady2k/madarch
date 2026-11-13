@@ -51,13 +51,36 @@ const MANIFEST = [
   '      - { name: note, type: text, nullable: true, binding: { agent: "the note a person writes" } }',
   '      - { name: strict, type: text, binding: { agent: "a word the agent settles" } }',
   '    key: [name]',
-  '    depends-on: []',
+  '    derives-from: []',
   'plugins:',
   '  - { id: g, version: 1, path: plugins/g, inputs: [doc.term], outputs: [doc.term], closure: [plugins/g/contract.json] }',
   '',
 ].join('\n');
 
 describe('a kind\'s table comes from the manifest', () => {
+  test('a novel kind with unbound fields still declares its complete storage schema', () => {
+    const manifest = `kinds:
+  custom.page:
+    semantics: other
+    source: document
+    template: templates/t.liquid
+    fields:
+      - { name: id, type: text }
+      - { name: title, type: text }
+    key: [id]
+    derives-from: []
+plugins:
+  - { id: g, version: 1, path: plugins/g, inputs: [], outputs: [], closure: [plugins/g/plugin.json] }
+`;
+    const folder = product(manifest, { ...CONTRACT, outputs: { vertices: [], edges: [] } });
+    writeFileSync(join(folder, 'plugins/g/plugin.json'), JSON.stringify({ name: 'g', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: '*', fields: '*', reads: [] }] }));
+    const read = parseKinds(manifest, 'madarch/catalog.yaml', folder);
+    expect(read.findings).toEqual([]);
+    const contract = manifestContractOf(read);
+    expect(contract.vertex.find((kind) => kind.name === 'custom.page')?.fields).toEqual([{ name: 'id', type: 'text' }, { name: 'title', type: 'text' }]);
+    expect(contract.vertex.find((kind) => kind.name === 'custom.page')?.key).toEqual(['id']);
+  });
+
   test('every field the manifest binds is a column of the opinion table, and the key is the vertex\'s alone', () => {
     const folder = product(MANIFEST, CONTRACT);
     const read = parseKinds(MANIFEST, 'madarch/catalog.yaml', folder);
@@ -92,7 +115,7 @@ describe('a kind\'s table comes from the manifest', () => {
     expect(reads.get('doc.term')?.key).toEqual(['name']);
   });
 
-  test('a kind with no key is a kind of random identities, and a kind whose plugin the manifest does not hold makes no table', () => {
+  test('a keyless kind uses random identities and missing plugins do not remove declared columns', () => {
     // A keyless kind gets its table: its entities stand by a random identity (the amendment, point 2), and no key
     // field constrains it.
     const noKey = MANIFEST.replace('    key: [name]\n', '');
@@ -100,12 +123,12 @@ describe('a kind\'s table comes from the manifest', () => {
     const read = parseKinds(noKey, 'madarch/catalog.yaml', folder);
     expect(manifestContractOf(read).vertex.map((kind) => [kind.name, kind.key])).toEqual([['doc.term', []]]);
     expect(declaredKindReads(read).get('doc.term')?.key).toEqual([]);
-    // A kind whose only plugin the manifest does not hold names no producer for its key, and makes no table.
+    // Storage follows the kind declaration; producer availability is checked before fill acceptance.
     const noPlugin = MANIFEST.replace("  - { id: g, version: 1, path: plugins/g, inputs: [doc.term], outputs: [doc.term], closure: [plugins/g/contract.json] }\n", '');
     const other = product(noPlugin, CONTRACT);
     const readOther = parseKinds(noPlugin, 'madarch/catalog.yaml', other);
-    expect(manifestContractOf(readOther).vertex).toEqual([]);
-    expect(declaredKindReads(readOther).has('doc.term')).toBe(false);
-    expect([...declaredKindReads(readOther).keys()]).toEqual(['template']);
+    expect(manifestContractOf(readOther).vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'rank', 'note', 'strict']);
+    expect(declaredKindReads(readOther).has('doc.term')).toBe(true);
+    expect(declaredKindReads(readOther).has('template')).toBe(true);
   });
 });

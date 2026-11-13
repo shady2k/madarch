@@ -33,8 +33,6 @@ fields:
 key:
 - database
 - name
-depends-on:
-- code.database
 terms:
 - '**/*.ts'
 - '**/*.tsx'
@@ -54,3 +52,5 @@ labels:
 description:
   en: A table, its columns and indexes, and the code that reads and writes it.
   ru: Таблица, её столбцы и индексы, и код, который её читает и пишет.
+derives-from:
+- code.database

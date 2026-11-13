@@ -192,6 +192,9 @@ interface GlossaryInputs {
 /** The pattern the plugin reads when the host names none: a glossary document in any folder. */
 const DEFAULT_PATTERN = '**/glossary*.md';
 
+/** The maximum number of file-content reads in flight. */
+const CONTENT_READ_CONCURRENCY = 8;
+
 /**
  * The unit's answer: every term of every document the pattern names. The documents are the graph's file vertices and
  * their content is what the files producer stored by blob — the plugin asks the host and never opens a folder.
@@ -201,9 +204,18 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
   const pattern = typeof inputs.pattern === 'string' ? inputs.pattern : DEFAULT_PATTERN;
   const definitions = await context.graph.files(pattern);
   const files = await context.graph.files('**/*');
+  const contents: (string | null | undefined)[] = new Array(files.length);
+  let nextFile = 0;
+  await Promise.all(Array.from({ length: Math.min(CONTENT_READ_CONCURRENCY, files.length) }, async () => {
+    while (nextFile < files.length) {
+      const index = nextFile++;
+      const file = files[index]!;
+      contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content');
+    }
+  }));
   const sources: { repository: string; path: string; text: string }[] = [];
-  for (const file of files) {
-    const text = await context.graph.value<string | null>(file.kind, file.key, 'content');
+  for (const [index, file] of files.entries()) {
+    const text = contents[index];
     if (typeof text === 'string') sources.push({ repository: String(file.key['repository'] ?? ''), path: String(file.key['path'] ?? ''), text });
   }
   const definitionKeys = new Set(definitions.map((file) => JSON.stringify([String(file.key['repository'] ?? ''), String(file.key['path'] ?? '')])));

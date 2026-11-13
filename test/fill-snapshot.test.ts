@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { createGitSnapshotSource, isReadableEntry, SnapshotError, SnapshotReader, type RepositoryPin } from '../src/plugin/repository-snapshot.js';
+import { prepareRepositoryInputs } from '../src/plugin/repository-input.js';
 
 /** A throwaway repository with two commits: the second changes a file, adds a folder and pins a submodule. */
 interface Fixture {
@@ -491,5 +492,27 @@ describe('batched snapshot text', () => {
       expect(unreadable.refusal).toBe('object-unreadable');
       expect(namesAll(unreadable, reader.repository, reader.commit, 'README.md')).toBe(true);
     } finally { await f.dispose(); }
+  });
+});
+
+describe('ordinary plugin repository metadata', () => {
+  test('the supplied origin is the same sanitized address as the private object store', async () => {
+    const f = await fixture();
+    const work = await mkdtemp(join(tmpdir(), 'madarch-repository-input-'));
+    try {
+      execFileSync('git', ['remote', 'add', 'origin', 'https://user:secret@example.test/team/repository.git'], { cwd: f.root });
+      const prepared = await prepareRepositoryInputs([pinOf(f, f.second)], work);
+      const expected = 'https://example.test/team/repository.git';
+      expect(prepared.repositories[0]!.url).toBe(expected);
+      expect(execFileSync('git', ['--git-dir', prepared.filesystemInputs[0]!.folder, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8' }).trim()).toBe(expected);
+      expect(JSON.stringify(prepared.repositories)).not.toContain('secret');
+      expect(JSON.stringify(prepared.repositories)).not.toContain('user:');
+      execFileSync('git', ['remote', 'set-url', 'origin', 'https://changed.example.test/new.git'], { cwd: f.root });
+      const pinned = await prepareRepositoryInputs([{ ...pinOf(f, f.second), url: expected }], join(work, 'pinned'));
+      expect(pinned.repositories[0]!.url).toBe(expected);
+    } finally {
+      await rm(work, { recursive: true, force: true });
+      await f.dispose();
+    }
   });
 });

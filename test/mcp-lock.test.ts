@@ -10,11 +10,13 @@ import path from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { acquireFolderLock, repositoryStoreFolder, openRepositoryGraph, releaseFolderLock } from '../src/mcp/graph.js';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 
 const FOLDER = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-'));
 const REPOSITORY = mkdtempSync(path.join(tmpdir(), 'madarch-mcp-lock-repo-'));
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Ada Example', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada Example', GIT_COMMITTER_EMAIL: 'ada@example.test', TZ: 'UTC', LC_ALL: 'C' };
 
+useRepositoryPlugins(REPOSITORY);
 mkdirSync(path.join(REPOSITORY, 'src'), { recursive: true });
 writeFileSync(path.join(REPOSITORY, 'package.json'), `${JSON.stringify({ name: 'lock-kit', version: '1.0.0', type: 'module' }, null, 2)}\n`, 'utf8');
 writeFileSync(path.join(REPOSITORY, 'src/a.ts'), '/** One. */\nexport function one(): number {\n  return 1;\n}\n', 'utf8');

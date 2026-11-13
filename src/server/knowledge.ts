@@ -161,7 +161,7 @@ export function createKnowledgePart(
     }
   };
   /**
- * The body of a fill press: the kinds checked. Non-null agent and cap settings are refused until the engine supports them. Every kind is one
+ * The body of a fill press: the kinds checked and run-scoped agent and cap options. Every kind is one
  * the manifest declares — a name the manifest does not hold is refused by name with the kinds it does, never dropped —
  * the agent is a string or null, and the cap is a whole number of tokens, 1 or more, or null for no cap.
  */
@@ -183,10 +183,8 @@ export function createKnowledgePart(
     return { bad: refused(400, { field: 'agent', message: `${here()}: "agent" is the id of the agent the panel chose, or null for none` }) };
   }
   if (asked.tokenCap !== undefined && asked.tokenCap !== null && (typeof asked.tokenCap !== 'number' || !Number.isInteger(asked.tokenCap) || asked.tokenCap < 1)) {
-    return { bad: refused(400, { field: 'tokenCap', message: `${here()}: "tokenCap" is the most tokens one run may spend: a whole number of 1 or more, or null for no cap` }) };
+    return { bad: refused(400, { field: 'tokenCap', message: `${product.folder}/madarch/catalog.yaml:1: token cap must be a positive integer` }) };
   }
-  if (asked.agent != null) return { bad: refused(400, { field: 'agent', message: `${here()}: this fill runs plugins only: choosing an agent is not supported` }) };
-  if (asked.tokenCap != null) return { bad: refused(400, { field: 'tokenCap', message: `${here()}: this fill runs plugins only: a token cap is not supported` }) };
   return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null } };
 }
 
@@ -404,8 +402,8 @@ export function createKnowledgePart(
       if (!kinds.present) return refused(409, { message: `${kinds.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares` });
       const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
-      const started = await product.startFill({ selected: asked.selection.selected, targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
-      if (!started.started) return refused(409, { message: `${here()}: ${started.message}` });
+      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
+      if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order }) };
     }, true, true),
     pause: guarded('pause the fill', async (request) => {

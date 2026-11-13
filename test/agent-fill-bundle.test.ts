@@ -10,7 +10,7 @@ import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
 import { closureOf, readPluginManifest } from '../src/plugin/closure.js';
 
 describe('the bundled general agent producer', () => {
-  test('a catalogue kind without a natural key is refused at its manifest declaration', () => {
+  test('a catalogue kind without a natural key remains an available declared output', () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-fill-key-'));
     try {
       seedStarterSet(root);
@@ -25,13 +25,12 @@ plugins:
   - { id: agent-fill, version: 1, path: plugins/agent-fill, inputs: [], outputs: [], closure: [plugins/agent-fill/contract.json, plugins/agent-fill/main.ts, plugins/agent-fill/plugin.json, plugins/agent-fill/prompt.md] }
 `;
       const manifest = parseKinds(text, file, root);
-      expect(manifest.findings).toContainEqual(expect.objectContaining({ file, source: file, line: 2, message: expect.stringContaining('example.keyless') }));
-      expect(manifest.findings.some((finding) => finding.message.includes('"key"'))).toBe(true);
-      expect(manifest.plugins?.get('agent-fill')?.contract?.vertices.some((vertex) => vertex.kind === 'example.keyless')).toBe(false);
+      expect(manifest.findings).toEqual([]);
+      expect(manifest.plugins?.get('agent-fill')?.contract?.vertices.find((vertex) => vertex.kind === 'example.keyless')?.key).toEqual([]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  test('manifest-derived outputs preserve contracts and omit kinds with deterministic producers', () => {
+  test('manifest-derived outputs preserve contracts and include kinds with other producers', () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-fill-contract-'));
     try {
       seedStarterSet(root);
@@ -45,7 +44,7 @@ plugins:
           { name: 'name', type: 'text', binding: { agent: 'The topic name stated in the source.' } },
           { name: 'note', type: 'text', nullable: true, evidence: false, binding: { agent: 'An optional explanation.' } },
         ],
-        key: ['name'], 'depends-on': ['code.file'],
+        key: ['name'], 'derives-from': ['code.file'],
       };
       document.kinds['example.static'] = {
         ...base, id: 'example.static', definition: 'A statically extracted fact.',
@@ -56,17 +55,17 @@ plugins:
       expect(manifest.findings).toEqual([]);
       const plugin = manifest.plugins?.get('agent-fill');
       expect(plugin?.outputs).toContain('example.topic');
-      expect(plugin?.outputs).not.toContain('example.static');
-      expect(plugin?.outputs).not.toContain('code.file');
-      expect(plugin?.outputs).not.toContain('code.table');
-      expect(plugin?.outputs).not.toContain('doc.term');
+      expect(plugin?.outputs).toContain('example.static');
+      expect(plugin?.outputs).toContain('code.file');
+      expect(plugin?.outputs).toContain('code.table');
+      expect(plugin?.outputs).toContain('doc.term');
       expect(plugin?.contract?.vertices.find((vertex) => vertex.kind === 'example.topic')).toEqual({
         kind: 'example.topic', key: ['name'], fields: [
           { name: 'name', type: 'text', meaning: 'The topic name stated in the source.', example: null, required: true, evidence: true },
           { name: 'note', type: 'text', meaning: 'An optional explanation.', example: null, required: false, evidence: false },
         ],
       });
-      expect(manifest.kinds.get('example.topic')?.dependsOn).toEqual(['code.file']);
+      expect(manifest.kinds.get('example.topic')?.derivesFrom).toEqual(['code.file']);
       expect(manifest.kinds.get('example.topic')?.descriptions?.en).toBe('A topic supported by graph evidence.');
     } finally {
       rmSync(root, { recursive: true, force: true });

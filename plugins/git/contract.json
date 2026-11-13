@@ -1,0 +1,225 @@
+{
+  "id": "git",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "code.repository",
+        "key": [
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The name read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "history_shallow",
+            "type": "boolean",
+            "meaning": "The history shallow read from the pinned repository.",
+            "example": false,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.file",
+        "key": [
+          "repository",
+          "path"
+        ],
+        "fields": [
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "The repository read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "text",
+            "meaning": "The path read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "last_change",
+            "type": "timestamp",
+            "meaning": "The latest commit time among non-merge commits touching this exact path at the pinned revision.",
+            "example": "2026-01-01T00:00:00.000Z",
+            "required": false
+          },
+          {
+            "name": "commit_count",
+            "type": "integer",
+            "meaning": "The number of non-merge commits touching this exact path at the pinned revision.",
+            "example": 1,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.commit",
+        "key": [
+          "hash"
+        ],
+        "fields": [
+          {
+            "name": "hash",
+            "type": "text",
+            "meaning": "The hash read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "algorithm",
+            "type": "text",
+            "meaning": "The algorithm read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "subject",
+            "type": "text",
+            "meaning": "The subject read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "author_date",
+            "type": "timestamp",
+            "meaning": "The author date read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "author_offset_min",
+            "type": "integer",
+            "meaning": "The author offset min read from the pinned repository.",
+            "example": 1,
+            "required": false
+          },
+          {
+            "name": "commit_date",
+            "type": "timestamp",
+            "meaning": "The commit date read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "commit_offset_min",
+            "type": "integer",
+            "meaning": "The commit offset min read from the pinned repository.",
+            "example": 1,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.author",
+        "key": [
+          "name",
+          "email"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The name read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "email",
+            "type": "text",
+            "meaning": "The email read from the pinned repository.",
+            "example": "example",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "kind": "code.as-is",
+        "from": "code.repository",
+        "to": "code.commit"
+      },
+      {
+        "kind": "code.history",
+        "from": "code.repository",
+        "to": "code.commit",
+        "fields": [
+          {
+            "name": "walk",
+            "type": "integer",
+            "meaning": "The walk read from the pinned repository.",
+            "example": 1,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.parent",
+        "from": "code.commit",
+        "to": "code.commit",
+        "fields": [
+          {
+            "name": "position",
+            "type": "integer",
+            "meaning": "The position read from the pinned repository.",
+            "example": 1,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.authored",
+        "from": "code.author",
+        "to": "code.commit"
+      },
+      {
+        "kind": "code.touched",
+        "from": "code.commit",
+        "to": "code.file",
+        "fields": [
+          {
+            "name": "change",
+            "type": "text",
+            "meaning": "The change read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "added",
+            "type": "bigint",
+            "meaning": "The added read from the pinned repository.",
+            "example": 1,
+            "required": false
+          },
+          {
+            "name": "removed",
+            "type": "bigint",
+            "meaning": "The removed read from the pinned repository.",
+            "example": 1,
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.renamed-from",
+        "from": "code.file",
+        "to": "code.file"
+      }
+    ]
+  },
+  "rights": {
+    "network": "none",
+    "filesystem": true,
+    "graph": true
+  }
+}

@@ -5,5 +5,12 @@
   "runtime": {
     "name": "bun",
     "version": "1.4.2"
-  }
+  },
+  "produces": [
+    {
+      "kind": "fixture.problem",
+      "fields": "*",
+      "reads": []
+    }
+  ]
 }

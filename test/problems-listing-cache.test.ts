@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withoutPluginTurns } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, commitProduct, makeProduct, writeSamplePages, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { openProblemsOf } from '../src/problems/index.js';
 import { fillInProcess } from './fill-inline.js';
 import { publishFixtureOpinions } from './knowledge-page-opinions.js';
@@ -91,7 +91,7 @@ beforeAll(async () => {
   home = join(work, 'home');
   mkdirSync(home);
   folder = makeProduct(home, SHOP, repository, CODE);
-  withoutPluginTurns(folder);
+  withRepositoryPluginsOnly(folder);
   writeSamplePages(folder);
   git(folder, ['config', 'user.name', 'Ada Reader']);
   git(folder, ['config', 'user.email', 'ada@example.test']);
@@ -99,7 +99,8 @@ beforeAll(async () => {
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
-  await fill();
+  // Publish the whole fixture before a poll can start its background Problems collection.
+  await fillInProcess(folder, home, join(work, 'store'));
   await publishFixtureOpinions(folder, join(work, 'store'), [{
     kind: 'domain', key: { slug: 'payment' },
     values: {

@@ -512,7 +512,7 @@ catalog:
 # The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and
 # the capability that fills them. A kind with a capability takes that capability's contract for its fields.
 edges:
-  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: git }
+  - { name: code.contains, from: [code.repository, code.directory], to: [code.directory, code.file, code.gitlink], capability: disk }
   - { name: code.as-is, from: [code.repository], to: [code.commit], capability: git }
   - { name: code.history, from: [code.repository], to: [code.commit], capability: git }
   - { name: code.parent, from: [code.commit], to: [code.commit], capability: git }

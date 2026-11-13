@@ -65,3 +65,4 @@ labels:
 description:
   en: Something the agent could not settle from the code and the documents; a person answers it.
   ru: То, что агент не смог решить по коду и документам; отвечает человек.
+key: []

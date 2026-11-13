@@ -5,8 +5,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { DatabaseOwner } from '../adapters/database-owner.js';
-import { GraphReader } from './graph-read.js';
+import type { GraphReader } from './graph-read.js';
 import {
   DEFAULT_GRAPH_VERDICT_BUDGETS,
   GRAPH_VERDICT_VALIDATOR_VERSION,
@@ -29,18 +28,21 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 
 /** Reads every entity and relation the one graph holds, presented as the wiki's code kinds. */
-export async function loadGraphSnapshot(owner: DatabaseOwner): Promise<GraphSnapshot> {
-  const reader = new GraphReader(owner, () => new Date().toISOString());
+export async function loadGraphSnapshot(reader: GraphReader, signal?: AbortSignal): Promise<GraphSnapshot> {
   const nodes: GraphNodeItem[] = [];
   for (const kind of ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author']) {
+    signal?.throwIfAborted();
     const page = await reader.list(kind, { limit: Number.MAX_SAFE_INTEGER });
+    signal?.throwIfAborted();
     for (const entity of page.rows) {
       nodes.push({ id: entity.key, versionId: entity.nodeIds[0] ?? entity.key, kind: entity.kind, label: entity.label, properties: entity.properties });
     }
   }
   const edges: GraphEdgeItem[] = [];
-  for (const relation of ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-to']) {
+  for (const relation of ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-from']) {
+    signal?.throwIfAborted();
     const page = await reader.relationEdges(relation, Number.MAX_SAFE_INTEGER);
+    signal?.throwIfAborted();
     for (const edge of page.rows) {
       edges.push({
         id: `${relation}\u0000${edge.from.key}\u0000${edge.to.key}\u0000${edge.discriminator ?? ''}`,

@@ -17,6 +17,7 @@ import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { makeProduct, SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -42,10 +43,11 @@ beforeAll(async () => {
     git(path, 'commit', '-qm', `${name} docs`);
   }
   folder = makeProduct(home, 'shop', first, 'first');
+  useFixturePlugins(folder, ['disk']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
   const manifest = join(folder, 'workspace.yaml');
   writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'second', linked: true }));

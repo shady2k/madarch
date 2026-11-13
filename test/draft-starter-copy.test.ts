@@ -16,6 +16,8 @@ import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { BUNDLED_PLUGINS, bundledClosureHash } from '../src/plugin/bundled.js';
 import { parsePluginLock } from '../src/plugin/lock.js';
+import { probeUnit } from '../src/plugin/conformance.js';
+import type { PluginContractDeclaration } from '../src/plugin/protocol.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 let root = '';
@@ -31,6 +33,24 @@ beforeAll(() => {
 afterAll(() => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
+
+/** Protocol probes hold no repository facts, but carry the ordinary caller's explicit input envelope. */
+function probeArgs(installed: string): string[] {
+  const contract = (JSON.parse(readFileSync(join(installed, 'contract.json'), 'utf8')) as { outputs: PluginContractDeclaration }).outputs;
+  const unit = probeUnit(contract);
+  // A catalogue's output contract is supplied by the conformance kit's deterministic agent peer.
+  if (unit === undefined) return [];
+  const selected = contract.vertices.find((vertex) => vertex.kind === unit.kind)!;
+  const edgeOutputs = contract.edges.flatMap((edge) => {
+    const from = typeof edge.from === 'string' ? [edge.from] : edge.from;
+    const to = typeof edge.to === 'string' ? [edge.to] : edge.to;
+    return from.flatMap((source) => to.map((target) => ({ kind: edge.kind, from: source, to: target })));
+  });
+  return ['--unit', JSON.stringify({ ...unit, inputs: {
+    repositories: [], contract: { vertices: [{ ...selected, fields: selected.fields ?? [] }], edges: contract.edges },
+    edgeOutputs, outputKinds: [unit.kind],
+  } })];
+}
 
 describe('the starter set a draft copies', () => {
   test('every starter file stands in the product repository byte for byte', () => {
@@ -56,7 +76,7 @@ describe('the starter set a draft copies', () => {
       expect(closure.hash).toBe(bundledClosureHash(plugin));
       expect(closure.hash).toBe(closureOf(join(import.meta.dir, '..', plugin.folder)).hash);
       expect(lock.entries.find((entry) => entry.id === plugin.id)?.closure).toBe(closure.hash);
-      const output = execFileSync(process.execPath, ['scripts/madarch.ts', 'plugin', 'check', installed], {
+      const output = execFileSync(process.execPath, ['scripts/madarch.ts', 'plugin', 'check', installed, ...probeArgs(installed)], {
         cwd: join(import.meta.dir, '..'), env: { ...env, MADARCH_PLUGIN_SANDBOX: 'off' }, encoding: 'utf8', timeout: 120_000,
       });
       expect(output).toContain('check: conforms');
@@ -77,7 +97,7 @@ describe('the starter set a draft copies', () => {
       cwd: join(import.meta.dir, '..'), env, encoding: 'utf8', timeout: 120_000,
     });
     for (const plugin of BUNDLED_PLUGINS) {
-      const output = execFileSync(binary, ['plugin', 'check', join(folder, plugin.folder)], {
+      const output = execFileSync(binary, ['plugin', 'check', join(folder, plugin.folder), ...probeArgs(join(folder, plugin.folder))], {
         cwd: root, env: { ...env, MADARCH_PLUGIN_SANDBOX: 'off' }, encoding: 'utf8', timeout: 120_000,
       });
       expect(output).toContain('check: conforms');

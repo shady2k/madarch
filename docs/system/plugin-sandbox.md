@@ -111,3 +111,9 @@ seccomp or macOS sandbox is used, and the plugin runs with the host account's
 filesystem and network access. A warning is emitted once per process. Closure
 approval and protocol checks still apply. Leave the variable unset for the
 normal sandbox; every other value, including an empty string, is refused.
+
+## System Git approval
+
+The ordinary repository plugins use Git already installed on the machine. The host resolves its executable from the machine PATH, resolves symlinks, and checks its version before admitting that executable to the plugin sandbox. The plugin receives only that approved path; it does not search a second PATH or fall back to another Git. Linux, macOS and Windows use the same resolution and version check. Git is not downloaded, bundled, cached or approved by exact bytes. Other tool declarations retain their exact-byte approvals.
+
+Missing Git or a version below the required minimum refuses the affected plugin invocation with the found path/version and the required version. The disk plugin needs Git 2.40 or newer because it uses `git check-attr --source`; the history plugin needs Git 2.31 or newer for `git log --diff-merges=first-parent`. Each manifest declares its own minimum. The fill records explicit outcomes for its affected kinds, while unrelated producers continue. This does not relax declared graph and filesystem access or sandbox isolation.

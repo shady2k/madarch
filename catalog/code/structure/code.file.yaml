@@ -48,51 +48,80 @@ facts:
 template-policy: page
 template: templates/file.liquid
 source: graph
-capability: git
 fields:
-# Graph projections: git tree/path/blob reads fill directory and bytes;
-# git language detection fills language; git touched/history reads fill dates and counts.
-- { name: language, type: text, nullable: true, producers: [git] }
-- { name: directory, type: text, producers: [git] }
-- { name: bytes, type: bigint, nullable: true, producers: [git] }
-- { name: last_change, type: timestamp, nullable: true, producers: [git] }
-- { name: commit_count, type: integer, nullable: true, producers: [git] }
 - name: state_machines
   type: json
   nullable: true
   binding:
     agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
       use [] when none exist and preserve source positions.'
-- name: repository_node
-  type: bigint
+- name: repository
+  type: text
   producers:
+  - disk
   - git
-  reference: code.repository
-- name: path_id
-  type: bigint
+- name: path
+  type: text
   producers:
+  - disk
   - git
 - name: mode
   type: text
   nullable: true
   producers:
-  - git
-- name: blob_id
+  - disk
+- name: blob
+  type: text
+  nullable: true
+  producers:
+  - disk
+- name: bytes
   type: bigint
   nullable: true
   producers:
-  - git
+  - disk
+- name: form
+  type: text
+  nullable: true
+  producers:
+  - disk
+- name: lines
+  type: bigint
+  nullable: true
+  producers:
+  - disk
 - name: content
   type: text
   nullable: true
   producers:
+  - disk
+- name: language
+  type: text
+  nullable: true
+  producers:
+  - disk
+- name: languages
+  type: json
+  nullable: true
+  producers:
+  - disk
+- name: directory
+  type: text
+  producers:
+  - disk
+- name: last_change
+  type: timestamp
+  nullable: true
+  producers:
+  - git
+- name: commit_count
+  type: integer
+  nullable: true
+  producers:
   - git
 key:
-- repository_node
-- path_id
-depends-on:
-- code.repository
-- code.directory
+- repository
+- path
 history: path
 views:
 - state
@@ -116,3 +145,6 @@ labels:
 description:
   en: A file of a code repository.
   ru: Файл репозитория кода.
+derives-from:
+- code.repository
+- code.directory

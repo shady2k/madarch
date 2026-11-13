@@ -14,19 +14,21 @@
  * every decision of the host leaves a span and a log line.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
+import { snapshotTools, type TrustedTool } from './tools.js';
+import { snapshotFilesystemInputs } from './filesystem-inputs.js';
 import { PluginAgentBridge, type PluginAgentOptions, type PluginAgentReport } from './agent.js';
 import { join } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
 import { log } from '../obs/log.js';
-import { annotateSpan, withSpan } from '../obs/trace.js';
+import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginProtocolMessage, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
-import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
+import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, notificationText, progressOf, protocolMessageProblem, requestText, RPC_INVALID_PARAMS, RPC_INVALID_REQUEST, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, successText } from './wire.js';
 
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/host.ts';
@@ -110,8 +112,8 @@ const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
  * from it; a plugin that declared no `graph` right is refused, and a host given no answerer answers none.
  */
 export interface GraphAnswerer {
-  files(pattern: string): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
-  value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string): Promise<unknown>;
+  files(pattern: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
+  value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<unknown>;
   /** A page of the references the writer recorded and no vertex holds (madarch-stm0.7.1, piece 2). Absent: refused. */
   unresolved?(query: PluginGraphPageRequest): Promise<{ readonly references: readonly PluginGraphUnresolvedReference[]; readonly next?: string }>;
   /** A page of the edges one of whose ends is removed (piece 2). Absent: refused. */
@@ -199,6 +201,10 @@ export interface PluginHostOptions {
   readonly closure?: Closure;
   /** The repository snapshot a plugin that declared the `filesystem` right may read, bound read-only. */
   readonly repository: string;
+  /** Explicit read-only filesystem inputs; callers supply isolated pinned snapshots. */
+  readonly filesystemInputs?: readonly { readonly name: string; readonly folder: string }[];
+  /** Approved executable pins. A manifest declaration alone never grants trust. */
+  readonly tools?: Readonly<Record<string, TrustedTool>>;
   /** The graph a plugin that declared the `graph` right reads through its queries; absent, every query is refused. */
   readonly graph?: GraphAnswerer;
   /** Host-owned ACP adapter, environment, confined connector and optional catalogue outputs. */
@@ -226,6 +232,7 @@ export interface PluginSession {
   /** The most units this plugin takes at once: the smaller of the setting and its declared count. */
   readonly unitsAtOnce: number;
   readonly workFolder: string;
+  planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan>;
   runUnit(unit: PluginUnitRequest): Promise<UnitOutcome>;
   agentReports(): ReadonlyMap<string, PluginAgentReport>;
   pause(): Promise<void>;
@@ -279,6 +286,7 @@ export class PluginHost {
   private failure: SessionFailure | undefined;
   private handshake: { startedAt: number; resolve: () => void; reject: (cause: UnitCause) => void } | undefined;
   private readonly inFlight = new Map<string, InFlight>();
+  private readonly resultChunks = new Map<string, { count: number; bytes: Buffer[] }>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private paused = false;
   private nextId = 1;
@@ -334,9 +342,13 @@ export class PluginHost {
     // Only a plugin whose contract declared the filesystem right sees a repository: the glossary reads the graph, and
     // the files producer alone reads the source tree (decision 0035, item 9).
     const readsRepository = this.contractRights?.filesystem === true;
+    const tools = snapshotTools(closure.manifest.tools, this.options.tools ?? {}, workFolder, this.options.env ?? process.env);
+    if ((this.options.filesystemInputs?.length ?? 0) > 0 && !readsRepository) throw new ClosureRefusal('plugin-filesystem', `${WHERE}:1: filesystem inputs require the declared filesystem right`, WHERE);
     const spec: SandboxSpec = {
       closureFolder: snapshot.folder,
-      ...(readsRepository ? { repository: this.options.repository } : {}),
+      tools,
+      filesystemInputs: withSpanSync('plugin.filesystem-inputs', { 'madarch.plugin.hash': closure.hash }, () => snapshotFilesystemInputs(this.options.filesystemInputs ?? [], this.options.workRoot)),
+      ...(readsRepository && (this.options.filesystemInputs?.length ?? 0) === 0 ? { repository: this.options.repository } : {}),
       workFolder,
       runtime: process.execPath,
       entry: closure.manifest.entry,
@@ -382,6 +394,7 @@ ${text === '' ? '(empty)' : text}` };
       limits,
       unitsAtOnce,
       workFolder,
+      planOutput: async (unit, cursor) => await this.planOutput(unit, cursor),
       runUnit: async (unit) => await this.runUnit(unit),
       agentReports: () => new Map(this.reports),
       pause: async () => await this.pause(),
@@ -415,8 +428,8 @@ ${text === '' ? '(empty)' : text}` };
       this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a line that is not JSON (${String(said)}): its messages are JSON-RPC over newline delimited JSON` });
       return;
     }
-    const first = [...Value.Errors(PluginProtocolMessage, value)][0];
-    if (first !== undefined) {
+    const problem = protocolMessageProblem(value);
+    if (problem !== undefined) {
       // A message the protocol does not hold is recorded before it is refused, under the method it named: a malformed
       // graph request stands in the journal with its class, not only a well-formed refusal (codex, stage 2 review, 5).
       const named = typeof value === 'object' && value !== null && typeof (value as { method?: unknown }).method === 'string' ? (value as { method: string }).method : '';
@@ -424,7 +437,7 @@ ${text === '' ? '(empty)' : text}` };
         const slot = this.options.requests?.begin(named);
         this.options.requests?.settle(slot, 'refused', 0, 'malformed-message');
       }
-      this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a message the protocol does not hold: ${first.instancePath === '' ? 'the message' : first.instancePath.slice(1)} ${first.message}` });
+      this.fail({ code: 'malformed-message', message: `${WHERE}:1: the plugin wrote a message the protocol does not hold: ${problem}` });
       return;
     }
     if (isRequest(value)) {
@@ -453,6 +466,25 @@ ${text === '' ? '(empty)' : text}` };
       return;
     }
     if (isNotification(value)) {
+      if (value.method === 'unit.resultChunk') {
+        const chunk = value.params;
+        if (!Value.Check(PluginResultChunk, chunk)) {
+          this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk must carry a unitId, sequence and base64 data` });
+          return;
+        }
+        const held = this.inFlight.get(chunk.unitId);
+        if (held === undefined) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunk names no active unit` }); return; }
+        const decoded = Buffer.from(chunk.data, 'base64');
+        this.countBytes(held, decoded.byteLength);
+        if (this.failure !== undefined) return;
+        const accumulated = this.resultChunks.get(chunk.unitId) ?? { count: 0, bytes: [] };
+        if (chunk.sequence !== accumulated.count) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: result chunks must arrive in sequence` }); return; }
+        accumulated.count += 1;
+        accumulated.bytes.push(decoded);
+        this.resultChunks.set(chunk.unitId, accumulated);
+        held.lastSign = Date.now();
+        return;
+      }
       const beat = heartbeatOf(value);
       if (beat !== undefined) {
         this.sign(beat.unitId, bytes);
@@ -485,7 +517,7 @@ ${text === '' ? '(empty)' : text}` };
       this.unitByRequest.delete(key);
       const held = unitId === undefined ? undefined : this.inFlight.get(unitId);
       if (value.error === undefined) {
-        if (held !== undefined) this.countBytes(held, bytes);
+        if (held !== undefined && !this.resultChunks.has(held.unitId)) this.countBytes(held, bytes);
         waiter.resolve(value.result);
         return;
       }
@@ -627,7 +659,7 @@ ${text === '' ? '(empty)' : text}` };
       return false;
     }
     const agentOutputs = this.options.agent?.outputs;
-    if (this.agentPart?.catalogue === true && agentOutputs !== undefined) declared.outputs = agentOutputs;
+    if (this.agentPart !== undefined && agentOutputs !== undefined) declared.outputs = agentOutputs;
     this.declared = declared;
     if (this.agentPart !== undefined && this.options.agent !== undefined && this.options.graph !== undefined) {
       this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onSession: (report) => {
@@ -766,6 +798,7 @@ ${text === '' ? '(empty)' : text}` };
         answered,
       ]);
       this.inFlight.delete(unit.unitId);
+      this.resultChunks.delete(unit.unitId);
       this.pending.delete(id);
       this.unitByRequest.delete(id);
       const limit = this.outputLimit();
@@ -786,12 +819,54 @@ ${text === '' ? '(empty)' : text}` };
   }
 
   /** Holds one unit's answer to the declaration, and records a refusal as the unit's cause. */
+  private decodeResult(unitId: string, value: unknown): unknown {
+    const answer = value as { unitId?: unknown; chunkCount?: unknown } | null;
+    if (answer === null || typeof answer !== 'object' || answer.unitId !== unitId) throw { code: 'malformed-result', message: `${WHERE}:1: answer must name its unit` };
+    const chunks = this.resultChunks.get(unitId);
+    this.resultChunks.delete(unitId);
+    if (chunks === undefined && answer.chunkCount === undefined) return answer;
+    if (chunks === undefined || answer.chunkCount !== chunks.count || Object.keys(answer).some((field) => field !== 'unitId' && field !== 'chunkCount')) throw { code: 'malformed-result', message: `${WHERE}:1: final chunk count must match the complete result fragments` };
+    try {
+      const decoded: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.bytes)));
+      if (decoded === null || typeof decoded !== 'object' || (decoded as { unitId?: unknown }).unitId !== unitId) throw new Error('fragmented result names the wrong unit');
+      return decoded;
+    } catch (error) { throw { code: 'malformed-result', message: `${WHERE}:1: fragmented result is invalid: ${(error as Error).message}` }; }
+  }
+
+  private async planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan> {
+    if (this.declared?.planOutput !== true) throw { code: 'plan-unsupported', message: `${WHERE}:1: plugin does not declare planOutput` };
+    if (this.failure !== undefined) throw this.failure.cause;
+    if (this.inFlight.has(unit.unitId)) throw { code: 'plan-busy', message: `${WHERE}:1: a unit with this id is already active` };
+    const id = `plan-${String(this.nextId++)}`;
+    const now = Date.now();
+    let failed!: (cause: UnitCause) => void;
+    const failure = new Promise<never>((_resolve, reject) => { failed = reject; });
+    const held: InFlight = { unitId: unit.unitId, startedAt: now, lastSign: now, bytes: 0, progress: [], error: undefined, settle: (outcome) => { if (outcome.state === 'not-extracted') failed(outcome.cause); } };
+    this.inFlight.set(unit.unitId, held);
+    this.unitByRequest.set(id, unit.unitId);
+    const response = new Promise<unknown>((resolve, reject) => { this.pending.set(id, { resolve, reject }); });
+    this.write(requestText(id, 'planOutput', { unit, ...(cursor === undefined ? {} : { cursor }) }));
+    try {
+      const value = this.decodeResult(unit.unitId, await Promise.race([response, failure])) as { unitId: string; partitions?: unknown; next?: unknown };
+      const { unitId: _unitId, ...page } = value;
+      if (!Value.Check(PluginOutputPlan, page)) throw { code: 'malformed-plan', message: `${WHERE}:1: planOutput must return bounded partitions and an optional next cursor` };
+      return page;
+    } finally {
+      this.inFlight.delete(unit.unitId);
+      this.resultChunks.delete(unit.unitId);
+      this.pending.delete(id);
+      this.unitByRequest.delete(id);
+    }
+  }
+
   private acceptAnswer(unit: PluginUnitRequest, held: InFlight, id: string, result: unknown): UnitOutcome {
     const declared = this.declared!;
-    const answer = result as { unitId?: unknown } | undefined;
+    let answer = result as { unitId?: unknown; chunkCount?: unknown; vertices?: unknown; edges?: unknown; removals?: unknown } | undefined;
     if (answer === null || typeof answer !== 'object' || answer.unitId !== unit.unitId) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: unit ${unit.unitId} was answered with ${answer === undefined ? 'no result' : `a result for ${String((answer as { unitId?: unknown }).unitId)}`}: an answer names the unit it answers` });
     }
+    try { answer = this.decodeResult(unit.unitId, answer) as typeof answer; }
+    catch (cause) { return this.notExtracted(held, cause as UnitCause); }
     const shape = [...Value.Errors(PluginUnitResult, answer)][0];
     if (shape !== undefined) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: the answer to unit ${unit.unitId} is not a unit result: ${shape.instancePath === '' ? 'the result' : shape.instancePath.slice(1)} ${shape.message}` });

@@ -47,3 +47,4 @@ labels:
 description:
   en: A rule the product keeps (BR-1, BR-2 ...), with the code that implements it.
   ru: Правило, которое соблюдает продукт (BR-1, BR-2 ...), и код, который его реализует.
+key: []

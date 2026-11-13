@@ -1,3 +1,5 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
+import { execFileSync } from 'node:child_process';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * Closing a product while its graph verdicts read the store (madarch-8bdc.2.9). `graphVerdicts` owns a connection of
@@ -15,13 +17,14 @@ import { join } from 'node:path';
 import { createDraft } from '../src/product/draft.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
 import { withStorePreparationOwner, requestStorePreparation } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { graphVerdictFile } from '../src/knowledge/graph-verdict-store.js';
+import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -41,11 +44,19 @@ describe('closing a product while its graph verdicts read the store', () => {
     try {
       const draft = createDraft({ home: join(work, 'home'), name: 'close-shop', gitEnv: gitEnv(IDENTITY) });
       if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
+      useFixturePlugins(draft.folder, ['disk', 'git']);
+      execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
+      execFileSync('git', ['commit', '--quiet', '-m', 'Declare repository fact fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
       const storeRoot = join(work, 'store');
       product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
       // The store the verdict run opens for its snapshot, with the one graph's tables and the kinds it reads.
       owner = await createTestDatabaseOwner({ store: storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), btreeGist: true });
-      await prepareStore(owner, { contract: GIT_CONTRACT });
+      await prepareStore(owner, { contract: withManifestContract(await readPinnedGraphContract(draft.folder)) });
+      // The close boundary needs published table metadata, not unrelated repository extraction or model judging.
+      const metadata = validateProductManifests(draft.folder);
+      if (!metadata.ok) throw new Error(JSON.stringify(metadata.findings));
+      if (metadata.value === undefined) throw new Error('the fixture has no manifest to publish');
+      await publishValidatedManifests(owner, metadata.value);
 
       let releaseLock!: () => void;
       let holdsTheGraph!: () => void;
@@ -80,8 +91,10 @@ describe('closing a product while its graph verdicts read the store', () => {
       } finally {
         releaseLock?.();
         await lock?.catch(() => undefined);
-        await verdict?.catch(() => undefined);
-        await closing?.catch(() => undefined);
+        if (verdict !== undefined) await expect(verdict).rejects.toMatchObject({ name: 'AbortError' });
+        await closing;
+        expect(existsSync(graphVerdictFile(productStoreFolder(draft.folder, storeRoot)))).toBe(false);
+        expect(await waitsForTheGraph(owner)).toBe(false);
       }
     } finally {
       await product?.close().catch(() => undefined);
@@ -97,6 +110,9 @@ test('a standalone fill does not start validation, while an explicit request sti
   try {
     const draft = createDraft({ home: join(work, 'home'), name: 'inline-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
+    useFixturePlugins(draft.folder, ['disk', 'git']);
+    execFileSync('git', ['add', '-A'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
+    execFileSync('git', ['commit', '--quiet', '-m', 'Declare repository fact fixture producers'], { cwd: draft.folder, env: gitEnv(IDENTITY) });
     const storeRoot = join(work, 'store');
     let judgeCalls = 0;
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot, graphJev: {
@@ -104,7 +120,7 @@ test('a standalone fill does not start validation, while an explicit request sti
     } });
     await withStorePreparationOwner(async () => {
       await requestStorePreparation(storeDatabasePath(productStoreFolder(draft.folder, storeRoot)), await readPinnedGraphContract(draft.folder));
-      expect(await product!.startFill({ targets: { kinds: ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author'] } })).toMatchObject({ started: true });
+      expect(await product!.startFill()).toMatchObject({ started: true });
       await product!.settled();
     });
     expect(product.fillState()).toMatchObject({ state: 'done' });

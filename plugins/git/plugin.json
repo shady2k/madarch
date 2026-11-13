@@ -1,0 +1,84 @@
+{
+  "name": "git",
+  "version": "1.0.0",
+  "entry": "entry.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "tools": [
+    {
+      "name": "git",
+      "source": "system",
+      "minimumVersion": "2.31"
+    }
+  ],
+  "produces": [
+    {
+      "kind": "code.repository",
+      "fields": [
+        "history_shallow"
+      ],
+      "reads": [
+        {
+          "kind": "code.repository",
+          "version": "earlier",
+          "producer": "disk"
+        }
+      ],
+      "refines": [
+        "disk"
+      ]
+    },
+    {
+      "kind": "code.file",
+      "fields": [
+        "repository",
+        "path",
+        "last_change",
+        "commit_count"
+      ],
+      "refines": [
+        "disk"
+      ],
+      "reads": [
+        {
+          "kind": "code.file",
+          "version": "earlier",
+          "producer": "disk"
+        },
+        {
+          "kind": "code.repository",
+          "version": "earlier",
+          "producer": "disk"
+        }
+      ]
+    },
+    {
+      "kind": "code.commit",
+      "fields": "*",
+      "reads": [
+        "code.file",
+        {
+          "kind": "code.repository",
+          "version": "earlier",
+          "producer": "disk"
+        }
+      ],
+      "partition": "key"
+    },
+    {
+      "kind": "code.author",
+      "fields": "*",
+      "reads": [
+        "code.file",
+        {
+          "kind": "code.repository",
+          "version": "earlier",
+          "producer": "disk"
+        }
+      ]
+    }
+  ],
+  "concurrency": 1
+}

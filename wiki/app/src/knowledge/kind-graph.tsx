@@ -15,7 +15,7 @@ import type { CatalogKindView, CatalogView } from './types.js';
 /** One entity of the graph: the kind, its dependencies and the depths it stands at. */
 export interface GraphNode {
   readonly kind: CatalogKindView;
-  readonly dependsOn: readonly string[];
+  readonly derivesFrom: readonly string[];
   readonly depth: number;
 }
 
@@ -38,7 +38,7 @@ export function graphLayers(kinds: readonly CatalogKindView[]): { nodes: GraphNo
     }
     active.push(kind);
     let deepest = 0;
-    for (const dependency of byKind.get(kind)?.dependsOn ?? []) {
+    for (const dependency of byKind.get(kind)?.derivesFrom ?? []) {
       if (!byKind.has(dependency)) continue;
       deepest = Math.max(deepest, visit(dependency) + 1);
     }
@@ -46,7 +46,7 @@ export function graphLayers(kinds: readonly CatalogKindView[]): { nodes: GraphNo
     depth.set(kind, deepest);
     return deepest;
   };
-  const nodes = kinds.map((kind) => ({ kind, dependsOn: kind.dependsOn ?? [], depth: visit(kind.kind) }))
+  const nodes = kinds.map((kind) => ({ kind, derivesFrom: kind.derivesFrom ?? [], depth: visit(kind.kind) }))
     .sort((left, right) => left.depth - right.depth || (left.kind.kind < right.kind.kind ? -1 : left.kind.kind > right.kind.kind ? 1 : 0));
   const count = nodes.reduce((sum, node) => Math.max(sum, node.depth + 1), 0);
   const layers: string[][] = Array.from({ length: count }, () => []);
@@ -96,10 +96,10 @@ export function relatedKinds(kinds: readonly CatalogKindView[], chosen: string |
   const related = new Set<string>();
   if (chosen === null || !byKind.has(chosen)) return related;
   const dependents = new Map<string, string[]>();
-  for (const kind of kinds) for (const dependency of kind.dependsOn ?? []) {
+  for (const kind of kinds) for (const dependency of kind.derivesFrom ?? []) {
     dependents.set(dependency, [...dependents.get(dependency) ?? [], kind.kind]);
   }
-  for (const neighbors of [(id: string) => byKind.get(id)?.dependsOn ?? [], (id: string) => dependents.get(id) ?? []]) {
+  for (const neighbors of [(id: string) => byKind.get(id)?.derivesFrom ?? [], (id: string) => dependents.get(id) ?? []]) {
     let pending = [chosen];
     for (let step = 0; step <= steps; step++) {
       for (const id of pending) if (byKind.has(id)) related.add(id);
@@ -153,7 +153,7 @@ export function KindGraph({ catalog, filling = false, chosen = null, highlighted
   const place = new Map(boxes.map((box) => [box.id, box]));
   const byKind = new Map(catalog.kinds.map((kind) => [kind.kind, kind]));
   const edges = new Map<string, { from: string; to: string; count: number }>();
-  for (const kind of catalog.kinds) for (const dependency of kind.dependsOn ?? []) {
+  for (const kind of catalog.kinds) for (const dependency of kind.derivesFrom ?? []) {
     const source = byKind.get(dependency);
     if (source === undefined) continue;
     const from = place.has(dependency) ? dependency : `section:${sectionOf(source)}`;

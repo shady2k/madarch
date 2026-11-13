@@ -4,6 +4,7 @@
  * queue, and the queue hands each job to exactly one of them. Every unit of the fill is published once, and both api
  * instances answer pages from what the fill wrote.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +12,7 @@ import { join } from 'node:path';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
-import { generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct, PAY } from './knowledge-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 
@@ -31,6 +32,8 @@ beforeAll(async () => {
   const home = join(work, 'home');
   mkdirSync(home);
   const product = makeProduct(home, 'shop', repository, 'training');
+  useFixturePlugins(product, ['disk', 'git']);
+  commitProduct(product, 'Declare the queue ownership fixture plugins');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');

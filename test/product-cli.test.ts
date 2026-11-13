@@ -1336,15 +1336,15 @@ describe('madarch repo add', () => {
     const products = join(home, 'products');
     mkdirSync(products, { recursive: true });
     const draft = madeDraft(products);
-    // This path-resolution case runs only the native Git passes, not external plugin sandboxes.
+    // This path-resolution case runs the declared producers through plugin-turns, without agent stages.
     writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
     const committed = spawnSync(realGit(), ['-C', draft.folder, 'add', 'madarch/workflows.yaml'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
     if (committed.status !== 0) throw new Error(`fixture workflow add failed: ${committed.stderr}`);
-    const saved = spawnSync(realGit(), ['-C', draft.folder, 'commit', '-m', 'Use native Git passes in the path fixture'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
+    const saved = spawnSync(realGit(), ['-C', draft.folder, 'commit', '-m', 'Use declared plugin producers in the path fixture'], { encoding: 'utf8', env: gitEnv(GIT_ENV) });
     if (saved.status !== 0) throw new Error(`fixture workflow commit failed: ${saved.stderr}`);
     const url = sourceRepo(base, 'library-source');
     const relative = join('products', draft.name);

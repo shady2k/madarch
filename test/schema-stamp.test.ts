@@ -7,9 +7,8 @@ import { describe, expect, test } from 'bun:test';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
-import { createRecordSchema } from '../src/graph/records.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
-import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
+import { repositoryContract } from './repository-contract-fixture.js';
 import { testStoreServer } from './test-database.js';
 
 /** Observe every client query, including a forbidden attempt that PostgreSQL rejects. */
@@ -57,7 +56,7 @@ describe('explicit store preparation and connect-only clients', () => {
       const statements: string[] = [];
       const client = observed(owner, statements);
       await expect(createOneGraphSchema(client)).rejects.toThrow('run madarch start');
-      await expect(createRecordSchema(client, GIT_CONTRACT)).rejects.toThrow('run madarch start');
+      await expect(createOneGraphSchema(client, withManifestContract(repositoryContract))).rejects.toThrow('run madarch start');
       expect(statements.filter(ddl)).toEqual([]);
       const held = await owner.run(async (tx) => await tx.query<{ name: string | null }>("SELECT to_regclass('madarch_meta.schema_stamp')::text AS name"));
       expect(held.rows).toEqual([{ name: null }]);
@@ -70,7 +69,7 @@ describe('explicit store preparation and connect-only clients', () => {
       const cluster = await testStoreServer();
       const owner = await createDatabaseOwner({ cluster, database });
       try {
-        await prepareStore(owner, { contract: withManifestContract(GIT_CONTRACT) });
+        await prepareStore(owner, { contract: withManifestContract(repositoryContract) });
         const stamps = await owner.run(async (tx) => await tx.query('SELECT * FROM madarch_meta.schema_stamp ORDER BY name'));
         const statements: string[] = [];
         const answers = await Promise.allSettled(Array.from({ length: 8 }, async (_, role) => {
@@ -78,8 +77,8 @@ describe('explicit store preparation and connect-only clients', () => {
           const client = observed(connection, statements);
           try {
           switch (role) {
-            case 0: await createOneGraphSchema(client, withManifestContract(GIT_CONTRACT)); break;
-            case 1: await createRecordSchema(client, GIT_CONTRACT); break;
+            case 0: await createOneGraphSchema(client, withManifestContract(repositoryContract)); break;
+            case 1: await createOneGraphSchema(client, withManifestContract(repositoryContract)); break;
             case 2: {
               const history = createHistoryStore({ owner: client, clock: { now: () => 1 } });
               try { expect(await history.registry('fixture')).toBeUndefined(); }

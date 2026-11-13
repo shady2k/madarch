@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { FakeGraph } from './fake-graph.js';
-import { GraphReader, spanOf, type GraphEntity, type NeighborEdge, type RelationEdge, type SourceSpan } from '../src/knowledge/graph-read.js';
+import { GraphReader, type GraphEntity, type NeighborEdge, type RelationEdge, type SourceSpan } from '../src/knowledge/graph-read.js';
 import { ChainBuilder, chainFrom } from '../src/knowledge/diagrams.js';
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
@@ -98,8 +98,8 @@ class ChainFixture extends GraphReader {
     for (const key of keys.slice(0, limit)) {
       const found = this.nodeAt(key);
       if (found === undefined) continue;
-      const first = touching.filter((wire) => other(wire) === key).sort((a, b) => (spanOf(a.properties['span'])?.byteStart ?? 0) - (spanOf(b.properties['span'])?.byteStart ?? 0))[0]!;
-      const site = spanOf(first.properties['span']);
+      const first = touching.filter((wire) => other(wire) === key).sort((a, b) => ((a.properties['span'] as SourceSpan | undefined)?.byteStart ?? 0) - ((b.properties['span'] as SourceSpan | undefined)?.byteStart ?? 0))[0]!;
+      const site = (first.properties['span'] as SourceSpan | undefined);
       rows.push({ relation, direction, other: found, properties: first.properties, position: site === undefined ? null : { start: site.byteStart, end: site.byteEnd }, ...(site === undefined ? {} : { span: site }) });
     }
     return { total: keys.length, rows };

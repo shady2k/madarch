@@ -170,6 +170,7 @@ async function readFilesMapUncached(
   let exhausted = false;
   for (;;) {
     const page = await ctx.graph.files(scope.repository, {
+      projection: 'map',
       ...(folder === '' ? {} : { prefix: `${folder}/` }),
       ...(after === undefined ? {} : { after }),
       limit: Math.max(1, options.limit - inside.length),

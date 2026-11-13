@@ -15,7 +15,6 @@ relation-constraints:
 template-policy: page
 template: templates/commit.liquid
 source: graph
-capability: git
 fields:
 - name: hash
   type: text
@@ -23,6 +22,7 @@ fields:
   - git
 - name: algorithm
   type: text
+  nullable: true
   producers:
   - git
 - name: subject
@@ -52,8 +52,6 @@ fields:
   - git
 key:
 - hash
-depends-on:
-- code.repository
 origin: history
 history: commit
 details:
@@ -74,3 +72,6 @@ labels:
 description:
   en: A change in the repository's history, with its author and the files it touched.
   ru: Изменение в истории репозитория, его автор и затронутые файлы.
+derives-from:
+- code.repository
+- code.file

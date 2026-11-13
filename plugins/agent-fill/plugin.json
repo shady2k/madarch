@@ -7,6 +7,15 @@
     "version": "1.4.2"
   },
   "description": "Fills kinds from their manifest definitions and graph evidence through a host-supervised agent.",
+  "produces": [
+    {
+      "kind": "*",
+      "fields": "*",
+      "reads": [],
+      "coverage": "gaps"
+    }
+  ],
+  "concurrency": 1,
   "agent": {
     "prompt": "prompt.md",
     "roots": [

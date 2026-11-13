@@ -3,7 +3,7 @@ import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { API } from './routes.js';
 import { readJson, RequestError } from '../api.js';
-import type { SelectionRun, AgentChoices, AgentOffer, Block, CatalogKindView, CatalogSummaryView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, SearchView, SourceFile, StatementModel, UserSettings, WikiStatus } from './types.js';
+import type { SelectionRun, AgentChoices, AgentOffer, Block, CatalogKindView, CatalogSummaryView, CatalogView, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillRunView, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, KindUsageView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemCategories, ProblemItems, ProblemSection, ProblemSources, ProductChoice, ProductSettings, SearchView, SourceFile, StatementModel, UserSettings, WikiStatus } from './types.js';
 
 /** Graph facts in manifest order for the reader's current role. */
 export const getFacts = (lang: string, signal?: AbortSignal): Promise<FactsView> => readJson<FactsView>('read the facts', `${API.facts}?lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
@@ -12,7 +12,10 @@ export const getFacts = (lang: string, signal?: AbortSignal): Promise<FactsView>
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', API.status, signal);
 
 /** The entity catalogue: every kind the manifest declares, with its words, its count and what fills it (madarch-8bdc.2.5). */
-export const getCatalog = (signal?: AbortSignal): Promise<CatalogSummaryView> => readJson<CatalogSummaryView>('read the entity catalogue', API.catalog, signal);
+export async function getCatalog(signal?: AbortSignal): Promise<CatalogView> {
+  const summary = await readJson<CatalogSummaryView>('read the entity catalogue', API.catalog, signal);
+  return { ...summary, kinds: summary.kinds.map((kind) => ({ ...kind, filled: kind.count > 0 })) };
+}
 
 /** The complete declaration of one kind, read when its details are opened. */
 export const getCatalogKind = (kind: string, signal?: AbortSignal): Promise<CatalogKindView> => readJson<CatalogKindView>('read the kind declaration', `${API.catalog}?kind=${encodeURIComponent(kind)}`, signal);

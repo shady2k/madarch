@@ -708,18 +708,34 @@ function composedProblems(literal: Literal, place: Place): Problem[] {
 
 // ---- the unit's answer -----------------------------------------------------------------------
 
+const CONTENT_READ_CONCURRENCY = 8;
+
 async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = (unit.inputs ?? {}) as { patterns?: unknown };
+  const inputs = (unit.inputs ?? {}) as {
+    patterns?: unknown;
+    contract?: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[] };
+    edgeOutputs?: readonly { kind: string; from: string; to: string }[];
+  };
   const patterns = Array.isArray(inputs.patterns) && inputs.patterns.length > 0 && inputs.patterns.every((one) => typeof one === 'string' && one !== '')
     ? (inputs.patterns as string[])
     : [];
   const model: Model = { databases: new Map(), problems: [] };
   const files: { repository: string; path: string; content: string }[] = [];
   for (const pattern of patterns) {
-    for (const file of await context.graph.files(pattern)) {
+    const definitions = await context.graph.files(pattern);
+    const contents: (string | null | undefined)[] = new Array(definitions.length);
+    let nextFile = 0;
+    await Promise.all(Array.from({ length: Math.min(CONTENT_READ_CONCURRENCY, definitions.length) }, async () => {
+      while (nextFile < definitions.length) {
+        const index = nextFile++;
+        const file = definitions[index]!;
+        contents[index] = await context.graph.value<string | null>(file.kind, file.key, 'content');
+      }
+    }));
+    for (const [index, file] of definitions.entries()) {
       const repository = String(file.key['repository'] ?? '');
       const path = String(file.key['path'] ?? '');
-      const content = await context.graph.value<string | null>(file.kind, file.key, 'content');
+      const content = contents[index];
       if (typeof content === 'string' && content !== '') files.push({ repository, path, content });
     }
   }
@@ -743,7 +759,20 @@ async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult>
     }
     context.progress(at + 1, files.length, file.path);
   }
-  return answerOf(model);
+  const result = answerOf(model);
+  if (inputs.contract === undefined) return result;
+  const output = inputs.contract.vertices.find((vertex) => vertex.kind === unit.kind);
+  if (output === undefined) throw new Error(`no selected output contract for ${unit.kind}`);
+  const fields = new Set(output.fields.map((field) => field.name));
+  const edgeOutputs = new Set((inputs.edgeOutputs ?? []).map((edge) => JSON.stringify([edge.kind, edge.from, edge.to])));
+  return {
+    ...result,
+    vertices: result.vertices?.filter((vertex) => vertex.kind === unit.kind).map((vertex) => ({
+      ...vertex,
+      ...(vertex.values === undefined ? {} : { values: Object.fromEntries(Object.entries(vertex.values).filter(([field]) => fields.has(field))) }),
+    })),
+    edges: result.edges?.filter((edge) => edgeOutputs.has(JSON.stringify([edge.kind, edge.from.kind, edge.to.kind]))),
+  };
 }
 
 /** The vertices and edges of the model, and how the unit ended. */

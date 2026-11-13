@@ -4,6 +4,7 @@ import type { ProductFileRead } from './product-files.js';
 import type { Finding, KindsManifest } from '../product/manifest/kinds.js';
 import { parsePluginLock, PLUGINS_LOCK_FILE } from './lock.js';
 import { parsePluginManifest, ClosureRefusal } from './closure.js';
+import { planManifestFill } from './fill-declarations.js';
 
 export function pluginDeclarationFindings(files: ProductFileRead, folder: string, manifest: KindsManifest | undefined): Finding[] {
   const findings: Finding[] = [];
@@ -16,6 +17,13 @@ export function pluginDeclarationFindings(files: ProductFileRead, folder: string
     const text = files.text(path);
     if (text === undefined) findings.push({ file, line: 1, message: 'the named plugin holds no readable plugin.json' });
     else try { parsePluginManifest(text, file); } catch (error) {
+      if (!(error instanceof ClosureRefusal)) throw error;
+      findings.push({ file: error.file, line: error.line, message: error.message });
+    }
+  }
+  if (manifest !== undefined && findings.length === 0) {
+    try { planManifestFill(manifest, folder, []); }
+    catch (error) {
       if (!(error instanceof ClosureRefusal)) throw error;
       findings.push({ file: error.file, line: error.line, message: error.message });
     }

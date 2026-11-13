@@ -18,11 +18,13 @@ import { builtinModules } from 'node:module';
 import { ClosureRefusal } from './closure-refusal.js';
 export { ClosureRefusal } from './closure-refusal.js';
 import { walk, dependencyFiles } from './dependency-files.js';
+import { withSpanSync } from '../obs/trace.js';
 import { PluginContractFile, type PluginRights } from './protocol.js';
 import { SDK_SOURCE } from './sdk-asset.js';
 import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
+import { LineCounter, parseDocument } from 'yaml';
 
 /** Where a refusal stands, as every error of this codebase names it. */
 const WHERE = 'src/plugin/closure.ts';
@@ -48,6 +50,29 @@ export const PluginManifest = Type.Object(
       },
       { additionalProperties: false },
     ),
+    produces: Type.Array(Type.Object({
+      kind: Type.String({ minLength: 1 }),
+      fields: Type.Union([Type.Literal('*'), Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })]),
+      reads: Type.Optional(Type.Array(Type.Union([
+        Type.String({ minLength: 1 }),
+        Type.Object({ kind: Type.String({ minLength: 1 }), version: Type.Literal('earlier'), producer: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+      ]))),
+      refines: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+      coverage: Type.Optional(Type.Literal('gaps')),
+      partition: Type.Optional(Type.Literal('key')),
+    }, { additionalProperties: false }), { minItems: 1 }),
+    tools: Type.Optional(Type.Array(Type.Union([
+      Type.Object({
+        name: Type.String({ pattern: '^[a-z][a-z0-9-]*$' }),
+        sha256: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+      }, { additionalProperties: false }),
+      Type.Object({
+        name: Type.Literal('git'),
+        source: Type.Literal('system'),
+        minimumVersion: Type.String({ pattern: '^\\d+\\.\\d+(?:\\.\\d+)?$' }),
+      }, { additionalProperties: false }),
+    ]))),
+    concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     description: Type.Optional(Type.String({ minLength: 1 })),
     agent: Type.Optional(Type.Object({
       prompt: Type.String({ minLength: 1 }),
@@ -104,9 +129,14 @@ function importLine(text: string, name: string): number {
 
 /** Resolve every statically named runtime import against precisely the files the snapshot will carry. */
 function validateImports(folder: string, files: readonly { path: string; file: string }[], entryPath: string): void {
-  const held = new Set(files.map((file) => resolve(file.file)));
+  const held = new Map<string, (typeof files)[number]>();
+  for (const file of files) {
+    const path = resolve(file.file);
+    if (!held.has(path)) held.set(path, file);
+  }
   const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`), 'bun', 'bun:ffi', 'bun:jsc', 'bun:sqlite', 'bun:test']);
   const pending = [files.find((file) => file.path === entryPath)!];
+  const scanners = new Map<string, Bun.Transpiler>();
   const visited = new Set<string>();
   for (const entry of pending) {
     if (visited.has(entry.file)) continue;
@@ -114,8 +144,13 @@ function validateImports(folder: string, files: readonly { path: string; file: s
     if (!/\.(?:[cm]?[jt]sx?)$/.test(entry.path) || /\.d\.[cm]?ts$/.test(entry.path)) continue;
     const text = readFileSync(entry.file, 'utf8').replace(/^#![^\n]*/, (line) => ' '.repeat(line.length));
     const loader = entry.path.endsWith('tsx') ? 'tsx' : entry.path.endsWith('jsx') ? 'jsx' : /\.[cm]?ts$/.test(entry.path) ? 'ts' : 'js';
+    let scanner = scanners.get(loader);
+    if (scanner === undefined) {
+      scanner = new Bun.Transpiler({ loader });
+      scanners.set(loader, scanner);
+    }
     let imports: ReturnType<Bun.Transpiler['scanImports']>;
-    try { imports = new Bun.Transpiler({ loader }).scanImports(text); }
+    try { imports = scanner.scanImports(text); }
     catch (error) { throw new ClosureRefusal('plugin-import', `${entry.file}:1: cannot scan imports: ${(error as Error).message}`, entry.file); }
     for (const imported of imports) {
       if (builtins.has(imported.path) || imported.path === SDK_PACKAGE) continue;
@@ -124,8 +159,9 @@ function validateImports(folder: string, files: readonly { path: string; file: s
         const line = importLine(text, imported.path);
         throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder}: ${(error as Error).message}`, entry.file, line);
       }
-      if (held.has(resolve(target))) {
-        pending.push(files.find((file) => resolve(file.file) === resolve(target))!);
+      const resolved = held.get(resolve(target));
+      if (resolved !== undefined) {
+        pending.push(resolved);
         continue;
       }
       const line = importLine(text, imported.path);
@@ -168,16 +204,32 @@ export function readPluginManifest(folder: string): PluginManifest {
 }
 
 /** The same manifest check over pinned or working-tree bytes, without executing a plugin. */
+export function pluginManifestLine(text: string, path: readonly (string | number)[]): number {
+  const counter = new LineCounter();
+  const document = parseDocument(text, { lineCounter: counter });
+  const node = document.getIn([...path], true) as { range?: readonly number[] } | undefined;
+  return counter.linePos(node?.range?.[0] ?? 0).line;
+}
+
 export function parsePluginManifest(text: string, file: string): PluginManifest {
+  file = resolve(file);
   let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch (error) {
-    throw new ClosureRefusal('plugin-manifest', `${file}:1: ${(error as Error).message}`, file);
+  try { value = JSON.parse(text); }
+  catch (error) { throw new ClosureRefusal('plugin-manifest', `${file}:1: ${(error as Error).message}`, file); }
+  const body = value as Partial<PluginManifest> | null;
+  const refuse = (key: string, message: string): never => {
+    const line = pluginManifestLine(text, [key]);
+    throw new ClosureRefusal('plugin-manifest', `${file}:${line}: ${message}`, file, line);
+  };
+  if (body !== null && typeof body === 'object') {
+    if (body.concurrency !== undefined && (!Number.isInteger(body.concurrency) || body.concurrency < 1)) refuse('concurrency', `plugin ${body.name ?? '?'} concurrency must be a positive integer`);
+    if (!Array.isArray(body.produces) || body.produces.length === 0) refuse('produces', `plugin ${body.name ?? '?'} declares no output; declare produces, including Problem records for checks`);
   }
   if (!Value.Check(PluginManifest, value)) {
     const first = [...Value.Errors(PluginManifest, value)][0];
-    throw new ClosureRefusal('plugin-manifest', `${file}:1: ${first === undefined ? 'the manifest is not a plugin manifest' : `${first.instancePath === '' ? 'the manifest' : first.instancePath.slice(1)}: ${first.message}`}`, file);
+    const path = first?.instancePath.split('/').slice(1) ?? [];
+    const line = pluginManifestLine(text, path);
+    throw new ClosureRefusal('plugin-manifest', `${file}:${line}: ${first === undefined ? 'the manifest is not a plugin manifest' : `${first.instancePath === '' ? 'the manifest' : first.instancePath.slice(1)}: ${first.message}`}`, file, line);
   }
   return value;
 }
@@ -240,11 +292,11 @@ export function closureOf(folder: string): Closure {
   folder = resolve(folder);
   const manifest = readPluginManifest(folder);
   const missing: ClosureRefusal[] = [];
-  const entries = [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))];
-  const own = entries.map((entry) => {
+  const entries = withSpanSync('plugin.closure.files', {}, () => [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))]);
+  const own = withSpanSync('plugin.closure.hash', { 'madarch.plugin.files': entries.length }, () => entries.map((entry) => {
     const stat = lstatSync(entry.file);
     return { path: entry.path, sha256: digestOf(entry.file), bytes: stat.size, mode: stat.mode & 0o777 };
-  });
+  }));
   if (!own.some((file) => file.path === manifest.entry)) {
     throw new ClosureRefusal('plugin-entry', `${WHERE}:1: ${join(folder, manifest.entry)} is the entry ${PLUGIN_MANIFEST_FILE} names, and the plugin folder holds no such file`, join(folder, manifest.entry));
   }
@@ -252,7 +304,7 @@ export function closureOf(folder: string): Closure {
   if (ownSdk !== undefined) {
     throw new ClosureRefusal('plugin-sdk-conflict', `${WHERE}:1: ${join(folder, ownSdk.path)} stands in the plugin's folder, and madarch hands every plugin its own SDK at that name: remove the copy, and import ${SDK_PACKAGE} from the closure madarch builds`, join(folder, ownSdk.path));
   }
-  validateImports(folder, entries, manifest.entry);
+  withSpanSync('plugin.closure.imports', {}, () => validateImports(folder, entries, manifest.entry));
   if (missing[0] !== undefined) throw missing[0];
   const files = [...own, ...sdkClosureFiles()].sort((left, right) => byCodePoint(left.path, right.path));
   return { folder, manifest, files, hash: closureHashOf(files) };

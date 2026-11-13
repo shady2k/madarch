@@ -766,7 +766,7 @@ describe('there is one app', () => {
       (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
         if (String(url).endsWith('/api/catalog')) return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, language: 'en', groups: [], findings: [], kinds: [
           { kind: 'upstream', subgroup: '', count: 0, page: false, filled: false, state: 'never', labels: { en: { one: 'Upstream', many: 'Upstreams' } } },
-          { kind: 'downstream', subgroup: '', count: 0, page: false, filled: false, state: 'never', dependsOn: ['upstream'], labels: { en: { one: 'Downstream', many: 'Downstreams' } } },
+          { kind: 'downstream', subgroup: '', count: 0, page: false, filled: false, state: 'never', derivesFrom: ['upstream'], labels: { en: { one: 'Downstream', many: 'Downstreams' } } },
         ] }));
         return await base(String(url));
       };

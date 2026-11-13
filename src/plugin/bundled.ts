@@ -54,6 +54,8 @@ export const BUNDLED_PLUGINS: readonly BundledPlugin[] = [
     version: '1.0.0',
     files: pluginFiles('db-schema').map((file) => ({ path: file.path, content: contentOf(file.base64) })),
   },
+  { id: 'disk', folder: 'plugins/disk', version: '1.0.0', files: pluginFiles('disk').map((file) => ({ path: file.path, content: contentOf(file.base64) })) },
+  { id: 'git', folder: 'plugins/git', version: '1.0.0', files: pluginFiles('git').map((file) => ({ path: file.path, content: contentOf(file.base64) })) },
   {
     id: 'glossary',
     folder: 'plugins/glossary',

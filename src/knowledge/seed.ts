@@ -355,7 +355,7 @@ function pluginManifest(kinds: readonly CatalogKindData[]): Record<string, unkno
   const names = new Set(kinds.map((kind) => kind.name));
   return BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? kinds.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)))
     .map((plugin) => ({ id: plugin.id, version: Number(plugin.version.split('.')[0]), path: plugin.folder,
-      inputs: pluginUsesCatalogue(plugin) ? [] : ['code.file'], outputs: pluginOutputsOf(plugin), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
+      inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin).filter((kind) => names.has(kind)), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
 }
 
 /** The plugin lock's text (decision 0035, item 20): each bundled plugin's exact version and closure hash. */
@@ -375,6 +375,14 @@ function pluginUsesCatalogue(plugin: BundledPlugin): boolean {
   if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no plugin.json text`);
   const manifest = JSON.parse(held) as { agent?: { catalogue?: boolean } };
   return manifest.agent?.catalogue === true;
+}
+
+/** The input kinds each bundled plugin declares for its output-scoped reads. */
+function pluginInputsOf(plugin: BundledPlugin): string[] {
+  const held = plugin.files.find((file) => file.path === 'plugin.json')?.content;
+  if (typeof held !== 'string') throw new Error(`src/knowledge/seed.ts:1: the bundled plugin ${plugin.id} carries no plugin.json text`);
+  const manifest = JSON.parse(held) as { produces: { reads?: (string | { kind: string })[] }[] };
+  return [...new Set(manifest.produces.flatMap((output) => (output.reads ?? []).map((read) => typeof read === 'string' ? read : read.kind)))];
 }
 
 /** The output kinds a bundled plugin's own contract declares. */

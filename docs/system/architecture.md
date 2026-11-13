@@ -119,9 +119,9 @@ The wiki revision follows published graph state, not a digest of live page files
 ## From a repository to a reader
 
 A repository is filled by `madarch fill` or the wiki's fill button: the fill
-runs the tree and history record passes of `src/fill/steps.ts`, reads git
-through `src/fill/stages/repository-facts.ts`, and publishes the rows through
-the record store (`src/graph/records.ts`). The server, the MCP server and the
+runs the declared disk and git plugins (`plugins/disk/main.ts` and
+`plugins/git/main.ts`) through `src/fill/plugin-turns.ts`, and publishes their
+ordinary graph claims through `src/graph/write.ts`. The server, the MCP server and the
 wiki read those records through the storage layer. The engine's mechanism tables
 are `src/graph/one-graph.ts`, and each kind's attribute table is generated from its
 contract by `src/graph/contract.ts` (decision 0034). A product's intended model is still

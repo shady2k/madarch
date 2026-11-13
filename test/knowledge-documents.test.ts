@@ -16,7 +16,6 @@ import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 const DOCUMENT_LIMIT = 2000;
 import { gitEnv } from './git-env.js';
-import { withoutPluginTurns } from './knowledge-fixture.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -38,7 +37,6 @@ describe('the documents of a repository larger than the listing bound', () => {
     const draft = createDraft({ home: join(work, 'home'), name: 'bulk-shop', gitEnv: gitEnv(IDENTITY) });
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
-    withoutPluginTurns(folder);
     writeFolderManifest(folder, `kinds:
   document:
     template: templates/document.liquid
@@ -72,7 +70,7 @@ describe('the documents of a repository larger than the listing bound', () => {
       await product.settled();
     });
     expect(product.fillState()).toMatchObject({ state: 'done' });
-    // Document pages are structured opinions; a file-only fill no longer parses Markdown into pages.
+    // This manifest declares no automatic producer. Its empty fill succeeds; authored documents are explicit structured opinions.
     const read = readKinds(folder);
     if (!read.present) throw new Error(`${folder}/madarch/catalog.yaml:1: fixture manifest missing`);
     const manifest = read.manifest;

@@ -107,6 +107,7 @@ export const PluginUnitEnd = Type.Union(
 export const PluginUnitResult = Type.Object(
   {
     unitId: Type.String({ minLength: 1 }),
+    chunkCount: Type.Optional(Type.Integer({ minimum: 1 })),
     vertices: Type.Optional(Type.Array(PluginVertexResult)),
     edges: Type.Optional(Type.Array(PluginEdgeResult)),
     removals: Type.Optional(Type.Array(PluginRemoval)),
@@ -153,8 +154,8 @@ export const PluginVertexKindDeclaration = Type.Object(
 export const PluginEdgeKindDeclaration = Type.Object(
   {
     kind: Type.String({ minLength: 1 }),
-    from: Type.String({ minLength: 1, description: 'The vertex kind its ends start at.' }),
-    to: Type.String({ minLength: 1, description: 'The vertex kind its ends go to.' }),
+    from: Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })], { description: 'The allowed vertex kinds its ends start at.' }),
+    to: Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })], { description: 'The allowed vertex kinds its ends go to.' }),
     fields: Type.Optional(Type.Array(PluginFieldDeclaration)),
   },
   { additionalProperties: false, description: 'One edge kind the plugin produces: its name, the kinds of its ends and its fields.' },
@@ -241,6 +242,7 @@ export const PluginIntroduce = Type.Object(
     rights: PluginRights,
     limits: Type.Optional(PluginLimits),
     outputs: PluginContractDeclaration,
+    planOutput: Type.Optional(Type.Boolean()),
     reads: Type.Optional(Type.Union([Type.Literal('unit'), Type.Literal('whole-graph')], { description: 'What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn ("whole-graph"). A whole-graph plugin is planned once, last, and planned again when anything it read moved.' })),
   },
   { additionalProperties: false, description: 'The plugin\'s introduction: its contract, version, rights, limits and what it reads.' },
@@ -378,6 +380,11 @@ export const PluginRpcError = Type.Object(
 /** One request either side makes, with its own params: the shapes above, one message each. */
 const IntroduceRequest = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('introduce'), params: PluginIntroduce }, { additionalProperties: false, description: 'The plugin introduces itself: protocol, name, version, rights, limits and outputs.' });
 const UnitRequestMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('unit'), params: Type.Object({ unit: PluginUnitRequest }, { additionalProperties: false }) }, { additionalProperties: false, description: 'The host hands the plugin one unit.' });
+export const PluginOutputPlan = Type.Object({
+  partitions: Type.Array(Type.Object({ keys: Type.Array(PluginKeyValues, { minItems: 1 }) }, { additionalProperties: false })),
+  next: Type.Optional(Type.String({ minLength: 1 })),
+}, { additionalProperties: false });
+const PlanOutputMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('planOutput'), params: Type.Object({ unit: PluginUnitRequest, cursor: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }) }, { additionalProperties: false });
 const ControlRequest = (method: 'pause' | 'resume' | 'stop') => Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal(method), params: Type.Optional(Type.Unknown()) }, { additionalProperties: false, description: `The host asks the plugin to ${method}.` });
 export const PluginAgentRunRequest = Type.Object({ unitId: Type.String({ minLength: 1 }), task: Type.Optional(Type.Unknown()) }, { additionalProperties: false });
 const AgentRunMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('agent.run'), params: PluginAgentRunRequest }, { additionalProperties: false });
@@ -398,6 +405,14 @@ const GraphUnresolvedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: R
 const GraphRemovedEndsMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.removedEnds'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the edges whose end is removed.' });
 const GraphUnevidencedMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.unevidenced'), params: PluginGraphPageRequest }, { additionalProperties: false, description: 'The plugin asks the host for one page of the open opinions of fields whose contract requires evidence and that state none.' });
 
+/** Bounded result fragments are held privately until the final unit answer. */
+export const PluginResultChunk = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  sequence: Type.Integer({ minimum: 0 }),
+  data: Type.String({ minLength: 1, pattern: '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$' }),
+}, { additionalProperties: false });
+const ResultChunkMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('unit.resultChunk'), params: PluginResultChunk }, { additionalProperties: false });
+
 /** One notification either side sends, with its own params. */
 const HeartbeatMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('heartbeat'), params: Type.Optional(PluginHeartbeat) }, { additionalProperties: false, description: 'The plugin is alive while a unit runs.' });
 const ProgressMessage = Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('progress'), params: PluginProgress }, { additionalProperties: false, description: 'Where one unit stands.' });
@@ -415,6 +430,7 @@ export const PluginProtocolMessage = Type.Union(
   [
     IntroduceRequest,
     UnitRequestMessage,
+    PlanOutputMessage,
     AgentRunMessage,
     GraphFilesMessage,
     GraphValueMessage,
@@ -425,6 +441,7 @@ export const PluginProtocolMessage = Type.Union(
     ControlRequest('resume'),
     ControlRequest('stop'),
     HeartbeatMessage,
+    ResultChunkMessage,
     ProgressMessage,
     ErrorMessage,
     CancelMessage,
@@ -443,6 +460,7 @@ export const PluginProtocolMessage = Type.Union(
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;
 export type PluginUnitResult = Static<typeof PluginUnitResult>;
+export type PluginOutputPlan = Static<typeof PluginOutputPlan>;
 export type PluginUnitEnd = Static<typeof PluginUnitEnd>;
 export type PluginVertexResult = Static<typeof PluginVertexResult>;
 export type PluginEdgeResult = Static<typeof PluginEdgeResult>;

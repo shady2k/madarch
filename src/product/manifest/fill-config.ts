@@ -33,6 +33,7 @@ import { STAGE_ID_PATTERN } from '../../fill/stage.js';
 import { join } from 'node:path';
 import { MANIFEST_FILE } from '../manifest.js';
 import { KINDS_FILE, KINDS_FOLDER, readKindsFrom } from './kinds.js';
+import type { FirstFillRead } from './workflows.js';
 import { WORKFLOWS_FILE } from './workflows.js';
 import { PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
 import { snapshotFiles, type ProductFileRead } from '../../plugin/product-files.js';
@@ -133,6 +134,16 @@ export function parseFillStageConfiguration(text: string | undefined, file: stri
   }
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, file, stages: read, lines };
+}
+
+/** A declared producer is runnable only when the effective workflow enables its execution stage. */
+export function assertPluginTurnsEnabled(producers: readonly string[], workflow: FirstFillRead, configuration: FillStageConfigurationRead): void {
+  if (producers.length === 0) return;
+  if (!workflow.ok) throw new Error(`${workflow.refusal.file}:${workflow.refusal.line}: ${workflow.refusal.message}`);
+  if (!configuration.ok) throw new Error(configuration.errors.map((error) => `${error.file}:${error.line}: ${error.message}`).join('\n'));
+  if (!workflow.stages.includes('plugin-turns')) throw new Error(`${workflow.file}:${workflow.line}: selected producer ${producers.join(', ')} cannot run: first-fill omits plugin-turns; enable its producer stage`);
+  const stage = configuration.stages['plugin-turns'];
+  if (stage !== null && typeof stage === 'object' && !Array.isArray(stage) && (stage as Record<string, unknown>)['enabled'] === false) throw new Error(`${configuration.file}:${configuration.lines['plugin-turns'] ?? 1}: selected producer ${producers.join(', ')} cannot run: plugin-turns is disabled; enable its producer stage`);
 }
 
 /** The declarative files of the pinned product snapshot, read once for its fill. */

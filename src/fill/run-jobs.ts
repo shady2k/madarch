@@ -23,6 +23,8 @@ export interface FillRunJob {
   readonly runId: string;
   /** The language the press named, when it named one. */
   readonly language?: string;
+  readonly agent?: string | null;
+  readonly tokenCap?: number;
   /** The task the press named, when it named one. */
   readonly task?: string;
   /**

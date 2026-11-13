@@ -24,7 +24,7 @@ import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
 import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, type RunSnapshot } from '../src/fill/orchestrator-store.js';
+import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, recordUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { daemonFills } from '../src/product/daemon-fills.js';
@@ -241,6 +241,94 @@ async function plannedWorld(options: Parameters<typeof openWorld>[0], runId = 'r
   if (plan.outcome !== 'planned') throw new Error('the plan was expected to hold');
   return { world: opened, runId, plan };
 }
+
+test('concurrent tracked reads and progress keep their durable sequence allocation', async () => {
+  const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('source', { units: ['one'] })) });
+  const unit = (await readRunUnits(opened.owner, runId))[0]!;
+  const before = await readProgress(opened.owner, runId);
+  const reads = await Promise.all(['a', 'b', 'c'].map(async (query) => await recordUnitRead(opened.owner, {
+    unitId: unit.unitId, generation: unit.generation, query, rows: [query], at: NOW,
+  })));
+  expect(reads.map((read) => read.seq).sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  const repeated = await recordUnitRead(opened.owner, { unitId: unit.unitId, generation: unit.generation, query: 'a', rows: ['changed'], at: NOW + 1 });
+  expect(repeated.seq).toBe(4);
+  const held = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  expect(held).toHaveLength(3);
+  expect(held.find((read) => read.query === 'a')?.membership).toBe(readMembership(['changed']));
+  const batched = await recordUnitReads(opened.owner, ['a', 'b', 'a'].map((query, index) => ({
+    unitId: unit.unitId, generation: unit.generation, query, rows: [index], at: NOW + 2,
+  })));
+  expect(batched.map((read) => read.seq)).toEqual([5, 6, 7]);
+  const afterBatch = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  expect(afterBatch).toHaveLength(3);
+  expect(afterBatch.find((read) => read.query === 'a')?.membership).toBe(readMembership([2]));
+  expect(afterBatch.find((read) => read.query === 'a')?.seq).toBe(7);
+  const duplicates = await recordUnitReads(opened.owner, [3, 4, 5].map((value) => ({
+    unitId: unit.unitId, generation: unit.generation, query: 'a', rows: [value], at: NOW + 3,
+  })));
+  expect(duplicates.map((read) => read.seq)).toEqual([8, 9, 10]);
+  const afterDuplicates = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  expect(afterDuplicates).toHaveLength(3);
+  expect(afterDuplicates.find((read) => read.query === 'a')?.membership).toBe(readMembership([5]));
+  expect(afterDuplicates.find((read) => read.query === 'a')?.seq).toBe(10);
+  const nextRead = await recordUnitRead(opened.owner, { unitId: unit.unitId, generation: unit.generation, query: 'd', rows: ['d'], at: NOW + 4 });
+  expect(nextRead.seq).toBe(11);
+  const readBatches = await Promise.all([['e', 'f'], ['g', 'h', 'i']].map(async (queries) => await recordUnitReads(opened.owner, queries.map((query) => ({
+    unitId: unit.unitId, generation: unit.generation, query, rows: [query], at: NOW + 5,
+  })))));
+  for (const batch of readBatches) expect(batch.map((read) => read.seq)).toEqual(batch.map((_read, index) => batch[0]!.seq + index));
+  expect(readBatches.flat().map((read) => read.seq).sort((a, b) => a - b)).toEqual([12, 13, 14, 15, 16]);
+  const persistedReads = await readUnitReads(opened.owner, unit.unitId, unit.generation);
+  for (const read of readBatches.flat()) expect(persistedReads.find((held) => held.query === read.query)).toEqual(read);
+  const events = await Promise.all(['a', 'b', 'c'].map(async (summary) => await appendProgress(opened.owner, {
+    runId, at: NOW, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary,
+  })));
+  const last = before.at(-1)?.seq ?? 0;
+  expect(events.map((event) => event.seq).sort((a, b) => a - b)).toEqual([last + 1, last + 2, last + 3]);
+  expect((await readProgress(opened.owner, runId)).slice(-3).map((event) => event.seq)).toEqual([last + 1, last + 2, last + 3]);
+  const eventBatch = await appendProgresses(opened.owner, ['batch-a', 'batch-b', 'batch-a'].map((summary) => ({
+    runId, at: NOW + 2, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary,
+  })));
+  expect(eventBatch.map((event) => event.seq)).toEqual([last + 4, last + 5, last + 6]);
+  expect((await readProgress(opened.owner, runId)).slice(-3)).toEqual([...eventBatch]);
+  const eventBatches = await Promise.all([['left-a', 'left-b'], ['right-a', 'right-b', 'right-c']].map(async (summaries) => await appendProgresses(opened.owner, summaries.map((summary) => ({
+    runId, at: NOW + 3, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary,
+  })))));
+  for (const batch of eventBatches) expect(batch.map((event) => event.seq)).toEqual(batch.map((_event, index) => batch[0]!.seq + index));
+  const allocatedEvents = eventBatches.flat().sort((a, b) => a.seq - b.seq);
+  expect(allocatedEvents.map((event) => event.seq)).toEqual([last + 7, last + 8, last + 9, last + 10, last + 11]);
+  expect((await readProgress(opened.owner, runId)).slice(-5)).toEqual(allocatedEvents);
+});
+
+test('a failed progress batch rolls back its events without rolling back committed tracked reads', async () => {
+  const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('source', { units: ['one'] })) });
+  const unit = (await readRunUnits(opened.owner, runId))[0]!;
+  const before = await readProgress(opened.owner, runId);
+  const reads = ['a', 'b'].map((query) => ({ unitId: unit.unitId, generation: unit.generation, query, rows: [query], at: NOW }));
+  await recordUnitReads(opened.owner, reads);
+  let inserts = 0;
+  const failing: DatabaseOwner = {
+    ...opened.owner,
+    transaction: async (kind, work) => await opened.owner.transaction(kind, async (transaction) => await work({
+      query: async <Row extends object = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        const result = await transaction.query<Row>(sql, values);
+        if (sql.includes('INSERT INTO fill_event') && ++inserts === 1) throw new Error('injected progress batch failure');
+        return result;
+      },
+    })),
+  };
+  await expect(appendProgresses(failing, reads.map((read) => ({
+    runId, at: NOW, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary: read.query,
+  })))).rejects.toThrow('injected progress batch failure');
+  expect(inserts).toBe(1);
+  expect((await readUnitReads(opened.owner, unit.unitId, unit.generation)).map((read) => ({ query: read.query, membership: read.membership, seq: read.seq }))).toEqual([
+    { query: 'a', membership: readMembership(['a']), seq: 1 },
+    { query: 'b', membership: readMembership(['b']), seq: 2 },
+  ]);
+  expect(await readProgress(opened.owner, runId)).toEqual(before);
+  const next = await appendProgress(opened.owner, { runId, at: NOW + 1, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: 'after rollback' });
+  expect(next.seq).toBe((before.at(-1)?.seq ?? 0) + 1);
+});
 
 describe('the snapshot a publication reads', () => {
   // madarch-tzte.21.11 rechecks a unit's tracked reads inside the publication's own transaction, and a read
@@ -498,6 +586,86 @@ describe('planning from the registry', () => {
 });
 
 describe('admission within the slots, by priority', () => {
+  test('a cached successful publication cannot authorize a different current generation', async () => {
+    const lent = await createTestDatabaseOwner();
+    let enter: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    let intercept = false;
+    const gated = Object.create(lent) as DatabaseOwner;
+    gated.transaction = async (kind, work) => {
+      if (kind === 'write' && intercept) {
+        intercept = false;
+        enter!();
+        await released;
+      }
+      return await lent.transaction(kind, work);
+    };
+    const stage = draftingStage('plugin-turns', { units: ['producer', 'consumer'], concurrency: 2 });
+    stage.unitScheduling = (id) => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
+    stage.execute = (_unit, context) => {
+      context.draft.write({ kind: 'producer-outcome', evidence: 'Document', value: { plugin: 'example', kind: 'Document', outcome: 'completed', produced: 1 } });
+      return { outcome: 'draft' };
+    };
+    try {
+      const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), owner: gated });
+      expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(1);
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+      intercept = true;
+      const admission = admitUnits(opened.orchestrator, { runId });
+      await entered;
+      // A different writer seals a new, abstaining generation after the pass captured the old success.
+      await lent.transaction('write', async (tx) => {
+        const id = 'plugin-turns/producer';
+        await tx.query(`INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at)
+          SELECT unit_id, generation + 1, run_id, state, inputs_digest, fence + 1, context, updated_at
+          FROM fill_unit_generation WHERE unit_id = $1 AND generation = 1`, [id]);
+        await tx.query('UPDATE fill_unit SET generation = 2 WHERE unit_id = $1', [id]);
+        await tx.query(`INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at)
+          VALUES ($1, 2, 'abstained', $2::jsonb, $3)`, [id, JSON.stringify([{ kind: 'producer-outcome', value: { plugin: 'example', kind: 'Document', outcome: 'abstained', produced: 0 } }]), NOW]);
+        await tx.query(`INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at)
+          VALUES ($1, 2, 'abstained', 0, $2)`, [id, NOW]);
+      });
+      release!();
+      expect((await admission).admittedNow).toBe(0);
+      expect((await readUnit(opened.owner, 'plugin-turns/consumer'))?.state).toBe('blocked');
+    } finally {
+      release!();
+      await lent.close();
+    }
+  }, 120_000);
+
+  test('waiting dependencies and full producer groups do not open one admission transaction per candidate', async () => {
+    const producers = ['root', ...Array.from({ length: 20 }, (_, index) => `producer-${index}`)];
+    const consumers = Array.from({ length: 20 }, (_, index) => `consumer-${index}`);
+    const stage = draftingStage('graph', { units: [...producers, ...consumers], concurrency: 100 });
+    stage.unitScheduling = (id) => ({
+      after: consumers.includes(id) ? ['root'] : [],
+      group: consumers.includes(id) ? 'consumers' : 'producers', concurrency: 1,
+    });
+    const lent = await createTestDatabaseOwner();
+    let transactions = 0;
+    const counting = Object.create(lent) as DatabaseOwner;
+    counting.transaction = async (kind, work) => { transactions += 1; return await lent.transaction(kind, work); };
+    try {
+      const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { maxInFlight: 100 }, owner: counting });
+      let before = transactions;
+      const first = await admitUnits(opened.orchestrator, { runId });
+      expect(first.admitted.map((unit) => unit.unitId)).toEqual(['graph/root']);
+      expect(first.waitingForSlot).toHaveLength(40);
+      expect(transactions - before).toBeLessThanOrEqual(12);
+      before = transactions;
+      expect((await admitUnits(opened.orchestrator, { runId })).admittedNow).toBe(0);
+      expect(transactions - before).toBeLessThanOrEqual(12);
+      expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+      const next = await admitUnits(opened.orchestrator, { runId });
+      expect(next.admitted.map((unit) => unit.unitId)).toEqual(['graph/producer-0', 'graph/consumer-0']);
+    } finally {
+      await lent.close();
+    }
+  }, 120_000);
+
   test('a pass admits up to the run\'s slots and walks no further, whatever the plan holds', async () => {
     // Sixty units, one slot: the pass admits the first and stops, instead of opening a transaction for
     // every candidate that finds no slot. A run of a few thousand units measured 27 s of a 27.6 s unit
@@ -1631,4 +1799,29 @@ describe('the fill tables reference each other', () => {
       await owner.close();
     }
   }, 60_000);
+});
+
+
+test('declaration scheduling admits unrelated producers but waits for publication and producer slots', async () => {
+  const stage = fakeStage('declared', {
+    defaults: { ...DEFAULT_STAGE_DEFAULTS, concurrency: 4 },
+    plan: () => ({ units: [
+      { id: 'writer:a', scope: 'a' }, { id: 'writer:b', scope: 'b' },
+      { id: 'reader:c', scope: 'c' }, { id: 'unrelated:d', scope: 'd' },
+    ] }),
+    unitScheduling(id) { return { group: id.split(':')[0]!, concurrency: 1, after: id.startsWith('reader:') ? ['writer:a', 'writer:b'] : [] }; },
+  });
+  const opened = await world({ registry: new StageRegistry().register(stage) });
+  const started = await startRun(opened.orchestrator, { runId: 'declaration-scheduling' });
+  if (!started.ok) throw new Error(started.reason);
+  await planRun(opened.orchestrator, { runId: started.run.runId });
+  const admitted = await admitUnits(opened.orchestrator, { runId: started.run.runId });
+  expect(admitted.admitted.map((unit) => unit.unitId)).toEqual(['declared/writer:a', 'declared/unrelated:d']);
+  await workOnce(opened.orchestrator, { worker: 'scripted' });
+  const second = await admitUnits(opened.orchestrator, { runId: started.run.runId });
+  expect(second.admitted.map((unit) => unit.unitId)).toEqual(['declared/writer:b']);
+  await workOnce(opened.orchestrator, { worker: 'scripted' });
+  await workOnce(opened.orchestrator, { worker: 'scripted' });
+  const third = await admitUnits(opened.orchestrator, { runId: started.run.runId });
+  expect(third.admitted.map((unit) => unit.unitId)).toEqual(['declared/reader:c']);
 });

@@ -36,7 +36,7 @@ test('a cached status says manifest ok and filled together after a real successf
       en: { one: Idea, many: Ideas }
       ru: { one: Idea, many: Ideas }
 `);
-    writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+    writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
     execFileSync('git', ['add', '-A'], { cwd: draft.folder, env });
     execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'Declare tracker fixture'], { cwd: draft.folder, env });
     release = await prepareTestProduct(draft.folder, home, storeRoot);

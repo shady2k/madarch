@@ -21,7 +21,7 @@ import { bundledClosureHashes } from '../src/plugin/bundled.js';
 import { seccompFilter, refusedCallNames } from '../src/plugin/seccomp.js';
 import { checkCgroupDelegation, checkUserNamespaces } from '../src/plugin/cgroup.js';
 import { probeUnit } from '../src/plugin/conformance.js';
-import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, progressOf, requestText, successText } from '../src/plugin/wire.js';
+import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isResponse, lineReader, progressOf, protocolMessageProblem, requestText, successText } from '../src/plugin/wire.js';
 import { byCodePoint } from '../src/model/order.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
@@ -56,6 +56,16 @@ function answer(overrides: Record<string, unknown> = {}): Parameters<typeof vali
     ...overrides,
   } as Parameters<typeof validateUnitResult>[1];
 }
+
+test('a malformed known graph method names its own field instead of another method constant', () => {
+  const message = { jsonrpc: '2.0', id: 'read-1', method: 'graph.value', params: { kind: 'code.file', key: { repository: 'source', path: 'private-path.ts' }, field: 42 } };
+  expect(Value.Check(PluginProtocolMessage, message)).toBe(false);
+  const problem = protocolMessageProblem(message);
+  expect(problem).toContain('graph.value: params/field');
+  expect(problem).not.toContain('constant');
+  expect(problem).not.toContain('private-path.ts');
+  expect(protocolMessageProblem({ ...message, params: { ...message.params, field: 'content' } })).toBeUndefined();
+});
 
 describe('the graph reads a contract declares', () => {
   test('a graph right with no named reads is files and value, and a named read is what the contract grants', () => {
@@ -215,7 +225,7 @@ describe("a plugin's closure and its one hash", () => {
 
   test('a plugin folder that carries its own SDK copy is refused', () => {
     const folder = scratch();
-    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'own-sdk', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version } })}\n`);
+    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'own-sdk', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*', reads: [] }], runtime: { name: 'bun', version: Bun.version } })}\n`);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 1;\n');
     mkdirSync(join(folder, 'node_modules', 'madarch-plugin-sdk'), { recursive: true });
     writeFileSync(join(folder, 'node_modules', 'madarch-plugin-sdk', 'index.ts'), 'export const y = 1;\n');
@@ -224,7 +234,7 @@ describe("a plugin's closure and its one hash", () => {
 
   test('a copy whose bytes moved after hashing is refused with the file named', async () => {
     const folder = scratch();
-    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'changing', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version } })}\n`);
+    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'changing', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*', reads: [] }], runtime: { name: 'bun', version: Bun.version } })}\n`);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 1;\n');
     const closure = closureOf(folder);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 2;\n');
@@ -263,7 +273,7 @@ describe("a plugin's closure and its one hash", () => {
 
   test('a manifest for another interpreter, a missing one and a symlinked file are refused', () => {
     const folder = scratch();
-    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'pinned', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: '9.9.9' } })}\n`);
+    writeFileSync(join(folder, 'plugin.json'), `${JSON.stringify({ name: 'pinned', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*', reads: [] }], runtime: { name: 'bun', version: '9.9.9' } })}\n`);
     writeFileSync(join(folder, 'main.ts'), 'export const x = 1;\n');
     const pin = interpreterPinProblem(closureOf(folder));
     expect(pin?.code).toBe('interpreter-pin');
@@ -274,7 +284,7 @@ describe("a plugin's closure and its one hash", () => {
     expect(() => readPluginManifest(empty)).toThrow(/plugin.json/);
 
     const linked = scratch();
-    writeFileSync(join(linked, 'plugin.json'), `${JSON.stringify({ name: 'linked', version: '1.0.0', entry: 'main.ts', runtime: { name: 'bun', version: Bun.version } })}\n`);
+    writeFileSync(join(linked, 'plugin.json'), `${JSON.stringify({ name: 'linked', version: '1.0.0', entry: 'main.ts', produces: [{ kind: 'fixture.problem', fields: '*', reads: [] }], runtime: { name: 'bun', version: Bun.version } })}\n`);
     writeFileSync(join(linked, 'main.ts'), 'export const x = 1;\n');
     symlinkSync(join(linked, 'main.ts'), join(linked, 'linked.ts'));
     expect(() => closureOf(linked)).toThrow(/symbolic link/);

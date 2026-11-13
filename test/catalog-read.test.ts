@@ -255,7 +255,7 @@ describe('a catalog is read as its manifest declares it', () => {
     const seeded = parseKinds(starterManifestText(), 'madarch/catalog.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
-    expect(read.catalog!.kinds.size).toBe(519);
+    expect(read.catalog!.kinds.size).toBe(520);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);

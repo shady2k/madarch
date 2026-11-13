@@ -17,8 +17,16 @@ test('the full starter catalogue stays bounded while single-kind details retain 
   const read = readKinds(folder);
   if (!read.present) throw new Error('starter manifest is absent');
   const manifest = read.manifest;
-  const ctx = { manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext;
+  const ctx = { productFolder: folder, manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext;
   const kinds = await catalogKinds(ctx);
+  for (const kind of kinds) {
+    const declaration = manifest.kinds.get(kind.kind);
+    const producers = [...manifest.plugins!.values()]
+      .filter((plugin) => declaration !== undefined && plugin.declaration?.produces.some((output) => output.kind === '*' || output.kind === declaration.name))
+      .map((plugin) => plugin.id).sort();
+    expect(kind.plugins ?? []).toEqual(producers);
+    if (declaration === undefined) expect(kind.pluginFolders).toBeUndefined();
+  }
   const catalog = { product: { name: 'bare', id: 'tiny' }, language: 'en', groups: groupViews(manifest), kinds, findings: [] };
   const product = { folder, catalog: async () => catalog } as unknown as KnowledgeProduct;
   const part = createKnowledgePart({
@@ -34,8 +42,10 @@ test('the full starter catalogue stays bounded while single-kind details retain 
   expect(summary.groups).toEqual(catalog.groups);
   for (const kind of kinds) {
     const row = summary.kinds.find((entry: { kind: string }) => entry.kind === kind.kind);
-    const { fields, relations, sources, declaration, ...metadata } = kind;
+    const { fields, relations, sources, pluginFolders, declaration, filled, ...metadata } = kind;
     expect(row).toEqual({ ...metadata, ...(sources?.length ? { sourcesAvailable: true } : {}) });
+    expect(row).not.toHaveProperty('filled');
+    expect(row.count > 0).toBe(kind.filled);
     const detail = await part.catalog(new Request(`http://localhost/api/catalog?kind=${encodeURIComponent(kind.kind)}`));
     expect(detail.response.status).toBe(200);
     expect(await detail.response.json()).toEqual(kind);

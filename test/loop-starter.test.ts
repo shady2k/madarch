@@ -8,7 +8,7 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { renderPage } from '../src/knowledge/render.js';
 import { Resolver } from '../src/knowledge/resolve.js';
 import { FakeGraph } from './fake-graph.js';
-import { createRecordSchema } from '../src/graph/records.js';
+import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -30,7 +30,7 @@ test('the loop kinds declare complete authored contracts and explicit import loc
     expect(kind.source).toBe('graph');
     expect(kind.origin).toBe('person');
     expect(kind.folder).toBeUndefined();
-    expect(kind.key).toBeUndefined();
+    expect(kind.key).toEqual([]);
     expect(manifestContractOf(manifest).vertex.find((vertex) => vertex.name === name)?.key).toEqual([]);
     expect(kind.importFolder).toBe(`docs/${name}s`);
     for (const field of kind.fields!) expect(field.line).toBeGreaterThan(0);
@@ -117,7 +117,7 @@ test('the starter opinion contract creates real PostgreSQL tables without reserv
   const contract = manifestContractOf(manifest);
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(contract) });
   try {
-    await createRecordSchema(owner, contract);
+    await createOneGraphSchema(owner, withManifestContract(contract));
   } finally {
     await owner.close();
   }

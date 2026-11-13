@@ -37,6 +37,7 @@ import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 import { requireSchema } from '../adapters/store-readiness.js';
+import { retainedProducerOutcomes } from './producer-outcomes.js';
 
 /** The orchestrator's own tables, named in operation failures. */
 export const ORCHESTRATOR_TABLES = [
@@ -183,28 +184,70 @@ export async function recordUnitReadIn(
   executor: SqlExecutor,
   options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number; readonly membership?: string },
 ): Promise<TrackedRead> {
+  // Lock separately before allocating a sequence, so a waiter reads the preceding commit.
+  await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
+  return insertUnitReadIn(executor, options);
+}
+
+async function insertUnitReadIn(executor: SqlExecutor, options: Parameters<typeof recordUnitReadIn>[1]): Promise<TrackedRead> {
   const digest = queryDigest(options.query);
   // The membership the caller read the answer under, or — where it names none — the digest of the rows as they
   // stand. A span read names its own (`answerMembership`, `graph-reads.ts`): its bytes are its membership, and the
   // commit they were read at is not.
   const membership = options.membership ?? readMembership(options.rows);
-  // The generation's own row is taken first: on a PostgreSQL owner two units' reads can run at once, and
-  // two reads of one generation must not take the same sequence number.
-  await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
-  const { rows: counted } = await executor.query<{ next: unknown }>(
-    'SELECT COALESCE(MAX(read_seq), 0) + 1 AS next FROM fill_unit_read WHERE unit_id = $1 AND generation = $2',
-    [options.unitId, options.generation],
-  );
-  const seq = millis(counted[0]?.next ?? 1);
-  await executor.query(
+  const { rows: recorded } = await executor.query<{ read_seq: unknown }>(
     `INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     SELECT $1, $2, $3, $4, $5, $6, COALESCE(MAX(read_seq), 0) + 1, $7
+       FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
      ON CONFLICT (unit_id, generation, query_digest) DO UPDATE
        SET query = EXCLUDED.query, membership = EXCLUDED.membership, members = EXCLUDED.members,
-           read_seq = EXCLUDED.read_seq, at = EXCLUDED.at`,
-    [options.unitId, options.generation, digest, options.query, membership, options.rows.length, seq, options.at],
+           read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
+     RETURNING read_seq`,
+    [options.unitId, options.generation, digest, options.query, membership, options.rows.length, options.at],
   );
+  const seq = millis(recorded[0]!.read_seq);
   return { unitId: options.unitId, generation: options.generation, queryDigest: digest, query: options.query, membership, members: options.rows.length, seq, at: options.at };
+}
+
+/** Records concurrent reads of one attempt with one generation lock and commit. */
+export async function recordUnitReads(database: OrchestratorDatabase, reads: readonly Parameters<typeof recordUnitReadIn>[1][]): Promise<readonly TrackedRead[]> {
+  if (reads.length === 0) return [];
+  const first = reads[0]!;
+  if (reads.length === 1) return [await recordUnitRead(database, first)];
+  if (reads.some((read) => read.unitId !== first.unitId || read.generation !== first.generation)) throw new Error('recordUnitReads requires one unit generation');
+  return run(here(), database, `recordUnitReads(${first.unitId}/${first.generation})`, ['fill_unit_read'], async (executor) => {
+    await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [first.unitId, first.generation]);
+    const payload = reads.map((read, index) => ({
+      ord: index + 1, query_digest: queryDigest(read.query), query: read.query,
+      membership: read.membership ?? readMembership(read.rows), members: read.rows.length, at: read.at,
+    }));
+    const { rows } = await executor.query<{ seq: unknown }>(
+      `WITH input AS MATERIALIZED (
+         SELECT * FROM jsonb_to_recordset($3::jsonb)
+           AS r(ord integer, query_digest text, query text, membership text, members integer, at bigint)
+       ), base AS MATERIALIZED (
+         SELECT COALESCE(MAX(read_seq), 0) AS seq FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
+       ), latest AS (
+         SELECT DISTINCT ON (query_digest) * FROM input ORDER BY query_digest, ord DESC
+       ), saved AS (
+         INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
+         SELECT $1, $2, latest.query_digest, latest.query, latest.membership, latest.members, base.seq + latest.ord, latest.at
+         FROM latest CROSS JOIN base WHERE true
+         ON CONFLICT (unit_id, generation, query_digest) DO UPDATE
+           SET query = EXCLUDED.query, membership = EXCLUDED.membership, members = EXCLUDED.members,
+               read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
+         RETURNING read_seq
+       )
+       SELECT base.seq FROM base CROSS JOIN (SELECT count(*) FROM saved) AS written`,
+      [first.unitId, first.generation, JSON.stringify(payload)],
+    );
+    const base = millis(rows[0]!.seq);
+    // Every call allocates a sequence, even when a later duplicate replaces its stored row.
+    return payload.map((read) => ({
+      unitId: first.unitId, generation: first.generation, queryDigest: read.query_digest, query: read.query,
+      membership: read.membership, members: read.members, seq: base + read.ord, at: read.at,
+    }));
+  }, 'write');
 }
 
 /** Every tracked read of one unit generation, in the order they were made. */
@@ -244,13 +287,8 @@ function draftRecord(row: DraftRow): DraftRecord {
   };
 }
 
-/**
- * What a published generation's draft set holds afterwards: nothing. The facts it published are the
- * store's own rows (the fact holding table, by unit and generation), the row keeps the digest a repeated
- * request of that generation is judged by, and its `writes` — a unit's whole fact set as JSON, the
- * largest second copy of what the publication wrote — are dropped (madarch-tzte.21.11).
- */
-const PUBLISHED_DRAFT_WRITES = '[]';
+/** Plugin generations retain their declared values and completion record for explicit earlier reads.
+ * Static bulk drafts still discard their second copy after publication. */
 
 /** The digest of one draft set: what a publication names, so the same draft published twice is one publication. */
 function draftDigest(writes: readonly StageDraftWrite[]): string {
@@ -701,12 +739,10 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     'INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)',
     [options.unitId, options.generation, digest, facts, options.at],
   );
-  // A publication does not keep both copies of what it published (madarch-tzte.21.11): the facts are
-  // the fact holding table's rows for this unit and generation, and the draft set's `writes` was their input.
-  // The row stays — its digest is what a repeated request for this generation is judged by, so a replay
-  // still answers the existing record — and its JSON, a whole unit's fact set written twice, goes: the
-  // walk over the current madarch tree measured those copies at 43 MB of a 379 MB store.
-  await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, PUBLISHED_DRAFT_WRITES]);
+  // Static bulk facts discard their draft copy (madarch-tzte.21.11). Plugin outputs retain an immutable
+  // generation snapshot: earlier-version reads must not substitute today's mutable open opinion.
+  // The digest remains unchanged, so replay still judges the original complete draft set.
+  await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, json(retainedProducerOutcomes(writes, facts))]);
   await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]);
   return {
     outcome: 'published',
@@ -1088,10 +1124,10 @@ export interface FillProgressEvent {
 const PROGRESS_KINDS = [
   'run-planned', 'run-started', 'run-blocked', 'run-paused', 'run-resumed', 'run-cancelling', 'run-cancelled',
   'run-completed', 'run-completed-partial', 'run-failed', 'run-replanned', 'run-refused',
-  'stage-found-nothing', 'stage-planned',
+  'stage-found-nothing', 'stage-planned', 'kind-abstained',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
-  'unit-stale', 'unit-cancelled', 'unit-requeued', 'unit-refused', 'run-waiting',
+  'unit-stale', 'unit-inherited', 'unit-cancelled', 'unit-requeued', 'unit-refused', 'run-waiting',
 ] as const;
 export type ProgressKind = (typeof PROGRESS_KINDS)[number];
 
@@ -1109,13 +1145,49 @@ export async function appendProgress(database: OrchestratorDatabase, event: Omit
     // The run's own row is taken first: two events of one run never share a number, though the
     // owner's pool overlaps two transactions.
     await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
-    const { rows } = await executor.query<{ next: unknown }>('SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM fill_event WHERE run_id = $1', [event.runId]);
-    const seq = millis(rows[0]?.next ?? 1);
-    await executor.query(
-      'INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [event.runId, seq, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
+    return insertProgressIn(executor, event);
+  }, 'write');
+}
+
+async function insertProgressIn(executor: SqlExecutor, event: Omit<FillProgressEvent, 'seq'>): Promise<FillProgressEvent> {
+  const { rows } = await executor.query<{ seq: unknown }>(
+    `INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7 FROM fill_event WHERE run_id = $1
+     RETURNING seq`,
+    [event.runId, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
+  );
+  const seq = millis(rows[0]!.seq);
+  return { ...event, seq };
+}
+
+/** Appends concurrent events of one run with one run lock and commit. */
+export async function appendProgresses(database: OrchestratorDatabase, events: readonly Omit<FillProgressEvent, 'seq'>[]): Promise<readonly FillProgressEvent[]> {
+  if (events.length === 0) return [];
+  const first = events[0]!;
+  if (events.length === 1) return [await appendProgress(database, first)];
+  if (events.some((event) => event.runId !== first.runId)) throw new Error('appendProgresses requires one run');
+  return run(here(), database, `appendProgresses(${first.runId})`, ['fill_event', 'fill_run'], async (executor) => {
+    await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [first.runId]);
+    const payload = events.map((event, index) => ({
+      ord: index + 1, at: event.at, stage: event.stage, unit_id: event.unitId,
+      generation: event.generation, kind: event.kind, summary: event.summary,
+    }));
+    const { rows } = await executor.query<{ seq: unknown }>(
+      `WITH input AS (
+         SELECT * FROM jsonb_to_recordset($2::jsonb)
+           AS e(ord integer, at bigint, stage text, unit_id text, generation integer, kind text, summary text)
+       ), base AS (
+         SELECT COALESCE(MAX(seq), 0) AS seq FROM fill_event WHERE run_id = $1
+       ), saved AS (
+         INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+         SELECT $1, base.seq + input.ord, input.at, input.stage, input.unit_id, input.generation, input.kind, input.summary
+         FROM input CROSS JOIN base
+         RETURNING seq
+       )
+       SELECT seq FROM saved ORDER BY seq`,
+      [first.runId, JSON.stringify(payload)],
     );
-    return { ...event, seq };
+    return events.map((event, index) => ({ ...event, seq: millis(rows[index]!.seq) }));
   }, 'write');
 }
 

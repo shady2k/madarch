@@ -45,8 +45,6 @@ fields:
 key:
 - table
 - name
-depends-on:
-- code.table
 terms:
 - '**/*.ts'
 - '**/*.tsx'
@@ -67,3 +65,5 @@ labels:
 description:
   en: A column of a table with its type.
   ru: Столбец таблицы с его типом.
+derives-from:
+- code.table

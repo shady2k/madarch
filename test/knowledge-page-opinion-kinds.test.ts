@@ -7,15 +7,15 @@ import { listProblems, type ProblemInput } from '../src/loop/views.js';
 const manifest = {
   file: 'madarch/catalog.yaml',
   kinds: new Map([
-    ['code.file', { name: 'code.file', fields: [{ name: 'path', type: 'text', binding: { kind: 'agent' } }] }],
-    ['page', { name: 'page', fields: [{ name: 'body', type: 'text', binding: { kind: 'agent' } }] }],
-    ['key-body', { name: 'key-body', key: ['body'], fields: [{ name: 'body', type: 'text', binding: { kind: 'agent' } }] }],
-    ['unbound', { name: 'unbound', fields: [{ name: 'body', type: 'text' }] }],
-    ['administrator-guide', { name: 'administrator-guide', fields: [{ name: 'body', type: 'text', binding: { kind: 'agent' } }] }],
+    ['code.file', { name: 'code.file', fields: [{ name: 'path', type: 'text' }] }],
+    ['page', { name: 'page', fields: [{ name: 'body', type: 'text' }] }],
+    ['key-body', { name: 'key-body', key: ['body'], fields: [{ name: 'body', type: 'text' }] }],
+    ['non-body', { name: 'non-body', fields: [{ name: 'summary', type: 'text' }] }],
+    ['administrator-guide', { name: 'administrator-guide', fields: [{ name: 'body', type: 'text' }] }],
   ]),
 } as unknown as KindsManifest;
 
-test('page opinion kinds require a generated body contract, excluding native and guide kinds', () => {
+test('page opinion kinds require a generated body contract, excluding non-body and guide kinds', () => {
   expect([...pageOpinionKinds(manifest, declaredKindReads(manifest)).kinds.keys()]).toEqual(['page', 'key-body']);
 });
 

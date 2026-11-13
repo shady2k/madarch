@@ -14,7 +14,8 @@ import type { RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { KnowledgeProduct, pageSnapshotOwner } from '../src/knowledge/product.js';
 import { renderPage } from '../src/knowledge/render.js';
-import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { repositoryContract, repositoryKindReads, repositoryEdgeReads } from './repository-contract-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { workingTreeFiles } from '../src/plugin/product-files.js';
 import { generatedTableName } from '../src/graph/contract.js';
@@ -24,18 +25,18 @@ const templateContract = {
   vertex: [{ name: 'template', table: generatedTableName('template', 'vertex'), key: ['path'], capability: 'fixture', fields: [{ name: 'path', type: 'text' as const }, { name: 'template_parts', type: 'json' as const }] }],
   edge: [], dictionary: [],
 };
-const contract = { ...GIT_CONTRACT, vertex: [...GIT_CONTRACT.vertex, ...templateContract.vertex] };
+const contract = { ...repositoryContract, vertex: [...repositoryContract.vertex.filter(vertex => vertex.name !== 'template'), ...templateContract.vertex] };
 const templates = new Map([['template', { kind: 'template', table: templateContract.vertex[0]!.table, key: ['path'], columns: ['template_parts'], types: { template_parts: 'json' as const } }]]);
-const graph = (database: DatabaseOwner, transaction?: OuterTransaction): GraphReader => new GraphReader(database, () => at, undefined, transaction, undefined, templates);
+const graph = (database: DatabaseOwner, transaction?: OuterTransaction): GraphReader => new GraphReader(database, () => at, undefined, transaction, undefined, new Map([...repositoryKindReads, ...templates]), repositoryEdgeReads);
 
 const at = '2026-02-04T00:00:00.000Z';
-const id = 'code.author:walk@example.test';
+const id = 'code.author:Walk/walk@example.test';
 let owner: DatabaseOwner;
 
 beforeAll(async () => {
   owner = await createTestDatabaseOwner({ graphContract: contract });
   await owner.transaction('write', async (tx) => {
-    const node = await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id`, ['signature', JSON.stringify({ name: 'Walk', email: 'walk@example.test' })]);
+    const node = await tx.query<{ id: string }>(`INSERT INTO node (entity_id, key) SELECT id, $2::jsonb FROM entity WHERE name = $1 RETURNING id::text AS id`, ['code.author', JSON.stringify({ name: 'Walk', email: 'walk@example.test' })]);
     await tx.query(`INSERT INTO ${GIT_TABLES.signature} (node_id, said_by) VALUES ($1::bigint, 'git-history@1')`, [node.rows[0]!.id]);
     const journal = journalFor('fixture@1');
     const template = await ensureVertex(tx, contract, { kind: 'template', key: { path: 'author.md' } }, 1, journal);
@@ -137,10 +138,10 @@ test('dated graph readers inherit the page transaction, while standalone readers
     },
   });
   await counted.transaction('snapshot', async (tx) => {
-    const graph = new GraphReader(counted, () => at, undefined, tx).at('2026-02-01T00:00:00.000Z', '1');
-    await graph.find(id); await graph.kindCounts();
+    const dated = graph(counted, tx).at('2026-02-01T00:00:00.000Z', '1');
+    await dated.find(id); await dated.kindCounts();
     expect(transactions).toBe(1);
   });
-  await new GraphReader(counted, () => at).find(id);
+  await graph(counted).find(id);
   expect(transactions).toBe(2);
 });

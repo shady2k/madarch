@@ -219,9 +219,6 @@ type KindListing = 'operations' | 'glossary';
 /** Where a kind stands in the navigation (`nav:` of the manifest). */
 type KindNav = 'own-page' | 'loop';
 
-/** What produces a kind today, from its declaration (madarch-8bdc.2.5): `person` is not a stage. */
-type KindProducer = 'extract' | 'documents' | 'writer' | 'history' | 'person';
-
 /** One kind of the entity catalogue: every declared kind, filled or not. */
 export type CatalogKindView = {
   declaration?: { file: string; line: number };
@@ -240,14 +237,15 @@ export type CatalogKindView = {
   count: number;
   statements?: number;
   page: boolean;
-  producer?: KindProducer;
-  /** Who fills the kind: its own producer (plugin or built-in pass), a person, or the general agent plugin. */
-  fillWith?: 'own' | 'agent' | 'person';
   filled: boolean;
-  /** The plugins the manifest binds this kind's fields to: the fillers that need no model. */
+  /** Enabled plugins that declare output for this kind. */
   plugins?: string[];
+  /** The server's enabled-plugin plan, including prerequisites, requests an agent. */
+  requiresAgent?: boolean;
+  /** Why the server could not plan this kind. */
+  fillPlanRefusal?: string;
   /** The kinds this one's declaration says must finish first. */
-  dependsOn?: string[];
+  derivesFrom?: string[];
   /** The newest generation of the kind's fill turn (`planned`, `running`, `published`, `failed`, ...); absent when it never ran. */
   turn?: string;
   /** How much of the kind stands: filled, partial (a turn failed or did not finish), or never filled. */
@@ -260,7 +258,7 @@ export type CatalogKindView = {
 export type KindEstimate = { volume: number | null; unit: 'vertices'; tokensPerUnit: number | null; secondsPerUnit: number | null; tokens: number | null; seconds: number | null };
 
 /** List metadata; declaration details are acquired only for a selected kind. */
-export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources'>[] };
+export type CatalogSummaryView = Omit<CatalogView, 'kinds'> & { kinds: Omit<CatalogKindView, 'fields' | 'relations' | 'sources' | 'pluginFolders' | 'declaration' | 'filled'>[] };
 
 /** The catalogue's own answer: the groups, every declared kind, and the findings that name a missing translation. */
 export type CatalogView = {

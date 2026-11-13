@@ -1,7 +1,6 @@
 /** Pure graph schema definition and fingerprint, shared by preparation and connection. */
 import { sha256Hex } from '../../graph/digest.js';
 import type { GraphContract } from '../../graph/contract.js';
-import { FILE_PATH_TABLE, FILE_BLOB_TABLE, FILE_ENTRY_TABLE } from '../../graph/file-tables.js';
 
 /**
  * The revision of the graph's meaning, part of the stamp: a store whose revision differs is reset as a whole, because
@@ -15,7 +14,8 @@ import { FILE_PATH_TABLE, FILE_BLOB_TABLE, FILE_ENTRY_TABLE } from '../../graph/
  * row carries its discriminator (`unresolved_reference.edge_discriminator`), so two dangling edges of one kind and one
  * target are two rows; a store written under revision 4 is reset and filled once.
  */
-export const SCHEMA_REVISION = 5;
+/** Revision 6: repository files and history are ordinary declared plugin opinions, not mechanism tables. */
+export const SCHEMA_REVISION = 6;
 
 export const SCHEMA: readonly string[] = [
   // Every opinion's id is unique across the graph (the review of stage 1, finding 14): `{type: 'opinion', id}` has
@@ -82,33 +82,6 @@ export const SCHEMA: readonly string[] = [
     expectation jsonb,
     change jsonb NOT NULL
   )`,
-  // The product repository's files as mechanism state: a path's text once, a blob's bytes once, and the entry of each
-  // repository path. The code kinds' opinion rows name the same blob rows (see src/graph/write.ts).
-  `CREATE TABLE IF NOT EXISTS ${FILE_PATH_TABLE} (
-    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    text text NOT NULL UNIQUE CHECK (text <> '')
-  )`,
-  `CREATE TABLE IF NOT EXISTS ${FILE_BLOB_TABLE} (
-    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    hash text NOT NULL UNIQUE,
-    algorithm text NOT NULL,
-    bytes bigint NOT NULL,
-    form text NOT NULL,
-    lines bigint,
-    content text,
-    CHECK ((algorithm = 'sha1' AND length(hash) = 40) OR (algorithm = 'sha256' AND length(hash) = 64)),
-    CHECK ((form = 'binary') = (lines IS NULL)),
-    CHECK ((form = 'text') OR (content IS NULL))
-  )`,
-  `CREATE TABLE IF NOT EXISTS ${FILE_ENTRY_TABLE} (
-    repository text NOT NULL CHECK (repository <> ''),
-    path_id bigint NOT NULL REFERENCES ${FILE_PATH_TABLE} (id),
-    mode text,
-    blob_id bigint REFERENCES ${FILE_BLOB_TABLE} (id),
-    PRIMARY KEY (repository, path_id),
-    CHECK ((mode IS NULL) = (blob_id IS NULL))
-  )`,
-  `CREATE INDEX IF NOT EXISTS file_entry_blob ON ${FILE_ENTRY_TABLE} (blob_id)`,
   // A reference to a key no vertex holds: the publication records it and goes on (A2; the consistency plugin
   // madarch-stm0.7 reads these). A rerun of the same answer records the same row once (nulls not distinct); the row
   // names its producer and, for an edge end, the edge kind and the other endpoint; and it goes when the reference

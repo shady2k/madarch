@@ -664,3 +664,20 @@ describe('the report', () => {
     expect(JUDGE_BATCH_SIZE).toBe(50);
   });
 });
+
+test('closing during evidence collection rejects without reading remaining files', async () => {
+  const controller = new AbortController();
+  const paths: string[] = [];
+  const snapshot: GraphSnapshot = { nodes: [file('a', 'src/a.ts'), file('b', 'src/b.ts')], edges: [] };
+  await expect(runGraphVerdicts({
+    snapshot,
+    roles: NO_ROLES,
+    signal: controller.signal,
+    readEvidence: async (path) => {
+      paths.push(path);
+      controller.abort();
+      return { text: TEXTS[path] ?? '' };
+    },
+  })).rejects.toMatchObject({ name: 'AbortError' });
+  expect(paths).toEqual(['src/a.ts']);
+});

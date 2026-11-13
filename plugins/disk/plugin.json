@@ -1,0 +1,43 @@
+{
+  "name": "disk",
+  "version": "1.0.0",
+  "entry": "entry.ts",
+  "runtime": {
+    "name": "bun",
+    "version": "1.4.2"
+  },
+  "tools": [
+    {
+      "name": "git",
+      "source": "system",
+      "minimumVersion": "2.40"
+    }
+  ],
+  "produces": [
+    {
+      "kind": "code.repository",
+      "fields": [
+        "url",
+        "default_branch"
+      ],
+      "reads": []
+    },
+    {
+      "kind": "code.directory",
+      "fields": "*",
+      "reads": []
+    },
+    {
+      "kind": "code.file",
+      "fields": "*",
+      "reads": [],
+      "partition": "key"
+    },
+    {
+      "kind": "code.gitlink",
+      "fields": "*",
+      "reads": []
+    }
+  ],
+  "concurrency": 1
+}

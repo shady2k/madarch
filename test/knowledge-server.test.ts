@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { activateTestProduct, startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, makeProduct, recordKey, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { historyFigureText, isCountedFigure } from '../src/knowledge/history-figures.js';
@@ -85,7 +85,8 @@ beforeAll(async () => {
   home = join(work, 'home');
   mkdirSync(home);
   const tiny = makeProduct(home, 'tiny', repository, 'tiny');
-  writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+  withRepositoryPluginsOnly(tiny);
+  writeFileSync(join(tiny, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(tiny, 'add', '-A');
   git(tiny, 'commit', '--quiet', '-m', 'Fill native inventory and history in the fixture');
   const bare = makeProduct(home, 'bare', repository, 'tiny');
@@ -143,7 +144,8 @@ describe('an empty product', () => {
     // The kinds are the manifest's as the graph holds it: a person copies the starter set into the folder here, as a
     // product repository holds its own (the engine knows no entities), and commits it for the fill to read.
     seedStarterSet(join(home, 'bare'));
-    writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [repository-tree, repository-history]\n');
+    withRepositoryPluginsOnly(join(home, 'bare'));
+    writeFileSync(join(home, 'bare', 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
     git(join(home, 'bare'), 'add', '-A');
     git(join(home, 'bare'), 'commit', '--quiet', '-m', 'the product holds the starter set');
     await activateTestProduct(join(home, 'bare'), home, join(work, 'store'));
@@ -179,12 +181,25 @@ describe('an empty product', () => {
     expect([catalog.groups.filter((group: { parent?: string }) => group.parent === undefined).length, catalog.groups.filter((group: { parent?: string }) => group.parent !== undefined).length]).toEqual([28, 106]);
     expect(catalog.findings).toEqual([]);
     const empty = catalog.kinds.find((kind) => kind.kind === 'domain-repository');
-    expect(empty).toMatchObject({ count: 0, filled: false, page: false });
+    const emptyDeclaration = seeded.catalog!.kinds.get('domain-repository')!;
+    expect(empty).toEqual({
+      kind: emptyDeclaration.name, subgroup: emptyDeclaration.subgroup,
+      labels: emptyDeclaration.labels, descriptions: emptyDeclaration.descriptions,
+      count: 0, page: false, state: 'never', sourcesAvailable: emptyDeclaration.sources.length > 0,
+    });
     expect(empty.producer).toBeUndefined();
     expect(empty.labels).toEqual({ en: { one: 'Domain repository', many: 'Domain repositories' }, ru: { one: 'Репозиторий предметной области', many: 'Репозитории предметной области' } });
     expect(empty.descriptions.ru).toBe('Интерфейс предметной области, дающий доступ к агрегатам как к коллекции; это не репозиторий системы контроля версий.');
-    const filled = catalog.kinds.find((kind) => kind.kind === 'code.service');
-    expect(filled).toMatchObject({ count: 0, filled: true, page: true, producer: 'extract', subgroup: 'code.structure' });
+    const service = catalog.kinds.find((kind) => kind.kind === 'code.service');
+    const serviceDeclaration = seeded.catalog!.kinds.get('code.service')!;
+    expect(service).toMatchObject({
+      kind: serviceDeclaration.name, subgroup: serviceDeclaration.subgroup,
+      labels: serviceDeclaration.labels, descriptions: serviceDeclaration.descriptions,
+      count: 0, page: serviceDeclaration.templatePolicy === 'page' && seeded.kinds.has('code.service'), state: 'never',
+    });
+    // A page declaration is not a successful producer run; summaries omit the derivable filled flag.
+    expect(service.producer).toBeUndefined();
+    expect(service.filled).toBeUndefined();
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(300_000);
   }, 90_000);
 

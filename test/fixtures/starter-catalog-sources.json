@@ -1,4 +1,7 @@
 {
+  "code.gitlink": [
+    "https://git-scm.com/docs/gitmodules"
+  ],
   "source": [
     "https://git-scm.com/docs/git-show"
   ],

@@ -1,4 +1,5 @@
-import { writeFolderManifest } from './catalog-folder-fixture.js';
+import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
+import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
@@ -14,16 +15,19 @@ import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { makeProduct } from './knowledge-fixture.js';
+import { parseDocument } from 'yaml';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
-import { planWholeGraphTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
+import { planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import { runFill } from '../src/fill/run.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { publishGraphDrafts, removeEntity } from '../src/graph/write.js';
 import { removedEdgeEnds, unresolvedReferences, unevidencedOpinions } from '../src/graph/index.js';
 import { parsePluginLock } from '../src/plugin/lock.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { closureOf } from '../src/plugin/closure.js';
+import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'plugin-consistency');
 let root = '';
@@ -58,7 +62,8 @@ kinds:
     template: templates/item-plain.liquid
     source: graph
     findings: true
-    depends-on: [code.file]
+    # Consistency records are read through graphReads rights, not as executable content inputs.
+    derives-from: [code.file, code.repository, code.directory]
     labels:
       en: { one: Probe finding, many: Probe findings }
       ru: { one: Находка, many: Находки }
@@ -73,7 +78,7 @@ kinds:
   probe.opinion:
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     labels:
       en: { one: Probe opinion, many: Probe opinions }
       ru: { one: Утверждение, many: Утверждения }
@@ -85,7 +90,7 @@ kinds:
   probe.keyed:
     template: templates/item-plain.liquid
     source: graph
-    depends-on: [code.file]
+    derives-from: [code.file]
     labels:
       en: { one: Probe keyed, many: Probe keyeds }
       ru: { one: Ключ, many: Ключи }
@@ -107,6 +112,36 @@ problems:
 `;
   writeFolderManifest(folder, manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
+  useRepositoryPlugins(folder);
+  const declared = parseDocument(readFolderManifestText(folder));
+  const starter = parseDocument(starterManifestText()).toJS();
+  for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
+  for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
+  declared.setIn(['kinds', 'probe.referrer'], {
+    template: 'templates/item-plain.liquid', source: 'graph', key: ['repository', 'path'],
+    fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['test', 'other'] }, { name: 'path', type: 'text', producers: ['test', 'other'] }],
+  });
+  const descriptions: Record<string, { en: string; ru: string }> = {
+    'probe.finding': { en: 'A consistency finding emitted by the fixture plugin.', ru: 'Находка проверки согласованности тестового плагина.' },
+    'probe.opinion': { en: 'An opinion with two fields requiring evidence.', ru: 'Утверждение с двумя полями, требующими основания.' },
+    'probe.keyed': { en: 'An opinion identified by two key fields.', ru: 'Утверждение, определяемое двумя ключевыми полями.' },
+    'probe.referrer': { en: 'A fixture record referencing a repository.', ru: 'Тестовая запись, ссылающаяся на репозиторий.' },
+  };
+  for (const [name, description] of Object.entries(descriptions)) {
+    declared.setIn(['kinds', name], {
+      ...declared.toJS().kinds[name],
+      id: name, definition: description.en, description, purpose: 'quality', audience: ['developer', 'architect'],
+      sources: ['https://www.w3.org/TR/prov-dm/'],
+      acquisition: ['agent-from-graph'], status: 'implemented',
+      'template-policy': 'page', group: starter.kinds['code.file'].group,
+      'relation-constraints': { out: [], in: [] },
+      ...(name === 'probe.referrer' ? { labels: {
+        en: { one: 'Probe referrer', many: 'Probe referrers' },
+        ru: { one: 'Тестовая ссылка', many: 'Тестовые ссылки' },
+      } } : {}),
+    });
+  }
+  writeFolderManifest(folder, declared.toString());
   return closure;
 }
 
@@ -136,6 +171,9 @@ beforeAll(async () => {
   product = makeProduct(home, 'consistency', repository, 'repo');
   seedStarterSet(product);
   fixtureClosure = addConsistency(product);
+  const declared = readKinds(product);
+  if (!declared.present) throw new Error('fixture manifest is absent');
+  expect(declared.manifest.findings).toEqual([]);
   git(product, 'add', '-A');
   git(product, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the product');
   owner = await createTestDatabaseOwner({ btreeGist: true });
@@ -146,18 +184,20 @@ afterAll(async () => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-describe('a whole-graph fixture plugin reads through the host and runs last', () => {
+describe('a declared fixture plugin reads consistency records through the host', () => {
   test('a consistent fill states no finding', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'consistent', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state).toBe('succeeded');
-    // The whole-graph turn is its own stage, planned after the plugin turns published.
-    expect(run.units.filter((unit) => unit.stageId === 'whole-graph-turns').length).toBe(1);
+    expect(run.state, JSON.stringify(run)).toBe('succeeded');
+    // The check declares its finding output and uses the ordinary plugin stage.
+    expect(run.units.filter((unit) => unit.unitId.includes('plugin-consistency:probe.finding'))).toHaveLength(1);
+    expect(run.units.some((unit) => unit.stageId === 'plugin-turns' && unit.unitId.startsWith('plugin-turns/disk:'))).toBe(true);
     expect(await findings()).toEqual([]);
+    expect((await readProducerOutcomes(owner, { runId: 'consistent' })).filter((one) => one.plugin === 'plugin-consistency')).toEqual([expect.objectContaining({ kind: 'probe.finding', outcome: 'empty', produced: 0, generation: 1 })]);
   }, 300_000);
 
   test('two unevidenced fields of one entity are two findings, not one key twice', async () => {
@@ -171,10 +211,10 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     }, 1));
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const run = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.opinion'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(run.state).toBe('succeeded');
+    expect(run.state, JSON.stringify(run)).toBe('succeeded');
     const found = (await findings()).filter((one) => one.rule === 'unevidenced-opinion');
     expect(found.map((one) => one.target.split(':')[1]).sort()).toEqual(['first', 'second']);
     expect(new Set(found.map((one) => one.target)).size).toBe(2);
@@ -190,10 +230,10 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
       entity_id: string; from_node: string; to_node: string; discriminator: string; context_id: string;
     }>(`SELECT e.entity_id::text, e.from_node::text, e.to_node::text, e.discriminator, e.context_id::text
         FROM edge e JOIN entity k ON k.id = e.entity_id JOIN node n ON n.id = e.to_node
-        WHERE k.name = 'contains' AND n.key->>'path' = 'src/a.ts'`));
+        WHERE k.name = 'code.contains' AND n.key->>'path' = 'src/a.ts'`));
     expect(damaged.rows).toHaveLength(1);
-    for (const producer of ['git-tree', 'language-attribution']) {
-      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src/a.ts' }, producer }, 1))).toBe(true);
+    for (const producer of ['disk', 'git']) {
+      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, producer }, 1))).toBe(true);
     }
     await owner.transaction('write', async (tx) => {
       const edge = damaged.rows[0]!;
@@ -201,23 +241,33 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
         [edge.entity_id, edge.from_node, edge.to_node, edge.discriminator, edge.context_id]);
     });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [{ kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
+      vertices: [{ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
       removals: [],
     }, 1));
     expect((await unresolvedReferences(owner, { limit: 10 })).rows.map((one) => one.edge === undefined ? 'key' : 'edge')).toEqual(['key']);
-    expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['contains']);
+    expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['code.contains']);
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
-    const alone = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['whole-graph-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const alone = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'alone', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(alone.ok).toBe(true);
     if (!alone.ok) return;
-    expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:whole-graph@')]);
-    expect((await findings()).map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
+    expect(alone.state, JSON.stringify(alone)).toBe('succeeded');
+    expect(alone.units.map((unit) => unit.unitId)).toEqual([expect.stringContaining('plugin-consistency:probe.finding')]);
+    expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion').map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
+    const beforeOutcomes = await readProducerOutcomes(owner, { runId: 'alone' });
+    expect(beforeOutcomes).toEqual(expect.arrayContaining([expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'completed' })]));
+    const snapshot = await owner.transaction('snapshot', async (tx) => await tx.query<{ writes: { kind: string; value: { producer?: string; producerVersion?: string; evidence?: unknown[] } }[] }>(
+      `SELECT d.writes FROM fill_unit_draft d JOIN fill_unit_generation g USING (unit_id, generation)
+       JOIN fill_publication p USING (unit_id, generation) WHERE g.run_id = $1`, ['alone']));
+    const statements = snapshot.rows.flatMap((row) => row.writes).filter((write) => write.kind === 'vertex');
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.every((write) => write.value.producer === 'plugin-consistency' && typeof write.value.producerVersion === 'string')).toBe(true);
+
     // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
-        { kind: 'repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
-        { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
+        { kind: 'code.repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
+        { kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
       ],
       removals: [],
     }, 1));
@@ -225,17 +275,55 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     git(repositoryFolder, 'add', '-A');
     git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
-    const fixed = await runFill({ product, database: owner, releaseHashes: [fixtureClosure], steps: ['repository-tree', 'plugin-turns', 'whole-graph-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    const fixed = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'fixed', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
     expect(fixed.ok).toBe(true);
     if (!fixed.ok) return;
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion')).toEqual([]);
+    const afterOutcomes = await readProducerOutcomes(owner, { runId: 'fixed' });
+    const before = beforeOutcomes.find((one) => one.kind === 'probe.finding')!;
+    const after = afterOutcomes.find((one) => one.kind === 'probe.finding')!;
+    expect(after.runId).toBe('fixed');
+    expect(after.unitId).toBe(before.unitId);
+    expect(after.generation).toBeGreaterThan(before.generation);
+    expect(['completed', 'empty']).toContain(after.outcome);
+
+    const unchanged = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], runId: 'unchanged', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
+    expect(unchanged.ok).toBe(true);
+    if (unchanged.ok) expect(unchanged.units).toEqual([]);
+    // Give the remaining check input its missing evidence, then run the scripted producer again.
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+      vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' },
+        evidence: [{ repository: 'repo', path: 'docs/glossary.md', commit: 'evidenced-input', lineStart: 1, lineEnd: 1 }],
+        producer: 'plugin-consistency', producerVersion: '1.0.0' }], removals: [],
+    }, 1));
+    const clean = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'],
+      targets: { kinds: ['probe.finding'] }, runId: 'zero-problems', home: join(root, 'home'),
+      prepareContract: async (held) => { await prepareStore(preparedOwner, { contract: held }); } });
+    expect(clean.ok).toBe(true);
+    if (!clean.ok) return;
+    expect(clean.state, JSON.stringify(clean)).toBe('succeeded');
+    expect(await findings()).toEqual([]);
+    const cleanOutcomes = await readProducerOutcomes(owner, { runId: 'zero-problems' });
+    expect(cleanOutcomes.filter((one) => one.plugin === 'plugin-consistency')).toEqual([
+      expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'empty', produced: 0 }),
+    ]);
+    expect(cleanOutcomes.filter((one) => one.plugin !== 'plugin-consistency').map(({ plugin, kind, outcome }) => ({ plugin, kind, outcome }))).toEqual([
+      { plugin: 'disk', kind: 'code.directory', outcome: 'unchanged' },
+      { plugin: 'disk', kind: 'code.file', outcome: 'unchanged' },
+      { plugin: 'disk', kind: 'code.repository', outcome: 'unchanged' },
+      { plugin: 'git', kind: 'code.file', outcome: 'unchanged' },
+      { plugin: 'git', kind: 'code.repository', outcome: 'unchanged' },
+    ]);
+    const retained = await readProducerOutcomes(owner, { runId: 'alone' });
+    expect(retained).toEqual(beforeOutcomes);
+
   }, 300_000);
   test('a reference leaves the read when its target stands, and the read pages by a cursor', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
-    const fileVertex = (name: string) => ({ kind: 'file', key: { repository: { kind: 'repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
+    const fileVertex = (name: string) => ({ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [fileVertex('page-a'), fileVertex('page-b')], removals: [] }, 1));
     const first = await unresolvedReferences(owner, { limit: 1 });
     expect(first.rows).toHaveLength(1);
@@ -243,11 +331,11 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     const second = await unresolvedReferences(owner, { after: first.next, limit: 1 });
     expect(second.rows).toHaveLength(1);
     // The target stands now: the row the writer kept is no longer a problem, while the other still is.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
+    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'code.repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
     const after = await unresolvedReferences(owner, { limit: 10 });
     expect(after.rows.filter((one) => one.target.label.startsWith('page-')).map((one) => one.target.label)).toEqual(['page-b']);
     await owner.transaction('write', async (tx) => {
-      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
+      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.repository' AND target_key->>'name' IN ('page-a', 'page-b')`);
       for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b') OR key->>'name' IN ('page-a', 'page-b'))`);
       await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' IN ('page-a', 'page-b')`);
       await tx.query(`DELETE FROM node WHERE key->>'name' IN ('page-a', 'page-b')`);
@@ -259,20 +347,20 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
-    const key = { repository: { kind: 'repository', key: { name: 'withdrawn-ghost' } }, path: 'withdrawn.ts' };
+    const key = { repository: { kind: 'code.repository', key: { name: 'withdrawn-ghost' } }, path: 'withdrawn.ts' };
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
-        { kind: 'file', key, values: {}, producer: 'test', producerVersion: '1' },
-        { kind: 'file', key, values: {}, producer: 'other', producerVersion: '1' },
+        { kind: 'probe.referrer', key, values: {}, producer: 'test', producerVersion: '1' },
+        { kind: 'probe.referrer', key, values: {}, producer: 'other', producerVersion: '1' },
       ],
       removals: [],
     }, 1));
-    await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'file', key, producer: 'test' }, 1));
+    await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'probe.referrer', key, producer: 'test' }, 1));
     const found = await unresolvedReferences(owner, { limit: 20 });
     expect(found.rows.filter((one) => one.target.label === 'withdrawn-ghost').map((one) => one.producer)).toEqual(['other@1']);
     await owner.transaction('write', async (tx) => {
       for (const kind of contract.vertex) await tx.query(`DELETE FROM ${kind.table} WHERE node_id IN (SELECT id FROM node WHERE key->'repository'->'key'->>'name' = 'withdrawn-ghost')`);
-      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' = 'withdrawn-ghost'`);
+      await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.repository' AND target_key->>'name' = 'withdrawn-ghost'`);
       await tx.query(`DELETE FROM node WHERE key->'repository'->'key'->>'name' = 'withdrawn-ghost'`);
     });
   }, 120_000);
@@ -283,17 +371,17 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
     const edge = (discriminator: string) => ({
-      kind: 'contains',
-      from: { kind: 'directory', key: { repository: { kind: 'repository', key: { name: 'repo' } }, path: 'src' } },
-      to: { kind: 'file', key: { repository: { kind: 'repository', key: { name: 'edge-ghost' } }, path: 'e.ts' } },
+      kind: 'code.contains',
+      from: { kind: 'code.directory', key: { repository: 'repo', path: 'src' } },
+      to: { kind: 'code.file', key: { repository: 'edge-ghost', path: 'e.ts' } },
       discriminator,
       producer: 'test', producerVersion: '1',
     });
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [], edges: [edge('d1'), edge('d2')], removals: [] }, 1));
-    const found = (await unresolvedReferences(owner, { limit: 20 })).rows.filter((one) => one.edge?.kind === 'contains' && one.target.key['repository'] === 'edge-ghost');
+    const found = (await unresolvedReferences(owner, { limit: 20 })).rows.filter((one) => one.edge?.kind === 'code.contains' && one.target.key['repository'] === 'edge-ghost');
     expect(found.map((one) => one.edge?.discriminator).sort()).toEqual(['d1', 'd2']);
     expect(new Set(found.map((one) => one.id)).size).toBe(2);
-    await owner.transaction('write', async (tx) => await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'repository' AND target_key->>'name' = 'edge-ghost'`));
+    await owner.transaction('write', async (tx) => await tx.query(`DELETE FROM unresolved_reference WHERE target_entity = 'code.file' AND target_key->>'repository' = 'edge-ghost'`));
   }, 120_000);
 
   test('an opinion with two evidence-required fields is two pages at limit one, and every key field is emitted', async () => {
@@ -323,7 +411,7 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
     });
   }, 120_000);
 
-  test('a targeted whole-graph unit has an identity of its own', async () => {
+  test('a targeted declared unit has an identity of its own', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     const read = readKinds(product);
     const lock = parsePluginLock(readFileSync(join(product, 'madarch', 'plugins.lock'), 'utf8'));
@@ -333,10 +421,14 @@ describe('a whole-graph fixture plugin reads through the host and runs last', ()
       snapshots: { pins: async () => [], open: async () => { throw new Error('no repository'); } } as never,
       contract: graphContractOf(read.manifest),
     };
-    const whole = await planWholeGraphTurns(wiring);
-    const targeted = await planWholeGraphTurns({ ...wiring, targets: { kinds: ['probe.finding'], vertex: 'probe.finding:A' } });
-    expect(whole[0]?.id).not.toBe(targeted[0]?.id);
-    expect(targeted[0]?.id).toContain('@probe.finding:A');
+    const whole = await planPluginTurns(wiring);
+    const targeted = await planPluginTurns({ ...wiring, targets: { kinds: ['probe.finding'], vertex: 'probe.finding:A' } });
+    const wholeFinding = whole.find((unit) => unit.id.includes('plugin-consistency:probe.finding'));
+    const targetedFinding = targeted.find((unit) => unit.id.includes('plugin-consistency:probe.finding'));
+    expect(wholeFinding).toBeDefined();
+    expect(targetedFinding).toBeDefined();
+    expect(wholeFinding!.id).not.toBe(targetedFinding!.id);
+    expect(targetedFinding!.id).toContain('@probe.finding:A');
   }, 120_000);
 
 });

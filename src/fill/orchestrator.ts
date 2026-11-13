@@ -42,6 +42,9 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
+import { producerSucceeded } from './producer-outcomes.js';
+import { ClosureRefusal } from '../plugin/closure-refusal.js';
+import { readProducerOutcomes, readProducerOutcomesIn } from '../graph/producer-outcomes.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
@@ -54,6 +57,7 @@ import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRet
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import {
   appendProgress,
+  appendProgresses,
   publicationDigest,
   publishUnitIn,
   readRunConfiguration,
@@ -66,7 +70,7 @@ import {
   readUnitDraftHead,
   readUnitPlan,
   readUnitReads,
-  recordUnitRead,
+  recordUnitReads,
   recordRunConfiguration,
   recordRunStagePlanned,
   recordUnitDraft,
@@ -829,6 +833,10 @@ async function planStageUnitsSpanned(
   const reused: string[] = [];
   const stage = stageOf(orchestrator, stageId);
   const plan: StagePlan = await stage.plan(await orchestrator.graph({ stageId, stageUnitId: '', unitId: '', scope: '', generation: 0 }));
+  for (const outcome of plan.kindOutcomes ?? []) {
+    await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null,
+      kind: 'kind-abstained', summary: JSON.stringify(outcome) });
+  }
   const foundNothing = plan.coverage === 'nothing-found';
   if (foundNothing) {
     // Decision 0027's distinction, made durable: a producer that found nothing is reported, so nobody
@@ -857,6 +865,7 @@ async function planStageUnitsSpanned(
             // computation of the unit's inputs per unit, not two.
             const verdict = await generationFresh(orchestrator, answer, { digest, versions: stageCacheVersions(stage) });
             if (verdict.fresh) {
+              await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-inherited', summary: `${unitId} generation ${answer.generation} verified unchanged for this run` });
               reused.push(unitId);
               continue;
             }
@@ -1081,6 +1090,11 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
   const plans = await runPlans(orchestrator, run.runId);
   const withoutPlan = units.filter((unit) => unit.state === 'planned' && !plans.has(unit.unitId));
   const candidates = units.filter((unit) => unit.state === 'planned' && plans.has(unit.unitId));
+  const outcomeKey = (unitId: string, generation: number): string => JSON.stringify([unitId, generation]);
+  // A sealed publication's completion record is immutable. Mutable state and generation are still read under the lock.
+  const publishedOutcomes = new Map((await readProducerOutcomes(database, { runId: run.runId }))
+    .map((outcome) => [outcomeKey(outcome.unitId, outcome.generation), outcome]));
+  for (const [key, outcome] of publishedOutcomes) if (!producerSucceeded(outcome.outcome)) publishedOutcomes.delete(key);
   const ordered = admissionOrder(
     candidates.map((unit) => ({ unitId: unit.unitId, stagePosition: plans.get(unit.unitId)!.stagePosition, planPosition: plans.get(unit.unitId)!.planPosition, plannedAt: plans.get(unit.unitId)!.plannedAt })),
     { at, ageingStepMs: orchestrator.limits.ageingStepMs },
@@ -1099,7 +1113,18 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
   // admission, so this is an early answer and never the decision.
   let held = 0;
   const heldByStage = new Map<string, number>();
+  const unitsById = new Map(units.map((unit) => [unit.unitId, unit]));
+  const statesByUnit = new Map(units.map((unit) => [unit.unitId, unit.state]));
+  const heldByGroup = new Map<string, number>();
+  const groupKey = (stageId: string, group: string): string => JSON.stringify([stageId, group]);
   for (const unit of units) {
+    if (ADMITTED_STATES.includes(unit.state) || unit.state === 'retry_wait') {
+      const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(unit.unitId.slice(`${unit.stageId}/`.length));
+      if (scheduling !== undefined) {
+        const key = groupKey(unit.stageId, scheduling.group);
+        heldByGroup.set(key, (heldByGroup.get(key) ?? 0) + 1);
+      }
+    }
     if (!(ADMITTED_STATES as readonly string[]).includes(unit.state)) continue;
     held += 1;
     heldByStage.set(unit.stageId, (heldByStage.get(unit.stageId) ?? 0) + 1);
@@ -1118,19 +1143,72 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
       waitingForSlot.push(unit.unitId);
       continue;
     }
+    const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
+    if (scheduling !== undefined) {
+      // Reject known waits in dependency order; unknown states and plugin outcomes need the locked failure check.
+      let dependenciesKnown = true;
+      let waiting = false;
+      for (const dependency of scheduling.after) {
+        const dependencyId = unitIdFor(unit.stageId, dependency);
+        const state = statesByUnit.get(dependencyId);
+        const previous = unitsById.get(dependencyId);
+        if (state === undefined || ['failed', 'blocked', 'cancelled'].includes(state)
+          || (state === 'published' && unit.stageId === 'plugin-turns'
+            && (previous === undefined || !publishedOutcomes.has(outcomeKey(dependencyId, previous.generation))))) {
+          dependenciesKnown = false;
+          break;
+        }
+        if (state !== 'published') { waiting = true; break; }
+      }
+      if (waiting || (dependenciesKnown && (heldByGroup.get(groupKey(unit.stageId, scheduling.group)) ?? 0) >= scheduling.concurrency)) {
+        waitingForSlot.push(unit.unitId);
+        continue;
+      }
+    }
     const priority = ordered.length - index;
     const outcome = await ownTransaction(here(), orchestrator, `admitUnit(${unit.unitId}/${unit.generation})`, ['fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], async (executor) => {
       // The run's own row is taken first: two admission passes of one run are serialized here, so the
       // limits are counted and the step taken under one lock and a slot can never be given twice.
       const locked = await executor.query<{ run_id: string }>('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [run.runId]);
       if (locked.rows.length === 0) raise(`table fill_run: no run ${run.runId}`);
-      const counted = await executor.query<{ stage_id: string; state: string }>(
-        `SELECT u.stage_id AS stage_id, g.state AS state
+      const scheduling = stageOf(orchestrator, unit.stageId).unitScheduling?.(plans.get(unit.unitId)!.stageUnitId);
+      if (scheduling !== undefined) {
+        for (const dependency of scheduling.after) {
+          const previous = await executor.query<{ state: string; generation: unknown }>(
+            'SELECT g.state, g.generation FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation WHERE u.unit_id = $1',
+            [unitIdFor(unit.stageId, dependency)],
+          );
+          const dependencyId = unitIdFor(unit.stageId, dependency);
+          const state = previous.rows[0]?.state;
+          const generation = Number(previous.rows[0]?.generation);
+          const cached = state === 'published' ? publishedOutcomes.get(outcomeKey(dependencyId, generation)) : undefined;
+          const latest = cached ?? (state === 'published'
+            ? (await readProducerOutcomesIn(executor, { unitId: dependencyId, generation })).at(-1) : undefined);
+          if (['failed', 'blocked', 'cancelled'].includes(state ?? '') || (state === 'published' && unit.stageId === 'plugin-turns' && (latest === undefined || !producerSucceeded(latest.outcome)))) {
+            // Planned units cannot block directly: admit without enqueueing, then take the ordinary block step.
+            const admitted = await advanceUnitIn(executor, { unitId: unit.unitId, event: { type: 'admit', at, generation: unit.generation } });
+            if (!admitted.ok) return { admitted: false as const, why: 'refused' as const, refusal: admitted.refusal };
+            const reason = `required producer ${dependencyId} did not complete successfully (${latest?.outcome ?? state})`;
+            const blocked = await advanceUnitIn(executor, { unitId: unit.unitId, event: { type: 'block', at, generation: unit.generation, fence: unit.context.fence, reason } });
+            if (!blocked.ok) return { admitted: false as const, why: 'refused' as const, refusal: blocked.refusal };
+            return { admitted: false as const, why: 'dependency-failed' as const, reason };
+          }
+          if (state !== 'published') return { admitted: false as const, why: 'dependencies' as const };
+        }
+      }
+      const counted = await executor.query<{ unit_id: string; stage_id: string; state: string }>(
+        `SELECT u.unit_id AS unit_id, u.stage_id AS stage_id, g.state AS state
            FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
           WHERE g.run_id = $1`,
         [run.runId],
       );
-      const states = counted.rows.map((row) => ({ stageId: row.stage_id, state: row.state as UnitState }));
+      const states = counted.rows.map((row) => ({ unitId: row.unit_id, stageId: row.stage_id, state: row.state as UnitState }));
+      if (scheduling !== undefined) {
+        const stage = stageOf(orchestrator, unit.stageId);
+        const groupInFlight = states.filter((row) => row.stageId === unit.stageId && (ADMITTED_STATES.includes(row.state) || row.state === 'retry_wait')
+          && stage.unitScheduling?.(row.unitId.slice(`${unit.stageId}/`.length)).group === scheduling.group).length;
+        if (groupInFlight >= scheduling.concurrency) return { admitted: false as const, why: 'producer-slots' as const };
+      }
       const inFlight = states.filter((row) => ADMITTED_STATES.includes(row.state)).length;
       const stageInFlight = states.filter((row) => row.stageId === unit.stageId && ADMITTED_STATES.includes(row.state)).length;
       if (inFlight >= orchestrator.limits.maxInFlight) return { admitted: false as const, why: 'run-slots' as const };
@@ -1148,11 +1226,17 @@ export async function admitUnits(orchestrator: FillOrchestrator, options: { read
     });
     if (!outcome.admitted) {
       if (outcome.why === 'refused') refused.push({ unitId: unit.unitId, code: outcome.refusal.code, reason: outcome.refusal.reason });
+      else if (outcome.why === 'dependency-failed') await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: outcome.reason });
       else waitingForSlot.push(unit.unitId);
       continue;
     }
     held += 1;
     heldByStage.set(unit.stageId, (heldByStage.get(unit.stageId) ?? 0) + 1);
+    statesByUnit.set(unit.unitId, 'ready');
+    if (scheduling !== undefined) {
+      const key = groupKey(unit.stageId, scheduling.group);
+      heldByGroup.set(key, (heldByGroup.get(key) ?? 0) + 1);
+    }
     admitted.push({ unitId: unit.unitId, generation: unit.generation, stageId: unit.stageId, priority, jobId: outcome.jobId });
     await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-admitted', summary: `admitted ${unit.unitId} at priority ${priority}${outcome.jobId === null ? ' (its job was already queued)' : ''}` });
   }
@@ -1566,16 +1650,83 @@ async function attemptUnitPhases(
   // whatever it ends with.
   // The graph this attempt's stage reads through: every read is recorded as the generation's dependency, and the
   // same reader serves the stage's own reads and its `validate`, so nothing reads the graph unrecorded.
-  const attemptReader: StageGraphReader = {
-    query: async (text: string) => {
-      const rows = await reader.query(text);
-      // The read is recorded as a recheck replays it (0026, "Updates"): a span by its place in the run's pins and
-      // its bytes, every other read by its canonical text and the rows it answered.
-      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
-      await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` });
-      return rows;
-    },
+  type PendingRead = {
+    read: Parameters<typeof recordUnitReads>[1][number];
+    event: Parameters<typeof appendProgresses>[1][number];
+    resolve: () => void;
+    reject: (error: unknown) => void;
   };
+  let pendingReads: PendingRead[] = [];
+  let flushingReads = false;
+  let scheduledReads = false;
+  let activeFlush: Promise<void> | undefined;
+  const flushReads = (): Promise<void> => {
+    if (activeFlush !== undefined) return activeFlush;
+    activeFlush = flushReadBatch().finally(() => { activeFlush = undefined; });
+    return activeFlush;
+  };
+  const flushReadBatch = async (): Promise<void> => {
+    scheduledReads = false;
+    flushingReads = true;
+    try {
+      while (pendingReads.length > 0) {
+        const batch = pendingReads;
+        pendingReads = [];
+        let stored: Awaited<ReturnType<typeof appendProgresses>>;
+        try {
+          await recordUnitReads(orchestrator.database, batch.map((entry) => entry.read));
+          stored = await appendProgresses(orchestrator.database, batch.map((entry) => entry.event));
+        } catch (error) {
+          for (const entry of batch) entry.reject(error);
+          continue;
+        }
+        for (const [index, entry] of batch.entries()) {
+          try {
+            if (orchestrator.sink !== undefined) await orchestrator.sink(stored[index]!);
+            entry.resolve();
+          } catch (error) {
+            entry.reject(error);
+          }
+        }
+      }
+    } finally {
+      flushingReads = false;
+    }
+  };
+  const trackedReader = (): { graph: StageGraphReader; close: () => Promise<void> } => {
+    let closed = false;
+    const active = new Set<Promise<readonly unknown[]>>();
+    const query = async (text: string): Promise<readonly unknown[]> => {
+      if (closed) throw new Error('the attempt graph reader is closed');
+      const rows = await reader.query(text);
+      if (closed) throw new Error('the attempt graph reader is closed');
+      const read = { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() };
+      const event = { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read' as const, summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` };
+      await new Promise<void>((resolve, reject) => {
+        pendingReads.push({ read, event, resolve, reject });
+        if (!flushingReads && !scheduledReads) {
+          scheduledReads = true;
+          setImmediate(() => { void flushReads(); });
+        }
+      });
+      return rows;
+    };
+    return {
+      graph: { query: (text: string) => {
+        const pending = query(text);
+        active.add(pending);
+        void pending.then(() => active.delete(pending), () => active.delete(pending));
+        return pending;
+      } },
+      close: async () => {
+        closed = true;
+        await flushReads();
+        await Promise.allSettled([...active]);
+      },
+    };
+  };
+  const executionReader = trackedReader();
+  const attemptReader = executionReader.graph;
   // Everything the attempt opens — its authority, the unit's tools, its progress notes — is opened inside one try:
   // resolving the stage's configuration can refuse (a configuration that moved mid-run, a stage the graph does not
   // hold), and a refusal there must leave neither an authority entry behind it nor a unit's tool session open.
@@ -1597,6 +1748,7 @@ async function attemptUnitPhases(
     // a child's publication could move.
     const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
     context = {
+      runId: unit.runId,
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
@@ -1616,8 +1768,11 @@ async function attemptUnitPhases(
       return answered;
     });
   } catch (error) {
-    raised = error as Error;
+    if (error instanceof ClosureRefusal && error.code === 'plugin-tool') {
+      result = { outcome: 'blocked', reason: error.message };
+    } else raised = error as Error;
   } finally {
+    await executionReader.close();
     tools?.close();
     orchestrator.authority.delete(authorityKey(unit.unitId, unit.generation));
     // What the stage reported is the run's own durable progress, written whether the unit finished or
@@ -1664,12 +1819,17 @@ async function attemptUnitPhases(
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
   let validation: Awaited<ReturnType<typeof stage.validate>>;
+  const validationReader = trackedReader();
   try {
-    validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
-      const held = await stage.validate({ writes }, attemptReader);
+    try {
+      validation = await withSpan('attempt.validate', { 'madarch.unit': unit.unitId, 'madarch.writes': writes.length }, async (validateSpan) => {
+      const held = await stage.validate({ writes }, validationReader.graph);
       validateSpan.setAttribute('madarch.valid', held.ok);
       return held;
-    });
+      });
+    } finally {
+      await validationReader.close();
+    }
   } catch (error) {
     const reason = `the validation of "${unit.unitId}" generation ${unit.generation} raised: ${messageOf(error)}`;
     return await retryAttempt(orchestrator, { unit, fence, job: request.job, cause: 'validation-problem', reason, summary: reason });
@@ -2130,7 +2290,8 @@ export async function runEvidence(orchestrator: RunControlContext, runId: string
   // published has lost nothing, and a stage whose plan found nothing is reported as such separately —
   // the registry's own distinction between "no producer" and "producer found nothing".
   const lost = units.filter((unit) => ['blocked', 'failed', 'cancelled', 'stale'].includes(unit.state));
-  return { runnable, inFlight, waiting, coverageMet: lost.length === 0, pendingPublications };
+  const outcomes = await readProducerOutcomes(orchestrator.database, { runId });
+  return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)), pendingPublications };
 }
 
 /** What one settlement of a run did. */
@@ -2637,7 +2798,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
 }
 
 /** The states a run ended in: nothing further happens to it. */
-const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
+export const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
 
 /**
  * The run states a unit of which a later run may take up again: the run ended and nothing of it is in flight. A

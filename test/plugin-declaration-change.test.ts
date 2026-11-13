@@ -1,3 +1,4 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { requestStorePreparation } from '../src/product/store-preparation.js';
 /**
  * A kind's declaration is part of what its turn stands on (decision 0035, the Consequences: a changed declaration of a
@@ -24,6 +25,7 @@ import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { gitEnv } from './git-env.js';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 import { retainTestStorePreparationOwner, activateTestProduct } from './prepared-server.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 
@@ -36,6 +38,7 @@ const GLOSSARY = `# Glossary of the notes
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases are skipped with it, never passed. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -54,6 +57,7 @@ function product(name: string): { folder: string; storeRoot: string } {
   if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
   const folder = draft.folder;
   useExtractedGlossary(folder);
+  useFixturePlugins(folder, ['disk', 'git', 'glossary']);
   const code = join(folder, 'repos', 'app');
   mkdirSync(code, { recursive: true });
   writeFileSync(join(code, 'README.md'), '# App\n');
@@ -158,6 +162,20 @@ describe.skipIf(sandboxProblem !== undefined)('a kind declaration that changes i
     // Nothing moved: every unit of the second run is inherited, and none is executed.
     const executed = second.units.filter((unit) => !second.reused.includes(unit.unitId));
     expect(executed).toEqual([]);
+    expect(second.work).toBe(0);
+    const owner = opened.at(-1)!;
+    const events = await owner.transaction('snapshot', async tx => await tx.query<{ kind: string }>(
+      'SELECT kind FROM fill_event WHERE run_id=$1', [second.runId],
+    ));
+    expect(events.rows.filter(event => ['unit-admitted', 'unit-started', 'unit-published'].includes(event.kind))).toEqual([]);
+    const initial = await readProducerOutcomes(owner, { runId: first.runId });
+    expect(initial.some(outcome => outcome.plugin === 'disk')).toBe(true);
+    expect(initial.some(outcome => outcome.plugin === 'git')).toBe(true);
+    expect(initial.some(outcome => outcome.plugin === 'glossary')).toBe(true);
+    const inherited = await readProducerOutcomes(owner, { runId: second.runId });
+    expect(inherited).toEqual(initial.map(outcome => ({ ...outcome, runId: second.runId, outcome: 'unchanged' })));
+    // Completion metadata remains observable in a separate committed read, not merely in the runner's answer.
+    expect(await readProducerOutcomes(owner, { runId: second.runId })).toEqual(inherited);
     expect(await terms(folder, storeRoot)).toEqual(['Fill', 'Sweep']);
   }, 600_000);
 });

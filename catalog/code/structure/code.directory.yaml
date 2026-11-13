@@ -15,22 +15,18 @@ relation-constraints:
 template-policy: page
 template: templates/directory.liquid
 source: graph
-capability: git
 fields:
-- name: repository_node
-  type: bigint
+- name: repository
+  type: text
   producers:
-  - git
-  reference: code.repository
-- name: path_id
-  type: bigint
+  - disk
+- name: path
+  type: text
   producers:
-  - git
+  - disk
 key:
-- repository_node
-- path_id
-depends-on:
-- code.repository
+- repository
+- path
 details:
 - path
 labels:
@@ -43,3 +39,5 @@ labels:
 description:
   en: A folder of a code repository, which holds files and further folders.
   ru: Папка репозитория кода, которая содержит файлы и другие папки.
+derives-from:
+- code.repository

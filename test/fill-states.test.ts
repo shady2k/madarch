@@ -5,6 +5,7 @@
  *
  * The products are fixtures this test makes; no model runs.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -32,10 +33,11 @@ function product(name: string, write: (repository: string) => void): string {
   git(repository, 'init', '-q', '-b', 'main');
   write(repository);
   const folder = makeProduct(home, name.trim(), repository, `${name}-code`);
+  useFixturePlugins(folder, ['disk', 'git']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', `the product ${name}`);
@@ -123,6 +125,7 @@ describe('the fill states', () => {
     git(repository, 'add', '-A');
     git(repository, 'commit', '-qm', 'a repository the product connects');
     const folder = makeProduct(home, 'lost', repository, 'lost-code');
+    useFixturePlugins(folder, ['disk', 'git']);
     git(folder, 'add', '-A');
     git(folder, 'commit', '-qm', 'a product whose checkout is replaced');
     // The connected checkout is replaced by a plain folder: it is no Git checkout any more.

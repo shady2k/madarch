@@ -14,7 +14,12 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
  * answers while the reader still holds the language table and no deadlock can form.
  */
 import { describe, expect, test } from 'bun:test';
-import { GIT_CONTRACT, GIT_TABLES } from '../src/fill/stages/git-contract.js';
+import { EMPTY_CONTRACT, generatedTableName, type GraphContract } from '../src/graph/contract.js';
+const dictionaryTables = { language: generatedTableName('reader_language', 'dictionary'), path: generatedTableName('reader_path', 'dictionary') };
+const dictionaryContract: GraphContract = { ...EMPTY_CONTRACT, dictionary: [
+  { name: 'reader_language', fields: [{ name: 'name', type: 'text' }], key: ['name'] },
+  { name: 'reader_path', fields: [{ name: 'text', type: 'text' }], key: ['text'] },
+] };
 import { createTestDatabaseOwner } from './test-database.js';
 
 describe('a page reads while a fill migrates its schema', () => {
@@ -22,7 +27,7 @@ describe('a page reads while a fill migrates its schema', () => {
     const owner = await createTestDatabaseOwner();
     try {
       // The store a page has already read: its schema and every dictionary's key index stand.
-      await prepareStore(owner, { contract: GIT_CONTRACT });
+      await prepareStore(owner, { contract: dictionaryContract });
 
       await owner.exec("DELETE FROM madarch_meta.schema_stamp WHERE name = 'one-graph'");
 
@@ -39,7 +44,7 @@ describe('a page reads while a fill migrates its schema', () => {
       const reader = owner.transaction('snapshot', async (tx) => {
         // The detector waits this long in the process that waits; the default second only makes this test slower.
         await tx.query("SET LOCAL deadlock_timeout = '200ms'");
-        await tx.query(`LOCK TABLE ${GIT_TABLES.language} IN ACCESS SHARE MODE`);
+        await tx.query(`LOCK TABLE ${dictionaryTables.language} IN ACCESS SHARE MODE`);
         theReaderHoldsTheLanguage();
         await readerMayCheck;
         const deadline = Date.now() + 15_000;
@@ -47,14 +52,14 @@ describe('a page reads while a fill migrates its schema', () => {
           if (migrationSettled) { sawTheMigrationFinish = true; break; }
           const waiting = await tx.query<{ waiting: boolean }>(
             `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE relation = $1::regclass AND mode = 'AccessExclusiveLock' AND NOT granted) AS waiting`,
-            [GIT_TABLES.language],
+            [dictionaryTables.language],
           );
           if (waiting.rows[0]?.waiting === true) { blocked = true; break; }
-          if (Date.now() > deadline) throw new Error(`the migration neither finished nor waited for ${GIT_TABLES.language}: the store answered neither way`);
+          if (Date.now() > deadline) throw new Error(`the migration neither finished nor waited for ${dictionaryTables.language}: the store answered neither way`);
           await Bun.sleep(10);
         }
         // The page reads the path dictionary next. A migration on its way to the language table already holds it.
-        await tx.query(`LOCK TABLE ${GIT_TABLES.path} IN ACCESS SHARE MODE`);
+        await tx.query(`LOCK TABLE ${dictionaryTables.path} IN ACCESS SHARE MODE`);
       }).catch((error: unknown) => {
         readerError = error instanceof Error ? error : new Error(String(error));
         return undefined;
@@ -62,7 +67,7 @@ describe('a page reads while a fill migrates its schema', () => {
 
       await theReaderHoldsTheLanguageTable;
       // The migration, in another connection: it must leave a key index that stands alone.
-      const migration = prepareStore(owner, { contract: GIT_CONTRACT });
+      const migration = prepareStore(owner, { contract: dictionaryContract });
       void migration.then(() => { migrationSettled = true; }, () => { migrationSettled = true; });
       letTheReaderCheck();
       const migrationError = await migration.then(() => undefined, (error: unknown) => (error instanceof Error ? error : new Error(String(error))));

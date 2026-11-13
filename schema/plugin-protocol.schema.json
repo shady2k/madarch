@@ -245,14 +245,40 @@
                         "minLength": 1
                       },
                       "from": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "The vertex kind its ends start at."
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "minItems": 1,
+                            "uniqueItems": true
+                          }
+                        ],
+                        "description": "The allowed vertex kinds its ends start at."
                       },
                       "to": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "The vertex kind its ends go to."
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "minItems": 1,
+                            "uniqueItems": true
+                          }
+                        ],
+                        "description": "The allowed vertex kinds its ends go to."
                       },
                       "fields": {
                         "type": "array",
@@ -333,6 +359,9 @@
               },
               "additionalProperties": false,
               "description": "The outputs a plugin declares: every kind, field and edge kind a result may name."
+            },
+            "planOutput": {
+              "type": "boolean"
             },
             "reads": {
               "anyOf": [
@@ -462,6 +491,117 @@
       },
       "additionalProperties": false,
       "description": "The host hands the plugin one unit."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "method": {
+          "type": "string",
+          "const": "planOutput"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "unit"
+          ],
+          "properties": {
+            "unit": {
+              "type": "object",
+              "required": [
+                "unitId",
+                "kind",
+                "key"
+              ],
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The kind of the vertex the unit is about."
+                },
+                "key": {
+                  "$defs": {
+                    "Key": {
+                      "type": "object",
+                      "patternProperties": {
+                        "^.*$": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "$ref": "Entity"
+                            }
+                          ]
+                        }
+                      },
+                      "$id": "Key"
+                    },
+                    "Entity": {
+                      "type": "object",
+                      "required": [
+                        "kind",
+                        "key"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "key": {
+                          "$ref": "Key"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "$id": "Entity"
+                    }
+                  },
+                  "$ref": "Key",
+                  "description": "Natural key values, including referenced entities by kind and key."
+                },
+                "inputs": {
+                  "description": "What the host hands with the unit, a shape the plugin's contract names."
+                }
+              },
+              "additionalProperties": false,
+              "description": "One unit of work: the entity by kind and key, and what the host hands with it."
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     {
       "type": "object",
@@ -924,6 +1064,49 @@
       },
       "additionalProperties": false,
       "description": "The plugin is alive while a unit runs."
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "unit.resultChunk"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "unitId",
+            "sequence",
+            "data"
+          ],
+          "properties": {
+            "unitId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "data": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     {
       "type": "object",

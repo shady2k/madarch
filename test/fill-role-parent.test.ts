@@ -6,12 +6,13 @@
  *
  * The cases run a real `serve` process, kill it, and hold the child and the store's PostgreSQL server to two seconds.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { commitProduct, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { productsHome } from '../src/product/home.js';
@@ -186,7 +187,10 @@ ${readFileSync(log, 'utf8').split('\n').slice(-30).join('\n')}`); }
 function productOf(home_: string, name: string): string {
   const repository = generateTrainingRepository(join(work, `training-${name}`));
   mkdirSync(home_, { recursive: true });
-  return makeProduct(home_, name, repository, 'walk-code');
+  const folder = makeProduct(home_, name, repository, 'walk-code');
+  useFixturePlugins(folder, ['disk', 'git']);
+  commitProduct(folder, 'Declare the lifecycle fixture plugins');
+  return folder;
 }
 
 /** Starts `madarch serve --product` on a free port and answers the process and its address. */

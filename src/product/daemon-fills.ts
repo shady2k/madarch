@@ -131,14 +131,15 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       const { graphContractOf } = await import('../fill/stages/plugin-contract.js');
       const { createFillStateSchema } = await import('../fill/state-store.js');
       const { createOrchestratorSchema } = await import('../fill/orchestrator-store.js');
-      const { createRecordSchema } = await import('../graph/records.js');
+      const { createOneGraphSchema } = await import('../graph/one-graph.js');
+      const { withManifestContract } = await import('../graph/manifest-contract.js');
       const { publishValidatedManifests } = await import('../graph/manifest-publication.js');
       const folder = storeFolderOfProduct(validated.folder);
       await requestStorePreparation(storeDatabasePath(folder), graphContractOf(validated.manifest));
       const held = await store(validated.folder);
       await createFillStateSchema(held.owner);
       await createOrchestratorSchema(held.owner);
-      await createRecordSchema(held.owner, graphContractOf(validated.manifest));
+      await createOneGraphSchema(held.owner, withManifestContract(graphContractOf(validated.manifest)));
       const started = performance.now();
       try { await publishValidatedManifests(held.owner, validated); }
       finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }

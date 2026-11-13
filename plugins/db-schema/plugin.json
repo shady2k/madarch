@@ -6,5 +6,36 @@
     "name": "bun",
     "version": "1.4.2"
   },
-  "description": "The db-schema plugin: reads the SQL of TypeScript sources and answers the database's tables, columns, indexes and the links between them (decision 0035; task madarch-47vw.3)."
+  "description": "The db-schema plugin: reads the SQL of TypeScript sources and answers the database's tables, columns, indexes and the links between them (decision 0035; task madarch-47vw.3).",
+  "produces": [
+    {
+      "kind": "code.database",
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
+    },
+    {
+      "kind": "code.table",
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
+    },
+    {
+      "kind": "code.column",
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
+    },
+    {
+      "kind": "code.index",
+      "fields": "*",
+      "reads": [
+        "code.file"
+      ]
+    }
+  ],
+  "concurrency": 1
 }

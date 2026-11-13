@@ -180,6 +180,10 @@ export interface RepositoryPin {
   readonly commit: string;
   /** The branch the repository was read on, when the price of a pin is not yet paid. */
   readonly defaultBranch?: string;
+  /** Sanitized origin at pin time; an empty string pins the absence of an origin. */
+  readonly url?: string;
+  /** Digest of the exact shallow boundaries available when this repository was pinned. */
+  readonly historyBoundaryHash?: string;
 }
 
 // ---- running git ----------------------------------------------------------

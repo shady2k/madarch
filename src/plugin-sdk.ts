@@ -194,8 +194,8 @@ export interface VertexKindDeclaration {
 /** One edge kind a plugin declares it produces. */
 export interface EdgeKindDeclaration {
   readonly kind: string;
-  readonly from: string;
-  readonly to: string;
+  readonly from: string | readonly string[];
+  readonly to: string | readonly string[];
   readonly fields?: readonly FieldDeclaration[];
 }
 
@@ -203,6 +203,12 @@ export interface EdgeKindDeclaration {
 export interface ContractDeclaration {
   readonly vertices: readonly VertexKindDeclaration[];
   readonly edges: readonly EdgeKindDeclaration[];
+}
+
+/** One finite page of byte-aware output key partitions; no next cursor means complete. */
+export interface OutputPlan {
+  readonly partitions: readonly { readonly keys: readonly KeyValues[] }[];
+  readonly next?: string;
 }
 
 /** What defining a plugin takes: its contract and the one function the author writes. */
@@ -225,6 +231,7 @@ export interface PluginDefinition {
   /** What the plugin reads: one unit at a time ("unit", the default), or the whole graph once after every other plugin turn. */
   readonly reads?: 'unit' | 'whole-graph';
   /** The one function the author writes: the unit in, its answer out. */
+  readonly planOutput?: (unit: Unit, context: ExtractContext, cursor?: string) => Promise<OutputPlan> | OutputPlan;
   readonly extract: (unit: Unit, context: ExtractContext) => Promise<UnitResult> | UnitResult;
 }
 
@@ -261,6 +268,22 @@ const RPC_PLUGIN_ERROR = -32000;
 /** Writes one message to standard output: one line, flushed by the stream itself. */
 function send(message: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+/** Fragment only transport; the host still validates and publishes one atomic unit result. */
+function answerUnit(id: RpcId, unitId: string, result: UnitResult | OutputPlan): void {
+  const complete = { unitId, ...result };
+  const bytes = Buffer.from(JSON.stringify(complete), 'utf8');
+  const maxBytes = 1_048_576;
+  if (Buffer.byteLength(JSON.stringify({ jsonrpc: '2.0', id, result: complete })) <= maxBytes) { answer(id, complete); return; }
+  // Base64 expands bytes by 4/3; this leaves ample room for the bounded envelope.
+  const fragmentBytes = 512 * 1024;
+  let sequence = 0;
+  for (let offset = 0; offset < bytes.length; offset += fragmentBytes) {
+    send({ jsonrpc: '2.0', method: 'unit.resultChunk', params: { unitId, sequence, data: bytes.subarray(offset, offset + fragmentBytes).toString('base64') } });
+    sequence += 1;
+  }
+  answer(id, { unitId, chunkCount: sequence });
 }
 
 /** Reads standard input one line at a time, calling `onMessage` for each whole message. */
@@ -321,7 +344,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
     process.exit(0);
   };
 
-  const takeUnit = (id: RpcId, params: Record<string, unknown> | undefined): void => {
+  const takeUnit = (id: RpcId, params: Record<string, unknown> | undefined, planning = false): void => {
     const unit = params?.['unit'] as Unit | undefined;
     if (unit === undefined || typeof unit.unitId !== 'string' || typeof unit.kind !== 'string' || typeof unit.key !== 'object' || unit.key === null) {
       refuse(id, RPC_INVALID_PARAMS, 'a unit stands under params.unit, with a unitId, a kind and a key');
@@ -332,7 +355,9 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
     running.set(id, controller);
     void (async () => {
       try {
-        const result = await definition.extract(unit, {
+        const extract = planning ? definition.planOutput : definition.extract;
+        if (extract === undefined) throw new Error('this plugin does not declare planOutput');
+        const result = await extract(unit, {
           signal: controller.signal,
           agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
@@ -344,10 +369,9 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
             removedEnds: async (query) => await askHost<{ edges: GraphRemovedEnd[]; next?: string }>('graph.removedEnds', query ?? {}).then((answer) => ({ rows: answer.edges, ...(answer.next === undefined ? {} : { next: answer.next }) })),
             unevidenced: async (query) => await askHost<{ opinions: GraphUnevidencedOpinion[]; next?: string }>('graph.unevidenced', query ?? {}).then((answer) => ({ rows: answer.opinions, ...(answer.next === undefined ? {} : { next: answer.next }) })),
           },
-        });
+        }, typeof params?.['cursor'] === 'string' ? params['cursor'] : undefined);
         if (!running.has(id)) return;
-        const answerWith = { unitId: unit.unitId, ...result };
-        answer(id, answerWith);
+        answerUnit(id, unit.unitId, result);
       } catch (error) {
         if (!running.has(id)) return;
         const failed = error as Error & { cause?: string; file?: string; line?: number };
@@ -361,9 +385,9 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
 
   readLines((message) => {
     if (message.method !== undefined && message.id !== undefined) {
-      if (message.method === 'unit') {
+      if (message.method === 'unit' || message.method === 'planOutput') {
         if (stopping) refuse(message.id, RPC_PLUGIN_ERROR, 'the plugin is stopping and takes no unit', 'stopping');
-        else takeUnit(message.id, message.params);
+        else takeUnit(message.id, message.params, message.method === 'planOutput');
         return;
       }
       if (message.method === 'pause') { paused = true; answer(message.id, { paused: true }); return; }
@@ -412,6 +436,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         ...(definition.maxOutputBytes === undefined ? {} : { maxOutputBytes: definition.maxOutputBytes }),
       },
       outputs: definition.contract,
+      ...(definition.planOutput === undefined ? {} : { planOutput: true }),
       reads: definition.reads ?? 'unit',
     },
   };

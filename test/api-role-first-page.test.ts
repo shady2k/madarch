@@ -15,7 +15,7 @@ import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer as startServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
-import { SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
+import { SAMPLE_IDENTITY, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 let root = '';
@@ -31,7 +31,7 @@ beforeAll(async () => {
   const draft = createDraft({ home, name: 'api-role', gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   product = draft.folder;
-  withoutPluginTurns(product);
+  withRepositoryPluginsOnly(product);
   await fillInProcess(product, home);
   const store = productStoreFolder(product, knowledgeRootOf(home));
   mkdirSync(join(store, 'traces'), { recursive: true });

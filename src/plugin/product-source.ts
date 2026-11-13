@@ -41,7 +41,7 @@ export class StoredProductFiles implements ProductFileSource {
 
   /** The product repository's whole file index as one graph revision holds it; a store with no such repository answers none. */
   static async load(reader: GraphReader, repository: string, folder: string): Promise<StoredProductFiles> {
-    const rows = await reader.fileIndex(repository);
+    const rows = await reader.productFileIndex(repository);
     // A symlink is a blob whose bytes are its target, never the file it names: no read follows one (the working tree's
     // readers skipped links too), so the index is the files the tree holds and no link entry.
     return new StoredProductFiles(reader, repository, folder, rows.filter((file) => file.mode !== '120000'));

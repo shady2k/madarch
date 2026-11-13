@@ -1,0 +1,92 @@
+/** Isolated read-only repository inputs for ordinary filesystem-capable plugins. */
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { RepositoryPin } from './repository-snapshot.js';
+import { sandboxInputPath } from './sandbox.js';
+import { filesystemInputSnapshotPath } from './filesystem-inputs.js';
+import { withSpan } from '../obs/trace.js';
+
+function git(args: readonly string[]): Promise<string> {
+  return withSpan('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': process.cwd() }, async (span) => {
+    return await new Promise<string>((resolve, reject) => {
+      execFile('git', [...args], { encoding: 'utf8' }, (error, stdout, stderr) => {
+        span.setAttribute('process.outputBytes', Buffer.byteLength(stdout));
+        span.setAttribute('process.exitCode', error === null ? 0 : typeof error.code === 'number' ? error.code : -1);
+        if (error !== null) reject(new Error(`repository input: ${stderr.trim() || error.message}`));
+        else resolve(stdout.trim());
+      });
+    });
+  });
+}
+
+/** Credentials in an origin URL are transport secrets, never repository metadata. */
+export function sanitizeRepositoryUrl(remote: string): string {
+  try {
+    const url = new URL(remote);
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch { return remote; /* Git also permits scp-like remote addresses. */ }
+}
+
+/** Copy objects, not a live checkout or a host Git RPC; resolve every revision before the plugin receives it. */
+export async function prepareRepositoryInputs(pins: readonly RepositoryPin[], workRoot: string) {
+  const filesystemInputs: { name: string; folder: string }[] = [];
+  const repositories: { repository: string; root: string; commit: string; url?: string; defaultBranch?: string }[] = [];
+  for (const [index, pin] of pins.entries()) {
+    const name = `repository-${index}`;
+    const folder = join(workRoot, name);
+    const commit = await git(['-C', pin.root, 'rev-parse', '--verify', `${pin.commit}^{commit}`]);
+    const format = await git(['-C', pin.root, 'rev-parse', '--show-object-format']);
+    await git(['init', '--bare', `--object-format=${format}`, '--', folder]);
+    await git(['--git-dir', folder, 'fetch', '--no-tags', '--update-shallow', '--', pin.root, commit]);
+    await git(['--git-dir', folder, 'update-ref', '--no-deref', 'HEAD', commit]);
+    const remote = pin.url ?? await git(['-C', pin.root, 'remote', 'get-url', 'origin']).catch(() => '');
+    const address = remote === '' ? undefined : sanitizeRepositoryUrl(remote);
+    if (address !== undefined) await git(['--git-dir', folder, 'config', 'remote.origin.url', address]);
+    filesystemInputs.push({ name, folder });
+    repositories.push({ repository: pin.id, root: sandboxInputPath(name, filesystemInputSnapshotPath(workRoot, name)), commit,
+      ...(address === undefined ? {} : { url: address }),
+      ...(pin.defaultBranch === undefined ? {} : { defaultBranch: pin.defaultBranch }) });
+  }
+  return { filesystemInputs, repositories };
+}
+
+/**
+ * One pressed run owns these sanitized object stores. Only their source bytes are
+ * shared: PluginHost still copies every input into each invocation's private root.
+ */
+export function createRunRepositoryInputs() {
+  let closed = false;
+  let signature: string | undefined;
+  let root: string | undefined;
+  let held: ReturnType<typeof prepareRepositoryInputs> | undefined;
+  return {
+    async prepare(pins: readonly RepositoryPin[], workRoot: string): ReturnType<typeof prepareRepositoryInputs> {
+      if (closed) throw new Error('repository input: this run has closed its repository inputs');
+      const requested = JSON.stringify(pins);
+      if (signature !== undefined && signature !== requested) throw new Error('repository input: repository pins changed within one run');
+      signature = requested;
+      held ??= (async () => {
+        root = await mkdtemp(join(tmpdir(), 'madarch-run-repositories-'));
+        return await prepareRepositoryInputs(pins, root);
+      })();
+      const prepared = await held;
+      return {
+        filesystemInputs: prepared.filesystemInputs,
+        repositories: prepared.repositories.map((repository, index) => ({
+          ...repository,
+          root: sandboxInputPath(prepared.filesystemInputs[index]!.name, filesystemInputSnapshotPath(workRoot, prepared.filesystemInputs[index]!.name)),
+        })),
+      };
+    },
+    async close(): Promise<void> {
+      closed = true;
+      // A failed preparation can still have created part of its private directory.
+      await held?.catch(() => undefined);
+      if (root !== undefined) await rm(root, { recursive: true, force: true });
+    },
+  };
+}

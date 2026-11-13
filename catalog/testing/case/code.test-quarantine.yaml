@@ -29,19 +29,19 @@ fields:
   binding: test-quarantine@1.name
 - name: test
   type: json
-  binding: test-quarantine@1.test
   reference: code.test-case
+  binding: test-quarantine@1.test
 - name: task
   type: text
-  binding: test-quarantine@1.task
   reference: task
+  binding: test-quarantine@1.task
 - name: quarantine_reason
   type: text
   binding: test-quarantine@1.quarantine_reason
 - name: since
   type: text
-  binding: test-quarantine@1.since
   reference: code.commit
+  binding: test-quarantine@1.since
 - name: latest_result
   type: json
   nullable: true
@@ -50,11 +50,6 @@ key:
 - repository
 - path
 - name
-depends-on:
-- code.file
-- code.test-case
-- code.commit
-- task
 origin: code
 details:
 - test
@@ -72,3 +67,5 @@ labels:
 description:
   en: A quarantined test, its repair task, reason and introducing commit; the latest quarantine CI result when known.
   ru: Тест в карантине, задача исправления, причина и коммит введения; последний результат CI карантина, если он известен.
+derives-from:
+- code.file

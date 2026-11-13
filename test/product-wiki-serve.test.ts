@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
 setDefaultTimeout(60_000);
 import { serveWiki, type ServeResult } from '../src/product-wiki/serve.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
@@ -91,10 +92,11 @@ describe('serveWiki with a product or a manifestless directory', () => {
       ],
     });
     writeFileSync(kindsFile, manifest.toString());
+    useFixturePlugins(product, ['disk']);
     writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
     runIn(product, ['init', '--quiet', '--initial-branch=main']); runIn(product, ['add', '-A']); runIn(product, ['commit', '--quiet', '-m', 'Product']);
     preparationOwners.push(await prepareTestProduct(product, base));
@@ -109,7 +111,7 @@ describe('serveWiki with a product or a manifestless directory', () => {
       await new Promise((rest) => setTimeout(rest, 100));
     }
     expect(finalStatus?.fill.state, JSON.stringify(finalStatus)).toBe('done');
-    // Native stages store repository facts; this fixture supplies the document and source-text producer's structured answer.
+    // Disk stores repository facts; this fixture supplies the document and source-text producer's structured answer.
     const read = readKinds(product);
     if (!read.present) throw new Error('the fixture document declaration is absent');
     const contract = graphContractOf(read.manifest);

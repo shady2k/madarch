@@ -12,6 +12,7 @@ import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { daemonFills } from '../src/product/daemon-fills.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createTestDatabaseOwner } from './test-database.js';
+import { useRepositoryPlugins, useFixturePlugins } from './enabled-plugins-fixture.js';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'madarch-daemon-one-'));
 const HOME = join(ROOT, 'products');
@@ -22,6 +23,8 @@ beforeAll(() => {
   mkdirSync(join(PRODUCT, 'src'), { recursive: true });
   writeFileSync(join(PRODUCT, 'workspace.yaml'), 'schemaVersion: 1\nid: 8a1c6f2e-4f2b-4b8a-9f7e-1a2b3c4d5e6f\nname: shop\n');
   writeFileSync(join(PRODUCT, 'src', 'order.ts'), 'export function checkout(): number {\n  return 42;\n}\n');
+  useRepositoryPlugins(PRODUCT);
+  useFixturePlugins(PRODUCT, ['disk']);
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: PRODUCT, env: GIT_ENV });
   execFileSync('git', ['add', '-A'], { cwd: PRODUCT, env: GIT_ENV });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'one'], { cwd: PRODUCT, env: GIT_ENV });

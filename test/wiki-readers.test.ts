@@ -6,6 +6,7 @@
  * the glossary the fill does not fill yet). The own wiki is a fixture repository
  * on disk.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -166,6 +167,11 @@ describe('the products-home server with madarch\'s own wiki', () => {
     mkdirSync(busyHome);
     const mine = makeWikiRepository(join(busyHome, 'my-product'), { 'docs/extra.md': '# Extra\n' });
     writeFileSync(join(mine, 'workspace.yaml'), 'schemaVersion: 1\nid: 2ed7a5e0-3aa5-4e9a-9d3c-76d0a0c5c0aa\nname: My product\n');
+    for (const product of [installed.folder, mine]) {
+      useFixturePlugins(product, ['disk', 'git']);
+      ownGit(product, ['add', '-A']);
+      ownGit(product, ['commit', '--quiet', '-m', 'Declare native-only reader fixture producers']);
+    }
     const common = { appFolder: app, port: 0, log: () => undefined, errorLog: (line: string) => { errors.push(line); }, env: { MADARCH_HOME: madarchHome }, ownWiki: { folder: installed.folder } };
     empty = await startPreparedServer({ ...common, productHome: emptyHome, knowledgeRoot: join(work, 'store-a') });
     busy = await startPreparedServer({ ...common, productHome: busyHome, knowledgeRoot: join(work, 'store-b') });

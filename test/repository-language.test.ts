@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { languageOfPath } from '../src/fill/stages/repository-facts.js';
+import { languageOfPath } from '../plugins/disk/reader.js';
 
 test('unrecognised names use an actual JSON parse, not a suffix guess', () => {
   for (const path of ['asset.js.map', 'arbitrary.unlisted-extension', 'no-extension']) {
@@ -22,8 +22,10 @@ test('dataset names and ambiguity stay ahead of the content fallback', () => {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { execFileSync } = await import('node:child_process');
-  const { readRepositoryTree } = await import('../src/fill/stages/repository-facts.js');
+  const { readRepositoryTree } = await import('../plugins/disk/reader.js');
   const root = mkdtempSync(join(tmpdir(), 'language-tree-'));
+  const previousGit = process.env['MADARCH_TOOL_GIT'];
+  process.env['MADARCH_TOOL_GIT'] = Bun.which('git') ?? (() => { throw new Error('git is required'); })();
   const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args]).toString().trim();
   try {
     git('init', '-q');
@@ -37,5 +39,9 @@ test('dataset names and ambiguity stay ahead of the content fallback', () => {
     expect(read.files.map(f=>f.path)).toEqual(['.gitattributes','asset.map','declared.map']);
     expect(read.files.find(f=>f.path==='asset.map')?.language).toBe('JSON');
     expect(read.files.find(f=>f.path==='declared.map')?.language).toBe('Text');
-  } finally { rmSync(root,{recursive:true,force:true}); }
+  } finally {
+    if (previousGit === undefined) delete process.env['MADARCH_TOOL_GIT'];
+    else process.env['MADARCH_TOOL_GIT'] = previousGit;
+    rmSync(root,{recursive:true,force:true});
+  }
 },60_000);

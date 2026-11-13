@@ -1,4 +1,4 @@
-import { starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The Problems page answers in levels (madarch-8bdc.2.5): one row per rule, the sources of a rule, and the items of a
  * source, each a bounded page the server builds. This fixture holds more than one page of sources, so the test walks
@@ -12,9 +12,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { StartedServer } from '../src/server/http.js';
 import { startPreparedServer } from './prepared-server.js';
-import { commitProduct, makeProduct, SAMPLE_IDENTITY, withoutPluginTurns } from './knowledge-fixture.js';
+import { commitProduct, makeProduct, SAMPLE_IDENTITY, withRepositoryPluginsOnly } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
 import { fillInProcess } from './fill-inline.js';
+import { restrictRepositoryDeclarations } from './repository-contract-fixture.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { parse, stringify } from 'yaml';
 
@@ -43,7 +44,7 @@ beforeAll(async () => {
   git(repository, 'add', '.');
   git(repository, 'commit', '--quiet', '-m', 'First');
   folder = makeProduct(home, 'shop', repository);
-  withoutPluginTurns(folder);
+  withRepositoryPluginsOnly(folder);
   // A declared, present repository with no commit is a native graph-context finding, not a retired Markdown read.
   const workspace = join(folder, 'workspace.yaml');
   let workspaceText = readFileSync(workspace, 'utf8');
@@ -56,14 +57,10 @@ beforeAll(async () => {
   }
   writeFileSync(workspace, workspaceText);
   // Pagination needs repository facts and one rule, not the starter catalogue's hundreds of planned kinds.
-  const starter = parse(starterManifestText());
-  const kinds = Object.fromEntries(['code.repository', 'code.directory', 'code.file', 'code.commit'].map((name) => {
-    const kind = starter.kinds[name];
-    return [name, { template: kind.template, source: 'graph', capability: 'git' }];
-  }));
-  writeFolderManifest(folder, stringify({ language: 'en', kinds, problems: { rules: {
-    'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'],
-  } } }));
+  restrictRepositoryDeclarations(folder);
+  const starter = parse(readFolderManifestText(folder));
+  starter.problems = { rules: { 'wiki.unreadable-file': starter.problems.rules['wiki.unreadable-file'] } };
+  writeFolderManifest(folder, stringify(starter));
   commitProduct(folder, 'Declare empty repositories for paged problems');
   const app = join(work, 'app');
   mkdirSync(app);
@@ -82,7 +79,7 @@ afterAll(async () => {
 describe('the Problems page in levels', () => {
   test('the categories count every rule, and the status count is their open sum', async () => {
     const categories = await get('/api/problems');
-    expect(categories.status).toBe(200);
+    expect(categories.status, JSON.stringify(categories.body)).toBe(200);
     expect(categories.body.categories.some((category: { rule: string }) => category.rule === 'wiki.unreadable-file')).toBe(true);
     const unreadable = categories.body.categories.find((category: { rule: string }) => category.rule === 'wiki.unreadable-file');
     expect(unreadable.count).toBeGreaterThanOrEqual(EMPTY_REPOSITORIES);

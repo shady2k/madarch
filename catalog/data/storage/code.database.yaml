@@ -24,9 +24,6 @@ fields:
   binding: db-schema@1.repository
 key:
 - name
-depends-on:
-- code.repository
-- code.file
 terms:
 - '**/*.ts'
 - '**/*.tsx'
@@ -47,3 +44,6 @@ labels:
 description:
   en: A database a service owns, with its tables and migrations.
   ru: База данных сервиса, её таблицы и миграции.
+derives-from:
+- code.repository
+- code.file

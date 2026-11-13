@@ -74,7 +74,7 @@ beforeAll(async () => {
     writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented
-    stages: [repository-tree, repository-history]
+    stages: [plugin-turns]
 `);
     git(product, 'add', '-A');
     git(product, 'commit', '-qm', 'Declare the native repository fixture workflow');
@@ -85,6 +85,12 @@ beforeAll(async () => {
       await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
       const run = await runFill({ product, database: owner, store, home: store, runId: `page-budget-${product === folder ? 'shop' : 'history'}`, prepareContract: async (contract) => { await prepareStore(owner, { contract }); } });
       expect(run.ok).toBe(true);
+      if (run.ok && run.state !== 'succeeded') {
+        const failures = await owner.transaction('snapshot', async tx => await tx.query(
+          "SELECT unit_id, kind, summary FROM fill_event WHERE run_id=$1 AND kind LIKE '%fail%'", [run.runId],
+        ));
+        throw new Error(`page budget fixture fill ${run.runId} ended ${run.state}: ${JSON.stringify(failures.rows)}`);
+      }
       // What every settled fill does (the button, the CLI, the daemon): the store's statistics and pins.
       await finishKnowledgeStore(owner);
     } finally {
@@ -106,7 +112,7 @@ async function pageStats(path: string): Promise<{ statements: number; rows: numb
   const before = (() => { try { return readFileSync(file, 'utf8').split('\n').length; } catch { return 0; } })();
   const at = Date.now();
   const answer = await fetch(`${server!.url}${path}`, { headers: { accept: 'application/json' } });
-  expect(answer.status).toBe(200);
+  expect(answer.status, path).toBe(200);
   const elapsed = Date.now() - at;
   await Bun.sleep(100);
   const lines = readFileSync(file, 'utf8').split('\n').slice(before - 1).filter(Boolean);
@@ -130,7 +136,7 @@ async function pageStats(path: string): Promise<{ statements: number; rows: numb
 
 test('the four entity pages of a walk-size repository stay bounded, cold with no history cache', async () => {
   const hash = git(repository, 'rev-parse', 'HEAD');
-  const email = git(repository, 'log', '-1', '--format=%ae');
+  const author = git(repository, 'log', '-1', '--format=%aN/%aE');
   const pages = [
     // Stage C stores the product repository in the graph too, so the first request's reader open reads the as-is commit
     // of both repositories, and the repository page is also the first read: it pays the worker's cold start. It is the
@@ -141,10 +147,11 @@ test('the four entity pages of a walk-size repository stay bounded, cold with no
     // The file page costs 30 statements on this box at 0cc3fc1a and at this commit (measured: the page is one plan
     // short of the bound the earlier machine named); the bound names the statement the page holds, not a smaller page.
     ['file', `/products/shop/api/page?id=${encodeURIComponent('code.file:big/src/file-0000.ts')}&full=1`, 31, 17_000, 200],
-    ['author', `/products/shop/api/page?id=${encodeURIComponent(`code.author:${email}`)}&full=1`, 20, 10_000, 200],
+    ['author', `/products/shop/api/page?id=${encodeURIComponent(`code.author:${author}`)}&full=1`, 20, 10_000, 200],
   ] as const;
-  for (const [name, path, maxStatements, maxRows, maxMs] of pages) {
-    const held = await pageStats(path);
+  const measured = [];
+  for (const page of pages) measured.push({ page, held: await pageStats(page[1]) });
+  for (const { page: [name, , maxStatements, maxRows, maxMs], held } of measured) {
     expect({ name, statements: held.statements }).toEqual({ name, statements: expect.any(Number) });
     expect(held.statements, name).toBeLessThan(maxStatements);
     expect(held.rows, name).toBeLessThan(maxRows);

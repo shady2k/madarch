@@ -1,3 +1,4 @@
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 /** A real fill publishes quarantine pages and replaces them after a committed repair. */
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -36,10 +37,11 @@ describe('test quarantine through a real fill', () => {
       const home = join(work, 'home');
       const draft = createDraft({ home, name: 'quarantine-shop', gitEnv: gitEnv(IDENTITY), template: 'quarantine-fixture', templates: [{
         id: 'quarantine-fixture', title: { en: 'Quarantine', ru: 'Карантин' }, description: { en: 'Fixture', ru: 'Fixture' },
-        kinds: ['code.repository', 'code.directory', 'code.file', 'code.test-case', 'code.commit', 'task', 'code.test-quarantine', 'template'],
+        kinds: ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.test-case', 'code.commit', 'code.author', 'task', 'code.test-quarantine', 'template'],
       }] });
       if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
       const folder = draft.folder;
+      useFixturePlugins(folder, ['disk', 'git', 'test-quarantine']);
       const repository = join(folder, 'repos', 'app');
       mkdirSync(join(repository, 'test'), { recursive: true });
       git(repository, 'init', '--quiet', '--initial-branch=main');
@@ -57,7 +59,7 @@ describe('test quarantine through a real fill', () => {
       commit(folder, 'Link the application');
 
       async function fill(): Promise<void> {
-        const answer = Bun.spawn([process.execPath, CLI, 'fill', '--product', folder, '--home', home, '--entity', 'code.test-quarantine'], {
+        const answer = Bun.spawn([process.execPath, CLI, 'fill', '--product', folder, '--home', home], {
           env: { ...process.env, HOME: home }, stdout: 'pipe', stderr: 'pipe',
         });
         const [stdout, stderr, exitCode] = await Promise.all([new Response(answer.stdout).text(), new Response(answer.stderr).text(), answer.exited]);

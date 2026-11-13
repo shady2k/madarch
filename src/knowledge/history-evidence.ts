@@ -71,7 +71,7 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     }
     return { files, complete };
   };
-  const renamed = edges.filter((edge) => edge.relation === GIT_WIKI.renamedTo);
+  const renamed = edges.filter((edge) => edge.relation === GIT_WIKI.renamedFrom);
   const identities = new Map<string, string>();
   const root = (key: string): string => {
     let next = key;

@@ -8,7 +8,7 @@ import { KLink } from './blocks.js';
 import { KindGraph, graphStateOf } from './kind-graph.js';
 import { KindSources } from './kind-sources.js';
 import { useRead } from './live.js';
-import { fillWithOf } from './producers.js';
+import { pluginNames } from './producers.js';
 import { addressOfKind } from './routes.js';
 import type { CatalogKindView, CatalogView } from './types.js';
 
@@ -23,10 +23,7 @@ export function KindDetails({ kind, version }: { kind: string; version: number }
   if (catalog === null || chosen === null) return read.error === null && detail.error === null ? <Paragraph role="status">{t('knowledge.loading')}</Paragraph> : <Paragraph className="mb-6 text-small text-muted" role="status" data-testid="kind-details-unavailable">{t('knowledge.kindDetails.unavailable')}</Paragraph>;
   const description = chosen.descriptions?.[language];
   const producer = (chosen.pluginFolders ?? []).length > 0 ? chosen.pluginFolders!.join(', ')
-    : (chosen.plugins ?? []).length > 0 ? t('knowledge.catalogueByPlugin', { plugins: chosen.plugins!.join(', ') })
-    : fillWithOf(chosen) === 'person' ? t('knowledge.catalogueByPerson')
-    : chosen.fillWith === 'agent' ? t('knowledge.catalogueByAgent')
-    : chosen.producer === undefined ? t('knowledge.kindDetails.noProducer') : t(`knowledge.catalogueStage.${chosen.producer}`);
+    : pluginNames(chosen).join(', ') || t('knowledge.catalogueNoPlugin');
   const name = (id: string): string => {
     const entry = catalog.kinds.find((item) => item.kind === id);
     return entry?.labels?.[language]?.many ?? t('knowledge.kindDetails.untranslatedKind');

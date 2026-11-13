@@ -16,7 +16,7 @@ import { addressOfFillRun, addressOfKind } from './routes.js';
 import { KindGraph } from './kind-graph.js';
 import { addedByDependency, estimateOf } from './fill-selection.js';
 import { useRead } from './live.js';
-import { fillWithOf } from './producers.js';
+import { pluginNames } from './producers.js';
 import { PageSkeleton } from './skeleton.js';
 import type { AgentOffer, CatalogKindView, CatalogView } from './types.js';
 
@@ -42,8 +42,10 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
   const all = data.kinds;
   const added = addedByDependency(all, checked);
   const active = new Set([...checked, ...added.keys()]);
-  const chosen = all.filter((kind) => active.has(kind.kind));
   const cost = estimateOf(all, checked, added);
+  const needsAgent = all.some((kind) => active.has(kind.kind) && kind.requiresAgent === true);
+  const planRefusal = all.find((kind) => active.has(kind.kind) && kind.fillPlanRefusal)?.fillPlanRefusal;
+  const missingAgent = needsAgent && agent === null;
   const name = (kind: CatalogKindView): string => kind.labels?.[language]?.many ?? kind.kind;
   const byId = new Map(all.map((kind) => [kind.kind, kind]));
   const neededName = (id: string): string => byId.has(id) ? name(byId.get(id)!) : id;
@@ -62,10 +64,10 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
     setFailure(null);
   };
   const run = (): void => {
-    if (checked.size === 0 || locked || !validCap) return;
+    if (checked.size === 0 || locked || !validCap || missingAgent || planRefusal) return;
     setBusy(true);
     setFailure(null);
-    fillSelected({ selected: [...checked].sort(), agent, tokenCap: cap.trim() === '' ? null : Number(cap) }).then(
+    fillSelected({ selected: [...checked].sort(), agent: needsAgent ? agent : null, tokenCap: cap.trim() === '' ? null : Number(cap) }).then(
       (answer) => { setBusy(false); setChecked(new Set()); refresh(); navigateTo(appPath(addressOfFillRun(answer.runId))); },
       (error: unknown) => { setBusy(false); setFailure(error instanceof Error ? error.message : String(error)); },
     );
@@ -83,7 +85,7 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
                 {section.kinds.map((kind) => <Stack key={kind.kind} className="mb-2 text-small" data-kind={kind.kind}><FieldLabel className="flex items-start gap-2">
                   <Checkbox data-testid={`fill-setup-check-${kind.kind}`} checked={active.has(kind.kind)} disabled={locked || added.has(kind.kind)} onChange={() => change([kind.kind], checked.has(kind.kind))} />
                   <Text><KLink href={addressOfKind(kind.kind)}>{name(kind)}</KLink>{added.has(kind.kind) && <Text className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.neededBy', { kind: neededName(added.get(kind.kind)!) })}</Text>}</Text>
-                </FieldLabel></Stack>)}
+                </FieldLabel><Paragraph className="mb-0 ml-6 text-small text-muted" data-testid="fill-setup-plugins">{pluginNames(kind).join(', ') || t('knowledge.catalogueNoPlugin')}</Paragraph></Stack>)}
               </PageSection>;
             })}
           </Stack>
@@ -95,15 +97,14 @@ export function FillSetup({ refresh, disabled = false }: { refresh: () => void; 
           </PageSection>
         </Stack>
         <Stack className="mt-4 flex flex-wrap items-end gap-4 border-t border-line pt-4">
-          <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-agent">{t('knowledge.fillSetup.agent')}<Select id="fill-setup-agent" data-testid="fill-setup-agent" disabled value={agent ?? ''} onChange={(event) => setAgent(event.target.value || null)} options={[{ value: '', label: t('knowledge.fillSetup.noAgent') }, ...agents.map((entry) => ({ value: entry.id, label: entry.label }))]} /></FieldLabel>
-          <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-cap">{t('knowledge.fillSetup.cap')}<Input id="fill-setup-cap" data-testid="fill-setup-cap" type="number" min={1} step={1} value={cap} disabled aria-invalid={!validCap} onChange={(event) => setCap(event.target.value)} /></FieldLabel>
+          {needsAgent && <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-agent">{t('knowledge.fillSetup.agent')}<Select id="fill-setup-agent" data-testid="fill-setup-agent" required disabled={locked} value={agent ?? ''} onChange={(event) => setAgent(event.target.value || null)} options={[{ value: '', label: t('knowledge.fillSetup.chooseAgent') }, ...agents.map((entry) => ({ value: entry.id, label: entry.label }))]} /></FieldLabel>}
+          <FieldLabel className="grid gap-1 text-small" htmlFor="fill-setup-cap">{t('knowledge.fillSetup.cap')}<Input id="fill-setup-cap" data-testid="fill-setup-cap" type="number" min={1} step={1} value={cap} disabled={locked} aria-invalid={!validCap} onChange={(event) => setCap(event.target.value)} /></FieldLabel>
           <Paragraph className="m-0 text-small" data-testid="fill-setup-count">{t('knowledge.fillSetup.count', { selected: checked.size, dependencies: added.size })}</Paragraph>
-          <Button variant="default" size="default" data-testid="fill-setup-run" disabled={locked || checked.size === 0 || !validCap} onClick={run}>{t(busy ? 'knowledge.fillSetup.starting' : 'knowledge.fillSetup.run')}</Button>
+          <Button variant="default" size="default" data-testid="fill-setup-run" disabled={locked || checked.size === 0 || !validCap || missingAgent || !!planRefusal} onClick={run}>{t(busy ? 'knowledge.fillSetup.starting' : 'knowledge.fillSetup.run')}</Button>
         </Stack>
-        <Paragraph className="mb-0 mt-3 text-small text-muted" data-testid="fill-setup-unsupported">{t('knowledge.fillSetup.unsupported')}</Paragraph>
         {checked.size > 0 && <Stack className="mt-3 text-small" data-testid="fill-setup-estimate">{cost.tokens === null ? t('knowledge.fillSetup.unknown', { count: cost.unknown }) : t('knowledge.fillSetup.estimate', { tokens: cost.tokens, seconds: Math.round(cost.seconds ?? 0) })}</Stack>}
-        {chosen.filter((kind) => fillWithOf(kind) === 'agent' && agent === null).map((kind) => <Paragraph key={kind.kind} className="mb-0 text-small text-muted" data-testid="fill-setup-agent-warning">{t('knowledge.fillSetup.needsAgent', { kind: name(kind) })}</Paragraph>)}
-        {chosen.filter((kind) => fillWithOf(kind) === 'person').map((kind) => <Paragraph key={kind.kind} className="mb-0 text-small text-muted" data-testid="fill-setup-person-warning">{t('knowledge.fillSetup.needsPerson', { kind: name(kind) })}</Paragraph>)}
+        {missingAgent && <Paragraph className="mt-3 text-small" data-testid="fill-setup-agent-required">{t('knowledge.fillSetup.chooseAgent')}</Paragraph>}
+        {planRefusal && <Alert variant="problem" className="mt-3"><AlertDescription>{planRefusal}</AlertDescription></Alert>}
         {!validCap && <Paragraph role="alert" className="text-small">{t('knowledge.fillSetup.invalidCap')}</Paragraph>}
         {failure !== null && <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
       </CardContent>

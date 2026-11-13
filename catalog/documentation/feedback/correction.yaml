@@ -58,3 +58,4 @@ labels:
 description:
   en: A person's note that a statement is wrong, and why; the agent takes it into account at the next refresh.
   ru: Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.
+key: []

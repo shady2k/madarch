@@ -15,7 +15,7 @@ import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
 import { cancelRun } from '../fill/orchestrator.js';
 import { GUIDE_OUTPUTS, type GuideKind, type GuideLocale } from './guide-outputs.js';
-import { createRecordSchema } from '../graph/index.js';
+import { createOneGraphSchema } from '../graph/one-graph.js';
 import { hasGeneratedTable } from '../graph/tables.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
@@ -40,7 +40,8 @@ import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
-import { createRun, readChain, readLatestRun, readRun, readRuns, hasSuccessfulFill, readLiveRun, readStoreStamp } from '../fill/state-store.js';
+import { readProducerOutcomes } from '../graph/producer-outcomes.js';
+import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
 import { locationOf, termBlock, type RenderContext } from './blocks.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead, type GraphEntity } from './graph-read.js';
@@ -52,7 +53,11 @@ import { agentUsageOf, readTraceRunSummary, readTraceSpans, TraceSpanReader } fr
 import { traceFiles } from '../obs/trace.js';
 import { withSpan } from '../obs/trace.js';
 import { neighborhoodOf } from './diagrams.js';
-import { adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
+import { assertPluginTurnsEnabled, fillStageConfigurationFrom } from '../product/manifest/fill-config.js';
+import { firstFillStagesOfFiles, engineFirstFillStages, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
+import { workingTreeFiles } from '../plugin/product-files.js';
+import { planManifestFill } from '../plugin/fill-declarations.js';
+import { configuredPluginAgent, pluginAgentOptions, adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { WriterBounds } from './model.js';
 import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
@@ -275,7 +280,7 @@ export class KnowledgeProduct {
   /** The run id of the fill under way: the trace it writes is read by that id, never as "the newest file". */
   private fillRunId: string | undefined;
   /** What the last finished run's trace and the store's counts say: the end state's numbers. */
-  private fillExtras: { counts?: FillState['counts']; run?: FillRunView; error?: FillErrorView } = {};
+  private fillExtras: { counts?: FillState['counts']; run?: FillRunView; outcomes?: FillState['outcomes']; error?: FillErrorView } = {};
   /** A person asked for a stop: the run ends now, and the page in progress stays as it was before the run. */
   private stopAsked = false;
   /** The pause kept beside the store was read into this product's state; one read is enough for the life of the process. */
@@ -303,6 +308,8 @@ export class KnowledgeProduct {
   private problemsCache: { key: string; sequence: number; listing: ProblemListing } | undefined;
   /** The listing being collected for a key: a reader that asks while it runs waits for the same work, never a second walk. */
   private problemsFlight: { key: string; promise: Promise<ProblemListing> } | undefined;
+  /** Includes opening the reader and resolving its key, before a collection has a key to share. */
+  private problemsRefresh: Promise<void> | undefined;
   /** Orders collections, so a listing for older inputs that lands late never replaces a newer one. */
   private problemsSequence = 0;
   /** The key whose background collection failed: the menu does not walk it again on every poll. */
@@ -474,7 +481,7 @@ export class KnowledgeProduct {
         // and its files, and a missing relation would be a failed page, not an empty one. The contract is the empty one:
         // this read holds no manifest yet (the graph it would be read from is what this call creates), and the fill that
         // reads the product repository adds the kinds' tables from the manifest it read.
-        await createRecordSchema(owner, EMPTY_CONTRACT);
+        await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
         // Serialized with every other schema of this store (`src/adapters/schema-stamp.ts`).
         await owner.transaction('write', async (tx) => {
           await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
@@ -502,7 +509,10 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     const repository = productRepositoryId(product);
     const owner = snapshot?.owner ?? await this.open();
-    const reader = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
+    const manifest = await this.manifestFrom(product.folder, snapshot);
+    const kinds = manifest.present ? graphKindsOf(manifest.manifest) : undefined;
+    const reader = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction,
+      kinds?.declared ?? new Set<string>(), kinds?.generated, kinds?.edges);
     const seq = this.reader?.seq ?? 0;
     const held = this.filesMemo;
     // A page's transaction reads the text in that transaction; the index is the revision's and is reused.
@@ -632,7 +642,7 @@ export class KnowledgeProduct {
     const next: RepositoryPin[] = [];
     for (const facts of held) {
       const commit = facts.asIsCommit ?? '';
-      const at = commit === '' ? undefined : await reader.commit(facts.name, commit).catch(() => null);
+      const at = commit === '' ? undefined : await reader.commitFacts(facts.name, commit).catch(() => null);
       // The history pass's own opinion of the repository: a shallow clone is not the whole history.
       const shallow = facts.historyShallow === true;
       next.push({
@@ -848,7 +858,7 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { selected?: readonly string[]; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { selected?: readonly string[]; agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -864,6 +874,15 @@ export class KnowledgeProduct {
     // read, never the graph it is about to write (madarch-hsqs stage C).
     const read = readKinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
+    try {
+      if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
+      const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
+      const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined);
+      const files = workingTreeFiles(product.folder);
+      assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, product.folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, product.folder));
+    } catch (error) {
+      return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
+    }
     const repositories = this.repositories();
     // A product with no code repository still has its own repository: the files producer reads it, so a product that is
     // documentation alone fills its documents and its own tree. A folder that is no Git checkout has nothing to read.
@@ -947,7 +966,7 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    const request = { ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
+    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
@@ -993,7 +1012,7 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string }; readonly selection?: import('../fill/fsm.js').RunSelection } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
@@ -1006,6 +1025,8 @@ export class KnowledgeProduct {
         runId,
         database: owner,
         env: this.env,
+        ...(asked.agent === undefined ? {} : { pluginAgent: asked.agent === null ? null : pluginAgentOptions(asked.agent, this.env, join(storeFolder, 'agent-runs')) }),
+        ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }),
         prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract),
         ...(asked.targets === undefined ? {} : { targets: asked.targets }),
         onPublish: () => { void this.published(undefined).catch(() => undefined); },
@@ -1048,7 +1069,7 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly language?: string; readonly task?: string; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string }; readonly selection?: import('../fill/fsm.js').RunSelection }): Promise<void> {
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;
@@ -1059,7 +1080,7 @@ export class KnowledgeProduct {
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
-      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
+      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
       // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
       // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
       // answered — the reason it did not finish, the repositories it could not read — is written there too.
@@ -1362,6 +1383,8 @@ export class KnowledgeProduct {
   }
 
   private async graphVerdictsOne(force: boolean): Promise<GraphVerdictProductView> {
+    const signal = this.publicationWait.signal;
+    signal.throwIfAborted();
     const file = graphVerdictFile(this.storeFolder());
     const state = readGraphVerdictState(file);
     const roles = this.modelRoles();
@@ -1369,7 +1392,12 @@ export class KnowledgeProduct {
     // while this validation is still starting (the fill role and the api role have different lifetimes).
     const owner = await createDatabaseOwner({ store: storeDatabasePath(this.storeFolder()), connectOnly: true });
     let snapshot: Awaited<ReturnType<typeof loadGraphSnapshot>>;
-    try { snapshot = await loadGraphSnapshot(owner); } finally { await owner.close().catch(() => undefined); }
+    try {
+      const manifest = await owner.run(async (tx) => await readPublishedManifest(tx));
+      const kinds = manifest === undefined ? undefined : graphKindsOf(manifest);
+      const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds?.declared, kinds?.generated, kinds?.edges);
+      snapshot = await loadGraphSnapshot(reader, signal);
+    } finally { await owner.close().catch(() => undefined); }
     const jev = this.options.graphJev ?? null;
     const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
       env: this.env,
@@ -1399,6 +1427,7 @@ export class KnowledgeProduct {
     }
     let evidenceContext: ReturnType<KnowledgeProduct['context']> | undefined;
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
+      signal.throwIfAborted();
       const product = this.product();
       if ('message' in product) throw new WikiReadError(product.message);
       evidenceContext ??= this.context();
@@ -1408,7 +1437,9 @@ export class KnowledgeProduct {
         if (!kind.fields?.some((field) => field.name === 'source_text')) continue;
         let after: string | undefined;
         do {
+          signal.throwIfAborted();
           const page = await context.ctx.graph.list(kind.name, { limit: 500, ...(after === undefined ? {} : { after }) });
+          signal.throwIfAborted();
           for (const entity of page.rows) {
             const fields = entity.properties;
             const repository = fields['repository'];
@@ -1424,6 +1455,7 @@ export class KnowledgeProduct {
     };
     const result = await runGraphVerdicts({
       snapshot,
+      signal,
       roles,
       budgets: state.budgets,
       readEvidence,
@@ -1433,6 +1465,7 @@ export class KnowledgeProduct {
       ...(this.options.graphJevVersion === undefined ? {} : { jevVersion: this.options.graphJevVersion }),
       judgeFor,
     });
+    signal.throwIfAborted();
     writeGraphVerdictState(file, result.cache);
     return { file, budgets: state.budgets, rows: result.rows, report: result.report, metrics: result.metrics, cached: false };
   }
@@ -2022,7 +2055,7 @@ export class KnowledgeProduct {
     const generated = kinds.generated;
     const dependencies = await owner.run(async (tx) => await readPublishedDependencies(tx));
     const declarations = new Map([...context.manifest.kinds].map(([name, kind]) => [name, {
-      ...kind, dependsOn: dependencies.filter((edge) => edge.workflow === undefined && edge.to === name).map((edge) => edge.from).sort(byCodePoint),
+      ...kind, derivesFrom: dependencies.filter((edge) => edge.workflow === undefined && edge.to === name).map((edge) => edge.from).sort(byCodePoint),
     }]));
     const ctx = { ...context.ctx, manifest: { ...context.manifest, kinds: declarations }, graph: new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges) };
     // The state of each kind's newest turn: what the catalogue says is filled, partial, or never filled (madarch-stm0.6).
@@ -2089,10 +2122,10 @@ export class KnowledgeProduct {
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined, followed = false): Promise<WikiStatus> {
     // Resolve the persisted run outside the best-effort graph refresh: a failed store read is not "never ran".
-    const run = await this.runViewOf();
+    const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
     let live: WikiStatus;
     try {
-      live = await this.statusLiveNow(body, ctx, followed);
+      live = await this.statusLiveNow(body, ctx, followed, run);
     } catch {
       live = { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
     }
@@ -2182,7 +2215,7 @@ export class KnowledgeProduct {
     }
   }
 
-  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined, followed: boolean): Promise<WikiStatus> {
+  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined, followed: boolean, run: FillRunView | null): Promise<WikiStatus> {
     if (!followed) await this.followStoreFill();
     // Without a manifest in the graph there is no Problems listing to collect. Opening a new
     // store here would block the next poll on initdb for a product nobody has filled.
@@ -2202,7 +2235,7 @@ export class KnowledgeProduct {
     }
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
-    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems);
+    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems, run);
     // The count the front shows is the Problems page's own total while its listing stands for these inputs; a listing
     // still being collected leaves the reading's finding count, never a count of other inputs (madarch-8bdc.2.5).
     const findingCount = problems !== '' && collected !== undefined && collected.key === problems
@@ -2237,7 +2270,7 @@ export class KnowledgeProduct {
    */
   private storeOf: { key: string; seq: number; repository?: RepositoryFactsView; kinds?: KindSummary[] } | undefined;
 
-  private async numbersOf(ctx: RenderContext, key: string): Promise<Partial<WikiStatus>> {
+  private async numbersOf(ctx: RenderContext, key: string, run: FillRunView | null): Promise<Partial<WikiStatus>> {
     let bound = ctx;
     try {
       const owner = await this.open();
@@ -2264,8 +2297,12 @@ export class KnowledgeProduct {
     const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
     if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
+    const runId = this.fillRunId ?? run?.runId;
+    const outcomes = runId === undefined ? undefined : await readProducerOutcomes(await this.open(), { runId });
     this.fillExtras = {
       ...(repository === undefined ? {} : { counts: repository.counts }),
+      ...(run === null ? {} : { run }),
+      ...(outcomes === undefined ? {} : { outcomes }),
       ...(this.fill.state === 'failed' && this.fill.message !== undefined ? { error: this.errorOf(this.fill.message) } : {}),
     };
     const filled = await hasSuccessfulFill(await this.open());
@@ -3169,11 +3206,9 @@ export class KnowledgeProduct {
     return `${plan}|${revision ?? await this.graphRevision()}`;
   }
 
-  /** The store as a listing reads it: the snapshot the pages show and what each repository was filled to. */
+  /** Repository pins beside the graph publication stamp; local reader generations do not change graph facts. */
   private storeKey(): string {
-    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
-    const snapshot = this.reader === undefined ? '' : String(this.reader.seq);
-    return `${snapshot}|${pins}`;
+    return [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
   }
 
   /** The key where a store that cannot answer is no reason to fail an answer: the background refresh. */
@@ -3211,15 +3246,17 @@ export class KnowledgeProduct {
    * is what tries it again (madarch-u3vw.8).
    */
   private refreshProblems(key: string): void {
-    if (this.fill.state === 'running' || this.problemsFlight !== undefined) return;
+    if (this.fill.state === 'running' || this.problemsFlight !== undefined || this.problemsRefresh !== undefined) return;
     if (key === '' || this.problemsCache?.key === key || this.problemsFailed === key) return;
-    void this.open()
+    const refresh = this.open()
       .then(async (owner) => {
         const current = await this.problemsKeySafe();
-        if (current === '' || this.problemsCache?.key === current) return undefined;
-        return this.problemsFor(current, owner);
+        if (current === '' || this.problemsCache?.key === current) return;
+        await this.problemsFor(current, owner);
       })
-      .catch(() => { this.problemsFailed = key; });
+      .catch(() => { this.problemsFailed = key; })
+      .finally(() => { this.problemsRefresh = undefined; });
+    this.problemsRefresh = refresh;
   }
 
   private async collectProblems(owner: DatabaseOwner): Promise<ProblemListing> {
@@ -3361,7 +3398,8 @@ export class KnowledgeHost {
   }
 
   async close(): Promise<void> {
-    for (const product of this.products.values()) await product.close();
+    const results = await Promise.allSettled([...this.products.values()].map((product) => product.close()));
     this.products.clear();
+    for (const result of results) if (result.status === 'rejected') throw result.reason;
   }
 }

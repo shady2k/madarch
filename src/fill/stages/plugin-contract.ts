@@ -14,19 +14,13 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import type { FieldDecl, KindDecl, KindsManifest } from '../../product/manifest/kinds.js';
-import { GIT_MANIFEST_KINDS, gitContractOf } from './git-contract.js';
+import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
+import { planFillDeclarations } from '../../plugin/fill-declarations.js';
 import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
-function resolved(field: FieldDecl, kind: KindDecl, manifest: KindsManifest): { type: FieldContract['type']; reference?: string } | undefined {
-  const binding = field.binding;
-  if (binding === undefined) return kind.origin === 'person' ? { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) } : undefined;
-  if (binding.kind === 'agent') return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
-  const plugin = manifest.plugins?.get(binding.plugin);
-  const declared = plugin?.contract?.vertices.find((vertex) => vertex.kind === kind.name)?.fields.find((one) => one.name === binding.field);
-  if (declared === undefined) return undefined;
-  return { type: declared.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
+function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
+  return { type: field.type, ...(field.reference === undefined ? {} : { reference: field.reference }) };
 }
 
 /**
@@ -44,7 +38,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     let bound = false;
     let capability = '';
     for (const field of kind.fields) {
-      const held = resolved(field, kind, manifest);
+      const held = resolved(field);
       if (held === undefined) continue;
       bound = true;
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
@@ -54,15 +48,13 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     if (!bound || !keyFields.every((field) => fields.some((held) => held.name === field))) continue;
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
-  // The path index evidence names is mechanism state (`src/graph/one-graph.ts`), not a kind the manifest declares.
   return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
 }
 
 /**
  * The edge tables a manifest's own edge declarations and their plugin's contract make (decision 0035, items 7 and 18):
  * an edge whose capability names a plugin that declares that edge kind takes the plugin's fields as its columns, and the
- * manifest states its ends, whether it repeats and what tells its repeats apart. An edge a capability fills in the
- * engine's own contract (git's) is no part of this one.
+ * manifest states its ends, whether it repeats and what tells its repeats apart.
  */
 function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
   const edges: EdgeContract[] = [];
@@ -72,15 +64,13 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
     const declared = plugin?.contract?.edges.find((one) => one.kind === edge.name);
     if (declared === undefined) continue;
     const fields: FieldContract[] = declared.fields?.map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) })) ?? [];
-    // The manifest names a kind the wiki shows (`code.file`); the graph's kind of a git kind is its name without the prefix.
-    const graphKinds = (names: readonly string[]): string[] => names.map((name) => GIT_MANIFEST_KINDS[name] ?? name);
     edges.push({
       // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
       // the edge exists and who made it, which is what a complete answer is compared with and removed by.
       name: edge.name,
       table: generatedTableName(edge.name, 'edge'),
-      from: graphKinds(edge.from),
-      to: graphKinds(edge.to),
+      from: edge.from,
+      to: edge.to,
       repeats: edge.repeats,
       ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
       fields,
@@ -97,11 +87,16 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
  */
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
-  for (const kind of [...manifestContractOf(manifest).vertex.filter((kind) => !TEMPLATE_CONTRACT.vertex.some((one) => one.name === kind.name)), ...TEMPLATE_CONTRACT.vertex]) {
-    const columns = kind.fields.filter((field) => !kind.key.includes(field.name));
-    reads.set(kind.name, {
-      kind: kind.name, table: kind.table, columns: columns.map((field) => field.name),
-      types: Object.fromEntries(columns.map((field) => [field.name, field.type])), key: kind.key,
+  const plan = planFillDeclarations({
+    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
+    selectedKinds: [],
+  });
+  for (const vertex of graphContractOf(manifest).vertex) {
+    const columns = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
+    const types = Object.fromEntries(vertex.fields.map((field) => [field.name, field.type]));
+    reads.set(vertex.name, { kind: vertex.name, table: vertex.table, columns, types, key: vertex.key,
+      producers: Object.fromEntries(columns.map((field) => [field, plan.declaredProducers(vertex.name, field)])),
     });
   }
   return reads;
@@ -126,22 +121,8 @@ export function declaredEdgeReads(manifest: KindsManifest): Map<string, Generate
   return reads;
 }
 
-/** The two declarations of one contract, their kinds and dictionaries stated once each. */
-function merge(left: GraphContract, right: GraphContract): GraphContract {
-  const vertex = [...left.vertex];
-  for (const kind of right.vertex) if (!vertex.some((held) => held.name === kind.name)) vertex.push(kind);
-  const edge = [...left.edge];
-  for (const kind of right.edge) if (!edge.some((held) => held.name === kind.name)) edge.push(kind);
-  const dictionary = [...left.dictionary];
-  for (const one of right.dictionary) if (!dictionary.some((held) => held.name === one.name)) dictionary.push(one);
-  return { vertex, edge, dictionary };
-}
-
-/**
- * The whole contract a product's manifest makes: the code kinds its `capability`
- * declarations bind to the git reader, and the tables its own field bindings
- * declare. A product that declares neither gets no table at all.
- */
+/** The graph contract is exactly the product's ordinary declarations. */
 export function graphContractOf(manifest: KindsManifest): GraphContract {
-  return merge(merge(gitContractOf(manifest), manifestContractOf(manifest)), TEMPLATE_CONTRACT);
+  const declared = manifestContractOf(manifest);
+  return { ...declared, vertex: [...declared.vertex.filter((kind) => !TEMPLATE_CONTRACT.vertex.some((one) => one.name === kind.name)), ...TEMPLATE_CONTRACT.vertex] };
 }

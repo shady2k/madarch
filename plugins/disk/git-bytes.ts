@@ -1,6 +1,5 @@
 /** Git byte transport used by the repository metadata stages. */
-import { withSpan } from '../obs/trace.js';
-import { raise } from '../model/raise.js';
+function raise(message: string): never { throw new Error(message); }
 
 /** The most bytes of git's standard error one failure may name; the rest is cut and said to be cut. */
 const GIT_ERROR_BYTES = 4_000;
@@ -12,23 +11,20 @@ const GIT_ERROR_BYTES = 4_000;
  * answered; it never holds those bytes.
  */
 export async function gitStream(root: string, args: readonly string[], onChunk: (chunk: Uint8Array) => void, options: { readonly input?: string } = {}): Promise<number> {
-  return await withSpan('process.git', {
-    'process.command': 'git',
-    'process.args': [...args],
-    'process.cwd': root,
-  }, async (span) => {
-    let process_: ReturnType<typeof Bun.spawn>;
+    const executable = process.env['MADARCH_TOOL_GIT'] ?? raise('the declared system git tool is unavailable');
+    const process_ = (() => {
     try {
-      process_ = Bun.spawn(['git', ...args], {
+      return Bun.spawn([executable, ...args], {
         cwd: root,
         stdin: options.input === undefined ? 'ignore' : new TextEncoder().encode(options.input),
         stdout: 'pipe',
         stderr: 'pipe',
-        env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0' },
+        env: { ...process.env, LC_ALL: 'C', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
       });
     } catch (error) {
       raise(`the repository at ${root} could not run "git ${args.join(' ')}": ${error instanceof Error ? error.message : String(error)}`);
     }
+    })();
     const errors: Uint8Array[] = [];
     const drained = (async () => { for await (const chunk of process_.stderr as ReadableStream<Uint8Array>) errors.push(chunk); })();
     let bytes = 0;
@@ -38,14 +34,11 @@ export async function gitStream(root: string, args: readonly string[], onChunk: 
     }
     await drained;
     const code = await process_.exited;
-    span.setAttribute('process.outputBytes', bytes);
-    span.setAttribute('process.exitCode', code);
     if (code !== 0) {
       const message = Buffer.concat(errors.map((one) => Buffer.from(one))).toString('utf8').trim();
       raise(`the repository at ${root} could not run "git ${args.join(' ')}": git exited ${String(code)}${message === '' ? '' : `: ${message.slice(0, GIT_ERROR_BYTES)}${message.length > GIT_ERROR_BYTES ? ' (cut)' : ''}`}`);
     }
     return bytes;
-  });
 }
 
 /** One git answer as text, for the small answers (a commit's tree id, a yes or a no). */

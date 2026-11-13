@@ -33,7 +33,7 @@ for (const running of [false, true]) test(`reset starts a filled fixture over ${
     }
     const folder = makeProduct(home, 'sample', repository, 'source');
     commitProduct(folder, 'Link fixture source');
-    const filled = await command(home, 'fill-stages', '--product', folder, '--steps', 'repository-tree,repository-history', '--json');
+    const filled = await command(home, 'fill-stages', '--product', folder, '--steps', 'plugin-turns', '--json');
     expect(filled.code, JSON.stringify(filled)).toBe(0);
     expect(JSON.parse(filled.out.trim().split('\n').at(-1)!).state).toBe('succeeded');
     const filledOwner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))) });

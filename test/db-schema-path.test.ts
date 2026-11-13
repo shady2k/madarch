@@ -1,4 +1,4 @@
-import { starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
+import { readFolderManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 /**
  * The db-schema path end to end (decision 0035, items 6, 7, 15, 17 and 18; task madarch-47vw.3): the plugin reads the SQL
  * its TypeScript literals hold with parsers — a TypeScript parser for the literals, libpg_query for the SQL — and answers
@@ -9,6 +9,7 @@ import { starterManifestText, writeFolderManifest } from './catalog-folder-fixtu
  * A literal the parsers cannot read whole is a partial unit naming its file and its line, never a smaller answer: the
  * case runs the plugin in the sandbox with a source it holds and reads the cause it answers with.
  */
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,6 +36,7 @@ import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const PLUGINS = fileURLToPath(new URL('..', import.meta.url));
@@ -62,6 +64,12 @@ const SOURCE = [
   '',
 ].join('\n');
 
+/** The presentation phase keeps every static statement and its line, replacing only the dynamic table declaration. */
+const STATIC_SOURCE = SOURCE.replace(
+  'export const composed = (table: string): string => `CREATE TABLE IF NOT EXISTS ${table} (id bigint)`;',
+  '// The dynamic table declaration was removed after its abstention was recorded.',
+);
+
 /** The line the table's CREATE TABLE opens on in the source above: a reader of the page opens it there. */
 const CHILD_LINE = SOURCE.split('\n').findIndex((line) => line.startsWith('CREATE TABLE child')) + 1;
 
@@ -70,6 +78,7 @@ const COMPOSED_LINE = SOURCE.split('\n').findIndex((line) => line.includes('cons
 
 /** The reason this machine cannot run a plugin, when it cannot: the cases that need one are skipped with it. */
 const sandboxProblem: string | undefined = await (async (): Promise<string | undefined> => {
+  if (process.env['MADARCH_PLUGIN_SANDBOX'] === 'off') return undefined;
   const parent = cgroupParent();
   const delegation = checkCgroupDelegation(parent);
   if (delegation !== undefined) return delegation.message;
@@ -159,6 +168,14 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       expect(parent?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts' });
       const child = outcome.result.vertices.find((vertex) => vertex.kind === 'code.table' && vertex.key['name'] === 'child');
       expect(child?.evidence).toMatchObject({ repository: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE });
+      const selected = await session.runUnit({ unitId: 'selected-database', kind: 'code.database', key: {}, inputs: {
+        patterns: ['**/*.ts'], contract: { vertices: [{ kind: 'code.database', fields: [{ name: 'repository' }] }] }, edgeOutputs: [],
+      } });
+      if (selected.state !== 'extracted') throw new Error(JSON.stringify(selected));
+      expect(selected.result.vertices.map((vertex) => vertex.kind)).toEqual(['code.database']);
+      expect(selected.result.vertices[0]?.values).toEqual({ repository: 'app' });
+      expect(selected.result.edges).toEqual([]);
+      expect(selected.result.end).toEqual(outcome.result.end);
     } finally {
       await session.close();
     }
@@ -248,10 +265,11 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     writeFileSync(join(code, 'src', 'schema.ts'), SOURCE);
     mkdirSync(join(code, 'fixtures'), { recursive: true });
     writeFileSync(join(code, 'fixtures', 'schema.ts'), 'export const sql = `CREATE TABLE unwanted_fixture (id bigint); CREATE TABLE child (kind_id bigint)`;');
-    const kinds = parseDocument(starterManifestText());
-    for (const name of ['code.database', 'code.table', 'code.column', 'code.index']) {
-      expect(kinds.toJS().kinds[name].terms).toEqual(['**/*.ts', '**/*.tsx']);
-      kinds.setIn(['kinds', name, 'terms'], ['src/**/*.ts']);
+    useFixturePlugins(folder, ['disk', 'git', 'db-schema']);
+    const kinds = parseDocument(readFolderManifestText(folder));
+    for (const output of ['code.database', 'code.table', 'code.column', 'code.index']) {
+      expect(kinds.hasIn(['kinds', output])).toBe(true);
+      kinds.setIn(['kinds', output, 'terms'], ['src/**/*.ts']);
     }
     kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, binding: { agent: 'The structured source excerpt a page shows.' } });
     writeFolderManifest(folder, kinds.toString());
@@ -264,6 +282,34 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     git(folder, 'commit', '--quiet', '-m', 'Connect the code repository');
     closeOwner = await retainTestStorePreparationOwner();
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
+    const partial = await product.startFill();
+    if (!('started' in partial) || partial.started !== true) throw new Error(`the partial fill did not start: ${JSON.stringify(partial)}`);
+    await product.settled();
+    const partialOwner = await createTestDatabaseOwner({
+      store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
+      graphContract: withManifestContract(await readPinnedGraphContract(folder)),
+    });
+    try {
+      const outcomes = await readProducerOutcomes(partialOwner, {});
+      const database = outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === 'code.database');
+      expect(database).toBeDefined();
+      expect(database?.outcome).toBe('abstained');
+      expect(database?.produced).toBe(0);
+      expect(database?.reason).toContain(`src/schema.ts:${String(COMPOSED_LINE)}`);
+      const run = await partialOwner.run((tx) => tx.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1', [database!.runId]));
+      expect(run.rows[0]?.state).toBe('completed_partial');
+      for (const kind of ['code.table', 'code.column', 'code.index']) {
+        expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)?.outcome).toBe('failed');
+        const listed = await product.list(kind, { limit: 100 });
+        expect(listed?.rows).toEqual([]);
+      }
+      const invented = await product.page('code.table:app/madarch_substitution');
+      expect(invented.ok).toBe(false);
+    } finally { await partialOwner.close(); }
+
+    writeFileSync(join(code, 'src', 'schema.ts'), STATIC_SOURCE);
+    git(code, 'add', '-A');
+    git(code, 'commit', '--quiet', '-m', 'Keep the static schema after the dynamic declaration abstained');
     await refill();
     const owner = await createTestDatabaseOwner({
       store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
@@ -281,7 +327,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
         const existing = await tx.query<{ unsupported: string | null; schema: string | null }>(`SELECT unsupported, schema FROM ${table.table} WHERE node_id = $1::bigint AND state = 'open'`, [node.nodeId]);
         await publishOpinion(tx, contract, {
           kind: 'code.table', nodeId: node.nodeId, producer: 'db-schema', producerVersion: '1.0.0',
-          values: { ...existing.rows[0], source: { text: SOURCE, language: 'typescript', truncated: false, location: {
+          values: { ...existing.rows[0], source: { text: STATIC_SOURCE, language: 'typescript', truncated: false, location: {
             repo: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE, lineEnd: CHILD_LINE,
             href: '/source/app/src/schema.ts',
           } } },

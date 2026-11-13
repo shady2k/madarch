@@ -377,14 +377,6 @@
       "running": "Идёт",
       "failed": "Ошибка"
     },
-    "catalogueByPlugin": "Свой плагин: {{plugins}}",
-    "catalogueByAgent": "агент",
-    "catalogueByPerson": "человек",
-    "catalogueStage": {
-      "extract": "извлечение из кода",
-      "documents": "этап документов",
-      "history": "этап истории"
-    },
     "more": "Показать ещё",
     "sourceMissing": "Исходный код показать нельзя",
     "productRepository": "репозиторий продукта",
@@ -518,7 +510,7 @@
     "catalogueColKind": "Вид",
     "catalogueColAbout": "Что это",
     "catalogueColCount": "Записи",
-    "catalogueColStage": "Чем заполняется",
+    "catalogueColStage": "Плагины",
     "catalogueEmptyGroup": "Видов пока нет",
     "searchPlaceholder": "Поиск по страницам и сущностям",
     "searchLabel": "Поиск по вики",
@@ -1126,17 +1118,14 @@
       "dependency": "Зависимость",
       "independent": "Независимые виды ({{count}})",
       "agent": "Агент",
-      "noAgent": "Без агента — только собственные обработчики",
+      "chooseAgent": "Выберите агента для запуска этого плана.",
       "cap": "Лимит токенов (необязательно)",
       "count": "Выбрано: {{selected}} · Зависимости: {{dependencies}}",
       "starting": "Запуск…",
       "run": "Запустить",
       "unknown": "Оценка неизвестна для {{count}} видов.",
       "estimate": "Около {{tokens}} токенов · {{seconds}} секунд",
-      "needsAgent": "Для {{kind}} нужен агент. Без агента заполнение будет ждать.",
-      "needsPerson": "{{kind}} заполняет человек.",
-      "invalidCap": "Введите положительное целое число для лимита токенов.",
-      "unsupported": "Выборочное заполнение пока поддерживает только собственные обработчики. Запуск агента и лимит токенов пока не поддерживаются."
+      "invalidCap": "Введите положительное целое число для лимита токенов."
     },
     "kindDetails": {"noFieldMeaning": "Описание этого свойства не опубликовано.", "unavailable": "Объявление вида недоступно. Записи показаны ниже.", "fields": "Поля", "relations": "Связи", "noFields": "Поля не объявлены.", "noRelations": "Связи не объявлены.", "records": "Записи", "untranslatedField": "Поле без перевода", "untranslatedKind": "Вид без перевода", "noProducer": "Исполнитель не объявлен", "untranslatedDescription": "Описание вида не переведено."},
     "kindSources": {
@@ -1151,7 +1140,8 @@
       "relations": "Зависимости",
       "choose": "Показать зависимости и зависимые виды: {{kind}}",
       "contents": "На этой странице"
-    }
+    },
+    "catalogueNoPlugin": "Нет включённого плагина-производителя"
   },
   "loop": {
     "questionsTitle": "Вопросы",

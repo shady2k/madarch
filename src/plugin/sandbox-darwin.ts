@@ -18,6 +18,7 @@ import { STDERR_LOG_BYTES, type SandboxProcess, type StderrLog } from './sandbox
 
 /** Where a refusal stands. */
 import { pluginInvocation } from './invocation.js';
+import type { SandboxTool } from './tools.js';
 
 const WHERE = 'src/plugin/sandbox-darwin.ts';
 
@@ -30,23 +31,27 @@ export interface DarwinSandboxSpec {
   readonly closureFolder: string;
   /** The repository a plugin that declared the `filesystem` right reads; absent, it reads no folder but its closure. */
   readonly repository?: string;
+  readonly filesystemInputs?: readonly { readonly name: string; readonly folder: string }[];
+  readonly tools?: readonly SandboxTool[];
   readonly workFolder: string;
   readonly runtime: string;
   readonly entry: string;
+  readonly environment?: Readonly<Record<string, string>>;
   readonly limits: Pick<CgroupLimits, 'memoryBytes' | 'cpuPeriodMicros' | 'cpuQuotaMicros' | 'pids'>;
 }
 
 /** The deny-by-default profile: the closure and the repository may be read, /tmp written, and nothing else. */
 export function darwinProfile(spec: DarwinSandboxSpec): string {
+  const tools = (spec.tools ?? []).map((tool) => `(literal ${JSON.stringify(tool.executable)})`).join(' ');
   return [
     '(version 1)',
     '(deny default)',
     '(allow process-fork)',
-    `(allow process-exec (literal "${spec.runtime}") (subpath "${spec.closureFolder}"))`,
+    `(allow process-exec (literal "${spec.runtime}") (subpath "${spec.closureFolder}") ${tools})`,
     '(allow sysctl-read)',
     '(allow mach-lookup (global-name "com.apple.system.logger"))',
     '(allow signal (target self))',
-    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} (subpath "${spec.workFolder}") (subpath "/usr/lib") (subpath "/System/Library"))`,
+    `(allow file-read* (subpath "${spec.closureFolder}")${spec.repository === undefined ? '' : ` (subpath "${spec.repository}")`} ${(spec.filesystemInputs ?? []).map((input) => `(subpath "${input.folder}")`).join(' ')} (subpath "${spec.workFolder}") ${tools} (subpath "/usr/lib") (subpath "/System/Library"))`,
     '(allow file-read-metadata)',
     `(allow file-write* (subpath "${spec.workFolder}") (subpath "/private/tmp"))`,
     '(allow file-write-data (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))',
@@ -81,9 +86,11 @@ export async function startDarwinSandbox(spec: DarwinSandboxSpec): Promise<Sandb
   const stderrFile = join(spec.workFolder, 'stderr.log');
   writeFileSync(wrapperFile, darwinWrapper(spec, profileFile), { mode: 0o755 });
   const stderr = { bytes: 0, kept: Buffer.alloc(0), truncated: false };
+  const env: Record<string, string> = { HOME: '/tmp', TMPDIR: '/tmp', LANG: 'C.UTF-8', ...spec.environment };
+  for (const tool of spec.tools ?? []) env[`MADARCH_TOOL_${tool.name.replaceAll('-', '_').toUpperCase()}`] = tool.executable;
   let child: ChildProcess;
   try {
-    child = spawn('/bin/sh', [wrapperFile], { detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: spec.workFolder });
+    child = spawn('/bin/sh', [wrapperFile], { env, detached: true, stdio: ['pipe', 'pipe', 'pipe'], cwd: spec.workFolder });
   } catch (error) {
     throw new Error(`${WHERE}:1: sandbox-exec could not be started for ${spec.closureFolder}: ${(error as Error).message}`);
   }

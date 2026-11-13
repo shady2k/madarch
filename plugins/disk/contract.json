@@ -1,0 +1,201 @@
+{
+  "id": "disk",
+  "version": "1.0.0",
+  "outputs": {
+    "vertices": [
+      {
+        "kind": "code.repository",
+        "key": [
+          "name"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "meaning": "The name read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "url",
+            "type": "text",
+            "meaning": "The url read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "default_branch",
+            "type": "text",
+            "meaning": "The default branch read from the pinned repository.",
+            "example": "example",
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.directory",
+        "key": [
+          "repository",
+          "path"
+        ],
+        "fields": [
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "The repository read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "text",
+            "meaning": "The path read from the pinned repository.",
+            "example": "example",
+            "required": true
+          }
+        ]
+      },
+      {
+        "kind": "code.file",
+        "key": [
+          "repository",
+          "path"
+        ],
+        "fields": [
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "The repository read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "text",
+            "meaning": "The path read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "mode",
+            "type": "text",
+            "meaning": "The mode read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "blob",
+            "type": "text",
+            "meaning": "The blob read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "bytes",
+            "type": "bigint",
+            "meaning": "The bytes read from the pinned repository.",
+            "example": 1,
+            "required": false
+          },
+          {
+            "name": "form",
+            "type": "text",
+            "meaning": "The form read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "lines",
+            "type": "bigint",
+            "meaning": "The lines read from the pinned repository.",
+            "example": 1,
+            "required": false
+          },
+          {
+            "name": "content",
+            "type": "text",
+            "meaning": "The content read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "language",
+            "type": "text",
+            "meaning": "The language read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "languages",
+            "type": "json",
+            "meaning": "The languages read from the pinned repository.",
+            "example": [],
+            "required": false
+          },
+          {
+            "name": "directory",
+            "type": "text",
+            "meaning": "The parent directory of the pinned file path, or . for a root file.",
+            "example": "src",
+            "required": false
+          }
+        ]
+      },
+      {
+        "kind": "code.gitlink",
+        "key": [
+          "repository",
+          "path"
+        ],
+        "fields": [
+          {
+            "name": "repository",
+            "type": "text",
+            "meaning": "The repository read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "text",
+            "meaning": "The path read from the pinned repository.",
+            "example": "example",
+            "required": true
+          },
+          {
+            "name": "other_repository",
+            "type": "text",
+            "meaning": "The other repository read from the pinned repository.",
+            "example": "example",
+            "required": false
+          },
+          {
+            "name": "commit_hash",
+            "type": "text",
+            "meaning": "The commit hash read from the pinned repository.",
+            "example": "example",
+            "required": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "kind": "code.contains",
+        "from": [
+          "code.repository",
+          "code.directory"
+        ],
+        "to": [
+          "code.directory",
+          "code.file",
+          "code.gitlink"
+        ]
+      }
+    ]
+  },
+  "rights": {
+    "network": "none",
+    "filesystem": true
+  }
+}

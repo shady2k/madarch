@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GIT_CONTRACT } from '../src/fill/stages/git-contract.js';
+import { repositoryContract } from './repository-contract-fixture.js';
 import { generatedTableName } from '../src/graph/contract.js';
 
 import { createTestDatabaseOwner } from './test-database.js';
@@ -20,9 +20,9 @@ const MECHANISM_TABLES = ['context', 'edge', 'entity', 'node', 'operation', 'unr
 
 const RECORD_TABLES = [
     ...MECHANISM_TABLES,
-    ...GIT_CONTRACT.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
-    ...GIT_CONTRACT.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
-    ...GIT_CONTRACT.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
+    ...repositoryContract.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),
+    ...repositoryContract.edge.flatMap((kind) => (kind.fields.length === 0 ? [] : [generatedTableName(kind.name, 'edge')])),
+    ...repositoryContract.dictionary.map((one) => generatedTableName(one.name, 'dictionary')),
   ];
   const [left, right] = await Promise.all([
     createTestDatabaseOwner({ store }),
@@ -30,8 +30,8 @@ const RECORD_TABLES = [
   ]);
   try {
     await Promise.all([
-      prepareStore(left, { contract: GIT_CONTRACT }),
-      prepareStore(right, { contract: GIT_CONTRACT }),
+      prepareStore(left, { contract: repositoryContract }),
+      prepareStore(right, { contract: repositoryContract }),
     ]);
     const found = await left.transaction('snapshot', async (tx) => await tx.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`,

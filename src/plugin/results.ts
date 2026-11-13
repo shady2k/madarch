@@ -149,7 +149,8 @@ export function validateUnitResult(contract: PluginContractDeclaration, result: 
     }
     for (const end of ['from', 'to'] as const) {
       const named = edge[end];
-      if (named.kind !== declaration[end]) {
+      const allowed = typeof declaration[end] === 'string' ? [declaration[end]] : declaration[end];
+      if (!allowed.includes(named.kind)) {
         return refuse('undeclared-edge-end', `${where}.${end}.kind`, `the edge kind "${edge.kind}" starts at "${declaration.from}" and ends at "${declaration.to}", and the answer names "${named.kind}" as its ${end}`);
       }
       const endDeclaration = vertexKind(contract, named.kind);
