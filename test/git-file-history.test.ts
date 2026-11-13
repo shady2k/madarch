@@ -92,6 +92,29 @@ const commitEdges = gitContract.outputs.edges
   .filter((edge) => edge.kind !== 'code.renamed-from')
   .map((edge) => ({ kind: edge.kind, from: typeof edge.from === 'string' ? edge.from : edge.from[0]!, to: typeof edge.to === 'string' ? edge.to : edge.to[0]! }));
 
+test('a backdated side deletion ends a period in ancestry order, not commit-date order', async () => {
+  const dag = join(ROOT, 'dag');
+  mkdirSync(dag);
+  git(dag, ONE, 'init', '-q', '-b', 'main');
+  git(dag, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(dag, 'README'), 'root\n');
+  commit(dag, ONE, 'root');
+  git(dag, ONE, 'checkout', '-qb', 'side');
+  writeFileSync(join(dag, 'f.txt'), 'side\n');
+  const sideAdd = commit(dag, base('Side', '2026-01-10T00:00:00+0000'), 'side adds f.txt');
+  git(dag, ONE, 'checkout', '-q', 'main');
+  git(dag, base('Main', '2026-01-12T00:00:00+0000'), 'merge', '-s', 'ours', '--no-ff', '-m', 'merge side, ours', 'side');
+  git(dag, ONE, 'checkout', '-q', 'side');
+  git(dag, base('Side', '2026-01-02T00:00:00+0000'), 'rm', '-q', 'f.txt');
+  const sideDelete = commit(dag, base('Side', '2026-01-02T00:00:00+0000'), 'side deletes f.txt, backdated');
+  git(dag, ONE, 'checkout', '-q', 'main');
+  git(dag, base('Main', '2026-01-13T00:00:00+0000'), 'merge', '-s', 'ours', '--no-ff', '-m', 'merge side again, ours', 'side');
+  const tip = git(dag, ONE, 'rev-parse', 'HEAD');
+  const answer = await gitExtract(unit('code.file', fileEdges, pin(dag, 'fixture', tip)), context(git(dag, ONE, 'ls-files').split('\n').filter((path) => path !== '')));
+  const held = (answer.vertices ?? []).find((vertex) => vertex.kind === 'code.file' && String(vertex.key['path']) === 'f.txt');
+  expect(held?.values).toMatchObject({ added_in: sideAdd, removed_in: sideDelete, removed_at: '2026-01-02T00:00:00.000Z' });
+});
+
 test('every path the history named is a file with its latest period of existence', async () => {
   expect(current()).toEqual(['kept.txt']);
   const answer = await gitExtract(unit('code.file', fileEdges), context(current()));

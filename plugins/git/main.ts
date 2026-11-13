@@ -63,9 +63,14 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     const boundaries = new Set(history.shallowBoundaries);
     type Period = { added_at: string | null; added_in: string | null; removed_at: string | null; removed_in: string | null };
     const emptyPeriod = (): Period => ({ added_at: null, added_in: null, removed_at: null, removed_in: null });
+    // Replay oldest first in ancestry order, never in commit-date order: a backdated commit descends from one that
+    // git log lists after it, and a path's period must close at the commit that really ends it.
+    const rank = new Map(history.ancestryOrder.map((hash, at) => [hash, at]));
+    const ancestryOf = (commits: readonly (typeof history.commits)[number][]): readonly (typeof history.commits)[number][] =>
+      [...commits].sort((left, right) => (rank.get(left.hash) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.hash) ?? Number.MAX_SAFE_INTEGER));
     const periodsOf = (commits: readonly (typeof history.commits)[number][]): Map<string, Period> => {
       const out = new Map<string, Period>();
-      for (const held of commits) {
+      for (const held of ancestryOf(commits)) {
         const at = new Date(held.commitDate).toISOString();
         for (const touched of held.touched) {
           if (touched.change === 'added' || touched.change === 'renamed') {
@@ -80,12 +85,12 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       }
       return out;
     };
-    const periods = periodsOf([...firstParent].reverse());
+    const periods = periodsOf(firstParent);
     // A path only a side branch ever held never stands on the first-parent walk. If the default branch's tree does not
     // hold it, its own commits state the period: the full history names the commit that added it and the one that
     // deleted it. A path absent from the tree without a deletion ends at the pin, so `current = removed_at empty`
     // holds for every path.
-    const fullPeriods = periodsOf([...history.commits].reverse());
+    const fullPeriods = periodsOf([...history.commits]);
     const tree = new Set(files.filter((file) => file.key['repository'] === pin.repository).map((file) => String(file.key['path'])));
     for (const [path, period] of fullPeriods) {
       if (tree.has(path)) continue;

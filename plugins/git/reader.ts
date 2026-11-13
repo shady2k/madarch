@@ -196,7 +196,7 @@ function entryWithoutNewline(record: Buffer): Buffer {
  * counts), so the two walks are one git call each, with the same format, joined by the commit and
  * the path. Both are git's own answers; nothing here parses source text.
  */
-export async function readRepositoryHistory(pin: RepositoryAt, options: { readonly touched?: boolean; readonly counts?: boolean } = {}): Promise<{ repository: { name: string }; commits: readonly HistoryCommit[]; gaps: readonly RepositoryGap[]; shallowBoundaries: readonly string[] }> {
+export async function readRepositoryHistory(pin: RepositoryAt, options: { readonly touched?: boolean; readonly counts?: boolean } = {}): Promise<{ repository: { name: string }; commits: readonly HistoryCommit[]; gaps: readonly RepositoryGap[]; shallowBoundaries: readonly string[]; ancestryOrder: readonly string[] }> {
   type Touched = HistoryCommit['touched'][number];
   const gaps: RepositoryGap[] = [];
   const shallowBoundaries = await shallowBoundariesOf(pin.root);
@@ -274,6 +274,9 @@ export async function readRepositoryHistory(pin: RepositoryAt, options: { readon
   }
   // The stream's own order: the first commit is the tip, so a commit's index is its walk from the
   // tip, which is the order `git log --follow` answers a file's history in.
-  return { repository: { name: pin.repository }, commits, gaps, shallowBoundaries };
+  // The ancestry order the period replay needs: oldest first, a parent before every child. `git log` orders by
+  // commit date, and a backdated commit would otherwise replay before the change it descends from.
+  const ancestryOrder = (await gitText(pin.root, ['rev-list', '--topo-order', '--reverse', pin.commit])).split('\n').filter((hash) => hash !== '');
+  return { repository: { name: pin.repository }, commits, gaps, shallowBoundaries, ancestryOrder };
 }
 
