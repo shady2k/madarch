@@ -114,6 +114,7 @@ problems:
   const kindsFile = join(folder, 'madarch', 'kinds.yaml');
   const declared = parseDocument(readFileSync(kindsFile, 'utf8'));
   const starter = parseDocument(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content).toJS();
+  declared.set('groups', starter.groups);
   for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
     template: 'templates/item-plain.liquid', source: 'graph', key: ['repository', 'path'],
