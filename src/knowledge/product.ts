@@ -2087,10 +2087,10 @@ export class KnowledgeProduct {
    */
   private async statusLive(body: WikiStatus, ctx: RenderContext | undefined, followed = false): Promise<WikiStatus> {
     // Resolve the persisted run outside the best-effort graph refresh: a failed store read is not "never ran".
-    const run = await this.runViewOf();
+    const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
     let live: WikiStatus;
     try {
-      live = await this.statusLiveNow(body, ctx, followed);
+      live = await this.statusLiveNow(body, ctx, followed, run);
     } catch {
       live = { ...body, fill: this.statusFill(), chosenAgent: this.chosenAgent() };
     }
@@ -2156,7 +2156,7 @@ export class KnowledgeProduct {
     }
   }
 
-  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined, followed: boolean): Promise<WikiStatus> {
+  private async statusLiveNow(body: WikiStatus, ctx: RenderContext | undefined, followed: boolean, run: FillRunView | null): Promise<WikiStatus> {
     if (!followed) await this.followStoreFill();
     // Without a manifest in the graph there is no Problems listing to collect. Opening a new
     // store here would block the next poll on initdb for a product nobody has filled.
@@ -2176,7 +2176,7 @@ export class KnowledgeProduct {
     }
     // A snapshot the fill published moves the store's numbers, not the files the body was made from: they are read for
     // every answer, in the reader's process, over the snapshot the pages show.
-    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems);
+    const numbers = ctx === undefined ? undefined : await this.numbersOf(ctx, problems, run);
     // The count the front shows is the Problems page's own total while its listing stands for these inputs; a listing
     // still being collected leaves the reading's finding count, never a count of other inputs (madarch-8bdc.2.5).
     const findingCount = problems !== '' && collected !== undefined && collected.key === problems
@@ -2211,7 +2211,7 @@ export class KnowledgeProduct {
    */
   private storeOf: { key: string; seq: number; repository?: RepositoryFactsView; kinds?: KindSummary[] } | undefined;
 
-  private async numbersOf(ctx: RenderContext, key: string): Promise<Partial<WikiStatus>> {
+  private async numbersOf(ctx: RenderContext, key: string, run: FillRunView | null): Promise<Partial<WikiStatus>> {
     let bound = ctx;
     try {
       const owner = await this.open();
@@ -2238,7 +2238,6 @@ export class KnowledgeProduct {
     const kinds = same && held.kinds !== undefined ? held.kinds : await once(async () => await kindSummaries(bound));
     const repository = same && 'repository' in held ? held.repository : await once(async () => await this.repositoryView());
     if (seq !== undefined) this.storeOf = { key, seq, ...(repository === undefined ? {} : { repository }), ...(kinds === undefined ? {} : { kinds }) };
-    const run = await withSpan('knowledge.status.run', { 'run.id': this.fillRunId ?? '' }, async () => this.runViewOf());
     const runId = this.fillRunId ?? run?.runId;
     const outcomes = runId === undefined ? undefined : await readProducerOutcomes(await this.open(), { runId });
     this.fillExtras = {
