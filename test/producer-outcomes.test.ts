@@ -17,6 +17,18 @@ describe('observable producer completion', () => {
     const empty = { kind: 'producer-outcome', value: { plugin: 'check', kind: 'Problem', outcome: 'empty', produced: 0 } };
     expect(retainedProducerOutcomes([empty], 1)).toEqual([empty]);
   });
+  test('unchanged partitioned output retains immutable partition references and successful empty outcomes', () => {
+    const partition = { kind: 'plugin-partition', value: { keys: [{ id: 'one' }], writes: [{ kind: 'vertex', value: { key: { id: 'one' } } }] } };
+    const aggregate = { kind: 'plugin-aggregate', value: { partitions: [{ runId: 'first', unitId: 'check:Problem#one', generation: 1 }] } };
+    const completed = { kind: 'producer-outcome', value: { plugin: 'check', kind: 'Problem', outcome: 'completed', produced: 1, producerVersion: 'v1' } };
+    const before = JSON.stringify([partition, aggregate, completed]);
+    expect(retainedProducerOutcomes([partition, aggregate, completed], 0)).toEqual([
+      partition, aggregate, { ...completed, value: { ...completed.value, outcome: 'unchanged' } },
+    ]);
+    expect(JSON.stringify([partition, aggregate, completed])).toBe(before);
+    const empty = { kind: 'producer-outcome', value: { plugin: 'check', kind: 'Problem', outcome: 'empty', produced: 0 } };
+    expect(retainedProducerOutcomes([empty], 0)).toEqual([empty]);
+  });
   test('reads committed zero-Problem outcomes and terminal failures, not private failed drafts', async () => {
     const rows = [
       { run_id: 'zero', unit_id: 'plugin-turns/check:Problem', generation: 2, scope_key: 'check:Problem', state: 'published', writes: [{ kind: 'producer-outcome', value: { plugin: 'check', kind: 'Problem', outcome: 'empty', produced: 0 } }], published: true, reason: null },
