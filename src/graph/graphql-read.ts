@@ -182,16 +182,22 @@ function opinionOfAll(row: OpinionRow): Record<string, unknown> {
   return { value: row.values, producer: row.producer, version: row.version, lang: row.lang, statedAt: row.statedAt, evidence: evidenceOf(row.evidence) };
 }
 
-/** The places one opinion rests on, as the schema's `Evidence`. */
+/** The places one opinion rests on, as the schema's `Evidence`: a file line, a conversation, or an outside address. */
 function evidenceOf(entries: readonly unknown[]): unknown[] {
   return entries.map((entry) => {
     const held = (entry ?? {}) as Record<string, unknown>;
+    const type = held['type'] === 'conversation' || held['type'] === 'url' || held['type'] === 'opinion' ? String(held['type']) : 'file';
     return {
+      type,
       repository: typeof held['repository'] === 'string' ? held['repository'] : null,
       path: typeof held['path'] === 'string' ? held['path'] : null,
       lineStart: typeof held['line_start'] === 'number' ? held['line_start'] : null,
       lineEnd: typeof held['line_end'] === 'number' ? held['line_end'] : null,
       revision: typeof held['commit_or_digest'] === 'string' ? held['commit_or_digest'] : null,
+      id: typeof held['id'] === 'string' ? held['id'] : null,
+      url: typeof held['url'] === 'string' ? held['url'] : null,
+      at: typeof held['at'] === 'string' ? held['at'] : null,
+      words: typeof held['words'] === 'string' ? held['words'] : null,
     };
   });
 }

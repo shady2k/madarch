@@ -437,7 +437,8 @@ export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft
     if (entry === null || typeof entry !== 'object') continue;
     const held = entry as Record<string, unknown>;
     let tagged: EvidenceEntry;
-    if (held['type'] === 'conversation') tagged = { type: 'conversation', id: String(held['id'] ?? ''), ...(held['speaker'] === undefined ? {} : { speaker: String(held['speaker']) }), ...(held['at'] === undefined ? {} : { at: String(held['at']) }) };
+    if (held['type'] === 'conversation') tagged = { type: 'conversation', id: String(held['id'] ?? ''), ...(held['speaker'] === undefined ? {} : { speaker: String(held['speaker']) }), ...(held['at'] === undefined ? {} : { at: String(held['at']) }), ...(held['words'] === undefined ? {} : { words: String(held['words']) }) };
+    else if (held['type'] === 'url') tagged = { type: 'url', url: String(held['url'] ?? ''), ...(held['at'] === undefined ? {} : { at: String(held['at']) }) };
     else if (held['type'] === 'opinion') tagged = { type: 'opinion', id: String(held['id'] ?? '') };
     else tagged = {
       type: 'file',

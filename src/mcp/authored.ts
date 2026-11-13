@@ -1,74 +1,145 @@
-/** Authored product tools. Opening this surface never starts a fill or an agent. */
+/**
+ * The agent's graph writes over MCP (owner's rule, 2026-11-13): the graph is written by plugins and by MCP writes only,
+ * a write's source is the agent that made it, and every write names its evidence. The tools replace the authored
+ * create/update/delete surface: `put_entity` states the agent's opinion of an entity's fields, `put_edge` its opinion of
+ * an edge, and `retract` closes only this agent's own open opinions.
+ *
+ * The producer is `agent:<client>@<session>`: the client's own name from `initialize` (`clientInfo`) and this server
+ * process's session. It is written like a plugin's producer, so on one field the agent's and the plugins' opinions
+ * meet by decision 0036, section 2 — an agreed value stands, a disagreement is null and contested.
+ */
+import { randomUUID } from 'node:crypto';
 import { KnowledgeProduct } from '../knowledge/product.js';
 import { withSpan } from '../obs/trace.js';
-import { entityGuidance } from '../product/entity-cli.js';
 import { serveUnitMcp } from '../fill/unit-mcp.js';
 import { runningVersion } from '../product/version.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
+import { WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
 import type { McpToolDefinition, UnitToolAnswer } from './types.js';
 
-const tool = (action: string, description: string, required: readonly string[]): McpToolDefinition => ({
-  name: `${action}_entity`, description,
-  inputSchema: { type: 'object', properties: {
-    kind: { type: 'string', description: 'Authored entity kind from the product catalogue, such as doc.term' },
-    uid: { type: 'string', description: 'Stable uid returned when an entity is created or read; not a display id' },
-    values: { type: 'object', description: 'Declared field names and their values' },
-    words: { type: 'string', description: 'Exact original words to keep with the operation' },
-    ifRevision: { type: 'string', description: 'Check the read revision before an update or delete' },
-  }, required, additionalProperties: false },
-});
+/** The producer a client's writes carry: `agent:<client>`, its session as the producer's version. */
+export function agentSource(client: string, session: string): WriteSource {
+  const name = client.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 64) || 'mcp-client';
+  return { producer: `agent:${name}`, version: session };
+}
 
-export const AUTHORED_TOOLS: readonly McpToolDefinition[] = [
-  tool('create', 'Create an authored entity using declared fields.', ['kind']),
-  tool('read', 'Read by uid, or list a kind when uid is omitted.', ['kind']),
-  tool('update', 'Update declared fields by stable uid.', ['kind', 'uid']),
-  tool('delete', 'Delete an authored entity by stable uid.', ['kind', 'uid']),
+const object = (properties: Record<string, unknown>, required: readonly string[]): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
+
+const EVIDENCE = {
+  type: 'array', minItems: 1,
+  description: 'What the write rests on, at least one: {type:"file", path, commit or blob, lineStart, lineEnd?, repository?}, {type:"conversation", id, at?, words} or {type:"url", url, at}.',
+  items: { type: 'object' },
+};
+
+const END = {
+  type: 'object', additionalProperties: false, required: ['kind'],
+  properties: { kind: { type: 'string', description: 'The kind of this end.' }, key: { type: 'object', description: 'The key fields of the entity.' }, id: { type: 'string', description: 'The stable uid, instead of a key.' } },
+};
+
+/** The tools this server serves, in the order a writer asks them. */
+export const AGENT_WRITE_TOOLS: readonly McpToolDefinition[] = [
+  {
+    name: 'put_entity',
+    description: 'State the agent\'s opinion of the given fields of an entity of any kind of the published manifest, created when its key names none. Evidence is required. An unknown field is refused by name.',
+    inputSchema: object({
+      kind: { type: 'string', description: 'The kind of the published manifest, such as doc.term.' },
+      key: { type: 'object', description: 'The kind\'s key fields; omitted when id names the entity.' },
+      id: { type: 'string', description: 'The stable uid of an entity to write again.' },
+      values: { type: 'object', description: 'The field values the agent states.' },
+      evidence: EVIDENCE,
+      words: { type: 'string', description: 'The agent\'s exact words, kept in the journal.' },
+    }, ['kind', 'values', 'evidence']),
+  },
+  {
+    name: 'put_edge',
+    description: 'State the agent\'s opinion of an edge of a declared edge kind, with its attributes. Evidence is required; a repeating edge names its discriminator.',
+    inputSchema: object({
+      kind: { type: 'string', description: 'The edge kind of the published manifest.' },
+      from: END,
+      to: END,
+      discriminator: { type: 'string', description: 'What tells repeated edges between the same ends apart.' },
+      values: { type: 'object', description: 'The edge\'s attributes.' },
+      evidence: EVIDENCE,
+      words: { type: 'string' },
+    }, ['kind', 'from', 'to', 'evidence']),
+  },
+  {
+    name: 'retract',
+    description: 'Close only this agent\'s own open opinions: of one entity (all its fields, or the named fields), or of one edge.',
+    inputSchema: object({
+      entity: {
+        type: 'object', additionalProperties: false, required: ['kind'],
+        properties: { kind: { type: 'string' }, key: { type: 'object' }, id: { type: 'string' }, fields: { type: 'array', items: { type: 'string' }, description: 'The fields to retract; every field when left out.' } },
+      },
+      edge: {
+        type: 'object', additionalProperties: false, required: ['kind', 'from', 'to'],
+        properties: { kind: { type: 'string' }, from: END, to: END, discriminator: { type: 'string' } },
+      },
+      words: { type: 'string' },
+    }, []),
+  },
 ];
 
-/** Validate protocol arguments, then call the same product API used by the CLI and HTTP. */
-export async function callAuthoredTool(product: KnowledgeProduct, name: string, input: unknown): Promise<UnitToolAnswer> {
-  return await withSpan('mcp.authored', { 'mcp.tool': name }, async () => {
-  try {
-    if (!AUTHORED_TOOLS.some((one) => one.name === name)) throw new Error(`unknown authored tool ${name}`);
-    if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Error('arguments must be an object');
-    const args = input as Record<string, unknown>;
-    if (typeof args['kind'] !== 'string' || args['kind'].trim() === '') throw new Error('kind must be a nonempty string');
-    if (Object.keys(args).some((key) => !['kind', 'uid', 'values', 'words', 'ifRevision'].includes(key))) throw new Error('the arguments are kind, uid, values, words and ifRevision');
-    if (args['uid'] !== undefined && (typeof args['uid'] !== 'string' || args['uid'].trim() === '')) throw new Error('uid must be a nonempty string');
-    if (args['values'] !== undefined && (typeof args['values'] !== 'object' || args['values'] === null || Array.isArray(args['values']))) throw new Error('values must be an object of field names and values');
-    if (args['words'] !== undefined && typeof args['words'] !== 'string') throw new Error('words must be a string');
-    if (args['ifRevision'] !== undefined && typeof args['ifRevision'] !== 'string') throw new Error('ifRevision must be a string');
-    if (args['ifRevision'] !== undefined && name !== 'update_entity' && name !== 'delete_entity') throw new Error(`${name} takes no ifRevision`);
-    if ((name === 'update_entity' || name === 'delete_entity') && args['uid'] === undefined) throw new Error(`${name} requires uid`);
-    if (name === 'create_entity' && args['uid'] !== undefined) throw new Error('create_entity takes no uid');
-    if (name === 'read_entity' && (args['values'] !== undefined || args['words'] !== undefined)) throw new Error(`${name} takes no values or words`);
-    if (name === 'delete_entity' && args['values'] !== undefined) throw new Error('delete_entity takes no values');
-    const action = name === 'read_entity' ? (args['uid'] === undefined ? 'list' : 'show') : name === 'create_entity' ? 'create' : name === 'update_entity' ? 'update' : 'delete';
-    const answer = await product.authored(action, args['kind'], {
-      ...(args['uid'] === undefined ? {} : { uid: args['uid'] as string }),
-      ...(args['words'] === undefined ? {} : { words: args['words'] as string }),
-      ...(args['ifRevision'] === undefined ? {} : { ifRevision: args['ifRevision'] as string }),
-      ...(args['values'] === undefined ? {} : { values: args['values'] as Record<string, unknown> }),
-    });
-    return { answer: { ...answer, guidance: await entityGuidance(product) }, isError: false };
-  } catch (error) {
-    const rawMessage = error instanceof Error ? error.message : String(error);
-    const message = /^\/.+:\d+:/u.test(rawMessage) ? rawMessage : `${import.meta.path}:1: ${rawMessage}`;
-    return { answer: { error: { message, ...(error instanceof Error && 'field' in error ? { field: error.field } : {}), ...(error instanceof Error && 'conflict' in error && error.conflict !== undefined ? { conflict: error.conflict } : {}) }, guidance: await entityGuidance(product) }, isError: true };
-  }
+/** One tool call, its refusal answered as the tool's own content. */
+export async function callAgentWriteTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown): Promise<UnitToolAnswer> {
+  return await withSpan('mcp.write', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
+    try {
+      if (!AGENT_WRITE_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no write tool of this server: the tools are ${AGENT_WRITE_TOOLS.map((tool) => tool.name).join(', ')}`);
+      if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new WriteRefusal('the arguments are one object');
+      const args = input as Record<string, unknown>;
+      if (name === 'put_entity') {
+        const answer = await product.putEntity(source, {
+          kind: String(args['kind'] ?? ''),
+          ...(args['key'] === undefined ? {} : { key: args['key'] }),
+          ...(args['id'] === undefined ? {} : { id: String(args['id']) }),
+          values: args['values'],
+          evidence: args['evidence'],
+          ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
+        });
+        return { answer, isError: false };
+      }
+      if (name === 'put_edge') {
+        const answer = await product.putEdge(source, {
+          kind: String(args['kind'] ?? ''),
+          from: args['from'], to: args['to'],
+          ...(args['discriminator'] === undefined ? {} : { discriminator: String(args['discriminator']) }),
+          ...(args['values'] === undefined ? {} : { values: args['values'] }),
+          evidence: args['evidence'],
+          ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
+        });
+        return { answer, isError: false };
+      }
+      const answer = await product.retract(source, {
+        ...(args['entity'] === undefined ? {} : { entity: args['entity'] }),
+        ...(args['edge'] === undefined ? {} : { edge: args['edge'] }),
+        ...(typeof args['words'] === 'string' ? { words: args['words'] } : {}),
+      });
+      return { answer, isError: false };
+    } catch (error) {
+      if (error instanceof WriteRefusal) return { answer: { error: { code: 'refused', message: error.message, ...(error.field === undefined ? {} : { field: error.field }) } }, isError: true };
+      const message = error instanceof Error ? error.message : String(error);
+      const named = /^\/.+:\d+:/u.test(message) ? message : `${import.meta.path}:1: ${message}`;
+      return { answer: { error: { code: 'write-failed', message: named } }, isError: true };
+    }
   });
 }
 
+/** Serves the product's graph writes over MCP: the agent's producer is its `clientInfo` name and this session. */
 export async function serveProductMcp(options: {
   productFolder: string; home?: string; env?: DraftEnv;
   input?: AsyncIterable<string | Uint8Array>; output?: { write(text: string): void };
 }): Promise<number> {
   const env = options.env ?? process.env;
   const product = new KnowledgeProduct({ productFolder: options.productFolder, storeRoot: knowledgeRootOf(productsHome(env, options.home)), env });
+  const session = randomUUID();
+  let client = 'mcp-client';
   try {
-    await serveUnitMcp({ tools: AUTHORED_TOOLS, info: { name: 'madarch', version: runningVersion() },
-      call: (name, args) => callAuthoredTool(product, name, args),
+    await serveUnitMcp({
+      tools: AGENT_WRITE_TOOLS,
+      info: { name: 'madarch', version: runningVersion() },
+      onClientInfo: (info) => { client = info.name; },
+      call: (name, args) => callAgentWriteTool(product, agentSource(client, session), name, args),
       streams: { input: options.input ?? process.stdin, write: (text) => { (options.output ?? process.stdout).write(text); } },
     });
     return 0;

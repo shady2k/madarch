@@ -110,6 +110,7 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { executeGraphql, type MessageBody } from '../graph/graphql-execute.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -588,6 +589,27 @@ export class KnowledgeProduct {
     await this.followStoreFill();
     // The executor reads the published manifest inside its own snapshot: the schema and the rows answer one revision.
     return await executeGraphql(owner, { folder: this.options.productFolder }, operation);
+  }
+
+  /** The agent's opinion of an entity's fields: the entity is created when its key names none. */
+  async putEntity(source: WriteSource, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; key?: Record<string, unknown>; uid?: string; written?: number }> {
+    const owner = await this.open();
+    await this.followStoreFill();
+    return await putEntityOpinion(owner, source, input);
+  }
+
+  /** The agent's opinion of an edge and its attributes. */
+  async putEdge(source: WriteSource, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; written?: number; retracted?: boolean }> {
+    const owner = await this.open();
+    await this.followStoreFill();
+    return await putEdgeOpinion(owner, source, input);
+  }
+
+  /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */
+  async retract(source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly words?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
+    const owner = await this.open();
+    await this.followStoreFill();
+    return await retractOpinion(owner, source, input);
   }
 
   async declaredRoles(): Promise<string[]> {

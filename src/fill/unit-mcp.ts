@@ -65,6 +65,11 @@ export interface UnitMcpOptions {
   readonly call: UnitToolCallForwarder;
   /** What this server is called and which version it is; `madarch-unit` and this build's version by default. */
   readonly info?: McpServerInfo;
+  /**
+   * What the client called itself in `initialize` (the protocol's `clientInfo`): a server that names its writer after
+   * the agent hears it here, before the first tool call.
+   */
+  readonly onClientInfo?: (client: { readonly name: string; readonly version?: string }) => void;
 }
 
 /** One JSON-RPC message as this server reads it. */
@@ -125,12 +130,21 @@ export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOpt
   if (typeof method !== 'string') return error(held.id, INVALID_REQUEST, `the message names the method ${JSON.stringify(method)}: a method is a text, like "tools/call"`);
   const params = typeof held.params === 'object' && held.params !== null && !Array.isArray(held.params) ? held.params as Record<string, unknown> : {};
   switch (method) {
-    case 'initialize':
+    case 'initialize': {
+      const clientInfo = params['clientInfo'];
+      if (clientInfo !== null && typeof clientInfo === 'object' && !Array.isArray(clientInfo)) {
+        const name = (clientInfo as Record<string, unknown>)['name'];
+        if (typeof name === 'string' && name !== '') {
+          const version = (clientInfo as Record<string, unknown>)['version'];
+          options.onClientInfo?.({ name, ...(typeof version === 'string' && version !== '' ? { version } : {}) });
+        }
+      }
       return result(held.id, {
         protocolVersion: answeredVersion(params['protocolVersion']),
         capabilities: { tools: { listChanged: false } },
         serverInfo: options.info ?? UNIT_MCP_INFO,
       });
+    }
     case 'ping':
       return result(held.id, {});
     case 'tools/list':

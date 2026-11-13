@@ -118,7 +118,8 @@ export interface ClaimEvidenceDraft {
 /** One tagged evidence entry the graph stores (the amendment's point 7): a file place, a conversation, an opinion. */
 export type EvidenceEntry =
   | { readonly type: 'file'; readonly repository?: string; readonly commit_or_digest?: string; readonly path?: string; readonly line_start?: number; readonly line_end?: number }
-  | { readonly type: 'conversation'; readonly id: string; readonly speaker?: string; readonly at?: string }
+  | { readonly type: 'conversation'; readonly id: string; readonly speaker?: string; readonly at?: string; readonly words?: string }
+  | { readonly type: 'url'; readonly url: string; readonly at?: string }
   | { readonly type: 'opinion'; readonly id: string };
 
 /** One evidence entry as a draft states it: a plugin's file place, or any tagged entry a producer gives. */

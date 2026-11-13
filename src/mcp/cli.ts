@@ -14,13 +14,16 @@
  * and answers the summary without starting a server, so it can be asked while
  * another server runs.
  */
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { readRevision } from './git.js';
 import { repositoryStoreFolder } from './graph.js';
 import { summarize, summaryLines } from './journal.js';
 import { serveRepositoryMcp } from './server.js';
 import { serveProductMcp } from './authored.js';
 import { entityProductFolder } from '../product/entity-cli.js';
+import { productsHome, type DraftEnv } from '../product/home.js';
+import { withDaemonStorePreparation, withStorePreparationOwner } from '../product/store-preparation.js';
 import { whereAmI } from '../product/lifecycle.js';
 
 /** What `madarch mcp` was asked to do. */
@@ -75,10 +78,11 @@ const MCP_USAGE = [
   'usage: madarch mcp [--product <folder>] [--home <folder>]',
   '       madarch mcp [--repo <path>]',
   '',
-  'In a product, serves create_entity, read_entity, update_entity and delete_entity.',
-  'These tools use declared fields and stable uid values, and never run a fill.',
+  'In a product, serves the agent\'s graph writes: put_entity, put_edge and retract.',
+  'A write names its evidence; its source is agent:<client>@<session>, so the agent and the',
+  'plugins meet as opinions on one field (decision 0036, section 2). No tool runs a fill.',
   '--product selects a product; --repo selects the legacy repository graph tools.',
-  'Open the product wiki, select catalogue kinds and press Fill before authoring.',
+  'Open the product wiki, select catalogue kinds and press Fill before writing.',
   '       madarch mcp --journal [--repo <path>]',
   '',
   'Serves one git checkout\'s graph to an agent over the Model Context Protocol on',
@@ -126,11 +130,18 @@ export async function mcpCommand(args: readonly string[], options: {
   }
   if (useProduct && !parsed.journal) {
     try {
-      return await serveProductMcp({
-        productFolder: entityProductFolder(parsed.product, parsed.repository), env,
+      const productFolder = entityProductFolder(parsed.product, parsed.repository);
+      const home = productsHome(env as DraftEnv, parsed.home);
+      const serve = async (): Promise<number> => await serveProductMcp({
+        productFolder, env,
         ...(parsed.home === undefined ? {} : { home: parsed.home }),
         ...(options.input === undefined ? {} : { input: options.input }), output: stdout,
       });
+      // A store's schema is prepared by its owning process: borrow a running daemon's service, or own the
+      // preparation for the life of this server.
+      return existsSync(join(home, '.madarch-store-owner.json'))
+        ? await withDaemonStorePreparation(home, serve)
+        : await withStorePreparationOwner(serve);
     } catch (error) {
       stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); return 2;
     }

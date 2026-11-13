@@ -1,0 +1,21 @@
+# The fixture's glossary term kind: keyless, so the agent's write creates one entity whose uid names it.
+id: practice.glossary-term
+purpose: structure
+definition: A word of the product's own language, defined once in a glossary.
+sources: [https://example.test/standard]
+acquisition: [conversation]
+status: implemented
+relation-constraints: { out: [], in: [] }
+template-policy: page
+template: templates/term.yaml
+source: graph
+origin: person
+title: title
+labels:
+  en: { one: Glossary term, many: Glossary terms }
+  ru: { one: Термин, many: Термины }
+description: { en: A term of the product's language., ru: Слово из языка продукта. }
+fields:
+  - { name: title, type: text, producers: [person] }
+  - { name: body, type: text, nullable: true, producers: [person] }
+key: []

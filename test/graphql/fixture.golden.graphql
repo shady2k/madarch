@@ -326,11 +326,16 @@ type EntityEdge {
 }
 
 type Evidence {
+  type: String!
   repository: String
   path: String
   lineStart: Int
   lineEnd: Int
   revision: String
+  id: String
+  url: String
+  at: String
+  words: String
 }
 
 type Opinion {

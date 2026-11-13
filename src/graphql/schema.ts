@@ -123,11 +123,16 @@ class Builder {
     }
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
     this.type('Evidence', [
+      { name: 'type', type: 'String!' },
       { name: 'repository', type: 'String' },
       { name: 'path', type: 'String' },
       { name: 'lineStart', type: 'Int' },
       { name: 'lineEnd', type: 'Int' },
       { name: 'revision', type: 'String' },
+      { name: 'id', type: 'String' },
+      { name: 'url', type: 'String' },
+      { name: 'at', type: 'String' },
+      { name: 'words', type: 'String' },
     ]);
     this.type('Opinion', [
       { name: 'value', type: 'JSON' },
