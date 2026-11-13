@@ -2,7 +2,7 @@
 /** Install the reviewed Git bytes, not the runner image's changing /usr/bin/git. */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { RELEASE_GIT, releaseToolPath } from '../src/plugin/release-tools.js';
@@ -14,7 +14,7 @@ export function verifyToolDownload(bytes: Uint8Array, expected: string): void {
 export async function installReleaseTools(destination: string = releaseToolPath(), download: (url: string) => Promise<Response> = fetch): Promise<void> {
   if (existsSync(destination)) {
     verifyToolDownload(readFileSync(destination), RELEASE_GIT.sha256);
-    chmodSync(destination, 0o555);
+    if ((statSync(destination).mode & 0o777) !== 0o555) chmodSync(destination, 0o555);
     return;
   }
   const response = await download(RELEASE_GIT.url);

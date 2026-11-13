@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installReleaseTools, verifyToolDownload } from '../scripts/release-tools.js';
@@ -31,6 +31,21 @@ test('installer refuses corrupt cache without fetching a replacement', async () 
   const executable = join(scratch(), 'git');
   writeFileSync(executable, 'changed');
   await expect(installReleaseTools(executable, (() => { throw new Error('unexpected download'); }))).rejects.toThrow('approved sha256');
+});
+
+test.skipIf(process.platform !== 'linux' || process.arch !== 'x64')('installer reuses a verified read-only cache without changing it', async () => {
+  const executable = releaseToolPath();
+  const before = statSync(executable);
+  expect(before.mode & 0o777).toBe(0o555);
+  await installReleaseTools(executable, async () => { throw new Error('unexpected download'); });
+  expect(statSync(executable).ctimeMs).toBe(before.ctimeMs);
+});
+
+test.skipIf(process.platform !== 'linux' || process.arch !== 'x64')('installer repairs permissions on a verified cache when needed', async () => {
+  const executable = join(scratch(), 'git');
+  writeFileSync(executable, readFileSync(releaseToolPath()), { mode: 0o644 });
+  await installReleaseTools(executable, async () => { throw new Error('unexpected download'); });
+  expect(statSync(executable).mode & 0o777).toBe(0o555);
 });
 
 test('installer refuses HTTP errors and changed archive before extraction', async () => {
