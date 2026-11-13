@@ -106,6 +106,9 @@ import { PLUGIN_TURN_STAGE_ID, pluginsFillingKind, pluginTurnUnitId } from '../f
 import { publishValidatedManifests, validateProductManifests, readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
 import { manifestPublicationState, waitForManifestPublication } from '../product/manifest-publication-state.js';
 import { withManifestContract } from '../graph/manifest-contract.js';
+import { publishedManifestOf } from '../graphql/manifest.js';
+import { SchemaRefusal } from '../graphql/names.js';
+import { graphqlSchemaOf } from '../graphql/schema.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -554,6 +557,28 @@ export class KnowledgeProduct {
    * The roles this product's manifest declares, in its order (decision 0031, "the roles are the product's"): the
    * reader's settings accept these and "everything" alone, and the engine keeps no role of its own.
    */
+  /**
+   * The product's GraphQL schema (decision 0036, sections 1 to 4), derived from its published manifest: the contract
+   * the wiki, MCP and outside systems read through. A manifest whose names cannot make a schema is refused with the
+   * line that declares it, never served as a smaller schema.
+   */
+  async graphqlSchema(): Promise<string> {
+    // The schema is the product's own contract, and the manifest is its file: it answers before the graph holds one.
+    const read = readKinds(this.options.productFolder);
+    const file = join(this.options.productFolder, KINDS_FILE);
+    if (!read.present) throw new WikiReadError(`${file}:1: the product holds no manifest to derive a GraphQL schema from`);
+    if (read.manifest.findings.length > 0) {
+      const first = read.manifest.findings[0]!;
+      throw new WikiReadError(`${resolve(this.options.productFolder, first.file)}:${String(first.line)}: ${first.message}`);
+    }
+    try {
+      return graphqlSchemaOf(publishedManifestOf(read.manifest));
+    } catch (error) {
+      if (error instanceof SchemaRefusal) throw new WikiReadError(`${file}:1: the manifest's names cannot make a schema: ${error.message}`);
+      throw error;
+    }
+  }
+
   async declaredRoles(): Promise<string[]> {
     const product = this.product();
     if ('message' in product) return [];

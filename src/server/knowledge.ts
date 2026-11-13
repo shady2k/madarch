@@ -33,6 +33,8 @@ import { manifestPublicationState } from '../product/manifest-publication-state.
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
   identity: (request: Request) => Promise<Handled>;
+  /** The product's GraphQL schema (decision 0036): the SDL its published manifest derives, as `application/graphql`. */
+  graphqlSchema: (request: Request) => Promise<Handled>;
   /** A page as Markdown or as the documented JSON document, at its `.md` / `.json` sibling address. */
   pageFile: (request: Request) => Promise<Handled>;
   /** A kind's list as Markdown or JSON, every entity of the kind, at its `.md` / `.json` sibling address. */
@@ -222,6 +224,9 @@ export function createKnowledgePart(
       if (answer.entity !== undefined && 'revision' in answer.entity) response.headers.set('ETag', `"${String(answer.entity.revision)}"`);
       return { response };
     }),
+    graphqlSchema: guarded('read the GraphQL schema', async () => ({
+      response: new Response(await product.graphqlSchema(), { headers: { 'content-type': 'application/graphql; charset=utf-8' } }),
+    }), false),
     identity: guarded('read the product identity', async () => {
       const identity = product.product();
       if ('message' in identity) throw new WikiReadError(identity.message);
