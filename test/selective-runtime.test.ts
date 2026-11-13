@@ -41,7 +41,7 @@ plugins:
   - { id: probe, version: 1, path: plugins/probe, inputs: [], outputs: [], closure: [plugins/probe/plugin.json, plugins/probe/main.ts] }
 `);
   writeFileSync(join(folder, 'madarch/workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
-  writeFileSync(join(folder, 'workspace.yaml'), 'fill:\n  stages:\n    plugin-turns: { enabled: false }\n');
+  writeFileSync(join(folder, 'workspace.yaml'), 'fill:\n  stages:\n    plugin-turns:\n      enabled: false\n');
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(folder, 'store'), fillQueued: true });
   product.product = () => ({ folder } as ReturnType<KnowledgeProduct['product']>);
   const result = await product.startFill({ agent: null, targets: { kinds: ['probe.summary'] } });
