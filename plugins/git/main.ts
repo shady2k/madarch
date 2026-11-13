@@ -39,10 +39,10 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       continue;
     }
     const history = await readRepositoryHistory(pin, { touched: unit.kind !== 'code.author', counts: unit.kind === 'code.commit' });
-    // Count exact-path changes once per non-merge commit; a rename does not transfer the old path's history.
+    // Count exact-path changes once per commit the touched edges hold, merge commits included; a rename does not
+    // transfer the old path's history.
     const changes = new Map<string, { commit_count: number; last_change: string | null }>();
     for (const held of history.commits) {
-      if (held.parents.length > 1) continue;
       const date = new Date(held.commitDate).toISOString();
       for (const path of new Set(held.touched.map(touched => touched.path))) {
         const facts = changes.get(path) ?? { commit_count: 0, last_change: null };
