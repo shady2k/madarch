@@ -64,7 +64,8 @@
     "mutationBudgetMinutes": 10,
     "mutationFallback": "escalate",
     "reviewPreference": "different-model",
-    "reviewFallback": "same-model independent reviewer, disclosed"
+    "reviewFallback": "same-model independent reviewer, disclosed",
+    "wayOfWorking": "github-flow"
   },
   "jev": {
     "consent": true,
@@ -84,5 +85,10 @@
     "beads_rust"
   ],
   "notifyPushes": true,
-  "openQuestions": "one-at-a-time"
+  "openQuestions": "one-at-a-time",
+  "agreementExempt": [
+    "madarch-64o5",
+    "madarch-j9ao",
+    "madarch-stm0"
+  ]
 }
