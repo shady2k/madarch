@@ -35,6 +35,7 @@ import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { publishFixtureTemplate } from './structured-template-fixture.js';
+import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
 const PLUGINS = fileURLToPath(new URL('..', import.meta.url));
@@ -61,6 +62,12 @@ const SOURCE = [
   "export const prose = 'the parser must not read this sentence as SQL';",
   '',
 ].join('\n');
+
+/** The presentation phase keeps every static statement and its line, replacing only the dynamic table declaration. */
+const STATIC_SOURCE = SOURCE.replace(
+  'export const composed = (table: string): string => `CREATE TABLE IF NOT EXISTS ${table} (id bigint)`;',
+  '// The dynamic table declaration was removed after its abstention was recorded.',
+);
 
 /** The line the table's CREATE TABLE opens on in the source above: a reader of the page opens it there. */
 const CHILD_LINE = SOURCE.split('\n').findIndex((line) => line.startsWith('CREATE TABLE child')) + 1;
@@ -272,6 +279,34 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
     git(folder, 'commit', '--quiet', '-m', 'Connect the code repository');
     closeOwner = await retainTestStorePreparationOwner();
     product = new KnowledgeProduct({ productFolder: folder, storeRoot: join(work, 'store') });
+    const partial = await product.startFill();
+    if (!('started' in partial) || partial.started !== true) throw new Error(`the partial fill did not start: ${JSON.stringify(partial)}`);
+    await product.settled();
+    const partialOwner = await createTestDatabaseOwner({
+      store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
+      graphContract: withManifestContract(await readPinnedGraphContract(folder)),
+    });
+    try {
+      const outcomes = await readProducerOutcomes(partialOwner, {});
+      const database = outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === 'code.database');
+      expect(database).toBeDefined();
+      expect(database?.outcome).toBe('abstained');
+      expect(database?.produced).toBe(0);
+      expect(database?.reason).toContain(`src/schema.ts:${String(COMPOSED_LINE)}`);
+      const run = await partialOwner.run((tx) => tx.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1', [database!.runId]));
+      expect(run.rows[0]?.state).toBe('completed_partial');
+      for (const kind of ['code.table', 'code.column', 'code.index']) {
+        expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)?.outcome).toBe('failed');
+        const listed = await product.list(kind, { limit: 100 });
+        expect(listed?.rows).toEqual([]);
+      }
+      const invented = await product.page('code.table:app/madarch_substitution');
+      expect(invented.ok).toBe(false);
+    } finally { await partialOwner.close(); }
+
+    writeFileSync(join(code, 'src', 'schema.ts'), STATIC_SOURCE);
+    git(code, 'add', '-A');
+    git(code, 'commit', '--quiet', '-m', 'Keep the static schema after the dynamic declaration abstained');
     await refill();
     const owner = await createTestDatabaseOwner({
       store: storeDatabasePath(productStoreFolder(folder, join(work, 'store'))),
@@ -289,7 +324,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
         const existing = await tx.query<{ unsupported: string | null; schema: string | null }>(`SELECT unsupported, schema FROM ${table.table} WHERE node_id = $1::bigint AND state = 'open'`, [node.nodeId]);
         await publishOpinion(tx, contract, {
           kind: 'code.table', nodeId: node.nodeId, producer: 'db-schema', producerVersion: '1.0.0',
-          values: { ...existing.rows[0], source: { text: SOURCE, language: 'typescript', truncated: false, location: {
+          values: { ...existing.rows[0], source: { text: STATIC_SOURCE, language: 'typescript', truncated: false, location: {
             repo: 'app', path: 'src/schema.ts', lineStart: CHILD_LINE, lineEnd: CHILD_LINE,
             href: '/source/app/src/schema.ts',
           } } },
