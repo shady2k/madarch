@@ -1167,7 +1167,7 @@ export class ReadContext {
   /** The catalogue's own filter and order, over the entries the graph holds (a bounded set of declarations). */
   private catalogueConnection(values: readonly CatalogueValue[], args: ConnectionArgs, lang: string | undefined): unknown {
     let rows = [...values];
-    if (args.where !== undefined) rows = rows.filter((one) => this.catalogueMatches(one, args.where!));
+    if (args.where !== undefined && args.where !== null) rows = rows.filter((one) => this.catalogueMatches(one, args.where!));
     const orders = (args.orderBy ?? []).filter((one) => typeof one['field'] === 'string');
     rows.sort((left, right) => {
       for (const order of orders) {
