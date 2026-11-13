@@ -367,26 +367,44 @@ type Query {
 
 input CatalogueEntityDefinitionFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntityGroupFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntityNameFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntityOrder {
@@ -397,38 +415,64 @@ input CatalogueEntityOrder {
 
 input CatalogueEntityPurposeFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntityStatusFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntitySubgroupFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntityTakenFilter {
   _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
 }
 
 input CatalogueEntityTitleFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input CatalogueEntityWhere {
@@ -444,25 +488,42 @@ input CatalogueEntityWhere {
 
 input DemoAuthorCommitsFilter {
   _eq: Int
+  _neq: Int
   _in: [Int!]
+  _nin: [Int!]
   _lt: Int
+  _lte: Int
   _gt: Int
+  _gte: Int
+  _is_null: Boolean
 }
 
 input DemoAuthorEmailFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoAuthorNameFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoAuthorOrder {
@@ -479,24 +540,40 @@ input DemoAuthorWhere {
 
 input DemoCommitChangedLinesFilter {
   _eq: BigInt
+  _neq: BigInt
   _in: [BigInt!]
+  _nin: [BigInt!]
   _lt: BigInt
+  _lte: BigInt
   _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
 }
 
 input DemoCommitCommittedAtFilter {
   _eq: DateTime
+  _neq: DateTime
   _in: [DateTime!]
+  _nin: [DateTime!]
   _lt: DateTime
+  _lte: DateTime
   _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
 }
 
 input DemoCommitHashFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoCommitOrder {
@@ -507,10 +584,16 @@ input DemoCommitOrder {
 
 input DemoCommitSubjectFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoCommitWhere {
@@ -528,9 +611,14 @@ input DemoContainsEdgeOrder {
 
 input DemoContainsEdgePositionFilter {
   _eq: Int
+  _neq: Int
   _in: [Int!]
+  _nin: [Int!]
   _lt: Int
+  _lte: Int
   _gt: Int
+  _gte: Int
+  _is_null: Boolean
 }
 
 input DemoContainsEdgeWhere {
@@ -539,39 +627,64 @@ input DemoContainsEdgeWhere {
 
 input DemoFileBinaryFilter {
   _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
 }
 
 input DemoFileBytesFilter {
   _eq: BigInt
+  _neq: BigInt
   _in: [BigInt!]
+  _nin: [BigInt!]
   _lt: BigInt
+  _lte: BigInt
   _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
 }
 
 input DemoFileFacetsFilter {
   _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
 }
 
 input DemoFileLanguageFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoFileLastChangeFilter {
   _eq: DateTime
+  _neq: DateTime
   _in: [DateTime!]
+  _nin: [DateTime!]
   _lt: DateTime
+  _lte: DateTime
   _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
 }
 
 input DemoFileLinesFilter {
   _eq: Int
+  _neq: Int
   _in: [Int!]
+  _nin: [Int!]
   _lt: Int
+  _lte: Int
   _gt: Int
+  _gte: Int
+  _is_null: Boolean
 }
 
 input DemoFileOrder {
@@ -582,10 +695,16 @@ input DemoFileOrder {
 
 input DemoFilePathFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoFileWhere {
@@ -600,33 +719,54 @@ input DemoFileWhere {
 
 input DemoRepositoryArchivedFilter {
   _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
 }
 
 input DemoRepositoryCreatedAtFilter {
   _eq: DateTime
+  _neq: DateTime
   _in: [DateTime!]
+  _nin: [DateTime!]
   _lt: DateTime
+  _lte: DateTime
   _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
 }
 
 input DemoRepositoryDefaultBranchFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoRepositoryFacetsFilter {
   _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
 }
 
 input DemoRepositoryNameFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoRepositoryOrder {
@@ -637,17 +777,28 @@ input DemoRepositoryOrder {
 
 input DemoRepositorySizeFilter {
   _eq: BigInt
+  _neq: BigInt
   _in: [BigInt!]
+  _nin: [BigInt!]
   _lt: BigInt
+  _lte: BigInt
   _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
 }
 
 input DemoRepositoryUrlFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoRepositoryWhere {
@@ -662,32 +813,52 @@ input DemoRepositoryWhere {
 
 input DemoTouchedEdgeAddedFilter {
   _eq: BigInt
+  _neq: BigInt
   _in: [BigInt!]
+  _nin: [BigInt!]
   _lt: BigInt
+  _lte: BigInt
   _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeBinaryFilter {
   _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeChangeFilter {
   _eq: String
+  _neq: String
   _in: [String!]
+  _nin: [String!]
   _contains: String
+  _like: String
   _lt: String
+  _lte: String
   _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeChangedAtFilter {
   _eq: DateTime
+  _neq: DateTime
   _in: [DateTime!]
+  _nin: [DateTime!]
   _lt: DateTime
+  _lte: DateTime
   _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeMetaFilter {
   _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeOrder {
@@ -698,16 +869,26 @@ input DemoTouchedEdgeOrder {
 
 input DemoTouchedEdgeRemovedFilter {
   _eq: BigInt
+  _neq: BigInt
   _in: [BigInt!]
+  _nin: [BigInt!]
   _lt: BigInt
+  _lte: BigInt
   _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeWeightFilter {
   _eq: Int
+  _neq: Int
   _in: [Int!]
+  _nin: [Int!]
   _lt: Int
+  _lte: Int
   _gt: Int
+  _gte: Int
+  _is_null: Boolean
 }
 
 input DemoTouchedEdgeWhere {

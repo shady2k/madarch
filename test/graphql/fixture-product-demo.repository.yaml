@@ -18,4 +18,6 @@ fields:
   - { name: name, type: text, producers: [agent] }
   - { name: url, type: text, nullable: true, producers: [agent] }
   - { name: size, type: integer, nullable: true, producers: [agent] }
+  - { name: description, type: text, nullable: true, producers: [agent] }
+  - { name: archived, type: boolean, nullable: true, producers: [agent] }
 key: [name]

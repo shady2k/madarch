@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { buildSchema } from 'graphql';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
@@ -83,4 +83,29 @@ test('POST /graphql refuses a body that is not an operation', async () => {
   const answer = await post({ nope: true });
   expect(answer.status).toBe(400);
   expect(answer.body.error.field).toBe('query');
+});
+
+/** A file of a folder tree, by its name. */
+function fileNamed(root: string, name: string): string | undefined {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      const held = fileNamed(path, name);
+      if (held !== undefined) return held;
+    } else if (entry.name === name) return path;
+  }
+  return undefined;
+}
+
+test('the schema route serves the published manifest, not an unpublished edit (#19)', async () => {
+  const kindFile = fileNamed(join(product, 'madarch/kinds'), 'code.file.yaml');
+  expect(kindFile).toBeDefined();
+  rmSync(kindFile!);
+  const answer = await fetch(`${server!.url}/graphql/schema`);
+  expect(answer.status).toBe(200);
+  const text = await answer.text();
+  expect(text).toContain('type CodeFile implements Entity');
+  const queried = await post({ query: '{ allCodeFile(first: 1) { totalCount } }' });
+  expect(queried.status).toBe(200);
+  expect(queried.body.errors).toBeUndefined();
 });
