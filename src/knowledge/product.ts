@@ -109,6 +109,7 @@ import { withManifestContract } from '../graph/manifest-contract.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
+import { executeGraphql, type MessageBody } from '../graph/graphql-execute.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -577,6 +578,24 @@ export class KnowledgeProduct {
       if (error instanceof SchemaRefusal) throw new WikiReadError(`${file}:1: the manifest's names cannot make a schema: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Runs one GraphQL operation against this product's graph (decision 0036, section 2): the manifest the start
+   * published, the one executor the wiki and MCP share, and the schema its published manifest derives.
+   */
+  async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }): Promise<{ readonly status: number; readonly body: MessageBody }> {
+    const owner = await this.open();
+    await this.followStoreFill();
+    const read = await this.manifestRead(this.options.productFolder);
+    const file = join(this.options.productFolder, KINDS_FILE);
+    if (!read.present) throw new WikiReadError(`${file}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
+    if (read.manifest.findings.length > 0) {
+      const first = read.manifest.findings[0]!;
+      throw new WikiReadError(`${resolve(this.options.productFolder, first.file)}:${String(first.line)}: ${first.message}`);
+    }
+    // The manifest the operation reads is the one the graph held when its snapshot opened: the executor owns the read.
+    return await executeGraphql(owner, { manifest: read.manifest, folder: this.options.productFolder }, operation);
   }
 
   async declaredRoles(): Promise<string[]> {

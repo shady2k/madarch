@@ -13,13 +13,15 @@ import { graphqlSchemaOf } from '../src/graphql/schema.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { createDraft } from '../src/product/draft.js';
 import { knowledgeRootOf } from '../src/product/store.js';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import type { StartedServer } from '../src/server/http.js';
+import { prepareTestProduct, startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 
 let root = '';
 let product = '';
 let server: StartedServer | undefined;
+let closeOwner: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-graphql-route-'));
@@ -31,11 +33,13 @@ beforeAll(async () => {
   const draft = createDraft({ home, name: 'schema-route', gitEnv: gitEnv(SAMPLE_IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   product = draft.folder;
-  server = await startServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
+  closeOwner = await prepareTestProduct(product, home);
+  server = await startPreparedServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }, 120_000);
 
 afterAll(async () => {
   await server?.stop();
+  await closeOwner?.();
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
@@ -48,4 +52,35 @@ test('GET /graphql/schema answers the SDL the product manifest derives', async (
   const read = readKinds(product);
   if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: the fixture product holds no manifest`);
   expect(text).toBe(graphqlSchemaOf(publishedManifestOf(read.manifest)));
+});
+
+/** One GraphQL operation as the wiki's client sends it. */
+async function post(body: unknown): Promise<{ status: number; body: any }> {
+  const answer = await fetch(`${server!.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: answer.status, body: await answer.json() };
+}
+
+test('POST /graphql answers the product graph through the one executor', async () => {
+  const bootstrap = await post({ query: '{ bootstrap { structureRevision home { id } templates { name } } }' });
+  expect(bootstrap.status).toBe(200);
+  expect(bootstrap.body.errors).toBeUndefined();
+  expect(typeof bootstrap.body.data.bootstrap.structureRevision).toBe('string');
+  expect(bootstrap.body.data.bootstrap.structureRevision.length).toBe(64);
+  expect(bootstrap.body.data.bootstrap.templates.length).toBeGreaterThan(0);
+  const catalogue = await post({ query: '{ allCatalogueEntity(first: 1) { totalCount edges { node { name taken } } } }' });
+  expect(catalogue.status).toBe(200);
+  expect(catalogue.body.errors).toBeUndefined();
+  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(520);
+});
+
+test('POST /graphql refuses a query deeper than six levels', async () => {
+  const answer = await post({ query: '{ allCatalogueEntity { edges { node { derivesFrom { edges { node { derivedBy { edges { cursor } } } } } } } } }' });
+  expect(answer.status).toBe(400);
+  expect(answer.body.errors[0].extensions.code).toBe('LIMIT_DEPTH');
+});
+
+test('POST /graphql refuses a body that is not an operation', async () => {
+  const answer = await post({ nope: true });
+  expect(answer.status).toBe(400);
+  expect(answer.body.error.field).toBe('query');
 });
