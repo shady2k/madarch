@@ -10,6 +10,13 @@ are the repository's installation, and each person's plugin and hooks are theirs
   commit-link and document gates are enforced nowhere else; the set requires
   the product-documents check in CI whatever the scope, so
   `.github/workflows/documents.yml` runs it on every push.
+- **How work reaches the main line:** `github-flow` (config
+  `execution.wayOfWorking`; owner's profile, 2026-11-13, madarch-znmp): a
+  branch per change, opened as a pull request, merged by the run once its
+  review and required checks are green. Facts it rests on, read that day: one
+  person decides (every other author is an agent), `main` has no protection or
+  ruleset, releases are tags (`release.yml`), CI on `main` takes a median of
+  9.9 min (max 19.9, last 18 runs).
 - **Vision, roadmap and charters:** `docs/vision.md` (roadmap as its section),
   `docs/milestones/<milestone>.md`; status comes from the tracker. Vision and the MVP charter (`docs/milestones/mvp.md`) written.
 - **Current specifications:** `docs/system/capabilities/<name>.md`, catalogued in
@@ -75,8 +82,9 @@ are the repository's installation, and each person's plugin and hooks are theirs
   reads the exported model, not files), `time-format.mjs`
   (which `check.mjs` reads records by), and `argv.mjs` and `regular-file.mjs`
   (which every check reads its arguments and opens a named path through),
-  verbatim copies of shady2k-skills plugin 0.128.0 (setup and rules 0.58.0,
-  madarch-j6ho.4, 2026-10-27; earlier 0.121.0, setup 0.51.0, madarch-y47p),
+  verbatim copies of shady2k-skills plugin 0.143.0 (setup and rules 0.68.0,
+  madarch-znmp, 2026-11-13; earlier 0.128.0, setup 0.58.0, madarch-j6ho.4;
+  0.121.0, setup 0.51.0, madarch-y47p),
   compared byte for byte at each setup, with the set's fixtures and templates
   under `.shady2k/checks/`. Their self-tests run from the plugin's
   setup skill directory, where their fixtures are. `check.mjs` carries the
@@ -98,15 +106,26 @@ are the repository's installation, and each person's plugin and hooks are theirs
   judgement rules wait for the records they read. The rules added in 0.52.0 to 0.58.0 (design
   match, judgement records with their quotes, computed forecast records and
   `merged-but-open`) are off the same way: the config and the adapter carry
-  none of what they read yet (madarch-j6ho.4).
+  none of what they read yet (madarch-j6ho.4). Rules 0.59.0-0.68.0 (owner's
+  profile, 2026-11-13, madarch-znmp): `started-without-agreement` is on — a
+  feature with stages whose work has begun carries `Agreed direction:`,
+  `Design:` and `Agreed plan:` lines; the features already under way when it
+  arrived are listed once in the config's `agreementExempt` and the list only
+  shrinks. `unobservable-first-stage` now judges every open stage against its
+  feature's `Seen at:` handles. `merged-but-open` stays off by the owner's
+  choice: the adapter exports no `landed` list, because here every commit of
+  partial work carries its `Task:` line, so a main-line commit naming a leaf
+  does not mean the leaf was delivered (measured: about 59 leaves still in
+  progress would be reported); forgotten closes are caught by `close-out`.
+  Known debt: `madarch-8bdc.2`'s `Seen at:` is prose, read as word handles;
+  written as page handles it leaves eight of its open stages naming no place.
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
   glossary, `docs/system/architecture.md`, the current capability specs).
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
   <rev> [--head <rev>]` runs in the pre-push hook for every pushed ref that
   introduces commits, against the revision just before the first of them (see
-  "What a push introduces"); with personal scope and pushes straight to `main`
-  there is no pull-request step, so the push stands in for a pull request's
-  opening. It refuses a change that leaves one of them naming a path the tree no
+  "What a push introduces"); the push of a change's branch is where its pull
+  request opens, so the push stands in for that opening. It refuses a change that leaves one of them naming a path the tree no
   longer has; the list itself is not a reference, so moving or dropping a listed
   document with no other document naming its path is not what it refuses
   (checked 2026-10-09: moving `docs/glossary.md` passed, moving
