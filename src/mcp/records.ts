@@ -17,6 +17,9 @@ import { GraphReader } from '../knowledge/graph-read.js';
 import { RecordGap } from '../graph/index.js';
 import { withSpan } from '../obs/trace.js';
 import { readPublishedDependencies, readPublishedManifest } from '../graph/manifest-publication.js';
+import { executeGraphql } from '../graph/graphql-execute.js';
+import { publishedManifestOf } from '../graphql/manifest.js';
+import { graphqlSchemaOf } from '../graphql/schema.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The store the tools read: the graph store's own owner, read through the graph's one read API. */
@@ -116,6 +119,21 @@ export const RECORD_TOOLS: readonly McpToolDefinition[] = [
     name: 'get_repository',
     description: 'The repository at the as-is commit: its name, url, default branch, the as-is commit, the counts of files, commits and folders the graph holds, and every gap the fill recorded.',
     inputSchema: object({}),
+  },
+  {
+    name: 'graph_schema',
+    description: 'The product GraphQL schema (decision 0036): the SDL its published manifest derives, the same schema the wiki and outside systems read through POST /graphql. Reads only the graph.',
+    inputSchema: object({}),
+  },
+  {
+    name: 'graph_query',
+    description: 'Runs one GraphQL operation against the product graph through the same executor the wiki uses (decision 0036): an entity by id, a kind list filtered, ordered and paged, an edge both ways, backlinks, opinions and catalogue entities. Answers the GraphQL result, or its errors with their codes (LIMIT_DEPTH, TIMEOUT).',
+    inputSchema: object({
+      query: { type: 'string', description: 'The GraphQL operation text; graph_schema gives the SDL it must satisfy.' },
+      variables: { type: 'object', description: 'The operation variables, keyed by name.' },
+      operationName: { type: 'string', description: 'Which operation to run when the text holds several.' },
+      lang: { type: 'string', description: 'The reader language for text fields.' },
+    }, ['query']),
   },
 ];
 
@@ -363,6 +381,30 @@ async function dispatch(tool: string, args: Record<string, unknown>, context: Re
         },
         isError: false,
       };
+    }
+    case 'graph_schema': {
+      const manifest = await context.owner.run(async (tx) => await readPublishedManifest(tx));
+      if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/catalog.yaml:1: the graph holds no published manifest`);
+      return { answer: { schema: graphqlSchemaOf(publishedManifestOf(manifest)) }, isError: false };
+    }
+    case 'graph_query': {
+      const query = textArgument(args['query'], 'query');
+      if (typeof query !== 'string') return query;
+      const manifest = await context.owner.run(async (tx) => await readPublishedManifest(tx));
+      if (manifest === undefined) return fail('no-manifest', `${context.source.repository}/madarch/catalog.yaml:1: the graph holds no published manifest`);
+      const variables = args['variables'];
+      if (variables !== undefined && variables !== null && (typeof variables !== 'object' || Array.isArray(variables))) return fail('bad-argument', '"variables" is an object of the operation\'s variables (src/mcp/records.ts)');
+      const operationName = args['operationName'];
+      if (operationName !== undefined && typeof operationName !== 'string') return fail('bad-argument', '"operationName" is the name of the operation to run (src/mcp/records.ts)');
+      const lang = args['lang'];
+      if (lang !== undefined && typeof lang !== 'string') return fail('bad-argument', '"lang" is the reader language (src/mcp/records.ts)');
+      const answer = await executeGraphql(context.owner, { manifest, folder: context.repository }, {
+        query,
+        ...(variables === undefined || variables === null ? {} : { variables: variables as Record<string, unknown> }),
+        ...(operationName === undefined ? {} : { operationName }),
+        ...(lang === undefined ? {} : { lang }),
+      });
+      return { answer: answer.body as Record<string, unknown>, isError: answer.body.errors !== undefined };
     }
     case 'list_files': return await listFilesAnswer(context, args);
     case 'get_file': return await getFileAnswer(context, args);
