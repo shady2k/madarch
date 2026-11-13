@@ -153,10 +153,10 @@ describe('the tools this step serves', () => {
     const { isError, answer } = await call('get_file', { path: 'src/a.ts' });
     expect(isError).toBe(false);
     expect(answer).toMatchObject({
-      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'ambiguous',
+      path: 'src/a.ts', mode: '100644', bytes: 40, lines: 2, form: 'text', language: 'TypeScript',
       commitCount: 2, authors: ['Ada Example'],
     });
-    // The disk producer states ambiguity and every candidate, not an accepted language chosen from them.
+    // The disk producer decides the ambiguous extension and keeps every candidate beside it.
     expect(answer['candidates']).toEqual(['TypeScript', 'XML']);
     expect(answer['blob']).toBe(git(REPOSITORY, 'rev-parse', `${third}:src/a.ts`));
     expect(answer['historyShallow']).toBe(false);

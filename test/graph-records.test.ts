@@ -219,12 +219,12 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // The extension dataset supplies candidates, but no text heuristic chooses among them.
+    // An ambiguous extension is decided by its bytes and its default; the dataset's candidates stand beside it.
     expect(byPath.get('blob.bin')?.language).toBe('unknown');
-    expect(byPath.get('src/a.ts')?.language).toBe('ambiguous');
+    expect(byPath.get('src/a.ts')?.language).toBe('TypeScript');
     expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBe('ambiguous');
+    expect(header.language).toBe('C');
     expect(header.candidates).toEqual(['C', 'C++', 'Objective-C']);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
@@ -258,7 +258,7 @@ describe('the two passes over one fixture', () => {
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'disk'`,
     ));
-    expect(stored.rows).toEqual([{ lang: null, language: 'ambiguous', languages: ['TypeScript', 'XML'] }]);
+    expect(stored.rows).toEqual([{ lang: null, language: 'TypeScript', languages: ['TypeScript', 'XML'] }]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
