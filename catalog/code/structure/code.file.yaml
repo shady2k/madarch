@@ -105,6 +105,11 @@ fields:
   nullable: true
   producers:
   - disk
+- name: class
+  type: text
+  nullable: true
+  producers:
+  - disk
 - name: directory
   type: text
   producers:
@@ -122,6 +127,66 @@ fields:
 key:
 - repository
 - path
+classes:
+- name: dependency
+  paths:
+  - "**/node_modules/**"
+  - "**/bower_components/**"
+  - "**/vendor/**"
+  - "**/vendored/**"
+  - "**/third_party/**"
+  - "**/third-party/**"
+  - "**/jspm_packages/**"
+  - "**/web_modules/**"
+- name: generated
+  paths:
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/out/**"
+  - "**/target/**"
+  - "**/coverage/**"
+  - "**/*.min.js"
+  - "**/*.min.css"
+  - "**/*.map"
+  - "**/*.generated.*"
+  - "**/*.gen.*"
+  - "**/*.pb.go"
+  - "**/*.pb.ts"
+  - "**/*_pb2.py"
+  - "**/package-lock.json"
+  - "**/yarn.lock"
+  - "**/bun.lockb"
+  - "**/pnpm-lock.yaml"
+  - "**/composer.lock"
+  - "**/Cargo.lock"
+- name: test
+  paths:
+  - "**/test/**"
+  - "**/tests/**"
+  - "**/__tests__/**"
+  - "**/spec/**"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/*_test.*"
+  - "**/*_spec.*"
+  - "**/test_*.py"
+- name: documentation
+  paths:
+  - "**/docs/**"
+  - "**/doc/**"
+  - "**/*.md"
+  - "**/*.mdx"
+  - "**/*.rst"
+  - "**/*.adoc"
+  - "**/README*"
+  - "**/CHANGELOG*"
+  - "**/CHANGES*"
+  - "**/CONTRIBUTING*"
+  - "**/LICENSE*"
+  - "**/COPYING*"
+  - "**/AGENTS.md"
+- name: code
+  default: true
 history: path
 views:
 - state
@@ -133,6 +198,7 @@ details:
 - form
 - language
 - candidates
+- class
 - commitCount
 - authors
 labels:

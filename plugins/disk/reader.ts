@@ -400,3 +400,38 @@ function entryWithoutNewline(record: Buffer): Buffer {
   return record[0] === 0x0a ? record.subarray(1) : record;
 }
 
+
+
+// ---- the classes the catalogue declares ------------------------------------
+
+/** One class a catalogue declares for its files: its name, the path patterns it covers, and whether it is the default. */
+export interface FileClassRule {
+  readonly name: string;
+  readonly paths?: readonly string[];
+  readonly default?: boolean;
+}
+
+/** One catalogue pattern as a regular expression, with the manifest's own rules: `*` within a folder, `**` across. */
+function classPattern(pattern: string): RegExp {
+  let out = '';
+  for (let at = 0; at < pattern.length; at += 1) {
+    const char = pattern[at]!;
+    if (char === '*') {
+      if (pattern[at + 1] === '*') {
+        at += 1;
+        if (pattern[at + 1] === '/') { at += 1; out += '(?:.*/)?'; } else out += '.*';
+      } else out += '[^/]*';
+    } else if (char === '?') out += '[^/]';
+    else out += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/**
+ * The class a path takes under the rules the catalogue declares: the first rule whose pattern matches, and otherwise
+ * the rule that declares itself the default. No rules are no class: the plugin states nothing it was not given.
+ */
+export function classOfPath(path: string, rules: readonly FileClassRule[]): string | undefined {
+  for (const rule of rules) if (rule.paths?.some((pattern) => classPattern(pattern).test(path)) === true) return rule.name;
+  return rules.find((rule) => rule.default === true)?.name;
+}

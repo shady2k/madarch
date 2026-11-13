@@ -267,6 +267,7 @@ properties:
   bytes: { en: "Bytes", ru: "Байт", format: "number" }
   form: { en: "Form", ru: "Форма", format: "text" }
   candidates: { en: "Languages", ru: "Языки", format: "list" }
+  class: { en: "Class", ru: "Класс", format: "text" }
   author: { en: "Author", ru: "Автор", format: "text" }
   authorEmail: { en: "Author email", ru: "Почта автора", format: "text" }
   source: { en: "Source", ru: "Источник", format: "text" }

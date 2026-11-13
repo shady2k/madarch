@@ -138,6 +138,16 @@ export interface FieldDecl {
   readonly line?: number;
 }
 
+/** One class a kind's entities take (`classes:` of a kind declaration): a name, the path patterns it covers and, for one rule, the default. */
+export interface KindClassRule {
+  readonly name: string;
+  /** The path patterns (the manifest's own: `*` within a folder, `**` across folders) whose entities take the class. */
+  readonly paths?: readonly string[];
+  /** The class of every entity no earlier rule names: at most one rule declares it. */
+  readonly default?: true;
+  readonly line: number;
+}
+
 /** One field a plugin declares for one of its output kinds (decision 0035, item 18). */
 export interface PluginFieldDecl {
   readonly name: string;
@@ -363,6 +373,12 @@ export interface KindDecl {
   capability?: string;
   /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
   derivesFrom?: readonly string[];
+  /**
+   * The classes a kind's entities take, decided by path patterns the catalogue declares (a file's code, test,
+   * documentation, dependency or generated class): the first rule whose pattern matches names the class, and the one
+   * default rule names the class of every other entity.
+   */
+  classes?: readonly KindClassRule[];
   /** Explicit ordinary plugin output for these fields; overlap requires named refinements. */
   agent?: { readonly plugin: string; readonly fields: '*' | readonly string[]; readonly refines?: readonly string[] };
   line: number;
@@ -595,7 +611,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 const KIND_KEYS = new Set([
   'purpose', 'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -1823,6 +1839,30 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (validPlugin && validFields && validRefines) agent = { plugin, fields: agentFields, ...(refines === undefined ? {} : { refines }) };
       }
     }
+    // The classes a kind's entities take: the catalogue's own patterns, not an engine list. The first matching rule
+    // names a class, and one default rule names every other entity.
+    const classes: KindClassRule[] = [];
+    const rawClasses = decl['classes'];
+    if (rawClasses !== undefined) {
+      if (!Array.isArray(rawClasses) || rawClasses.length === 0) problem(['classes'], '"classes" is a list of { name, paths?, default? }');
+      else rawClasses.forEach((entry: unknown, index: number) => {
+        const path = ['classes', index] as (string | number)[];
+        const body = entry as Record<string, unknown> | null;
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) { problem(path, 'a class is { name, paths?, default? }'); return; }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'paths' && key !== 'default');
+        if (extra.length > 0) { problem([...path, extra[0]!], `"${extra[0]}" is not a field of a class: the fields are name, paths and default`); return; }
+        const name = body['name'];
+        if (typeof name !== 'string' || !/^[a-z][a-z0-9_-]*$/u.test(name)) { problem([...path, 'name'], '"name" is the class a rule names: a lower-case identifier such as code, test, documentation, dependency or generated'); return; }
+        if (classes.some((rule) => rule.name === name)) { problem([...path, 'name'], `the class ${JSON.stringify(name)} is declared twice`); return; }
+        const paths = body['paths'];
+        if (paths !== undefined && (!Array.isArray(paths) || paths.length === 0 || paths.some((one) => typeof one !== 'string' || one.trim() === ''))) { problem([...path, 'paths'], '"paths" is a list of path patterns, such as "**/node_modules/**"'); return; }
+        if (body['default'] !== undefined && body['default'] !== true) { problem([...path, 'default'], '"default" is true on the one rule that names every entity no earlier rule names, and absent otherwise'); return; }
+        if (body['default'] === true && classes.some((rule) => rule.default === true)) { problem([...path, 'default'], 'one rule is the default class: a second default rule leaves no rule to decide the order'); return; }
+        if (paths === undefined && body['default'] !== true) { problem([...path], 'a class names the path patterns it covers, or is the default'); return; }
+        classes.push({ name, ...(Array.isArray(paths) ? { paths: paths as string[] } : {}), ...(body['default'] === true ? { default: true as const } : {}), line: at(path) });
+      });
+      if (classes.length > 0 && !classes.some((rule) => rule.default === true)) problem(['classes'], 'one class is the default: true, so every entity has a class');
+    }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
@@ -1883,6 +1923,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
+      ...(classes.length === 0 ? {} : { classes }),
       ...(agent === undefined ? {} : { agent }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
