@@ -14,6 +14,23 @@ listing a product's several repositories comes with `live-graph` (decision
 0013, amended 2026-09-30).
 _Avoid_: landscape, workspace, model (for the whole)
 
+**Entity** (ru: сущность):
+One thing in the graph: the file `src/graph/write.ts`, the repository madarch,
+the task madarch-64o5.65, a decision, a glossary term, or a kind itself.
+Every entity has a stable id, is of one kind, holds its values
+as the opinions of the producers that stated them, and has its own page:
+everything the wiki shows is an entity (decisions 0034, 0036).
+_Avoid_: record, instance, item
+
+**Kind** (ru: вид; `kind` in code and manifests):
+What the catalogue declares a product can hold: File, Repository, Commit,
+Task, Decision. A kind carries its definition, its fields, its relations, the
+kinds it derives from and the plugins that fill it; the starter catalogue
+declares 520. Every entity is of exactly one kind (the file
+`src/graph/write.ts` is of the kind File). A kind is itself an entity of the
+graph, a catalogue entity (ru: сущность каталога), with its own page.
+_Avoid_: entity type, type (outside the GraphQL schema)
+
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
 relations, zones, data categories, data entities, scenarios, environments and
