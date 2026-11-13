@@ -35,6 +35,8 @@ export interface KnowledgePart {
   identity: (request: Request) => Promise<Handled>;
   /** The product's GraphQL schema (decision 0036): the SDL its published manifest derives, as `application/graphql`. */
   graphqlSchema: (request: Request) => Promise<Handled>;
+  /** One GraphQL operation against the product's graph (decision 0036, section 2): the one read API a page uses. */
+  graphql: (request: Request) => Promise<Handled>;
   /** A page as Markdown or as the documented JSON document, at its `.md` / `.json` sibling address. */
   pageFile: (request: Request) => Promise<Handled>;
   /** A kind's list as Markdown or JSON, every entity of the kind, at its `.md` / `.json` sibling address. */
@@ -227,6 +229,26 @@ export function createKnowledgePart(
     graphqlSchema: guarded('read the GraphQL schema', async () => ({
       response: new Response(await product.graphqlSchema(), { headers: { 'content-type': 'application/graphql; charset=utf-8' } }),
     }), false),
+    graphql: guarded('run a GraphQL query', async (request) => {
+      if (request.method !== 'POST') return refused(405, { message: `${import.meta.path}:1: a GraphQL operation is sent with POST` });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
+      let body: unknown;
+      try { body = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON: { query, variables?, operationName?, lang? }` }); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: `${import.meta.path}:1: the body is { query, variables?, operationName?, lang? }` });
+      const held = body as Record<string, unknown>;
+      if (typeof held['query'] !== 'string' || held['query'].trim() === '') return refused(400, { field: 'query', message: `${import.meta.path}:1: "query" is the GraphQL operation's text` });
+      if (held['variables'] !== undefined && held['variables'] !== null && (typeof held['variables'] !== 'object' || Array.isArray(held['variables']))) return refused(400, { field: 'variables', message: `${import.meta.path}:1: "variables" is an object of the operation's variables` });
+      if (held['operationName'] !== undefined && held['operationName'] !== null && typeof held['operationName'] !== 'string') return refused(400, { field: 'operationName', message: `${import.meta.path}:1: "operationName" is the name of the operation to run, or null` });
+      if (held['lang'] !== undefined && typeof held['lang'] !== 'string') return refused(400, { field: 'lang', message: `${import.meta.path}:1: "lang" is the reader's interface language` });
+      const answer = await product.graphql({
+        query: held['query'],
+        ...(held['variables'] === undefined || held['variables'] === null ? {} : { variables: held['variables'] as Readonly<Record<string, unknown>> }),
+        ...(held['operationName'] === undefined ? {} : { operationName: held['operationName'] as string | null }),
+        ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
+      });
+      return { response: json(answer.status, answer.body) };
+    }),
     identity: guarded('read the product identity', async () => {
       const identity = product.product();
       if ('message' in identity) throw new WikiReadError(identity.message);

@@ -1,0 +1,22 @@
+# The fixture's file kind: a keyed reference, an edge's to end, and a derivation from the repository.
+id: demo.file
+purpose: structure
+definition: A file of the demo.
+sources: [https://example.test/standard]
+acquisition: [document]
+status: implemented
+relation-constraints: { out: [], in: [contains] }
+template-policy: page
+template: templates/entity.yaml
+source: graph
+title: path
+labels:
+  en: { one: File, many: Files }
+  ru: { one: Файл, many: Файлы }
+description: { en: A file of the demo., ru: Файл демо. }
+fields:
+  - { name: repository, type: text, reference: demo.repository, producers: [agent] }
+  - { name: path, type: text, producers: [agent] }
+  - { name: lines, type: integer, nullable: true, producers: [agent] }
+key: [repository, path]
+derives-from: [demo.repository]

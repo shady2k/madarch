@@ -649,6 +649,7 @@ export function createHandler(dependencies: {
       ...(dependencies.knowledge === undefined ? [] : ([
         { method: 'GET', path: API.product, handle: (request: Request) => dependencies.knowledge!.identity(request) },
         { method: 'GET', path: '/graphql/schema', handle: (request: Request) => dependencies.knowledge!.graphqlSchema(request) },
+        { method: 'POST', path: '/graphql', handle: (request: Request) => dependencies.knowledge!.graphql(request) },
         { method: 'GET', path: '/llms.txt', handle: (request: Request) => dependencies.knowledge!.llms(request) },
         { method: 'GET', path: `${PAGE_FILE_BASE}<id>.md|.json`, match: (pathname) => pageFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.pageFile(request) },
         { method: 'GET', path: `${KIND_FILE_BASE}<kind>.md|.json`, match: (pathname) => kindFileAt(pathname) !== undefined, handle: (request: Request) => dependencies.knowledge!.kindFile(request) },
