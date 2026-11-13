@@ -25,41 +25,6 @@ export function areaOf(file: TreemapFileInput, area: TreemapArea): number {
   return value === null || value <= 0 ? 0 : value;
 }
 
-/** One cell of the map: a folder with the files it holds, or a file itself. */
-export interface FilesFolderGroup<T extends TreemapFileInput = TreemapFileInput> {
-  /** The folder's path, from the repository root. */
-  path: string;
-  name: string;
-  files: readonly T[];
-}
-
-/**
- * The files of one folder as the map draws them: the folder's direct files and
- * the folders just below it, each with the files it holds. A folder is one cell
- * whose area is the sum of its files, so a click on it enters the folder; the
- * map shows one level at a time, which is what keeps a repository of thousands
- * of files readable and its drawing bounded.
- */
-export function folderLevel<T extends TreemapFileInput>(files: readonly T[], root: string): { files: T[]; folders: FilesFolderGroup<T>[] } {
-  const prefix = root === '' ? '' : `${root}/`;
-  const here: T[] = [];
-  const folders = new Map<string, { path: string; name: string; files: T[] }>();
-  for (const file of files) {
-    if (prefix !== '' && !file.path.startsWith(prefix)) continue;
-    const rest = file.path.slice(prefix.length);
-    const slash = rest.indexOf('/');
-    if (slash < 0) { here.push(file); continue; }
-    const name = rest.slice(0, slash);
-    const path = prefix + name;
-    const held = folders.get(path) ?? { path, name, files: [] };
-    held.files.push(file);
-    folders.set(path, held);
-  }
-  return {
-    files: [...here].sort((left, right) => byCodePoint(left.path, right.path)),
-    folders: [...folders.values()].sort((left, right) => byCodePoint(left.path, right.path)),
-  };
-}
 
 /** A name as Mermaid's quoted text: the quotes and backslashes a quoted string cannot hold are escaped. */
 function quoted(name: string): string {
