@@ -129,6 +129,7 @@ function validateImports(folder: string, files: readonly { path: string; file: s
   }
   const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`), 'bun', 'bun:ffi', 'bun:jsc', 'bun:sqlite', 'bun:test']);
   const pending = [files.find((file) => file.path === entryPath)!];
+  const scanners = new Map<string, Bun.Transpiler>();
   const visited = new Set<string>();
   for (const entry of pending) {
     if (visited.has(entry.file)) continue;
@@ -136,8 +137,13 @@ function validateImports(folder: string, files: readonly { path: string; file: s
     if (!/\.(?:[cm]?[jt]sx?)$/.test(entry.path) || /\.d\.[cm]?ts$/.test(entry.path)) continue;
     const text = readFileSync(entry.file, 'utf8').replace(/^#![^\n]*/, (line) => ' '.repeat(line.length));
     const loader = entry.path.endsWith('tsx') ? 'tsx' : entry.path.endsWith('jsx') ? 'jsx' : /\.[cm]?ts$/.test(entry.path) ? 'ts' : 'js';
+    let scanner = scanners.get(loader);
+    if (scanner === undefined) {
+      scanner = new Bun.Transpiler({ loader });
+      scanners.set(loader, scanner);
+    }
     let imports: ReturnType<Bun.Transpiler['scanImports']>;
-    try { imports = new Bun.Transpiler({ loader }).scanImports(text); }
+    try { imports = scanner.scanImports(text); }
     catch (error) { throw new ClosureRefusal('plugin-import', `${entry.file}:1: cannot scan imports: ${(error as Error).message}`, entry.file); }
     for (const imported of imports) {
       if (builtins.has(imported.path) || imported.path === SDK_PACKAGE) continue;
