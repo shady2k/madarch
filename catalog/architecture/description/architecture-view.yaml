@@ -1,7 +1,7 @@
 id: iso42010.view
 purpose: understand
 audience: [architect, analyst, developer]
-definition: A representation of the architecture from one set of concerns, made of a viewpoint and a model.
+definition: An architecture view presents a system from the angle of one set of concerns, following a viewpoint that fixes what such a view shows.
 sources:
 - https://www.iso.org/standard/74393.html
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Представление архитектуры
     many: Представления архитектуры
 description:
-  en: A representation of the architecture from one set of concerns, made of a viewpoint and a model.
-  ru: Изображение архитектуры для одного круга вопросов, состоящее из точки зрения и модели.
+  en: An architecture view shows a system in a way that answers one group of concerns, for example how it is deployed or which components talk to each other. A viewpoint defines the elements, relations and conventions that a view of that kind uses, so views built to the same viewpoint can be compared.
+  ru: 'Представление архитектуры показывает систему так, чтобы ответить на один круг вопросов: например, как она развёрнута или какие компоненты друг с другом взаимодействуют. Точка зрения задаёт элементы, связи и правила, по которым строят такое представление, поэтому представления одной точки зрения можно сравнивать.'

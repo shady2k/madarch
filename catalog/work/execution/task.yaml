@@ -1,8 +1,7 @@
 id: practice.product-task
 purpose: operations
 audience: [developer, product, product-lead, tester]
-definition: A scoped change a person plans, with the pages and the statements it affects; it is the work item for work with
-  no entity of its own; its plan and done criterion are parts of it and its executor is a property.
+definition: A task is a unit of work with a defined scope and a criterion for being done, assigned to a person or a team.
 sources:
 - https://scrumguides.org/scrum-guide.html
 - https://support.atlassian.com/jira-software-cloud/docs/create-a-work-item-and-a-subtask/
@@ -61,8 +60,6 @@ labels:
     one: Задача
     many: Задачи
 description:
-  en: A scoped change the person plans, with the pages and statements it affects; it is the work item for work with no entity
-    of its own. Its plan and done criterion are parts of it, and its executor is a property.
-  ru: Запланированное изменение с указанной областью, затронутыми страницами и утверждениями; это рабочий элемент для работы
-    без собственной сущности. План и критерий готовности — его части, а исполнитель — свойство.
+  en: 'A task is one piece of work someone plans and then does: it states what has to change, what result counts as done and who carries it out. Tasks are usually grouped under a larger unit of work, such as a user story, a stage or a release.'
+  ru: 'Задача — единица работы с очерченной областью и критерием готовности, которую поручают человеку или команде. В ней сказано, что нужно изменить, какой результат считается достигнутым и кто её выполняет. Обычно задачи входят в более крупную единицу работы: историю пользователя, этап или выпуск.'
 key: []
