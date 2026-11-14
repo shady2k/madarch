@@ -12,7 +12,9 @@
  * frame, so a page never decides what a figure without data looks like.
  */
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as HeatGraph from 'heat-graph';
+import { textWidth } from '../../../../../vendor/diagrammatic/src/core/text.js';
 import { Bar } from '../../../../../vendor/diagrammatic/src/react/charts/bar.js';
 import { Heatmap } from '../../../../../vendor/diagrammatic/src/react/charts/heatmap.js';
 import { Sparkline } from '../../../../../vendor/diagrammatic/src/react/charts/sparkline.js';
@@ -89,7 +91,10 @@ export function ChartSparkline({ title, values, note = 'No values to draw', ...s
  * reacts to a pointer; the interactive calendar is `ActivityCalendar`.
  */
 export function ChartCalendar({ title, days, note = 'No activity to draw', ...size }: Size & { readonly title: string; readonly days: readonly ChartDay[]; readonly note?: string }): ReactElement {
-  const matrix = calendarMatrix(days);
+  // The month names are the reader's, from the page's language: a week column that starts a month carries that
+  // month's short name and the others carry none, so no column is asked to hold more than it can.
+  const { i18n } = useTranslation();
+  const matrix = calendarMatrix(days, i18n.language);
   if (matrix === undefined) return <ChartEmpty title={title} note={note} />;
   return <Heatmap title={title} matrix={matrix} mark="calendar" values={false} {...size} />;
 }
@@ -104,7 +109,10 @@ export function ChartCalendar({ title, days, note = 'No activity to draw', ...si
  * beside the picture draws them itself (`ChartHeatmap`, or a table).
  */
 export function ActivityCalendar({ title, days, note = 'No activity to draw' }: { readonly title: string; readonly days: readonly ChartDay[]; readonly note?: string }): ReactElement {
+  const { i18n } = useTranslation();
   if (days.length === 0) return <ChartEmpty title={title} note={note} />;
+  // Monday, Wednesday and Friday name the rows; the rest would crowd a phone's calendar.
+  const dayNames = [0, 1, 2, 3, 4, 5, 6].map((day) => (day % 2 === 0 ? weekdayShort(day, i18n.language) : ''));
   const total = days.reduce((sum, day) => sum + day.count, 0);
   const dates = [...days.map((day) => day.date.slice(0, 10))].sort();
   return <div className="max-w-2xl" data-testid="activity-calendar" role="img" aria-label={`${title}: ${String(total)} in ${String(days.length)} days, ${dates[0] ?? ''} to ${dates[dates.length - 1] ?? ''}`}>
@@ -116,7 +124,7 @@ export function ActivityCalendar({ title, days, note = 'No activity to draw' }: 
       </div>
       <div className="flex items-start gap-1.5">
         <div className="grid pr-0.5 text-[10px] leading-none text-muted" aria-hidden="true" style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))' }}>
-          {WEEKDAYS.map((name, row) => <span key={name || String(row)} className="grid items-center" style={{ gridRow: row + 1 }}>{name}</span>)}
+          {dayNames.map((name, row) => <span key={name || String(row)} className="grid items-center" style={{ gridRow: row + 1 }}>{name}</span>)}
         </div>
         <HeatGraph.Grid className="min-w-0 flex-1 gap-[2px]" aria-hidden="true">
           {() => <HeatGraph.Cell className="aspect-square rounded-[2px] outline outline-1 outline-[var(--border-subtle)]" />}
@@ -133,7 +141,10 @@ export function ActivityCalendar({ title, days, note = 'No activity to draw' }: 
 
 /** The five steps a calendar cell takes: the page's soft surface, then four strengths of one ink. */
 const HEAT_STEPS = ['var(--surface-soft)', 'var(--heat-step-1)', 'var(--heat-step-2)', 'var(--heat-step-3)', 'var(--heat-step-4)'];
-const WEEKDAYS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+/** A weekday's short name in the reader's language; Monday is day 0, and 2026-01-05 was a Monday. */
+function weekdayShort(day: number, language: string): string {
+  return new Intl.DateTimeFormat(language, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 5 + day)));
+}
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** A node as the vendored forms read one: a label, the value it holds, and its children. */
@@ -154,10 +165,21 @@ function hasValues(nodes: readonly ChartNode[]): boolean {
 }
 
 /**
- * Dated counts as the calendar mark's matrix: one row per weekday, one column
- * per week, Monday first. Undefined when no day carries a count.
+ * The short name of a month in a language, never cut by the figure: a name the
+ * narrowest column cannot hold at 11 px (a phone's width, thirteen weeks) falls
+ * to its first three letters, which every interface language writes distinctly.
  */
-export function calendarMatrix(days: readonly ChartDay[]): { rows: string[]; cols: string[]; values: number[][] } | undefined {
+export function shortMonth(month: number, language: string): string {
+  const name = new Intl.DateTimeFormat(language, { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, month, 1))).replace(/\.$/u, '');
+  return textWidth(name, 11) > 21 && name.length > 3 ? name.slice(0, 3) : name;
+}
+
+/**
+ * Dated counts as the calendar mark's matrix: one row per weekday, one column
+ * per week, Monday first, and the month's short name on the column where the
+ * month turns. Undefined when no day carries a count.
+ */
+export function calendarMatrix(days: readonly ChartDay[], language = 'en'): { rows: string[]; cols: string[]; values: number[][] } | undefined {
   if (!days.some((day) => day.count > 0)) return undefined;
   const byDate = new Map<string, number>();
   for (const day of days) byDate.set(day.date.slice(0, 10), day.count);
@@ -170,12 +192,17 @@ export function calendarMatrix(days: readonly ChartDay[]): { rows: string[]; col
   const end = new Date(last); end.setUTCDate(end.getUTCDate() - ((end.getUTCDay() + 6) % 7));
   const values: number[][] = [[], [], [], [], [], [], []];
   const cols: string[] = [];
+  let monthOfLast = -1;
   for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
-    cols.push(cursor.toISOString().slice(0, 10));
+    // The week that holds the month's first day names it; the label is centred over the column, so a month that turns
+    // inside a week takes the column as close to its start as the grid allows.
+    const month = cursor.getUTCMonth();
+    cols.push(month === monthOfLast ? '' : shortMonth(month, language));
+    monthOfLast = month;
     for (let row = 0; row < 7; row += 1) {
       const day = new Date(cursor); day.setUTCDate(day.getUTCDate() + row);
       values[row]!.push(byDate.get(day.toISOString().slice(0, 10)) ?? 0);
     }
   }
-  return { rows: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], cols, values };
+  return { rows: [0, 1, 2, 3, 4, 5, 6].map((day) => weekdayShort(day, language)), cols, values };
 }
