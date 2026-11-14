@@ -1,7 +1,7 @@
 id: practice.milestone
 purpose: understand
 audience: [developer, product, product-lead, tester]
-definition: A dated point a set of epics is planned to reach.
+definition: A milestone is a dated point that a set of epics is planned to reach.
 sources:
 - https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/about-milestones
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
@@ -24,5 +24,5 @@ labels:
     one: Веха
     many: Вехи
 description:
-  en: A dated point a set of epics is planned to reach.
-  ru: Дата, к которой планируют прийти набором эпиков.
+  en: A milestone marks a date by which a set of epics is planned to be finished, such as a public release or a contract deadline. It gives the plan a fixed point against which progress can be measured.
+  ru: Веха отмечает дату, к которой планируют завершить набор эпиков, например публичный выпуск или срок по договору. Она даёт плану неподвижную точку, с которой сверяют ход работы.

@@ -1,7 +1,7 @@
 id: practice.evidence
 purpose: quality
 audience: [developer, tester, product-lead]
-definition: What acceptance checked and where it is seen, kept with the check that produced it.
+definition: Evidence is what acceptance checked and where the result can be seen, kept together with the check that produced it.
 sources:
 - https://glossary.istqb.org/en_US/term/test-evidence
 - https://glossary.istqb.org/en_US/term/acceptance-testing
@@ -26,5 +26,5 @@ labels:
     one: Доказательство
     many: Доказательства
 description:
-  en: What acceptance checked and where it is seen, kept with the check that produced it.
-  ru: Что проверила приёмка и где это видно, вместе с проверкой, которая это дала.
+  en: 'Evidence shows that an acceptance check was made: what was checked, what it showed and where the result can be seen, such as a test output, a report or a screenshot. It is kept with the check that produced it, so a later reader can judge the claim.'
+  ru: 'Доказательство показывает, что проверку приёмки действительно провели: что проверяли, что получилось и где это видно — вывод теста, отчёт или снимок экрана. Его хранят вместе с проверкой, которая его дала, чтобы позднее можно было судить об утверждении.'

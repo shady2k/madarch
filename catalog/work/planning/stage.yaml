@@ -1,8 +1,7 @@
 id: practice.stage
 purpose: understand
 audience: [developer, product, product-lead, tester]
-definition: A part of a feature that bounds the work one responsible person or agent carries to its end; a stage holds tasks
-  and bugs.
+definition: A stage is a part of a feature bounded so that one responsible person or agent can carry it to its end; a stage holds tasks and bugs.
 sources:
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
@@ -25,5 +24,5 @@ labels:
     one: Этап
     many: Этапы
 description:
-  en: A part of a feature that bounds the work one responsible person or agent carries to its end.
-  ru: Часть возможности, ограничивающая работу, которую один ответственный человек или агент доводит до конца.
+  en: A stage is a part of a feature cut small enough for one responsible person or agent to finish. It holds the tasks and bugs that make up that piece of work.
+  ru: Этап — часть возможности, очерченная так, чтобы один ответственный человек или агент мог довести её до конца. В этап входят задачи и ошибки, из которых состоит эта часть работы.

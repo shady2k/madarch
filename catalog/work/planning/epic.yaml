@@ -1,7 +1,7 @@
 id: practice.epic
 purpose: understand
 audience: [developer, product, product-lead, tester]
-definition: A stakeholder need larger than one iteration, which features and stories refine.
+definition: An epic is a large need of a stakeholder that takes more than one iteration to meet, and that features and stories break into work.
 sources:
 - https://glossary.istqb.org/en_US/term/epic
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
@@ -26,5 +26,5 @@ labels:
     one: Эпик
     many: Эпики
 description:
-  en: A stakeholder need larger than one iteration, refined by features and stories.
-  ru: Потребность заинтересованной стороны больше одной итерации, уточняемая возможностями и историями.
+  en: An epic states a need of a stakeholder that is too large to meet in one iteration. Features and user stories break it into parts small enough to plan and deliver.
+  ru: Эпик называет потребность заинтересованной стороны, которую нельзя закрыть за одну итерацию. Возможности и истории пользователя делят его на части, которые можно спланировать и выполнить.

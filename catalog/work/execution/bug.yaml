@@ -1,7 +1,7 @@
 id: practice.bug
 purpose: quality
 audience: [developer, tester, product]
-definition: A task for a defect in the product, with the severity of the defect and the steps that show it.
+definition: A bug is a record of a defect in the product, with how serious it is and the steps that show it.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/issue-types-how-do-team-managed-and-company-managed-projects-differ/
 - https://glossary.istqb.org/en_US/term/defect
@@ -26,5 +26,5 @@ labels:
     one: Ошибка
     many: Ошибки
 description:
-  en: A task for a defect in the product, with its severity and the steps that show it.
-  ru: Задача об ошибке в продукте с её серьёзностью и шагами, которые её показывают.
+  en: 'A bug describes a defect in the product: what goes wrong, how serious it is and the steps that show it. It is a task whose subject is the defect, so fixing it goes through the same work as any other change.'
+  ru: 'Ошибка описывает дефект продукта: что идёт не так, насколько это серьёзно и какими шагами это видно. Это задача, предмет которой — дефект, поэтому исправление проходит ту же работу, что и любое другое изменение.'
