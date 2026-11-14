@@ -178,3 +178,124 @@ test('a hung taskkill exhausts the shared budget but does not prevent store clea
     expect(swept).toBe(true);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 15_000);
+
+test('a store listing that fails before the kill does not cancel the stop, and the look after it decides', () => {
+  // A store being prepared beside the home can hold its folder as it makes it, and Windows refuses the listing then
+  // (madarch-64o5.81). The look before the kill is an optimisation: the tree still ends, and the look after it, with
+  // the writers gone, sees the store and sweeps it.
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-listing-'));
+  const folder = join(home, '.madarch', 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  const pidFile = join(folder, 'postmaster.pid');
+  writeFileSync(pidFile, '42\n');
+  const pgCtl = join(home, 'pg_ctl.exe');
+  writeFileSync(pgCtl, '');
+  const live = new Set([10, 42]);
+  const killed: number[] = [];
+  let looks = 0;
+  let swept = '';
+  try {
+    expect(stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { killed.push(pid); live.delete(pid); },
+      storeFolders: () => { looks += 1; return looks === 1 ? new Error('EBUSY: resource busy or locked') : [folder]; },
+      pgCtl,
+      stopStore: (_program, data) => { swept = data; live.delete(42); rmSync(pidFile); return true; },
+    })).toBe(true);
+    expect(killed).toEqual([10]);
+    expect(swept).toBe(folder);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('a knowledge root that cannot be listed at all fails the stop after the tree is gone', () => {
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-nolisting-'));
+  const live = new Set([10]);
+  const killed: number[] = [];
+  try {
+    expect(stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { killed.push(pid); live.delete(pid); },
+      storeFolders: () => new Error('EPERM: operation not permitted'),
+    })).toBe(false);
+    // The tree ended even though nothing could say what stores the home holds: a stop never leaves a server running.
+    expect(killed).toEqual([10]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+function captureErrors(run: () => boolean): { answer: boolean; messages: string[] } {
+  const messages: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { messages.push(args.map((value) => String(value)).join(' ')); };
+  try { return { answer: run(), messages }; } finally { console.error = original; }
+}
+
+test('a final store listing that fails after the tree is gone fails the stop, naming the folder and the error', () => {
+  // A store that opens between the first look and the end of the tree is named only by the look taken after it. A
+  // look that is refused there cannot say what the home holds, so the stop must not report success over it — the
+  // bug the review found (madarch-64o5.81): the refused look fell back to the folders of the first one and a store
+  // that had opened meanwhile stayed running while the stop answered true.
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-final-listing-'));
+  const root = join(home, '.madarch', 'knowledge');
+  const folder = join(root, 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  const pgCtl = join(home, 'pg_ctl.exe');
+  writeFileSync(pgCtl, '');
+  const live = new Set([10]);
+  const killed: number[] = [];
+  let looks = 0;
+  let lastLookSawTreeGone = false;
+  try {
+    const run = captureErrors(() => stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { killed.push(pid); live.delete(pid); },
+      // Windows refuses a listing while a preparing store holds the folder (a sharing violation), which is what the
+      // look after the tree is gone meets. The store it would have named is never swept, so its server stays.
+      storeFolders: () => {
+        looks += 1;
+        if (looks === 1) return [];
+        lastLookSawTreeGone = !live.has(10);
+        return new Error('EBUSY: resource busy or locked');
+      },
+      pgCtl,
+      stopStore: () => { throw new Error('no store was known to sweep'); },
+    }));
+    expect(run.answer).toBe(false);
+    expect(killed).toEqual([10]);
+    expect(looks).toBe(2);
+    expect(lastLookSawTreeGone).toBe(true);
+    const failure = run.messages.find((message) => message.includes(root) && message.includes('EBUSY'));
+    expect(failure).toBeDefined();
+    expect(failure).toContain('after the process tree ended');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('a final store listing that fails still sweeps the stores the first look named', () => {
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-final-known-'));
+  const root = join(home, '.madarch', 'knowledge');
+  const folder = join(root, 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  const pidFile = join(folder, 'postmaster.pid');
+  writeFileSync(pidFile, '42\n');
+  const pgCtl = join(home, 'pg_ctl.exe');
+  writeFileSync(pgCtl, '');
+  const live = new Set([10, 42]);
+  let looks = 0;
+  const swept: string[] = [];
+  try {
+    const run = captureErrors(() => stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { live.delete(pid); },
+      storeFolders: () => { looks += 1; return looks === 1 ? [folder] : new Error('EPERM: operation not permitted'); },
+      pgCtl,
+      stopStore: (_program, data) => { swept.push(data); live.delete(42); rmSync(pidFile); return true; },
+    }));
+    // The stop fails on the look that could not be taken, but the server it already knew about is still ended.
+    expect(run.answer).toBe(false);
+    expect(swept).toEqual([folder]);
+    expect([...live]).toEqual([]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
