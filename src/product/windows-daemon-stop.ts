@@ -54,6 +54,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   processes?: () => WindowsProcess[] | undefined;
   alive?: (pid: number) => boolean;
   kill?: (pid: number) => void;
+  taskkill?: (pid: number, timeoutMs: number) => { status: number | null; error?: Error; stdout: string; stderr: string };
   pgCtl?: string;
   stopStore?: (program: string, folder: string) => boolean;
   /** A stale daemon record may still need its stores swept, but its PID must not be signaled. */
@@ -81,7 +82,11 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
       if (reads.kill) reads.kill(pid);
       else {
         // No /T: the captured targets exclude running store servers, which need pg_ctl's fast shutdown.
-        const result = spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8' });
+        const timeout = deadline - Date.now();
+        if (timeout <= 0) throw new Error('the termination budget is exhausted');
+        const result = reads.taskkill
+          ? reads.taskkill(pid, timeout)
+          : spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8', timeout });
         if (result.error || result.status !== 0) throw new Error(`taskkill exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
       }
     } catch (error) {

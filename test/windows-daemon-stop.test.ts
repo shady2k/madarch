@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -142,3 +143,38 @@ test('Windows shutdown sweeps stores and remaining children even when one applic
     expect([...live]).toEqual([11]);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 10_000);
+
+test('a hung taskkill exhausts the shared budget but does not prevent store cleanup', () => {
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-timeout-'));
+  const folder = join(home, '.madarch', 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  const pidFile = join(folder, 'postmaster.pid');
+  writeFileSync(pidFile, '42\n');
+  const pgCtl = join(home, 'pg_ctl.exe');
+  writeFileSync(pgCtl, '');
+  let swept = false;
+  let timedOut = false;
+  const budgets: number[] = [];
+  try {
+    expect(stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [
+        { pid: 10, parent: 1, name: 'madarch.exe' },
+        { pid: 11, parent: 10, name: 'initdb.exe' },
+      ],
+      alive: (pid) => pid === 10 || pid === 11,
+      taskkill: (_pid, timeout) => {
+        budgets.push(timeout);
+        const result = spawnSync(process.execPath, ['-e', 'while (true) {}'], { encoding: 'utf8', timeout });
+        timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+        return result;
+      },
+      pgCtl,
+      stopStore: () => { swept = true; rmSync(pidFile); return true; },
+    })).toBe(false);
+    expect(timedOut).toBe(true);
+    expect(budgets).toHaveLength(1);
+    expect(budgets[0]).toBeGreaterThan(0);
+    expect(budgets[0]).toBeLessThanOrEqual(5_000);
+    expect(swept).toBe(true);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+}, 15_000);
