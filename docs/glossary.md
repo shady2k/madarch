@@ -299,10 +299,6 @@ every ask and shown at `/doc?path=<its path within the product>`; or a graph
 page, a view of one page-worthy graph node read from the fill's fact store,
 never a file in git, shown at `/e/<id>` (decision 0026, "Pages").
 
-**Diagram tab**:
-One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify
-(drawn by the renderer kept in `vendor/archify/`, at LikeC4's positions).
-
 **Open question**:
 What the fill does not know and a person or an agent must settle: a `question`
 fact of the graph, raised by a checked write or by a stage, of one of the
