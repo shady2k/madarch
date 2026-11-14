@@ -22,6 +22,7 @@ import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import type { DaemonFills } from './daemon-fills.js';
 import { knowledgeRootOf } from './store.js';
+import { runningServersUnder, stopDatabasesUnder, stopDatabasesUnderSync } from '../adapters/postgres-cluster.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { selfCommand } from './self-command.js';
 import { runningVersion } from './version.js';
@@ -534,7 +535,10 @@ export function stopDaemon(options: { home?: string }): number {
       // Retry the stores without ever signaling a stale or recycled process id.
       if (process.platform === 'win32' && state !== undefined && !stopWindowsDaemon(state, { storesOnly: true })) return stopFailure(state);
       if (existsSync(statePath(home))) clearState(home);
+      // A daemon that is gone may still have left the home's PostgreSQL servers running.
+      stopDatabasesUnderSync(knowledgeRootOf(home));
       console.log('not running');
+      console.log('databases: 0');
       return 0;
     }
     if (process.platform === 'win32') {
@@ -544,7 +548,9 @@ export function stopDaemon(options: { home?: string }): number {
         if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return stopFailure(state);
         // Gone between the liveness check and the kill: nothing to wait for.
       }
-      const deadline = Date.now() + 3000;
+      // A stop ends the server and every store it opened, and a fast PostgreSQL shutdown can wait on disk I/O:
+      // give it the same room the server's own stop gives its fill role and its stores, never a kill mid-shutdown.
+      const deadline = Date.now() + 30_000;
       while (Date.now() < deadline && daemonIsAlive(state)) pause(40);
       if (daemonIsAlive(state)) {
         try { process.kill(state.pid, 'SIGKILL'); } catch { /* gone between the check and the kill */ }
@@ -553,6 +559,9 @@ export function stopDaemon(options: { home?: string }): number {
       }
       if (daemonIsAlive(state)) return stopFailure(state);
     }
+    // The daemon is gone, and so must be every PostgreSQL server it started for this home: a signal the launcher forwarded
+    // can end its children before their last close, and the stores' data folders are then no process's to keep.
+    stopDatabasesUnderSync(knowledgeRootOf(home));
     const current = readState(home);
     if (current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
     console.log(`stopped: http://127.0.0.1:${state.port} (pid ${state.pid})`);
@@ -574,6 +583,7 @@ export function daemonStatus(options: { home?: string }): number {
     // A record that cannot be read at all is not one to keep.
     if (existsSync(statePath(home))) clearState(home);
     console.log('not running');
+    console.log('databases: 0');
     return 0;
   }
   if (!daemonIsAlive(state)) {
@@ -587,6 +597,7 @@ export function daemonStatus(options: { home?: string }): number {
     // `stop` or the next `start` replaces a record that is really stale.
     if (!processExists(state.pid)) clearState(home);
     console.log('not running');
+    console.log('databases: 0');
     return 0;
   }
   const listed = listProducts({ home });
@@ -595,6 +606,9 @@ export function daemonStatus(options: { home?: string }): number {
   console.log(`pid: ${state.pid}`);
   console.log(`uptime: ${Math.max(0, Math.floor((Date.now() - state.startedAt) / 1000))}s`);
   console.log(`products: ${names.join(', ') || '(none)'}`);
+  const databases = runningServersUnder(knowledgeRootOf(home));
+  console.log(`databases: ${String(databases.length)}`);
+  for (const database of databases) console.log(`database: ${database.dataDir} (pid ${String(database.pid)})`);
   return 0;
 }
 
@@ -649,6 +663,9 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   const { validateProductManifests } = await import('../graph/manifest-publication.js');
   const { createManifestWatch } = await import('./manifest-watch.js');
   const home = homePath(options.home);
+  // A start of this home stops a PostgreSQL server a crash left before it serves: its data folder is no process's to
+  // keep when no madarch process uses it.
+  await stopDatabasesUnder(knowledgeRootOf(home));
   // The service opens a unit's MCP server for a stage that runs an agent (0026), and the address it hands the
   // started server is this process's own: read when a unit's tools are opened, because the server knows its
   // address only once it listens.
@@ -764,6 +781,9 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       void watching;
     }
     await server.stop();
+    // A server that ended leaves no store's PostgreSQL server running: the last owner's close stops the ones it opened,
+    // and this stops any a child or a failed close left with no madarch process using it.
+    await stopDatabasesUnder(knowledgeRootOf(home), { force: true });
     return 0;
   } catch (error) {
     await fills.stop().catch(() => undefined);

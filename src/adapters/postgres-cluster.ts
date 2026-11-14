@@ -43,7 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -607,6 +607,48 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
     dataDir, socketDir, port: clusterEndpoint(socketDir).port, user: CLUSTER_USER, bin,
     stop: async () => await stopCluster({ dataDir, socketDir, bin, users }),
   };
+}
+
+/** The store folders of one knowledge root: `<root>/<id>/graph`, each holding a cluster's `pgdata`. */
+export function databaseFoldersUnder(knowledgeRoot: string): string[] {
+  let ids: string[] = [];
+  try { ids = readdirSync(knowledgeRoot); } catch { return []; }
+  return ids.map((id) => join(knowledgeRoot, id, 'graph')).filter((folder) => existsSync(join(folder, 'pgdata')) && readdirSync(folder).includes('pgdata'));
+}
+
+/** The PostgreSQL servers a knowledge root still records: each data folder whose `postmaster.pid` names a live process. */
+export function runningServersUnder(knowledgeRoot: string): { readonly dataDir: string; readonly pid: number }[] {
+  const found: { dataDir: string; pid: number }[] = [];
+  for (const folder of databaseFoldersUnder(knowledgeRoot)) {
+    const pid = holderOf(join(folder, 'pgdata'));
+    if (pid !== null && alive(pid)) found.push({ dataDir: join(folder, 'pgdata'), pid });
+  }
+  return found;
+}
+
+/** Stops every recorded server of a knowledge root without awaiting: `madarch stop`, whose call is a command's answer. */
+export function stopDatabasesUnderSync(knowledgeRoot: string): void {
+  const bin = join(postgresInstallFolder(process.env), 'bin');
+  if (!existsSync(join(bin, postgresProgram('pg_ctl')))) return;
+  for (const folder of databaseFoldersUnder(knowledgeRoot)) {
+    const dataDir = join(folder, 'pgdata');
+    const pid = holderOf(dataDir);
+    if (pid === null || !alive(pid)) continue;
+    spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { stdio: 'ignore', timeout: 60_000, env: { ...process.env, LC_ALL: 'C' } });
+    if (alive(pid)) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
+    for (let waited = 0; waited < 10_000 && alive(pid); waited += 20) Bun.sleepSync(20);
+    if (alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    rmSync(join(dataDir, 'postmaster.pid'), { force: true });
+  }
+}
+
+/**
+ * Stops every PostgreSQL server a knowledge root records, for a madarch process that is ending or a home that is
+ * starting: a server another process still uses is left alone by the users lock. A start calls this before it serves, so
+ * a server a crash left is stopped before a new one is started for its store.
+ */
+export async function stopDatabasesUnder(knowledgeRoot: string, options: { readonly force?: boolean } = {}): Promise<void> {
+  for (const folder of databaseFoldersUnder(knowledgeRoot)) await stopStoreForExit(folder, { force: options.force === true });
 }
 
 /**
