@@ -1,7 +1,7 @@
 id: oscal.catalog
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A structured collection of controls and their statements, as the NIST OSCAL control layer defines it.
+definition: A control catalog is an organised collection of controls and their statements, as the NIST OSCAL control layer defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Каталог контролей
     many: Каталоги контролей
 description:
-  en: A structured collection of controls and their statements, as the NIST OSCAL control layer defines it.
-  ru: Структурированное собрание контролей и их утверждений, как определяет слой контролей NIST OSCAL.
+  en: A control catalog groups controls under families and gives each its statements, parameters and assessment methods. It is the source from which a profile selects the controls that apply to a system.
+  ru: Каталог контролей объединяет контроли по семействам и даёт каждому его утверждения, параметры и методы оценки. Из него профиль выбирает контроли, которые относятся к системе.
