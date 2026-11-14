@@ -30,6 +30,29 @@ interface ExpandedOutput {
   fields: readonly string[];
   declaration: PluginManifest['produces'][number];
 }
+/**
+ * The kinds a kind's producers read, over the outputs that actually run: an output fully covered by another producer's
+ * claims is suppressed, and the reads of a suppressed producer are not inputs of the turn. This is the one gap-coverage
+ * rule the fill plans by, and the one a selective fill lists its added kinds by.
+ */
+export function effectiveReadsOf(input: FillDeclarationInput, kind: string): FillRead[] {
+  const fieldsOf = (name: string): readonly string[] => input.kinds.find((entry) => entry.name === name)?.fields ?? [];
+  const expanded: { declaration: FillPluginDeclaration['manifest']['produces'][number]; fields: readonly string[] }[] = [];
+  for (const plugin of input.plugins) {
+    for (const declaration of plugin.manifest.produces) {
+      if (declaration.kind !== '*' && declaration.kind !== kind) continue;
+      expanded.push({ declaration, fields: declaration.fields === '*' ? fieldsOf(kind) : declaration.fields });
+    }
+  }
+  const claims = expanded.filter((entry) => entry.declaration.coverage !== 'gaps');
+  const effective = expanded.filter((entry) => {
+    if (entry.declaration.coverage !== 'gaps') return true;
+    const remaining = entry.fields.filter((field) => !claims.some((claim) => claim.fields.includes(field)));
+    return remaining.length > 0 || (entry.fields.length === 0 && claims.length === 0);
+  });
+  return effective.flatMap((entry) => entry.declaration.reads ?? []);
+}
+
 export function planFillDeclarations(input: FillDeclarationInput) {
   const kinds = new Map(input.kinds.map((kind) => [kind.name, kind]));
   const plugins = new Map(input.plugins.map((plugin) => [plugin.manifest.name, plugin]));
@@ -184,12 +207,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     if (selected.has(name) || collecting.has(name)) return;
     collecting.add(name);
     for (const prerequisite of kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
-    for (const entry of entries) {
-      // Only the outputs a fill actually runs: an output fully covered by another producer's claims is suppressed, and
-      // the kinds a suppressed producer reads are not inputs of this turn.
-      if (entry.kind !== name) continue;
-      for (const read of entry.declaration.reads ?? []) collect(typeof read === 'string' ? read : read.kind);
-    }
+    for (const read of effectiveReadsOf(input, name)) collect(typeof read === 'string' ? read : read.kind);
     collecting.delete(name);
     selected.add(name);
   };

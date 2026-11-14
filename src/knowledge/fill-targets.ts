@@ -8,7 +8,7 @@
  * because the reader asked for one value, not for the kind.
  */
 import { byCodePoint } from '../model/order.js';
-import { prerequisiteClosure } from './fill-selection.js';
+import { effectiveReadsOf, type FillDeclarationInput } from '../plugin/fill-declarations.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 
 /** Why a kind is in the set: the person asked for it, it is a dependency of one asked for, or it depends on one asked for. */
@@ -47,9 +47,20 @@ function declared(manifest: KindsManifest): string[] {
   return [...manifest.kinds.keys()].sort(byCodePoint);
 }
 
-/** The kinds a kind depends on, as the manifest declares them, in code point order. */
-function dependenciesOf(manifest: KindsManifest, kind: string): string[] {
-  return [...(manifest.kinds.get(kind)?.derivesFrom ?? [])].sort(byCodePoint);
+/**
+ * The kinds one kind's turn needs: the kinds its concept rests on (`derives-from`) and the kinds its producers read. A
+ * plugin's reads is the source tie, so a selective fill names both and runs their producers first.
+ */
+function dependenciesOf(manifest: KindsManifest, reads: (kind: string) => readonly string[], kind: string): string[] {
+  return [...new Set([...(manifest.kinds.get(kind)?.derivesFrom ?? []), ...reads(kind)])].sort(byCodePoint);
+}
+
+/** The declarations a manifest hands the planner, so this listing reads the same gap coverage and reads it plans by. */
+function declarationsOf(manifest: KindsManifest): FillDeclarationInput {
+  return {
+    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, ...(plugin.declarationText === undefined ? {} : { text: plugin.declarationText }) }]),
+  };
 }
 
 /** A kind's line in the manifest, for a refusal that names it. */
@@ -72,22 +83,49 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
       message: `${manifest.file}:1: the fill asks for ${unknown.map((kind) => JSON.stringify(kind)).join(', ')}, and the product's manifest declares no such kind: it declares ${kinds.length === 0 ? 'none' : kinds.join(', ')}`,
     };
   }
+  const declarations = declarationsOf(manifest);
+  // A producer's earlier read of its own kind is its snapshot, not a prerequisite kind: it orders nothing new.
+  const reads = (kind: string): readonly string[] => effectiveReadsOf(declarations, kind)
+    .map((read) => typeof read === 'string' ? read : read.kind)
+    .filter((read) => read !== kind);
   const reasons = new Map<string, FillTargetEntry>();
   for (const kind of [...new Set(requested)].sort(byCodePoint)) reasons.set(kind, { kind, reason: 'requested', namedBy: kind });
-  // Walk prerequisites only; downstream consumers are not selected.
+  /** The derives-from closure of the kinds given, level by level, so every direct dependency is named before its own. */
+  const expand = (starts: readonly string[]): string[] => {
+    const added: string[] = [];
+    let level = [...starts];
+    while (level.length > 0) {
+      const next: string[] = [];
+      for (const parent of level) {
+        for (const dependency of [...(manifest.kinds.get(parent)?.derivesFrom ?? [])].sort(byCodePoint)) {
+          if (reasons.has(dependency)) continue;
+          reasons.set(dependency, { kind: dependency, reason: 'dependency', namedBy: parent });
+          added.push(dependency);
+          next.push(dependency);
+        }
+      }
+      level = next;
+    }
+    return added;
+  };
+  // The kinds the request rests on, as the manifest declares them: the whole derives-from closure comes first, so a
+  // kind it already names keeps the dependency a person knows. Then the kinds the selected producers read are added,
+  // with their own derives-from closure: a plugin's reads is the source tie, so the files a term producer reads join.
   const queue = [...reasons.keys()].sort(byCodePoint);
+  for (const added of [expand(queue)]) queue.push(...added);
   for (let at = 0; at < queue.length; at += 1) {
     const kind = queue[at]!;
-    for (const dependency of dependenciesOf(manifest, kind)) {
-      if (reasons.has(dependency)) continue;
+    const read = reads(kind).filter((dependency) => !reasons.has(dependency));
+    for (const dependency of read) {
       reasons.set(dependency, { kind: dependency, reason: 'dependency', namedBy: kind });
       queue.push(dependency);
     }
+    for (const added of [expand(read)]) queue.push(...added);
   }
-  const order = dependencyOrdered(manifest, [...reasons.keys()]);
+  const order = dependencyOrdered(manifest, [...reasons.keys()], (kind) => dependenciesOf(manifest, reads, kind));
   if ('refuse' in order) return { ok: false, file: manifest.file, line: order.refuse.line, message: order.refuse.message };
   const entries = [...reasons.values()].sort((left, right) => byCodePoint(left.kind, right.kind));
-  return { ok: true, targets: { order: prerequisiteClosure([...manifest.kinds.values()].map((kind) => ({ kind: kind.name, derivesFrom: kind.derivesFrom })), requested), entries } };
+  return { ok: true, targets: { order: order.order, entries } };
 }
 
 /**
@@ -95,7 +133,7 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
  * A cycle among the set's kinds is refused with the kinds it walks — the manifest check refuses a cycle of the whole
  * graph, so this refusal is the one a hand-edited manifest meets before the check has run.
  */
-function dependencyOrdered(manifest: KindsManifest, set: readonly string[]): { readonly order: string[] } | { readonly refuse: { readonly line: number; readonly message: string } } {
+function dependencyOrdered(manifest: KindsManifest, set: readonly string[], dependencies: (kind: string) => readonly string[]): { readonly order: string[] } | { readonly refuse: { readonly line: number; readonly message: string } } {
   const held = new Set(set);
   const order: string[] = [];
   const done = new Set<string>();
@@ -108,7 +146,7 @@ function dependencyOrdered(manifest: KindsManifest, set: readonly string[]): { r
       return { line: lineOf(manifest, kind), message: `${manifest.file}:${String(lineOf(manifest, kind))}: the fill reaches the dependency cycle ${cycle}: the kinds' declared dependencies must form no cycle, so no fill starts while one stands` };
     }
     active.push(kind);
-    for (const dependency of dependenciesOf(manifest, kind)) {
+    for (const dependency of dependencies(kind)) {
       if (!held.has(dependency)) continue;
       const refused = walk(dependency);
       if (refused !== undefined) return refused;
