@@ -6,7 +6,6 @@ sources:
 - https://www.postgresql.org/docs/
 acquisition:
 - extractor data-model
-status: implemented
 relation-constraints:
   out:
   - contains

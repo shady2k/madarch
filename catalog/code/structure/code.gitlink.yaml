@@ -8,7 +8,6 @@ sources:
 - https://git-scm.com/docs/gitmodules
 acquisition:
 - extractor files
-status: implemented
 relation-constraints:
   out: []
   in:

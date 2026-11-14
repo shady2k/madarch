@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createWikiPart } from '../src/server/wiki-app.js';
 import { createDraft } from '../src/product/draft.js';
 import { gitEnv } from './git-env.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -178,6 +179,8 @@ test('starting a new request does not expose the previous run id while opening t
   const work = mkdtempSync(join(tmpdir(), 'fill-run-start-'));
   const draft = createDraft({ home: join(work, 'home'), name: 'starting-shop', gitEnv: gitEnv(SAMPLE_IDENTITY) });
   if (draft.outcome !== 'created') throw new Error('fixture draft was not created');
+  // The press starts deterministically: the repository producers alone fill the kinds the product keeps.
+  useFixturePlugins(draft.folder, ['disk', 'git']);
   const product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot: join(work, 'store'), fillQueued: true });
   let release: () => void = () => {};
   const opening = new Promise<void>((resolve) => { release = resolve; });

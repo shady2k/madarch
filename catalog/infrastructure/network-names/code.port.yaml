@@ -6,7 +6,6 @@ sources:
 - https://www.rfc-editor.org/rfc/rfc6335.html
 acquisition:
 - extractor operations
-status: implemented
 relation-constraints:
   out:
   - appliesTo

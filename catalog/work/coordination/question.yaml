@@ -8,7 +8,6 @@ sources:
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 acquisition:
 - conversation
-status: implemented
 relation-constraints:
   out:
   - constrains

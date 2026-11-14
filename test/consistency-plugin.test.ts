@@ -1,5 +1,5 @@
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
-import { useRepositoryPlugins } from './enabled-plugins-fixture.js';
+import { useFixturePlugins, useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
@@ -113,13 +113,16 @@ problems:
   writeFolderManifest(folder, manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   useRepositoryPlugins(folder);
+  // The fixture keeps the kinds its plugins fill and the record it writes itself, and no starter kind nothing fills.
+  useFixturePlugins(folder, ['disk', 'git', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
   const declared = parseDocument(readFolderManifestText(folder));
   const starter = parseDocument(starterManifestText()).toJS();
   for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
   for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
     source: 'graph', key: ['repository', 'path'],
-    fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['test', 'other'] }, { name: 'path', type: 'text', producers: ['test', 'other'] }],
+    // The fixture writes this record itself: its fields are a person's authored write, not a plugin's.
+    fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['person'] }, { name: 'path', type: 'text', producers: ['person'] }],
   });
   const descriptions: Record<string, { en: string; ru: string }> = {
     'probe.finding': { en: 'A consistency finding emitted by the fixture plugin.', ru: 'Находка проверки согласованности тестового плагина.' },
@@ -132,7 +135,7 @@ problems:
       ...declared.toJS().kinds[name],
       id: name, definition: description.en, description, purpose: 'quality', audience: ['developer', 'architect'],
       sources: ['https://www.w3.org/TR/prov-dm/'],
-      acquisition: ['agent-from-graph'], status: 'implemented',
+      acquisition: ['agent-from-graph'],
       'template-policy': 'page', group: starter.kinds['code.file'].group,
       'relation-constraints': { out: [], in: [] },
       ...(name === 'probe.referrer' ? { labels: {

@@ -60,7 +60,7 @@ test('pending and failed status retain the full unfilled shape without opening t
 
 test('pending publication does not bypass the declared plugin agent requirement', async () => {
   const { product, open, queued } = fixture();
-  expect(await product.startFill()).toMatchObject({ started: false, message: expect.stringContaining('requested an agent but none is selected') });
+  expect(await product.startFill()).toMatchObject({ started: false, message: expect.stringContaining('to an agent, and none is chosen') });
   expect(open).not.toHaveBeenCalled();
   expect(queued).not.toHaveBeenCalled();
 });

@@ -40,7 +40,7 @@ export interface RunFillOptions {
    * The kinds this fill was asked for (madarch-stm0.6, decision 0035 items 11 and 31), in the dependency order to run
    * them in, and with a vertex the one entity it rewrites. Left out, the fill takes every kind as a whole fill does.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
   /** The plugin closures this run trusts beside the release's: a test's fixture, or a person's approval. */
   readonly releaseHashes?: readonly string[];
   /** The supervised ACP adapter available to agent plugin turns, only for this run. */
@@ -132,6 +132,8 @@ export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
       'madarch.steps': steps,
       'madarch.workers': options.workers ?? 1,
       ...(options.language === undefined ? {} : { 'madarch.language': options.language }),
+      // The press's own bound, kept with the run so the spend beside it has the cap it was held to (madarch-64o5.63).
+      ...(options.tokenCap === undefined ? {} : { 'madarch.tokenCap': options.tokenCap }),
     }, async () => {
       log.info('fill started', { runId, product, steps, store });
       const answer = await runFillTraced(options, runId);

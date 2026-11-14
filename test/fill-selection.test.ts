@@ -120,11 +120,22 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(notJson.status).toBe(415);
   }, 120_000);
 
-  test('a selected kind requiring the enabled general agent refuses explicit no-agent before accepting work', async () => {
+  test('a selected kind the plan leaves to the agent refuses an explicit no-agent, naming the fields', async () => {
     const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: null, tokenCap: null }) });
     expect(pressed.status).toBe(409);
-    expect(JSON.stringify(pressed.body)).toMatch(/plugin\.json:\d+/);
-    expect(JSON.stringify(pressed.body)).toContain('requested an agent but none is selected');
+    expect(JSON.stringify(pressed.body)).toContain('to an agent, and none is chosen');
+    expect(JSON.stringify(pressed.body)).toContain('--agent <id>');
+  });
+
+  test('the fill plan answers which plugin fills which field, and which fields the agent fills', async () => {
+    const answer = await call('/api/fill-plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'] }) });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(200);
+    const plan = answer.body.plan;
+    expect(plan.needsAgent).toEqual([{ kind: 'doc.term', fields: ['definition'] }]);
+    const term = plan.kinds.find((kind: { kind: string }) => kind.kind === 'doc.term');
+    expect(term.fields).toContainEqual({ field: 'definition', producers: ['glossary', 'agent-fill'] });
+    expect(term.fields).toContainEqual({ field: 'name', producers: ['glossary'] });
+    expect(term.agentFields).toEqual(['definition']);
   });
 
   test('durable run selection survives reopening and status readers do not hide store faults', async () => {
@@ -177,7 +188,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     // Keep the checkout valid while the committed workflow exercises that later failure.
     writeFileSync(workflow, previous);
     try {
-      const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.file'] }) });
+      const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.directory'] }) });
       expect(pressed.status, JSON.stringify(pressed.body)).toBe(202);
       const runId = pressed.body.runId as string;
       let detail: any;
@@ -186,7 +197,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
         if (detail.state === 'failed') break;
         await new Promise((rest) => setTimeout(rest, 250));
       }
-      expect(detail).toMatchObject({ runId, state: 'failed', selected: ['code.file'] });
+      expect(detail).toMatchObject({ runId, state: 'failed', selected: ['code.directory'] });
       const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, join(home, '.madarch', 'knowledge'))), btreeGist: true });
       try { expect((await readFillEnd(owner, runId))?.state).toBe('failed'); } finally { await owner.close(); }
       const status = (await call('/api/status')).body;

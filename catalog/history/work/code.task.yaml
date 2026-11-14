@@ -6,7 +6,6 @@ sources:
 - https://scrumguides.org/scrum-guide.html
 acquisition:
 - extractor history
-status: implemented
 relation-constraints:
   out:
   - refines

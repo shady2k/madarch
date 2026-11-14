@@ -67,7 +67,7 @@ describe('the kinds manifest', () => {
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [5, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [6, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, derives-from, agent, classes, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      [6, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, derives-from, agent, classes, id, definition, sources, acquisition, relation-constraints, template-policy'],
       [7, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/catalog.yaml')).toBe(true);

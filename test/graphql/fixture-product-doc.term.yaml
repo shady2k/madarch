@@ -4,7 +4,6 @@ purpose: structure
 definition: A word of the product's own language, defined once in a glossary.
 sources: [https://example.test/standard]
 acquisition: [conversation]
-status: implemented
 relation-constraints: { out: [], in: [] }
 template-policy: page
 

@@ -8,7 +8,6 @@ sources:
 acquisition:
 - live-system
 - not-implemented
-status: not-implemented
 relation-constraints:
   out:
   - refines

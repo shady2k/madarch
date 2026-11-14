@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeProduct, commitProduct } from './knowledge-fixture.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { runGit } from '../src/product/git.js';
 import { ensureDaemon, stopDaemon } from '../src/product/daemon.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -32,6 +33,8 @@ for (const running of [false, true]) test(`reset starts a filled fixture over ${
       const answer = runGit(repository, args); if (!answer.ok) throw new Error(answer.output);
     }
     const folder = makeProduct(home, 'sample', repository, 'source');
+    // The deterministic fill this case starts from: the repository producers only, so no field waits for an agent.
+    useFixturePlugins(folder, ['disk', 'git']);
     commitProduct(folder, 'Link fixture source');
     const filled = await command(home, 'fill-stages', '--product', folder, '--steps', 'plugin-turns', '--json');
     expect(filled.code, JSON.stringify(filled)).toBe(0);

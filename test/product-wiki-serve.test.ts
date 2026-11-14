@@ -92,7 +92,8 @@ describe('serveWiki with a product or a manifestless directory', () => {
       ],
     });
     writeFileSync(kindsFile, manifest.toString());
-    useFixturePlugins(product, ['disk']);
+    // The fixture supplies the document's answer itself, so the kind stays and its fields are a person's write.
+    useFixturePlugins(product, ['disk'], ['document']);
     writeFileSync(join(product, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented

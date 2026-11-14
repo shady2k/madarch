@@ -6,7 +6,6 @@ sources:
 - https://arc42.org/overview
 acquisition:
 - extractor code
-status: implemented
 relation-constraints:
   out:
   - refines

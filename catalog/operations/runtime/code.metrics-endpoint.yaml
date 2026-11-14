@@ -6,7 +6,6 @@ sources:
 - https://opentelemetry.io/docs/concepts/signals/metrics/
 acquisition:
 - extractor operations
-status: implemented
 relation-constraints:
   out:
   - providesApi

@@ -6,7 +6,6 @@ sources:
 - https://glossary.istqb.org/en_US/term/test-case
 acquisition:
 - extractor code
-status: implemented
 relation-constraints:
   out:
   - verifies

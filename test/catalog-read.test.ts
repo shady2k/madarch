@@ -6,7 +6,7 @@ import { starterManifestText } from './catalog-folder-fixture.js';
  * attribute declared as a kind, and an area, a subgroup or an origin mark the manifest does not declare — every
  * refusal with the file, the line and the kind.
  *
- * Fixtures only: a small catalog written by the test, whose bound, marks, statuses, policies, attributes and
+ * Fixtures only: a small catalog written by the test, whose bound, marks, policies, attributes and
  * relations it can change one line at a time, and the starter set's own manifest read once. The starter set's
  * templates are written into a temporary product so a page kind's template is found.
  */
@@ -56,7 +56,6 @@ const SMALL = [
   '  attributes: [version]',
   '  origin-marks: [document, conversation, not-implemented]',
   '  extractor-mark: extractor',
-  '  statuses: [implemented, not-implemented]',
   '  template-policies: [page, member, none]',
   '  relations:',
   '    c4.uses: "https://c4model.com/abstractions"',
@@ -72,7 +71,6 @@ const SMALL = [
   '    definition: "A widget."',
   '    sources: ["https://example.test/widget"]',
   '    acquisition: ["document"]',
-  '    status: implemented',
   '    relation-constraints: { out: [c4.uses], in: [refines] }',
   '    template-policy: page',
   '    ',
@@ -90,7 +88,6 @@ const SMALL = [
   '    definition: "A gadget."',
   '    sources: ["https://example.test/gadget"]',
   '    acquisition: ["extractor code"]',
-  '    status: implemented',
   '    relation-constraints: { out: [], in: [] }',
   '    template-policy: none',
   '    labels:',
@@ -105,7 +102,6 @@ const SMALL = [
   '    definition: "A sprocket."',
   '    sources: ["https://example.test/sprocket"]',
   '    acquisition: ["conversation", "not-implemented"]',
-  '    status: not-implemented',
   '    relation-constraints: { out: [], in: [] }',
   '    template-policy: none',
   '    labels:',
@@ -128,7 +124,6 @@ function kind(name: string, fields: Readonly<Record<string, string | null>> = {}
     definition: `"A ${name}."`,
     sources: '["https://example.test/kind"]',
     acquisition: '["conversation"]',
-    status: 'not-implemented',
     'relation-constraints': '{ out: [], in: [] }',
     'template-policy': 'none',
     labels: `labels:\n      en: { one: ${name}, many: ${name}s }\n      ru: { one: ${name}, many: ${name}s }`,
@@ -198,13 +193,12 @@ describe('a catalog is read as its manifest declares it', () => {
     expect(read.catalog!.schema.attributes).toEqual(['version']);
     expect(read.catalog!.schema.originMarks).toEqual(['document', 'conversation', 'not-implemented']);
     expect(read.catalog!.schema.extractorMark).toBe('extractor');
-    expect(read.catalog!.schema.statuses).toEqual(['implemented', 'not-implemented']);
     expect(read.catalog!.schema.templatePolicies).toEqual(['page', 'member', 'none']);
     expect([...read.catalog!.schema.relations.keys()]).toEqual(['c4.uses', 'refines']);
     expect(read.catalog!.schema.relations.get('c4.uses')).toBe('https://c4model.com/abstractions');
     expect(read.catalog!.schema.relations.get('refines')).toBeUndefined();
     expect([...read.catalog!.kinds.keys()]).toEqual(['widget', 'gadget', 'sprocket']);
-    expect(read.catalog!.kinds.get('widget')).toMatchObject({ id: 'x.widget', area: 'area', subgroup: 'area.one', status: 'implemented', acquisition: ['document'], relationsOut: ['c4.uses'], relationsIn: ['refines'], templatePolicy: 'page' });
+    expect(read.catalog!.kinds.get('widget')).toMatchObject({ id: 'x.widget', area: 'area', subgroup: 'area.one', acquisition: ['document'], relationsOut: ['c4.uses'], relationsIn: ['refines'], templatePolicy: 'page' });
     // The wiki shows the page kinds and no page for a kind the engine cannot make yet.
     expect([...read.kinds.keys()]).toEqual(['widget']);
     expect([...read.groups.keys()]).toEqual(['area', 'area.one', 'area.two']);
@@ -265,13 +259,12 @@ describe('a catalog is read as its manifest declares it', () => {
 
 describe('a schema the catalog cannot read is refused', () => {
   const cases: { what: string; manifest: string; message: string }[] = [
-    { what: 'an unknown field of the schema', manifest: line(SMALL, '  subgroup-kind-bound:', '  subgroup-kind-bound: 2\n  sub-groups: 4'), message: '"sub-groups" is not a field of the catalog: the fields are subgroup-kind-bound, attributes, origin-marks, extractor-mark, statuses, template-policies, relations' },
+    { what: 'an unknown field of the schema', manifest: line(SMALL, '  subgroup-kind-bound:', '  subgroup-kind-bound: 2\n  sub-groups: 4'), message: '"sub-groups" is not a field of the catalog: the fields are subgroup-kind-bound, attributes, origin-marks, extractor-mark, template-policies, relations' },
     { what: 'a bound that is not a whole number above zero', manifest: line(SMALL, '  subgroup-kind-bound:', '  subgroup-kind-bound: 0'), message: '"subgroup-kind-bound" is the most kinds one subgroup holds, a whole number above zero, got 0' },
     { what: 'attributes that are not a list', manifest: line(SMALL, '  attributes:', '  attributes: version'), message: '"attributes" is a list of the values the catalog marks as attributes of a kind rather than kinds, such as "version" or "coverage"' },
     { what: 'origin marks that are not a list', manifest: line(SMALL, '  origin-marks:', '  origin-marks: []'), message: '"origin-marks" is a list of the ways a kind comes to be besides an extractor, such as "document" or "conversation"' },
     { what: 'an extractor mark that is empty', manifest: line(SMALL, '  extractor-mark:', '  extractor-mark: ""'), message: '"extractor-mark" is the mark an extractor\'s id follows ("extractor code"), got ""' },
     { what: 'an extractor mark the origin marks already declare', manifest: line(SMALL, '  extractor-mark:', '  extractor-mark: document'), message: '"extractor-mark" is "document", and "origin-marks" declares it as a mark of its own: an extractor\'s mark is followed by its id' },
-    { what: 'statuses that are not a list', manifest: line(SMALL, '  statuses:', '  statuses: yes'), message: '"statuses" is a list of the implementation statuses a kind declares, such as "implemented" and "not-implemented"' },
     { what: 'template policies that are not a list', manifest: line(SMALL, '  template-policies:', '  template-policies: {}'), message: '"template-policies" is a list of the template policies a kind declares, such as "page", "member" and "none"' },
     { what: 'relations that are not a mapping', manifest: block(SMALL, '  relations:', '  relations: 7'), message: '"relations" maps each relation name the catalog uses to the address of the standard that defines it, or to nothing for a plain verb' },
     { what: 'a relation whose source is not an address', manifest: line(SMALL, '    refines:', '    refines: somewhere'), message: 'relation "refines": the source is the address of the standard that defines it, such as "https://c4model.com/abstractions", or nothing for a plain verb, got "somewhere"' },
@@ -290,7 +283,6 @@ describe('every field of a catalog row is required, and a wrong one is refused n
     { field: 'sources', value: '[]', message: '"sources" is a list of the addresses of the standards or documents the kind was taken from, so a person can read them' },
     { field: 'sources', value: '["not a url"]', message: '"sources" holds "not a url", which is not an http or https address: the standard or document is linked so a person can read it' },
     { field: 'acquisition', value: null, message: '"acquisition" is a list of the ways the kind comes to be: "extractor <id>" or one of document, conversation, not-implemented' },
-    { field: 'status', value: 'shipped', message: '"status" is one of implemented, not-implemented, got "shipped"' },
     { field: 'relation-constraints', value: '[c4.uses]', message: '"relation-constraints" is { out: [<relation>, ...], in: [<relation>, ...] }: the relations the kind may carry, out and in' },
     { field: 'relation-constraints', value: '{ out: [c4.uses] }', message: '"relation-constraints" names "in", the relations the kind may carry in that direction, as a list (empty when it carries none)' },
     { field: 'relation-constraints', value: '{ out: [c4.flies], in: [] }', message: 'the relation "c4.flies" is not one of the catalog\'s relations' },
@@ -365,7 +357,7 @@ describe('one defect in the manifest is one problem', () => {
     // A kind belongs under `kinds:`, whose section ends where `edges:` begins; the rest of the manifest stays whole.
     const head = base;
     const tail = '';
-    return `${head}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    purpose: understand\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    status: not-implemented\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}${tail}`;
+    return `${head}\n  ${name}:\n    id: "${id}"\n    group: ${group}\n    purpose: understand\n    definition: "A kind the test plants."\n    sources: ["https://example.test/plant"]\n    acquisition: ["conversation"]\n    relation-constraints: { out: [], in: [] }\n    template-policy: none\n    labels:\n      en: { one: Plant, many: Plants }\n      ru: { one: Растение, many: Растения }\n    description:\n      en: A kind the test plants.\n      ru: Вид, который сажает тест.\n${extra.join('')}${tail}`;
   }
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
@@ -518,9 +510,7 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
   });
 
   test('a finding stands at the field it is about, and at the kind when the field is absent', () => {
-    const written = withKind(SMALL, 'test.kind', { status: 'shipped' });
-    expect(parseKinds(written, 'madarch/catalog.yaml', TEMPLATES).catalog!.findings.map((finding) => finding.line)).toEqual([written.split('\n').findIndex((text) => text === '    status: shipped') + 1]);
-    const absent = withKind(SMALL, 'test.kind', { status: null });
+    const absent = withKind(SMALL, 'test.kind', { definition: null });
     expect(parseKinds(absent, 'madarch/catalog.yaml', TEMPLATES).catalog!.findings.map((finding) => finding.line)).toEqual([absent.split('\n').findIndex((text) => text === '  test.kind:') + 1]);
   });
 
@@ -530,7 +520,6 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
       ['definition', '""'],
       ['sources', '[]'],
       ['acquisition', '[]'],
-      ['status', 'shipped'],
       ['template-policy', 'sometimes'],
       ['relation-constraints', '[]'],
       ['group', 'nowhere.at-all'],
@@ -548,7 +537,6 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
       ['attributes', 'version'],
       ['origin-marks', '[]'],
       ['extractor-mark', '""'],
-      ['statuses', 'yes'],
       ['template-policies', '{}'],
     ];
     for (const [field, value] of cases) {
@@ -579,7 +567,7 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
   });
 
   test('a row with a problem leaves its kind out of the catalog, and the rest of the catalog stands', () => {
-    const read = parseKinds(withKind(SMALL, 'test.kind', { status: 'shipped' }), 'madarch/catalog.yaml', TEMPLATES);
+    const read = parseKinds(withKind(SMALL, 'test.kind', { definition: null }), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.catalog!.kinds.has('test.kind')).toBe(false);
     expect(read.catalog!.kinds.has('widget')).toBe(true);
     expect(read.kinds.has('widget')).toBe(true);
@@ -588,7 +576,7 @@ describe('the reader\'s own rules: an address, a list, an identifier and an extr
   test('a schema that is not a mapping, and constraints that are a list, are refused at the catalog\'s line and the kind\'s', () => {
     const read = parseKinds(block(SMALL, 'catalog:', 'catalog: []'), 'madarch/catalog.yaml', TEMPLATES);
     expect(read.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [read.findings[0]!.line, '"catalog" declares the schema of the entity catalog: subgroup-kind-bound, attributes, origin-marks, extractor-mark, statuses, template-policies and relations'],
+      [read.findings[0]!.line, '"catalog" declares the schema of the entity catalog: subgroup-kind-bound, attributes, origin-marks, extractor-mark, template-policies and relations'],
     ]);
     expectRefused(withKind(SMALL, 'test.kind', { 'relation-constraints': '[]' }), 'kind "test.kind": "relation-constraints" is { out: [<relation>, ...], in: [<relation>, ...] }');
     expectRefused(withKind(SMALL, 'test.kind', { 'relation-constraints': '{ out: c4.uses, in: [] }' }), 'kind "test.kind": "out" is a list of the catalog\'s relations, empty when the kind carries none');

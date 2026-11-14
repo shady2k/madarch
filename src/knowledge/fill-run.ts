@@ -95,7 +95,7 @@ export interface KnowledgeFillOptions {
    * The kinds this fill was asked for (madarch-stm0.6, decision 0035 items 11 and 31): their plugin turns only, in this
    * dependency order, and with a vertex the one entity it rewrites. Left out, the fill takes every kind.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
   /** The ACP adapter chosen for this pressed fill; no adapter is started while reading pages. */
   readonly pluginAgent?: PluginAgentOptions | null;
   /** Maximum reported tokens shared by every plugin agent in this run. */

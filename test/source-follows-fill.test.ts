@@ -59,7 +59,8 @@ beforeAll(async () => {
   git(repository, 'add', '-A');
   git(repository, 'commit', '-qm', 'first');
   folder = makeProduct(home, 'source-follow', repository, 'code');
-  useFixturePlugins(folder, ['disk', 'git']);
+  // The fixture writes the source-text record itself, so its kind stays and its fields are a person's write.
+  useFixturePlugins(folder, ['disk', 'git'], ['source']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', 'the product and its one repository');

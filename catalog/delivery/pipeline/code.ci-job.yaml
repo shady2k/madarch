@@ -6,7 +6,6 @@ sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
 acquisition:
 - extractor operations
-status: implemented
 relation-constraints:
   out:
   - partOf

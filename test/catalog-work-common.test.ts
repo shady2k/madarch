@@ -79,7 +79,6 @@ describe('the Work and Common areas of the catalog', () => {
       expect(row.definition.length).toBeGreaterThan(0);
       expect(row.sources.length).toBeGreaterThan(0);
       expect(row.acquisition.length).toBeGreaterThan(0);
-      expect(row.status).toBe(name === 'task' || name === 'question' ? 'implemented' : 'not-implemented');
       expect(row.en).toBeDefined();
       expect(row.ru).toBeDefined();
       expect(row.policy).toBe(name === 'task' || name === 'question' ? 'page' : 'none');
