@@ -502,7 +502,8 @@ export function productEntityOf(folder: string, manifest: KindManifestLike, comm
   const read = readProduct(folder);
   const name = read.ok === true ? read.product.name : '';
   if (name === '') return undefined;
-  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, read.ok ? read.product.id : '']));
+  // The product's key is its name from the manifest, so its label is that name and never an id.
+  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, name]));
   const declared = new Set(kind.fields?.map((field) => field.name));
   const pageValues = (title: string, body: string, file: string, line: number): Record<string, unknown> => Object.fromEntries(Object.entries({
     title, body, file, body_line: line, relates: [], sources: [file], statements: [],

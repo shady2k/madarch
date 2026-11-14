@@ -119,3 +119,10 @@ test('a product whose templates are whole serves, and the bootstrap lists them',
   expect(bootstrap.templates.every((one) => one.body.length > 0)).toBe(true);
   expect(bootstrap.roles.length).toBeGreaterThan(0);
 }, 180_000);
+
+test('a fresh product names itself by its manifest name in the switcher and the home title', async () => {
+  const answer = await fetch(`${server!.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ home { id label } navigation { product } }' }) });
+  const body = (await answer.json()) as { data?: { home?: { id: string; label: string }; navigation?: { product: string } } };
+  expect(body.data?.navigation?.product).toBe('templates');
+  expect(body.data?.home?.label).toBe('templates');
+}, 60_000);
