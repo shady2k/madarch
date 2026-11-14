@@ -209,6 +209,22 @@ test('a table whose records fit one page offers no pager line', async () => {
   }
 });
 
+test('a table with a next page draws its pager even when the page holds fewer rows than the default size', async () => {
+  const rows = Array.from({ length: 20 }, (_, at) => ({ node: entity(String(at), `row ${String(at)}`) }));
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(first: 20, after: $records_after)' })],
+    { records: { instances: { totalCount: 30, pageInfo: { hasNextPage: true, endCursor: 'c20' }, edges: rows } } },
+  );
+  try {
+    expect(page.container.textContent).toContain('1–20 / 30');
+    const next = [...page.container.querySelectorAll('button')].find((one) => one.textContent === '→');
+    expect(next).not.toBeUndefined();
+    expect(next?.disabled).toBe(false);
+  } finally {
+    await page.close();
+  }
+});
+
 test('a table offers a sort only when its query declares the order variable', async () => {
   const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
   try {

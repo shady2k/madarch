@@ -15,6 +15,7 @@ relation-constraints:
   in:
   - partOf
 template-policy: page
+title: title
 source: graph
 fields:
 - name: title

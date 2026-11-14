@@ -56,12 +56,54 @@ test.each([false, true])('startup keeps stable identity and current home while p
     const data = body.data as { bootstrap: { home: { id: string } }; allProduct: { totalCount: number; edges: { node: { id: string; slug: string; title: string } }[] } };
     expect(data.allProduct.totalCount).toBe(personOpinion ? 2 : 1);
     const current = data.allProduct.edges.find((edge) => edge.node.slug === 'stable-product-id')!.node;
-    expect(current).toMatchObject({ slug: 'stable-product-id', title: 'New heading' });
+    // The manifest name is the label; the stable key is the manifest id, never the name.
+    expect(current).toMatchObject({ slug: 'stable-product-id', title: 'sample' });
     if (personOpinion) expect(data.allProduct.edges.find((edge) => edge.node.slug === 'old-heading')!.node.title).toBe('Person title');
     expect(data.bootstrap.home).toEqual({ id: current.id });
     const home = await executeGraphql(owner, { folder: folder, manifest }, { query: 'query ($id: ID!) { entity(id: $id) { label } }', variables: { id: data.bootstrap.home.id } });
-    expect(home.body).toEqual({ data: { entity: { label: 'New heading' } } });
+    expect(home.body).toEqual({ data: { entity: { label: 'sample' } } });
     const minimal = productEntityOf(folder, { home: { name: 'product', source: 'graph', key: ['slug'], fields: [{ name: 'title' }] } }, 'a'.repeat(40));
-    expect(minimal?.values).toEqual({ title: 'New heading' });
+    expect(minimal?.values).toEqual({ title: 'sample' });
+  } finally { await owner.close(); }
+}, 30_000);
+
+test('renaming the product keeps one node, updates its label, and keeps a person opinion on it', async () => {
+  const folder = join(root, 'renamed');
+  mkdirSync(folder);
+  mkdirSync(join(folder, 'madarch'));
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-product-id\nname: first-name\n');
+  writeFolderManifest(folder, `kinds:
+  product:
+    source: graph
+    title: title
+    key: [slug]
+    fields:
+      - { name: slug, type: text, producers: [start] }
+      - { name: title, type: text, producers: [start] }
+      - { name: body, type: text, producers: [person] }
+`);
+  execFileSync('git', ['init', '-q', folder]);
+  execFileSync('git', ['-C', folder, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-qm', 'fixture']);
+  const read = validateProductManifests(folder);
+  if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+  const manifest = read.value.manifest;
+  const options = { store: join(folder, 'store'), graphContract: writeContractOf(manifest) };
+  let owner = await createTestDatabaseOwner(options);
+  const evidence = [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, commit: 'a'.repeat(40) }];
+  try {
+    await publishValidatedManifests(owner, read.value);
+    await putEntityOpinion(owner, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'stable-product-id' }, values: { body: 'Person description' }, evidence });
+    writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-product-id\nname: second-name\n');
+    await owner.close();
+    owner = await createTestDatabaseOwner(options);
+    await publishValidatedManifests(owner, read.value);
+    const answer = await executeGraphql(owner, { folder: folder, manifest }, { query: '{ bootstrap { home { id } } allProduct { totalCount edges { node { id slug title body } } } }' });
+    expect((answer.body as MessageBody).errors).toBeUndefined();
+    const data = (answer.body as MessageBody).data as { bootstrap: { home: { id: string } }; allProduct: { totalCount: number; edges: { node: { id: string; slug: string; title: string; body: string } }[] } };
+    expect(data.allProduct.totalCount).toBe(1);
+    const current = data.allProduct.edges[0]!.node;
+    expect(current).toMatchObject({ slug: 'stable-product-id', title: 'second-name', body: 'Person description' });
+    const home = await executeGraphql(owner, { folder: folder, manifest }, { query: 'query ($id: ID!) { entity(id: $id) { label } }', variables: { id: data.bootstrap.home.id } });
+    expect(home.body).toEqual({ data: { entity: { label: 'second-name' } } });
   } finally { await owner.close(); }
 }, 30_000);

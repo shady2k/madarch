@@ -24,7 +24,6 @@
  * examples' products under `examples/contract/` are folders this reader
  * opens.
  */
-import { createHash } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 
@@ -502,15 +501,13 @@ export function productEntityOf(folder: string, manifest: KindManifestLike, comm
   const read = readProduct(folder);
   const name = read.ok === true ? read.product.name : '';
   if (name === '') return undefined;
-  // The product's key is its name from the manifest, so its label is that name and never an id.
-  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, name]));
+  // The key is the product's stable identity; its label comes from the manifest name through the kind's title field.
+  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, read.ok ? read.product.id : '']));
   const declared = new Set(kind.fields?.map((field) => field.name));
-  const pageValues = (title: string, body: string, file: string, line: number): Record<string, unknown> => Object.fromEntries(Object.entries({
-    title, body, file, body_line: line, relates: [], sources: [file], statements: [],
-    digest: createHash('sha256').update(body).digest('hex'), producer: 'start', links: [], findings: [],
-    ungrounded: body === '' ? [] : [{ text: body, line }],
-  }).filter(([field]) => declared.has(field)));
-  return { kind: kind.name, key, values: pageValues(name, '', MANIFEST_FILE, 1), evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
+  // The start states the name only. The description and the page fields belong to the graph: an agent or a person writes
+  // them, and an absent opinion reads as not written rather than as an empty one the start would impose.
+  const values = declared.has('title') ? { title: name } : {};
+  return { kind: kind.name, key, values, evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
 }
 
 export function readProduct(productFolder: string): ProductRead {

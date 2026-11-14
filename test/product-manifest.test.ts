@@ -326,15 +326,15 @@ describe('manifest text and repository declaration diagnostics', () => {
   });
 });
 
-test('the start states the product name alone, and its key is that name, never an id', () => {
+test('the start states the product name alone, under its stable identity', () => {
   const folder = tempFolder('madarch-product-entity-');
   mkdirSync(join(folder, 'repos', 'sample'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: 1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33\nname: Training Shop\nrepos:\n  - name: sample\n    url: https://example.invalid/sample.git\n');
   writeFileSync(join(folder, 'repos', 'sample', 'README.md'), '# Shop\n\nA shop takes orders.\n');
   const entity = productEntityOf(folder, { home: { name: 'product', key: ['slug'], source: 'graph', fields: [{ name: 'title' }, { name: 'body' }] } }, undefined);
-  // The kind's label is the last key value: it must be the name the manifest states, not the product id.
-  expect(entity?.key).toEqual({ slug: 'Training Shop' });
-  expect(entity?.values).toEqual({ title: 'Training Shop', body: '' });
+  // The identity stays the manifest id; the kind's title field states the name the label reads.
+  expect(entity?.key).toEqual({ slug: '1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33' });
+  expect(entity?.values).toEqual({ title: 'Training Shop' });
   expect(JSON.stringify(entity?.values)).not.toContain('A shop takes orders.');
   expect(entity?.evidence).toEqual([{ repository: folder, path: '.', lineStart: 1, lineEnd: 1 }]);
 });
