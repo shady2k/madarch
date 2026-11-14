@@ -40,8 +40,16 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
     if (kind['derives-from'] !== undefined) kind['derives-from'] = kind['derives-from'].filter((dependency) => declared.includes(dependency));
-    if (kind.fields !== undefined) for (const field of kind.fields) {
+    if (kind.fields !== undefined) for (const field of kind.fields as { binding?: unknown; producers?: string[]; reference?: string }[]) {
       if (field.reference !== undefined && !declared.includes(field.reference)) delete field.reference;
+      // The fixture keeps the disk plugin alone: a field another producer would fill is a person's own writing here,
+      // so the plan leaves it unfilled instead of failing the kind for a producer the product does not hold.
+      const bound = typeof field.binding === 'string' ? field.binding.split('@')[0]! : undefined;
+      const named = [...(bound === undefined ? [] : [bound]), ...(field.producers ?? [])];
+      if (!named.includes('person') && !named.includes('disk')) {
+        delete field.binding;
+        field.producers = ['person'];
+      }
     }
   }
   manifest.edges = (manifest.edges ?? []).filter((edge) => edge.from.every((kind) => declared.includes(kind)) && edge.to.every((kind) => declared.includes(kind)));

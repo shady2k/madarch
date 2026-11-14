@@ -18,7 +18,7 @@ import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { startPreparedServer } from './prepared-server.js';
+import { executeGraphql } from '../src/graph/graphql-execute.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
@@ -160,20 +160,20 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       expect(root?.attributes['madarch.tokenCap']).toBe(1000);
     } finally { await owner.close(); }
 
-    // The wiki reads the same opinions over /graphql, with the evidence that grounds them.
-    const server = await startPreparedServer({ productFolder: f.product, knowledgeRoot: knowledgeRootOf(f.home), port: 0, log: () => undefined, errorLog: () => undefined });
+    // The same opinions answer over /graphql, with the evidence that grounds them: the one executor the route runs, over
+    // the store, so the case needs no built app and no server (a test shard builds neither).
+    const reader = await createDatabaseOwner({ store: storeDatabasePath(store) });
     try {
-      const answer = await fetch(`${server.url}/graphql`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: '{ allDocDecision(orderBy: [{ field: legacyId }]) { edges { node { legacyId title body bodyOpinions { producer evidence { repository path lineStart lineEnd } } } } } }' }),
+      const answer = await executeGraphql(reader, { manifest: declarations.manifest, folder: f.product }, {
+        query: '{ allDocDecision(orderBy: [{ field: legacyId }]) { edges { node { legacyId title body bodyOpinions { producer evidence { repository path lineStart lineEnd } } } } } }',
       });
       expect(answer.status).toBe(200);
-      const data = ((await answer.json()) as { data: any }).data;
+      const data = (answer.body as { data: any }).data;
       expect(data.allDocDecision.edges.map((edge: any) => [edge.node.legacyId, edge.node.title])).toEqual([['ADR-0001', 'Use PostgreSQL'], ['ADR-0002', 'Split billing out']]);
       const opinions = data.allDocDecision.edges[0].node.bodyOpinions;
       expect(opinions.map((opinion: any) => opinion.producer)).toEqual(['agent-fill']);
       expect(opinions[0].evidence).toEqual([{ repository: 'app', path: 'docs/decisions/0001-choose-postgres.md', lineStart: 1, lineEnd: 3 }]);
-    } finally { await server.stop(); }
+    } finally { await reader.close(); }
   }, 300_000);
 
   test('a product whose agent plugin is removed names the kinds and fields it leaves without a producer, and fails them', async () => {

@@ -32,6 +32,31 @@ export function useFixturePlugins(folder: string, ids: readonly string[], keepKi
   }
   const kept = plugins.filter(plugin => ids.includes(plugin.id)) as { id: string; outputs?: string[]; inputs?: string[] }[];
   manifest.set('plugins', kept);
+  // A fixture declares only fields its kept producers fill: a field no producer fills is an abnormal state the plan
+  // reports, and a fixture without an agent must not carry a field for the agent.
+  const keepsAgent = kept.some((plugin) => {
+    try { return (JSON.parse(readFileSync(join(folder, 'plugins', plugin.id, 'plugin.json'), 'utf8')) as { agent?: unknown }).agent !== undefined; }
+    catch { return false; }
+  });
+  const keptIds = new Set(kept.map((plugin) => plugin.id));
+  // The document as it stands, so a binding this call already turned into provenance is read as it now is.
+  const current = (manifest.toJS() as { kinds?: Record<string, { fields?: { binding?: unknown; producers?: string[] }[] }> }).kinds ?? {};
+  for (const name of Object.keys(kinds)) {
+    const fields = current[name]?.fields ?? [];
+    for (let index = fields.length - 1; index >= 0; index -= 1) {
+      const field = fields[index]!;
+      const binding = field.binding;
+      const agentBound = binding !== null && typeof binding === 'object' && !Array.isArray(binding) && Object.hasOwn(binding as object, 'agent');
+      const named = [...(typeof binding === 'string' ? [binding.split('@')[0]!] : []), ...(field.producers ?? [])];
+      const authored = named.includes('person');
+      const filled = named.some((producer) => keptIds.has(producer));
+      // A field nothing kept fills stays as a person's own writing: the kind keeps its shape and the plan fills nothing of it.
+      if (!authored && !filled && !(agentBound && keepsAgent)) {
+        manifest.deleteIn(['kinds', name, 'fields', index, 'binding']);
+        manifest.setIn(['kinds', name, 'fields', index, 'producers'], ['person']);
+      }
+    }
+  }
   // A kind whose only producers are gone leaves the manifest with them: a product declares the kinds its plugins fill,
   // and a kind left with no producer is an abnormal state the fill reports as an error (madarch-64o5.60). A kind whose
   // fields people author stays: the manifest names a person as its producer.

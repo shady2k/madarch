@@ -3,6 +3,7 @@ import { parsePluginManifest } from '../src/plugin/closure.js';
 import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
 import { createPluginTurnStage, planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
+import { fillTargets } from '../src/knowledge/fill-targets.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
 function plugin(name: string, produces: unknown[] = [{ kind: 'File', fields: '*' }], agent = false) {
@@ -286,4 +287,86 @@ test('64o5.60: a kind configuring a missing agent plugin is an error naming its 
     kind: 'File', fields: ['description', 'title'], plugin: 'agent-fill',
     message: 'kind "File": the fields "description", "title" have no producer: the manifest declares no plugin "agent-fill"',
   }]);
+});
+
+/** A KindsManifest whose kind declarations carry real field declarations (bindings included). */
+function manifestWithFields(catalogue: readonly { name: string; fields: readonly Record<string, unknown>[]; derivesFrom?: readonly string[] }[], declarations: ReturnType<typeof plugin>[]): KindsManifest {
+  return {
+    file: '/product/kinds.yaml',
+    kinds: new Map(catalogue.map((entry) => [entry.name, { name: entry.name, fields: entry.fields, derivesFrom: entry.derivesFrom ?? [], file: '/product/kinds.yaml', line: 4 }])),
+    plugins: new Map(declarations.map((entry) => [entry.manifest.name, { id: entry.manifest.name, declaration: entry.manifest, declarationFile: entry.file, declarationText: entry.text }])),
+  } as unknown as KindsManifest;
+}
+
+test('review 1: a field no producer fills is an error, never a silent gap', async () => {
+  const manifest = manifestWithFields([
+    { name: 'File', fields: [{ name: 'title', type: 'text' }, { name: 'body', type: 'text', binding: { kind: 'agent', description: 'What the file says.' } }] },
+  ], [plugin('index', [output('File', ['title'])])]);
+  const plan = planManifestFill(manifest, '/product', ['File'], true);
+  expect(plan.fieldProducers('File').get('body')).toEqual([]);
+  expect(plan.errors).toEqual([{
+    kind: 'File', fields: ['body'],
+    message: 'kind "File": the field "body" has no producer: the agent plugin is missing from the manifest',
+  }]);
+  // The run fails that kind and the kind's own producer still runs.
+  const wiring = { manifest, productFolder: '/product', targets: { kinds: ['File'], requested: ['File'] }, locks: new Map([['index', { id: 'index', version: '1.0.0', closure: 'a'.repeat(64), path: 'plugins/index', line: 1 }]]) } as unknown as PluginTurnWiring;
+  const planned = await createPluginTurnStage(wiring).plan(undefined as never);
+  expect(planned.units.map((unit) => unit.id)).toEqual(['index:File', 'missing:File']);
+});
+
+test('review 2: target selection does not count an unasked kind\'s agent fallback reads', async () => {
+  const catalogue = [
+    { name: 'A', fields: [{ name: 'title', type: 'text' }] },
+    { name: 'B', fields: [{ name: 'title', type: 'text' }, { name: 'body', type: 'text', binding: { kind: 'agent', description: 'What B says.' } }] },
+    { name: 'code.file', fields: [{ name: 'content', type: 'text' }] },
+  ];
+  const manifest = manifestWithFields(catalogue, [
+    plugin('pa', [output('A', '*', { reads: ['B'] })]),
+    plugin('pb', [output('B', ['title'])]),
+    general(['code.file']),
+    plugin('pf', [output('code.file', '*', { reads: ['A'] })]),
+  ]);
+  // B joins only as A's input: its agent fallback is not planned, so its read of code.file orders nothing.
+  const read = fillTargets(manifest, ['A']);
+  expect(read.ok).toBe(true);
+  if (!read.ok) return;
+  expect(read.targets.order).toEqual(['B', 'A']);
+  const plan = planManifestFill(manifest, '/product', ['A'], true, ['A']);
+  expect(plan.errors).toEqual([]);
+  expect(plan.order).toEqual(['pb', 'pa']);
+});
+
+test('review 3: a kind whose input has no producer is an error, and the other kinds still run', async () => {
+  const catalogue = [
+    { name: 'Summary', fields: [{ name: 'title', type: 'text', binding: { kind: 'agent', description: 'A title.' } }] },
+    { name: 'code.file', fields: [{ name: 'content', type: 'text' }] },
+    { name: 'Other', fields: [{ name: 'title', type: 'text' }] },
+  ];
+  const manifest = manifestWithFields(catalogue, [general(['code.file']), plugin('other', [output('Other')])]);
+  const plan = planManifestFill(manifest, '/product', ['Summary', 'Other'], true, ['Summary', 'Other']);
+  // Both are named: the input the product lacks, and the kind that reads it. Neither throws, and Other still runs.
+  expect(plan.errors.map((error) => error.kind).sort()).toEqual(['Summary', 'code.file']);
+  expect(plan.errors.find((error) => error.kind === 'Summary')).toEqual({
+    kind: 'Summary', fields: [],
+    message: 'kind "Summary" cannot be filled: its input "code.file" has no producer in the manifest',
+  });
+  expect(plan.order).toEqual(['other']);
+  expect(plan.outputs.get('other')?.has('Other')).toBe(true);
+});
+
+test('review 4: a deterministic plugin\'s read of a kind resting on its output is a cycle, not dropped', () => {
+  const catalogue = [kind('A', ['title']), kind('B', ['title'], ['A'])];
+  const declarations = [plugin('p', [output('A', '*', { reads: ['B'] })]), plugin('q', [output('B')])];
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['A'] })).toThrow(/fill declarations form a cycle/);
+});
+
+test('the clean-install walk\'s fixture plans nothing: a fieldless kind with no plugins needs no agent', () => {
+  // The walk replaces the draft's manifest with one fieldless kind and no plugins before it presses Fill with
+  // `agent: null`: nothing is planned, so the press cannot wait for an agent that the machine has no sandbox for.
+  const manifest = manifestWithFields([{ name: 'code.file', fields: [] }], []);
+  const plan = planManifestFill(manifest, '/product', undefined, false);
+  expect(plan.order).toEqual([]);
+  expect(plan.errors).toEqual([]);
+  expect(plan.agentNeeds).toEqual([]);
+  expect(plan.selectedKinds).toEqual(['code.file']);
 });

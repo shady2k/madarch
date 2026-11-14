@@ -113,8 +113,6 @@ problems:
   writeFolderManifest(folder, manifest);
   writeFileSync(join(folder, 'madarch', 'plugins.lock'), `plugins:\n  - { id: plugin-consistency, version: 1.0.0, closure: ${closure}, path: plugins/plugin-consistency }\n`);
   useRepositoryPlugins(folder);
-  // The fixture keeps the kinds its plugins fill and the record it writes itself, and no starter kind nothing fills.
-  useFixturePlugins(folder, ['disk', 'git', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
   const declared = parseDocument(readFolderManifestText(folder));
   const starter = parseDocument(starterManifestText()).toJS();
   for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
@@ -145,6 +143,9 @@ problems:
     });
   }
   writeFolderManifest(folder, declared.toString());
+  // The fixture keeps the kinds its plugins fill and the records it writes itself, and no field nothing fills: the
+  // starter kinds it merged last would otherwise carry the agent's field, and the product keeps no agent plugin.
+  useFixturePlugins(folder, ['disk', 'git', 'plugin-consistency'], ['probe.opinion', 'probe.keyed', 'probe.referrer']);
   return closure;
 }
 

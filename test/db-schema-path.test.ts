@@ -251,7 +251,8 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       expect(kinds.hasIn(['kinds', output])).toBe(true);
       kinds.setIn(['kinds', output, 'terms'], ['src/**/*.ts']);
     }
-    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, binding: { agent: 'The structured source excerpt a page shows.' } });
+    // The fixture keeps no agent plugin: the field is a person's own writing, so no fill waits for one.
+    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, producers: ['person'] });
     writeFolderManifest(folder, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
     git(code, 'add', '-A');
