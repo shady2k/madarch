@@ -101,21 +101,43 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   }
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(JSON.stringify(left.key), JSON.stringify(right.key)));
   const starterValues: VertexDraft[] = [];
-  for (const [name, set] of manifest.values ?? []) {
+  // The kinds that hold value sets are the manifest's own declaration, never a name this engine knows: a product may
+  // rename them and keep publishing its sets.
+  const setKind = [...manifest.kinds.values()].find((kind) => kind.referenceSet !== undefined);
+  const entryKind = [...manifest.kinds.values()].find((kind) => kind.referenceSetEntry !== undefined);
+  if (setKind?.referenceSet !== undefined && entryKind?.referenceSetEntry !== undefined) {
+    const setRoles = setKind.referenceSet!;
+    const entryRoles = entryKind.referenceSetEntry!;
+    const roleValue = (roles: Readonly<Record<string, string>>, role: string, value: string | number | undefined): Record<string, string | number> => value === undefined || roles[role] === undefined ? {} : { [roles[role]!]: value };
     const evidenceAt = (line: number): { repository: string; path: string; lineStart: number; lineEnd: number; commit: string }[] => [{ repository: folder, path: KINDS_FILE, lineStart: line, lineEnd: line, commit: head.commit }];
-    starterValues.push({
-      kind: 'value-set',
-      key: { name },
-      values: { label_en: set.labels['en']!, label_ru: set.labels['ru']!, ...(set.description === undefined ? {} : { description: set.description }), ...(set.order === undefined ? {} : { order: set.order }) },
-      evidence: evidenceAt(set.line), producer: 'manifest', producerVersion: '1',
-    });
-    for (const entry of set.entries) {
+    for (const [name, set] of manifest.values ?? []) {
       starterValues.push({
-        kind: 'value-set-entry',
-        key: { set: { kind: 'value-set', key: { name } }, value: entry.value },
-        values: { label_en: entry.labels['en']!, label_ru: entry.labels['ru']!, ...(entry.description === undefined ? {} : { description: entry.description }), ...(entry.order === undefined ? {} : { order: entry.order }) },
-        evidence: evidenceAt(entry.line), producer: 'manifest', producerVersion: '1',
+        kind: setKind.name,
+        key: { [setRoles['name']!]: name },
+        values: {
+          ...roleValue(setRoles, 'label-en', set.labels['en']),
+          ...roleValue(setRoles, 'label-ru', set.labels['ru']),
+          ...roleValue(setRoles, 'description', set.description),
+          ...roleValue(setRoles, 'order', set.order),
+        },
+        evidence: evidenceAt(set.line), producer: 'manifest', producerVersion: '1',
       });
+      for (const entry of set.entries) {
+        starterValues.push({
+          kind: entryKind.name,
+          key: {
+            [entryRoles['set']!]: { kind: setKind.name, key: { [setRoles['name']!]: name } },
+            [entryRoles['value']!]: entry.value,
+          },
+          values: {
+            ...roleValue(entryRoles, 'label-en', entry.labels['en']),
+            ...roleValue(entryRoles, 'label-ru', entry.labels['ru']),
+            ...roleValue(entryRoles, 'description', entry.description),
+            ...roleValue(entryRoles, 'order', entry.order),
+          },
+          evidence: evidenceAt(entry.line), producer: 'manifest', producerVersion: '1',
+        });
+      }
     }
   }
   return { ok: true, value: { folder, manifest, vertices, starterValues, templatePaths } };
@@ -155,7 +177,8 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
     });
     let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
     const valueContract = authored ?? graphContractOf(validated.manifest);
-    if (validated.starterValues.length > 0 && valueContract.vertex.some((kind) => kind.name === 'value-set') && valueContract.vertex.some((kind) => kind.name === 'value-set-entry')) {
+    const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
+    if (valueKinds.size > 0 && [...valueKinds].every((kind) => valueContract.vertex.some((vertex) => vertex.name === kind))) {
       written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
     return written;

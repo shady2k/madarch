@@ -46,6 +46,12 @@ fields:
   nullable: true
   producers:
   - person
+reference-set:
+  name: name
+  label-en: label_en
+  label-ru: label_ru
+  description: description
+  order: order
 key:
 - name
 origin: person

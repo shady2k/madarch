@@ -46,6 +46,13 @@ fields:
   nullable: true
   producers:
   - person
+reference-set-entry:
+  set: set
+  value: value
+  label-en: label_en
+  label-ru: label_ru
+  description: description
+  order: order
 key:
 - set
 - value

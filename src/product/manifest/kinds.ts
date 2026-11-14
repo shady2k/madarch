@@ -368,6 +368,16 @@ export interface KindDecl {
   member?: MemberDecl;
   /** The typed fields of the kind's contract. */
   fields?: readonly FieldDecl[];
+  /**
+   * This kind holds the product's value sets, and the roles below name its fields: `name`, `label-en`, `label-ru`,
+   * and optionally `description` and `order`. The engine finds the kind by this declaration, never by its name.
+   */
+  readonly referenceSet?: Readonly<Record<string, string>>;
+  /**
+   * This kind holds the entries of the product's value sets, with roles `set`, `value`, `label-en`, `label-ru`, and
+   * optionally `description` and `order`. The engine finds the kind by this declaration, never by its name.
+   */
+  readonly referenceSetEntry?: Readonly<Record<string, string>>;
   /** The kind's natural key, unique in its table. */
   key?: readonly string[];
   /** The capability that fills the kind. */
@@ -623,7 +633,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
   'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
-  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
+  'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
@@ -1799,6 +1809,30 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
+    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
+      const raw = decl[field];
+      if (raw === undefined) return undefined;
+      if (!isRecord(raw)) { problem([field], `"${field}" maps a role to the kind's field that holds it`); return undefined; }
+      const body = raw;
+      const roles: Record<string, string> = {};
+      const fieldNames = new Set(fields.map((one) => one.name));
+      for (const [role, name] of Object.entries(body)) {
+        if (!/^[a-z][a-z0-9-]*$/.test(role)) { problem([field, role], `"${role}" is a lower-case role name`); continue; }
+        if (typeof name !== 'string' || !fieldNames.has(name)) { problem([field, role], `role "${role}" names a field this kind declares`); continue; }
+        roles[role] = name;
+      }
+      const before = findings.length;
+      for (const role of required) if (roles[role] === undefined) problem([field], `"${field}" names the role "${role}"`);
+      if (new Set(Object.values(roles)).size !== Object.values(roles).length) problem([field], `"${field}" gives one role per field`);
+      return findings.length === before ? roles : undefined;
+    };
+    const valueSet = valueSetRoles('reference-set', ['name', 'label-en', 'label-ru']);
+    const valueSetEntry = valueSetRoles('reference-set-entry', ['set', 'value', 'label-en', 'label-ru']);
+    if (valueSet !== undefined && Array.isArray(key) && !key.includes(valueSet['name']!)) problem(['reference-set'], '"reference-set" names a "name" role that is one of the kind\'s key fields');
+    if (valueSetEntry !== undefined && Array.isArray(key)) {
+      if (!key.includes(valueSetEntry['set']!)) problem(['reference-set-entry'], '"reference-set-entry" names a "set" role that is one of the kind\'s key fields');
+      if (!key.includes(valueSetEntry['value']!)) problem(['reference-set-entry'], '"reference-set-entry" names a "value" role that is one of the kind\'s key fields');
+    }
     const capability = decl['capability'];
     if (capability !== undefined && (typeof capability !== 'string' || !/^[a-z][a-z0-9-]*$/.test(capability))) problem(['capability'], '"capability" is the name of the capability that fills the kind');
     const rawAgent = decl['agent'];
@@ -1888,6 +1922,8 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
       ...(findingsKind === true ? { findings: true } : {}),
+      ...(valueSet === undefined ? {} : { referenceSet: valueSet }),
+      ...(valueSetEntry === undefined ? {} : { referenceSetEntry: valueSetEntry }),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
       ...(er === undefined ? {} : { er }),
       ...(sequence === undefined ? {} : { sequence }),
