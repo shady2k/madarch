@@ -56,7 +56,11 @@ export function SourcesSection({ context }: { readonly context: SectionContext }
         {t('knowledge.filterSources')}
         <Input type="search" value={query} onInput={(event) => setQuery(event.currentTarget.value)} placeholder={t('knowledge.filterSources')} aria-label={t('knowledge.filterSources')} data-testid="sources-filter" />
       </FieldLabel>
-      {listing !== null && documents.length === 0 ? <Paragraph className="text-muted" data-testid="sources-empty">{t('knowledge.noDocuments')}</Paragraph> : null}
+      {/* No premature "no documents": the sentence is for a filter that matched nothing, and a product with no documents
+          is told what will bring them (madarch-64o5.83). */}
+      {listing !== null && documents.length === 0
+        ? <Paragraph className="text-muted" data-testid="sources-empty">{needle === '' ? t('knowledge.sourcesPage.empty') : t('knowledge.sourcesPage.noMatch', { text: query.trim() })}</Paragraph>
+        : null}
       {[...groups.entries()].map(([repo, rows]) => (
         <Stack key={repo ?? '\u0000product'} className="grid gap-2" data-testid="sources-group">
           <SectionTitle className="first-letter:uppercase">{repoName(repo)}</SectionTitle>

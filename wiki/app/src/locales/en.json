@@ -519,7 +519,9 @@
       "absent": "Not here",
       "filled": "Read by a fill",
       "notFilled": "Not filled",
-      "truncated": "Showing {{shown}} of {{total}}."
+      "truncated": "Showing {{shown}} of {{total}}.",
+      "empty": "No documents yet. The fill reads the product repository and the code repositories; its documents appear here once a fill has read them.",
+      "noMatch": "Nothing matches “{{text}}” in a document’s title or path."
     },
     "filterSources": "Filter by title or path",
     "cardOpen": "{{kind}} page",
