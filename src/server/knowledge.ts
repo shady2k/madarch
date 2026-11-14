@@ -336,7 +336,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (count === '1') return { response: json(200, { open: listing.open, closed: listing.closed, dismissed: listing.dismissed, sections: listing.sections }) };
       return { response: json(200, listing) };
     }),
-    sources: guarded('list the sources', async () => ({ response: json(200, await product.sources()) }), false),
+    sources: guarded('list the sources', async () => ({ response: json(200, await product.sources()) })),
     fillRuns: guarded('read fill history', async (request) => {
       const runId = new URL(request.url).searchParams.get('run');
       const runs = await product.fillRuns(runId ?? undefined);
