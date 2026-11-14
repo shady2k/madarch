@@ -28,6 +28,7 @@ import type { StartedServer } from '../server/http.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
+import { stopDatabasesUnder } from '../adapters/postgres-cluster.js';
 import { ensureBuilt, type AppBuildOptions } from './app.js';
 
 /** The port the command serves on when none is named; the model server's own default. */
@@ -176,10 +177,14 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
   if (!built.ok) return { outcome: 'refused', message: built.message };
   const port = options.port ?? DEFAULT_PORT;
+  const knowledgeRoot = knowledgeRootOf(dirname(folder));
+  // A start of this home stops a PostgreSQL server a crash left before it serves.
+  await stopDatabasesUnder(knowledgeRoot);
   let server: StartedServer;
   try {
     const { startServer } = await import('../server/http.js');
-    server = await startServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(dirname(folder)), appFolder: built.dist, port, host: options.host ?? DEFAULT_HOST, allowNoManifest: noManifest });
+    // The variable the sweep above uses, and main's named default host.
+    server = await startServer({ productFolder: folder, knowledgeRoot, appFolder: built.dist, port, host: options.host ?? DEFAULT_HOST, allowNoManifest: noManifest });
   } catch (error) {
     return startFailure(error, port);
   }
@@ -205,5 +210,31 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
       if (!opened.ok) print(`The browser was not opened: ${opened.message}`);
     });
   }
-  return { outcome: 'serving', server, url: server.url };
+  // Ctrl+C and a plain `kill` stop the server and every store it opened, not only the HTTP socket: a signal otherwise
+  // ends the process with its PostgreSQL servers still holding their data folders and sockets.
+  const originalStop = server.stop.bind(server);
+  let closing = false;
+  const shutdown = async (code: number): Promise<void> => {
+    if (closing) return;
+    closing = true;
+    process.off('SIGTERM', signal); process.off('SIGINT', signal);
+    let failure: unknown;
+    try { await originalStop(); } catch (error) { failure = error; }
+    try { await stopDatabasesUnder(knowledgeRoot, { force: true }); } catch (error) { failure ??= error; }
+    if (failure !== undefined) print(`the server could not stop cleanly: ${failure instanceof Error ? failure.message : String(failure)}`);
+    process.exit(code);
+  };
+  const signal = (): void => { void shutdown(143); };
+  // The api role of `serve` is a child of the command's own process: the parent forwards SIGTERM to it, and a graceful
+  // shutdown there holds the store's users lock while the fill role waits for the same store. The parent's stop and the
+  // fill role's own stop end the servers; a direct `--role api` run has no such parent and keeps the handlers.
+  if (process.env['MADARCH_ROLE'] !== 'api') {
+    process.once('SIGTERM', signal);
+    process.once('SIGINT', signal);
+  }
+  return {
+    outcome: 'serving',
+    server: { ...server, stop: async () => { process.off('SIGTERM', signal); process.off('SIGINT', signal); await originalStop(); } },
+    url: server.url,
+  };
 }
