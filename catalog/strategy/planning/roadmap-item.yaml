@@ -1,7 +1,7 @@
 id: practice.roadmap-item
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A planned piece of the product's future, placed in time against epics and releases.
+definition: A roadmap item is a planned piece of the product's future, placed in time against epics and releases.
 sources:
 - https://www.atlassian.com/agile/product-management/product-roadmaps
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Пункт дорожной карты
     many: Пункты дорожной карты
 description:
-  en: A planned piece of the product's future, placed in time against epics and releases.
-  ru: Запланированная часть будущего продукта, поставленная во времени относительно эпиков и выпусков.
+  en: A roadmap item states one thing the product intends to do later, such as a capability, a market or a platform change, and when it is roughly expected. It is a plan, not a promise, and it changes as learning arrives.
+  ru: 'Пункт дорожной карты называет одно из будущих дел продукта: возможность, рынок или смену платформы, — и примерное время. Это план, а не обещание, и он меняется по мере новых знаний.'

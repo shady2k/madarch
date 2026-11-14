@@ -1,7 +1,7 @@
 id: nist-ai-rmf.ai-system
 purpose: structure
 audience: [security-engineer, product-lead, analyst]
-definition: A system that uses a model to make or support decisions, as the NIST AI risk framework treats it.
+definition: An AI system is a system that uses a model to make or support decisions, as the NIST AI risk framework treats it.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Система ИИ
     many: Системы ИИ
 description:
-  en: A system that uses a model to make or support decisions, as the NIST AI risk framework treats it.
-  ru: Система, которая использует модель для решений или их поддержки, как её понимает рамка рисков NIST AI.
+  en: An AI system is software that uses one or more models to make or support decisions, together with its data, its users and the setting it works in. The NIST AI risk management framework treats the whole system, not only the model, as the thing to assess.
+  ru: Система ИИ — программа, которая использует одну или несколько моделей для решений или их поддержки, вместе с данными, пользователями и условиями работы. Рамка управления рисками ИИ NIST рассматривает как предмет оценки всю систему, а не только модель.

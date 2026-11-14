@@ -1,7 +1,7 @@
 id: practice.rollout
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The staged way a new version replaces the running one, with its pauses and its limits.
+definition: A rollout is the staged way a new version replaces the running one, with its pauses and its limits.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Постепенное развёртывание
     many: Постепенные развёртывания
 description:
-  en: The staged way a new version replaces the running one, with its pauses and its limits.
-  ru: Поэтапная замена работающей версии новой, с её паузами и пределами.
+  en: 'A rollout moves traffic from the old version to the new in steps: a few instances, a share of users, one region at a time. At each pause it watches health and can stop or reverse the change.'
+  ru: 'Постепенное развёртывание переводит трафик со старой версии на новую шагами: несколько экземпляров, доля пользователей, по одному региону. На каждой паузе оно следит за здоровьем и может остановить или отменить изменение.'

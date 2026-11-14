@@ -1,7 +1,7 @@
 id: nist800-34.recovery-plan
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The ordered steps that restore one system, with the evidence that each step worked.
+definition: A recovery plan is the ordered steps that restore one system, with the evidence that each step worked.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: План восстановления
     many: Планы восстановления
 description:
-  en: The ordered steps that restore one system, with the evidence that each step worked.
-  ru: Упорядоченные шаги, которые восстанавливают одну систему, с доказательством, что каждый сработал.
+  en: 'A recovery plan lists, in order, what must be done to bring one system back: restore the data, start the services, check the connections, confirm the result. Each step says how the person knows it worked.'
+  ru: 'План восстановления перечисляет по порядку, что нужно сделать, чтобы вернуть одну систему: восстановить данные, запустить сервисы, проверить связи, подтвердить результат. Для каждого шага сказано, как понять, что он сработал.'

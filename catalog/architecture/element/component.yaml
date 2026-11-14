@@ -1,7 +1,7 @@
 id: backstage.component
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A part of a system that is implemented by code and exposes or consumes interfaces.
+definition: A component is a part of a system that is implemented by code and offers or uses interfaces.
 sources:
 - https://c4model.com/abstractions
 - https://backstage.io/docs/features/software-catalog/system-model
@@ -26,5 +26,5 @@ labels:
     one: Компонент
     many: Компоненты
 description:
-  en: A part of a system that is implemented by code and exposes or consumes interfaces.
-  ru: Часть системы, реализованная кодом и предоставляющая или потребляющая интерфейсы.
+  en: A component is a separately deployable or replaceable part of a system with a clear responsibility and defined interfaces, as C4 and arc42 use the word. Its interfaces say what other parts may rely on, and its inside can change behind them.
+  ru: Компонент — отдельно развёртываемая или заменяемая часть системы с ясной ответственностью и определёнными интерфейсами, как это слово используют C4 и arc42. Его интерфейсы говорят, на что могут опираться другие части, а внутри них он может меняться.

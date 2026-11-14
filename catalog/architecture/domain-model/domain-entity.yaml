@@ -1,7 +1,7 @@
 id: ddd.entity
 purpose: structure
 audience: [architect, developer, analyst]
-definition: An object of the domain with an identity of its own, which persists through change.
+definition: A domain entity is an object of the domain with an identity of its own, which persists through change.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сущность предметной области
     many: Сущности предметной области
 description:
-  en: An object of the domain with an identity of its own, which persists through change.
-  ru: Объект предметной области со своей идентичностью, который сохраняется при изменениях.
+  en: A domain entity is a thing the business cares about that keeps its identity while its attributes change, such as a customer or an order. Two entities are the same only if their identities match, not their values.
+  ru: 'Сущность предметной области — то, что важно для бизнеса и сохраняет свою идентичность при изменении атрибутов: клиент или заказ. Две сущности одинаковы, только если совпадают их идентификаторы, а не значения.'

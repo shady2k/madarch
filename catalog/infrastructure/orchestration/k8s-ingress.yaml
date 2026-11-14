@@ -1,7 +1,7 @@
 id: kubernetes.ingress
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A Kubernetes rule that routes traffic from outside the cluster to a service.
+definition: An Ingress is a Kubernetes rule that routes traffic from outside the cluster to a service.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Ingress
     many: Ingress
 description:
-  en: A Kubernetes rule that routes traffic from outside the cluster to a service.
-  ru: Правило Kubernetes, которое направляет трафик извне кластера в сервис.
+  en: 'A Kubernetes Ingress declares how requests arriving from outside reach services inside: by host name and path, with TLS settings and redirects. An ingress controller carries the rule out, so its behaviour depends on which controller runs.'
+  ru: 'Ingress объявляет, как запросы извне доходят до сервисов внутри: по имени хоста и пути, с настройками TLS и перенаправлениями. Правило исполняет контроллер входа, поэтому поведение зависит от того, какой контроллер работает.'

@@ -1,7 +1,7 @@
 id: terraform.state
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The record Terraform keeps of the resources it created and their last known attributes.
+definition: A Terraform state is the record Terraform keeps of the resources it created and their last known attributes.
 sources:
 - https://developer.hashicorp.com/terraform/language/state
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Состояние Terraform
     many: Состояния Terraform
 description:
-  en: The record Terraform keeps of the resources it created and their last known attributes.
-  ru: Запись, которую Terraform хранит о созданных ресурсах и их последних известных атрибутах.
+  en: A Terraform state file records which real infrastructure objects a definition created, their identifiers and their last known values. Terraform reads it to decide what must change, so losing or changing it wrongly can make Terraform recreate or forget objects.
+  ru: Состояние Terraform записывает, какие настоящие объекты инфраструктуры создало описание, их идентификаторы и последние известные значения. Terraform читает его, чтобы решить, что менять, поэтому потеря или неверное изменение состояния заставляет его пересоздать объекты или забыть о них.

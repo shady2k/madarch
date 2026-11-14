@@ -65,8 +65,8 @@ test('repo add with the server running advances only the baseline before the fir
     try {
       const rows = await owner.run((tx) => tx.query<{ name: string }>("SELECT DISTINCT k.name FROM node n JOIN entity k ON k.id = n.entity_id ORDER BY k.name"));
       expect(rows.rows.length).toBeGreaterThan(0);
-      // Startup publishes the declarations and the product's home, but no repository facts or fill results.
-      expect(rows.rows.filter((row) => !row.name.startsWith('manifest.'))).toEqual([{ name: 'product' }]);
+      // Startup publishes declarations, role-mapped starter values and the product home, not repository facts.
+      expect(rows.rows.every((row) => row.name.startsWith('manifest.') || row.name === 'product' || row.name === 'value-set' || row.name === 'value-set-entry')).toBe(true);
     } finally { await owner.close(); }
     watch.stop();
     watch = daemonUpdateWatch(home, fills, { debounceMs: 0, intervalMs: 0, enabled: () => true, log: () => undefined });

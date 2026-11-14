@@ -1,7 +1,7 @@
 id: practice.decision
 purpose: history
 audience: [product, analyst, architect, developer]
-definition: 'An architecture decision record: what was decided, why, and what follows from it.'
+definition: A decision records a choice the team made, the reasons behind it and what follows from it.
 sources:
 - https://adr.github.io/madr/
 acquisition:
@@ -45,6 +45,6 @@ labels:
     one: Решение
     many: Решения
 description:
-  en: 'An architecture decision record (ADR-0001 ...): what was decided and why.'
-  ru: 'Запись об архитектурном решении (ADR-0001 ...): что решили и почему.'
+  en: 'A decision explains one choice about the product or its architecture: the situation that called for it, the options considered, the option chosen and the consequences. A number and a status let a later reader see which decision is still in force.'
+  ru: 'Запись о решении объясняет один выбор в продукте или его архитектуре: ситуацию, которая его потребовала, рассмотренные варианты, выбранный вариант и последствия. Номер и статус помогают позднее понять, какое решение действует.'
 key: []

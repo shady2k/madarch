@@ -1,7 +1,7 @@
 id: archimate.course-of-action
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A chosen approach that works towards a goal over time.
+definition: A course of action is a chosen way of working towards a goal over time, such as entering a market or replacing a platform.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Курс действий
     many: Курсы действий
 description:
-  en: A chosen approach that works towards a goal over time.
-  ru: Выбранный подход, ведущий к цели во времени.
+  en: 'A course of action is the approach the organisation chooses to move towards its goals: a programme, a strategy, a sequence of projects. It says what will be done over time, rather than what state is wanted.'
+  ru: 'Курс действий — подход, который организация выбирает, чтобы двигаться к целям: программа, стратегия, череда проектов. Он говорит, что будет делаться со временем, а не какое состояние нужно.'

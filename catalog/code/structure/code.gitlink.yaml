@@ -3,7 +3,7 @@ purpose: structure
 audience:
 - developer
 - architect
-definition: A submodule path pinned to another repository commit.
+definition: A submodule is a path in a repository that points to a fixed commit of another repository.
 sources:
 - https://git-scm.com/docs/gitmodules
 acquisition:
@@ -47,5 +47,5 @@ labels:
     one: Подмодуль
     many: Подмодули
 description:
-  en: A submodule path and its pinned repository commit.
-  ru: Путь подмодуля и его закреплённый коммит.
+  en: A submodule is a folder a repository borrows from another repository at a pinned commit, such as a shared library. The parent records which commit it expects, so the borrowed code changes only when someone updates that record.
+  ru: Подмодуль — папка, которую репозиторий берёт из другого репозитория на закреплённом коммите, например общую библиотеку. Родитель записывает ожидаемый коммит, поэтому заимствованный код меняется, только когда эту запись обновляют.

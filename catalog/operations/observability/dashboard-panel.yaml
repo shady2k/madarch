@@ -1,7 +1,7 @@
 id: practice.dashboard-panel
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: One query and its picture on a dashboard.
+definition: A dashboard panel is one query and the picture it draws on a dashboard.
 sources:
 - https://grafana.com/docs/grafana/latest/dashboards/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Панель на дашборде
     many: Панели на дашборде
 description:
-  en: One query and its picture on a dashboard.
-  ru: Один запрос и его картинка на панели.
+  en: A dashboard panel shows the answer to one query as a chart, a number or a table, over a chosen period. Panels are put on a dashboard so one look answers a question about the service.
+  ru: Панель на дашборде показывает ответ одного запроса картинкой, числом или таблицей за выбранный период. Панели собирают на дашборде, чтобы один взгляд отвечал на вопрос о сервисе.

@@ -1,7 +1,7 @@
 id: protobuf.service
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A service declared in a Protocol Buffers file, with the remote calls it offers.
+definition: A gRPC service is a service declared in a Protocol Buffers file, with the remote calls it offers.
 sources:
 - https://protobuf.dev/reference/protobuf/proto3-spec/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Служба gRPC
     many: Службы gRPC
 description:
-  en: A service declared in a Protocol Buffers file, with the remote calls it offers.
-  ru: Служба, объявленная в файле Protocol Buffers, с её удалёнными вызовами.
+  en: A gRPC service groups related remote calls under one name in a Protocol Buffers file, such as a payment service with charge and refund. A client generates its stub from that declaration.
+  ru: 'Служба gRPC объединяет связанные удалённые вызовы под одним именем в файле Protocol Buffers: например, платёжная служба с оплатой и возвратом. Клиент строит свой посредник по этому объявлению.'

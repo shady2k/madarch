@@ -516,6 +516,9 @@ describe('madarch serve: an existing product served', () => {
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('port 1');
     expect(run.stderr).toContain('the server could not be started');
+    // The port is answered before the startup work: the store the start would prepare is not there, so the
+    // case fails on a serve that waits for the whole preparation before it takes its address (madarch-64o5.68).
+    expect(existsSync(join(base, '.madarch', 'knowledge', 'demo-id', 'graph', 'pgdata'))).toBe(false);
   }); // root or a capable environment may listen on the port and serve: the case is not a failure there
 
   test('a second serve while the dist stands builds nothing', async () => {

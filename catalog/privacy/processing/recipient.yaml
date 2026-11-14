@@ -1,7 +1,7 @@
 id: gdpr.recipient
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A party personal data is shared with, and the ground it is shared on.
+definition: A recipient is a party that personal data is shared with, and the ground on which it is shared.
 sources:
 - https://gdpr-info.eu/art-30-gdpr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Получатель
     many: Получатели
 description:
-  en: A party personal data is shared with, and the ground it is shared on.
-  ru: Сторона, которой передают персональные данные, и основание передачи.
+  en: A recipient is a person or an organisation outside the processing activity that receives personal data, such as a delivery service, a bank or a public body. The record says what is shared and on which legal ground.
+  ru: 'Получатель — человек или организация вне действия обработки, которым передают персональные данные: служба доставки, банк или государственный орган. В записи сказано, что именно передают и на каком правовом основании.'

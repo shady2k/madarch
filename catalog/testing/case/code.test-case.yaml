@@ -1,7 +1,7 @@
 id: istqb.test-case
 purpose: quality
 audience: [tester, developer]
-definition: A test and the code it exercises.
+definition: A test case is a check with a known starting state, a set of actions and an expected result, written so that it can be run again and again.
 sources:
 - https://glossary.istqb.org/en_US/term/test-case
 acquisition:
@@ -33,5 +33,5 @@ labels:
     one: Тест
     many: Тесты
 description:
-  en: A test, and the code it exercises.
-  ru: Тест и код, который он проверяет.
+  en: A test case sets up a known state, performs one action or a short sequence of actions and compares the result with the expected one. In code it is usually a function that a test runner calls; the case fails when the result differs from what should happen.
+  ru: 'Тест — проверка с известным начальным состоянием, набором действий и ожидаемым результатом, которую можно запускать снова и снова. В коде это обычно функция, которую вызывает средство запуска тестов: она сравнивает полученный результат с ожидаемым и сообщает о расхождении.'

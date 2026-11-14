@@ -1,7 +1,7 @@
 id: dqv.measurement
 purpose: quality
 audience: [analyst, tester, developer]
-definition: One measured quality value of a dataset, with the metric and the time it was taken.
+definition: A data-quality measurement is one measured quality value of a dataset, with the metric and the time it was taken.
 sources:
 - https://www.w3.org/TR/vocab-dqv/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Измерение качества данных
     many: Измерения качества данных
 description:
-  en: One measured quality value of a dataset, with the metric and the time it was taken.
-  ru: Одно измеренное значение качества набора данных с метрикой и временем измерения.
+  en: 'A data-quality measurement records one number about a dataset at one time: how many rows are complete, how many values are unique, how far the data is from its expected shape. Comparing measurements shows whether quality is improving.'
+  ru: 'Измерение качества данных фиксирует одно число о наборе в один момент: сколько строк полны, сколько значений уникальны, насколько данные отличаются от ожидаемой формы. Сравнение измерений показывает, улучшается ли качество.'

@@ -1,7 +1,7 @@
 id: practice.network-port
 purpose: operations
 audience: [developer, architect, operations, platform-devops]
-definition: A network port a service listens on or publishes.
+definition: A port is a numbered network endpoint a service listens on or publishes.
 sources:
 - https://www.rfc-editor.org/rfc/rfc6335.html
 acquisition:
@@ -25,5 +25,5 @@ labels:
     one: Порт
     many: Порты
 description:
-  en: A network port a service listens on or publishes.
-  ru: Сетевой порт, который сервис слушает или публикует.
+  en: A port is one numbered entrance on a machine's network address, such as 443 for secure HTTP, where a program waits for connections. A service publishes the port it listens on, and a firewall or a proxy decides who may reach it.
+  ru: Порт — пронумерованный вход по сетевому адресу машины, например 443 для защищённого HTTP, где программа ждёт соединений. Сервис объявляет порт, который слушает, а брандмауэр или прокси решает, кому до него можно.

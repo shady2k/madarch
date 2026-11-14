@@ -1,7 +1,7 @@
 id: practice.troubleshooting-guide
 purpose: operations
 audience: [operations, product, developer]
-definition: The symptoms of a known failure and what resolves each of them.
+definition: A troubleshooting guide describes the symptoms of a known failure and what resolves each of them.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Руководство по устранению неполадок
     many: Руководства по устранению неполадок
 description:
-  en: The symptoms of a known failure and what resolves each of them.
-  ru: Признаки известного сбоя и то, что каждый из них устраняет.
+  en: A troubleshooting guide starts from what a person sees — an error, a stalled screen, a wrong number — and leads to the cause and the fix. It is organised by symptom, because that is what the person has.
+  ru: 'Руководство по устранению неполадок начинает с того, что человек видит: ошибку, зависший экран, неверное число, — и ведёт к причине и исправлению. Оно устроено по признакам, потому что у человека есть именно признак.'

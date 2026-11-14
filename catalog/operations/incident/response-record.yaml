@@ -1,7 +1,7 @@
 id: practice.response-record
 purpose: history
 audience: [operations, platform-devops]
-definition: What was done during an incident, by whom and when, kept as it happened.
+definition: A response record notes what was done during an incident, by whom and when, kept as it happens.
 sources:
 - https://sre.google/workbook/incident-response/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Запись о реагировании
     many: Записи о реагировании
 description:
-  en: What was done during an incident, by whom and when, kept as it happened.
-  ru: Что делали во время инцидента, кто и когда, записанное по ходу.
+  en: 'A response record captures the actions taken while an incident is running: who checked what, which change was tried, what the result was. Written during the event, it becomes the raw material of the timeline and the postmortem.'
+  ru: 'Запись о реагировании фиксирует действия во время инцидента: кто что проверил, какое изменение попробовали, что получилось. Сделанная по ходу, она становится основой хронологии и разбора.'

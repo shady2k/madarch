@@ -1,7 +1,7 @@
 id: practice.glossary-term
 purpose: understand
 audience: [product, analyst, developer, architect, designer, tester]
-definition: A word of the product's own language, defined once in a glossary.
+definition: A glossary term is a word or phrase of the product's own language whose meaning the product fixes once, so everyone uses it the same way.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -47,6 +47,6 @@ labels:
     one: Термин
     many: Термины
 description:
-  en: A term of the product's language, defined in a glossary.
-  ru: Слово из языка продукта с определением из глоссария.
+  en: A glossary term is a word or a short phrase with a precise meaning in the product, such as order or settlement. The glossary states that meaning once, and the product's documents and people then use the word in exactly that sense.
+  ru: Термин — слово или короткое словосочетание с точным значением в продукте, например «заказ» или «расчёт». Глоссарий один раз задаёт это значение, и дальше документы и люди продукта употребляют слово именно в нём.
 key: []

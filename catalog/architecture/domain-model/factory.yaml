@@ -1,7 +1,7 @@
 id: ddd.factory
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A domain object that builds aggregates or other complex objects.
+definition: A factory is a domain object that builds aggregates or other complex objects.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Фабрика
     many: Фабрики
 description:
-  en: A domain object that builds aggregates or other complex objects.
-  ru: Объект предметной области, который создаёт агрегаты или другие сложные объекты.
+  en: A factory creates complex domain objects or whole aggregates in one step, hiding how their parts are assembled and which rules must hold at creation. Callers get a valid object instead of building it piece by piece.
+  ru: Фабрика создаёт сложные объекты предметной области или целые агрегаты за один шаг, скрывая, как собраны их части и какие правила должны выполняться при создании. Вызывающий получает готовый правильный объект, а не собирает его по частям.

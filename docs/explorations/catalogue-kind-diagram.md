@@ -70,3 +70,16 @@ Final correction validation: native root check passes with unchanged architectur
 Codex's P1 review identified that removing a plugin-derived vertex kind could erase a person's incident edge opinions when the edge kind remained declared. The regression creates plugin `record` nodes and a person-authored `links` edge, then removes `record` while retaining `links`. Before the fix preparation incorrectly succeeded. Pruning now checks the incident edges' person-authored journal history and refuses with the removed kind, edge kind and distinct edge count. Refusal preserves nodes, edges, opinions and the person's operation unchanged; plugin-only removal remains supported.
 
 Validation: migration and graph-write suites pass (42 tests, 190 assertions). A bounded manual mutation disabling the new refusal was killed, and the restored source passed again. Root `bun run check` passes with unchanged architecture debt and no quarantine. Evidence: `/tmp/pr303-prune-{red,final,mutation,check-final}.txt`. No constants, timeouts or limits changed. This does not alter the earlier full-suite reset limitation.
+
+## Merge of PR302 into the published PR303 branch
+
+Merged `origin/main` at `7f64c62b` without rebasing. Four conflicts required resolution:
+
+- `src/graph/manifest-publication.ts`: combine metadata-edge projection/reconciliation with starter value-set drafts discovered through the manifest's reference-set/reference-set-entry role maps. Forward the optional authored contract through the startup product-identity wrapper. Retain metadata contracts in preparation and fill.
+- `src/graphql/starter.graphql`: regenerate with `scripts/write-starter-graphql.ts`, never hand-merge the SDL.
+- `test/fill-updates-before-fill.test.ts`: startup permits metadata declarations, role-mapped starter values and the product home, but not repository facts or fill results.
+- `test/product-reset.test.ts`: reset permits the same metadata, starter-value and product-home population.
+
+Independent read-only review found no merge-introduced semantic issue in these paths or the auto-merged kind-count cache and early serve-port check. Focused publication/value-set validation passes (16 tests, 170 assertions), as do the golden/starter SDL tests (14 tests, 65 assertions) and root `bun run check`. The native Linux arm64 release binary builds and passes its graph-store smoke test. No constants, limits, timeouts or architecture allowances changed.
+
+Final merge validation: the combined owner fill-path acceptance, golden/starter SDL, product/knowledge reset, GraphQL executor, before-fill startup, renamed value-set role maps, kind-count cache and fill-run regressions pass: 73 tests, 299 assertions across 10 files (107.71 seconds). The packaged Linux arm64 clean-install walk passes fresh init, Fill completion, stop and foreground reopen. Evidence: `/tmp/pr303-merge-{check,requested-tests,golden,build,walk}.txt`; review: `/tmp/pr303-merge-review.md`. This is targeted merge acceptance, not a new full-suite or cross-platform acceptance claim.

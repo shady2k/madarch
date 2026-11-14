@@ -1,7 +1,7 @@
 id: kubernetes.namespace
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A named division of a cluster within which names and quotas hold.
+definition: A namespace is a named division of a cluster within which names and quotas hold.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Пространство имён
     many: Пространства имён
 description:
-  en: A named division of a cluster within which names and quotas hold.
-  ru: Именованное деление кластера, внутри которого действуют имена и квоты.
+  en: A Kubernetes namespace groups objects inside a cluster, so names are unique within it and quotas and access rules can be set for it. Teams usually get a namespace of their own, and one cluster can hold many.
+  ru: 'Пространство имён объединяет объекты внутри кластера: имена уникальны в его пределах, а квоты и правила доступа задают для него. Обычно у команды своё пространство имён, и в одном кластере их может быть много.'

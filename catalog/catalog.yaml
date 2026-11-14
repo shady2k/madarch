@@ -188,8 +188,10 @@ groups:
   work.execution: { en: "Execution", ru: "Исполнение", short: { en: "Execution", ru: "Исполнение" }, parent: work }
   work.coordination: { en: "Coordination", ru: "Координация", short: { en: "Coordination", ru: "Координация" }, parent: work }
   work.sync: { en: "Sync", ru: "Синхронизация", short: { en: "Sync", ru: "Синхронизация" }, parent: work }
+  work.ways: { en: "Ways of working", ru: "Способы работы", short: { en: "Ways of working", ru: "Способы работы" }, parent: work }
   common.attachment: { en: "Attached records", ru: "Приложенные записи", short: { en: "Attached", ru: "Записи" }, parent: common }
   common.schema: { en: "Schema", ru: "Схема", short: { en: "Schema", ru: "Схема" }, parent: common }
+  common.values: { en: "Values", ru: "Справочники", short: { en: "Values", ru: "Справочники" }, parent: common }
   automation.process: { en: "Processes", ru: "Процессы", short: { en: "Processes", ru: "Процессы" }, parent: automation }
   decommissioning.plan: { en: "Retirement", ru: "Вывод", short: { en: "Retirement", ru: "Вывод" }, parent: decommissioning }
   infrastructure.network-names: { en: "Names and addresses", ru: "Имена и адреса", short: { en: "Names", ru: "Имена" }, parent: infrastructure }
@@ -396,6 +398,40 @@ properties:
   middleware: { en: "Middleware", ru: "Промежуточные обработчики", format: "list" }
   model: { en: "Model", ru: "Модель", format: "text" }
   timeout: { en: "Timeout", ru: "Таймаут", format: "text" }
+  set: { en: "Value set", ru: "Справочник", format: "text" }
+  label_en: { en: "Label (English)", ru: "Подпись (английский)", format: "text" }
+  label_ru: { en: "Label (Russian)", ru: "Подпись (русский)", format: "text" }
+  applies_to: { en: "Applies to", ru: "Где действует", format: "list" }
+  since_date: { en: "In force since", ru: "Действует с", format: "date" }
+  example: { en: "Example", ru: "Пример", format: "text" }
+  paths: { en: "Paths", ru: "Пути", format: "list" }
+  when: { en: "When to use it", ru: "Когда применять", format: "text" }
+  instructions: { en: "Instructions", ru: "Указания", format: "text" }
+  checks: { en: "Checks", ru: "Проверки", format: "list" }
+  body: { en: "Body", ru: "Текст", format: "text" }
+  precedence: { en: "Order of precedence", ru: "Порядок старшинства", format: "list" }
+  relation: { en: "Relation", ru: "Отношение", format: "text" }
+  target: { en: "Target", ru: "Цель связи", format: "text" }
+  note: { en: "Note", ru: "Примечание", format: "text" }
+  created_by: { en: "Created by", ru: "Создал", format: "text" }
+  created_at: { en: "Created at", ru: "Время создания", format: "date" }
+  edited_at: { en: "Edited at", ru: "Время правки", format: "date" }
+  priority: { en: "Priority", ru: "Приоритет", format: "text" }
+  issue_type: { en: "Issue type", ru: "Тип задачи", format: "text" }
+  assignee: { en: "Assignee", ru: "Исполнитель", format: "text" }
+  owner: { en: "Owner", ru: "Владелец", format: "text" }
+  updated_at: { en: "Updated at", ru: "Время изменения", format: "date" }
+  close_reason: { en: "Close reason", ru: "Причина закрытия", format: "text" }
+  dependencies: { en: "Dependencies", ru: "Зависимости", format: "list" }
+  comments: { en: "Comments", ru: "Комментарии", format: "list" }
+  step: { en: "Step", ru: "Шаг", format: "text" }
+  who: { en: "Who did it", ru: "Кто выполнил", format: "text" }
+  executor_type: { en: "Executor type", ru: "Тип исполнителя", format: "text" }
+  duration: { en: "Duration", ru: "Длительность", format: "text" }
+  tokens: { en: "Tokens", ru: "Токены", format: "number" }
+  cost: { en: "Cost", ru: "Стоимость", format: "text" }
+  outcome: { en: "Outcome", ru: "Результат", format: "text" }
+  entity: { en: "Entity", ru: "Сущность", format: "text" }
 documents:
   exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, "**/AGENTS.md", "**/CLAUDE.md", "**/GEMINI.md"]
   expect: []

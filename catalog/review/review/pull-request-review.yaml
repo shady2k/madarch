@@ -1,7 +1,7 @@
 id: practice.pull-request-review
 purpose: quality
 audience: [developer, tester]
-definition: The review one or more people gave a proposed change, with its comments and its verdict.
+definition: A pull-request review is the assessment one or more people give a proposed change, with their comments and their verdict.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Просмотр запроса на слияние
     many: Просмотры запросов на слияние
 description:
-  en: The review one or more people gave a proposed change, with its comments and its verdict.
-  ru: Просмотр, который один или несколько человек дали предложенному изменению, с комментариями и вердиктом.
+  en: 'A pull-request review records what one or more reviewers thought of a proposed change: their comments on the code, their questions and the verdict to approve, request changes or comment. It is the conversation a change goes through before it is merged.'
+  ru: 'Просмотр запроса на слияние фиксирует, что один или несколько проверяющих думают о предложенном изменении: замечания к коду, вопросы и решение одобрить, потребовать изменений или просто высказаться. Это разговор, через который проходит изменение до слияния.'

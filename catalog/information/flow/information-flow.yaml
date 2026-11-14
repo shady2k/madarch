@@ -1,7 +1,7 @@
 id: practice.information-flow
 purpose: structure
 audience: [analyst, architect, security-engineer]
-definition: A movement of information from one place to another, each item it carries named by a glossary term.
+definition: An information flow is a movement of information from one place to another, item by item.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Поток информации
     many: Потоки информации
 description:
-  en: A movement of information from one place to another, each item it carries named by a glossary term.
-  ru: Перемещение информации из одного места в другое, где каждый элемент назван термином глоссария.
+  en: An information flow shows information moving from a sender to a receiver, for example from a form to a database or from the product to a partner. It names each item it carries and the places it passes, so a reader can see where personal or secret information goes.
+  ru: 'Поток информации показывает, как сведения идут от отправителя к получателю: например, из формы в базу данных или из продукта партнёру. В нём назван каждый элемент и места, через которые он проходит, чтобы было видно, куда попадают персональные или секретные сведения.'

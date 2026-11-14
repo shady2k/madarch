@@ -1,7 +1,7 @@
 id: practice.screen
 purpose: structure
 audience: [designer, developer]
-definition: A page or view a person sees, made of components and reached through a route.
+definition: A screen is a view a person sees at one moment in the interface, made of interface components and reached through a route.
 sources:
 - https://www.nngroup.com/articles/usability-testing-101/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Экран
     many: Экраны
 description:
-  en: A page or view a person sees, made of components and reached through a route.
-  ru: Страница или вид, который видит человек, собранный из компонентов и открываемый по маршруту.
+  en: 'A screen is what a person sees at one moment in the interface: a form, a list, a dashboard, assembled from components and showing one task. A route leads to it, and its states must cover loading, success and failure.'
+  ru: 'Экран — то, что человек видит в интерфейсе в один момент: форма, список, панель, — собранное из компонентов и посвящённое одной задаче. К нему ведёт маршрут, а его состояния должны покрывать загрузку, успех и отказ.'

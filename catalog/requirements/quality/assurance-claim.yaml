@@ -1,7 +1,7 @@
 id: sacm.claim
 purpose: quality
 audience: [product, analyst, tester, architect]
-definition: A proposition an assurance case argues for, supported by argument and evidence.
+definition: An assurance claim is a proposition an assurance case argues for, supported by an argument and evidence.
 sources:
 - https://www.omg.org/spec/SACM/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Утверждение обеспечения
     many: Утверждения обеспечения
 description:
-  en: A proposition an assurance case argues for, supported by argument and evidence.
-  ru: Положение, которое обосновывает дело обеспечения, подкреплённое рассуждением и доказательствами.
+  en: An assurance claim states something that must be true for the product to be acceptable, such as that no single fault can cause a hazardous failure. It is the top of an assurance case, which must show why it holds.
+  ru: 'Утверждение обеспечения говорит, что должно быть верно, чтобы продукт был приемлем: например, что один отказ не может привести к опасному сбою. С него начинается обоснование обеспечения, которое должно показать, почему это верно.'

@@ -1,7 +1,7 @@
 id: practice.merge
 purpose: history
 audience: [developer, tester, product-lead]
-definition: The integration of a branch or a pull request, with the lane it went through (C, B or A) and who allowed it.
+definition: A merge is the joining of a branch or a pull request into the line of development it targets, with who allowed it and under which conditions.
 sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges
 - https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md
@@ -17,6 +17,53 @@ relation-constraints:
   - partOf
   - approves
 template-policy: none
+fields:
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Merge
@@ -25,5 +72,5 @@ labels:
     one: Слияние
     many: Слияния
 description:
-  en: A branch or pull request integrated through a lane, with who allowed it.
-  ru: Ветка или пул-реквест, влитые через полосу, с тем, кто это разрешил.
+  en: A merge brings the changes of a branch or a pull request into the line of development they target. Its record says who allowed the merge, when it happened and which review conditions it met.
+  ru: Слияние вносит изменения ветки или пул-реквеста в ту линию разработки, для которой они предназначены. В записи о слиянии указано, кто его разрешил, когда оно произошло и при каких условиях проверки.

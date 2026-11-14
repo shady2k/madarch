@@ -1,7 +1,7 @@
 id: cldr.locale
 purpose: structure
 audience: [designer, developer]
-definition: A language and region the product is translated for, with its formatting rules.
+definition: A locale is a language and region the product is translated for, with its formatting rules.
 sources:
 - https://unicode.org/reports/tr35/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Локаль
     many: Локали
 description:
-  en: A language and region the product is translated for, with its formatting rules.
-  ru: Язык и регион, для которых переводят продукт, с правилами форматирования.
+  en: A locale names a language together with a region, such as Russian for Russia or English for the United Kingdom, and carries their rules for dates, numbers, currency and sorting. The same text may need different words in two locales that share a language.
+  ru: Локаль называет язык вместе с регионом — русский для России или английский для Великобритании — и несёт их правила дат, чисел, валют и сортировки. Один и тот же текст может требовать разных слов в двух локалях с общим языком.

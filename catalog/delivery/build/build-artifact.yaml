@@ -1,7 +1,7 @@
 id: slsa.subject
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: What a build produced, named by its digest so it can be verified.
+definition: A build artifact is what a build produced, named by its digest so it can be verified.
 sources:
 - https://slsa.dev/spec/v1.0/provenance
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Артефакт сборки
     many: Артефакты сборки
 description:
-  en: What a build produced, named by its digest so it can be verified.
-  ru: То, что создала сборка, названное дайджестом, чтобы его можно было проверить.
+  en: 'A build artifact is a file or a package a build produced and that someone can use or deploy: an image, an archive, a binary. Its digest identifies its exact content, so a later step can prove it is the same one.'
+  ru: 'Артефакт сборки — файл или пакет, который создала сборка и который можно использовать или развернуть: образ, архив, двоичный файл. Его дайджест указывает точное содержимое, чтобы позднее можно было доказать, что это тот же самый артефакт.'

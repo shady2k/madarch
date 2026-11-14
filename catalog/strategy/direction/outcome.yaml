@@ -1,7 +1,7 @@
 id: archimate.outcome
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: 'A result that follows from a goal: what is different once the goal is reached.'
+definition: 'An outcome is a result that follows from a goal: what is different once the goal is reached.'
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Результат
     many: Результаты
 description:
-  en: 'A result that follows from a goal: what is different once the goal is reached.'
-  ru: 'То, что следует из цели: что стало иначе, когда цель достигнута.'
+  en: 'An outcome describes the change a person would notice once a goal is reached: a faster checkout, fewer errors, a new market served. It is stated from outside the work, so the team can check that the goal mattered.'
+  ru: 'Результат описывает перемену, которую заметит человек, когда цель достигнута: быстрее оформление, меньше ошибок, новый рынок. Он сформулирован снаружи работы, чтобы команда могла проверить, что цель была важна.'

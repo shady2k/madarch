@@ -1,7 +1,7 @@
 id: ddd.value-object
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A domain value defined by its attributes, without an identity of its own.
+definition: A value object is a domain value defined by its attributes, without an identity of its own.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Объект-значение
     many: Объекты-значения
 description:
-  en: A domain value defined by its attributes, without an identity of its own.
-  ru: Значение предметной области, определяемое своими атрибутами и не имеющее собственной идентичности.
+  en: 'A value object is a domain concept whose equality comes from its values: an amount of money, a date range, an address. Two value objects with the same attributes are interchangeable, and they are usually kept immutable.'
+  ru: 'Объект-значение — понятие предметной области, равенство которого определяется его значениями: сумма денег, промежуток дат, адрес. Два объекта-значения с одинаковыми атрибутами взаимозаменяемы, и обычно их не меняют после создания.'

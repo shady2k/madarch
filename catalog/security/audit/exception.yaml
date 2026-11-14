@@ -1,7 +1,7 @@
 id: practice.security-exception
 purpose: quality
 audience: [security-engineer, architect]
-definition: A recorded decision to accept a known deviation from a rule, with its reason and its end date.
+definition: An exception is a recorded decision to accept a known deviation from a rule, with its reason and its end date.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/53/a/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Исключение
     many: Исключения
 description:
-  en: A recorded decision to accept a known deviation from a rule, with its reason and its end date.
-  ru: Записанное решение принять известное отклонение от правила с причиной и сроком.
+  en: 'An exception allows a named case to break a security rule for a stated time: the rule, the case, the reason, who accepted the risk and when it ends. When it expires, the rule applies again.'
+  ru: 'Исключение разрешает названному случаю нарушать правило безопасности в течение определённого срока: правило, случай, причину, кто принял риск и когда срок кончается. После срока правило снова действует.'

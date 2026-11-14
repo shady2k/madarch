@@ -1,7 +1,7 @@
 id: practice.survey
 purpose: understand
 audience: [product, analyst, designer]
-definition: A set of questions put to many people, whose answers are evidence for a decision.
+definition: A survey is a set of questions put to many people, whose answers are evidence for a decision.
 sources:
 - https://www.nngroup.com/articles/which-ux-research-methods/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Опрос
     many: Опросы
 description:
-  en: A set of questions put to many people, whose answers are evidence for a decision.
-  ru: Набор вопросов многим людям, чьи ответы служат доказательством для решения.
+  en: A survey asks the same questions of many people and collects their answers, usually in writing or online. The answers show how common a view or a problem is, while interviews and observations explain why.
+  ru: Опрос задаёт одним и тем же набором вопросов многим людям и собирает их ответы, обычно письменно или через интернет. Ответы показывают, насколько распространено мнение или затруднение, а интервью и наблюдения объясняют почему.

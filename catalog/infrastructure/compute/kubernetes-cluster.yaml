@@ -1,7 +1,7 @@
 id: kubernetes.cluster
 purpose: structure
 audience: [operations, platform-devops, architect]
-definition: A set of nodes one control plane schedules workloads onto.
+definition: A Kubernetes cluster is a set of nodes that one control plane schedules workloads onto.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Кластер Kubernetes
     many: Кластеры Kubernetes
 description:
-  en: A set of nodes one control plane schedules workloads onto.
-  ru: Набор узлов, на которые одна панель управления планирует рабочую нагрузку.
+  en: A Kubernetes cluster groups machines and a control plane that decides where each workload runs, keeps the declared number of copies and restarts what fails. It is the boundary within which Kubernetes objects live.
+  ru: Кластер Kubernetes объединяет машины и панель управления, которая решает, где работает каждая нагрузка, держит объявленное число копий и перезапускает отказавшее. Это граница, внутри которой существуют объекты Kubernetes.

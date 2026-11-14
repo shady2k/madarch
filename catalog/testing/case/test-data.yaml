@@ -1,7 +1,7 @@
 id: istqb.test-data
 purpose: quality
 audience: [tester, developer]
-definition: The data a test needs to run, kept apart from the test code.
+definition: Test data is the data a test needs to run, kept apart from the test code.
 sources:
 - https://glossary.istqb.org/en_US/term/test-data
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тестовые данные
     many: Тестовые данные
 description:
-  en: The data a test needs to run, kept apart from the test code.
-  ru: Данные, нужные тесту для запуска, хранимые отдельно от кода теста.
+  en: 'Test data is the input and the starting state a test needs: records, accounts, files, messages. Keeping it separate from the code makes the test easier to read and to run on another machine.'
+  ru: 'Тестовые данные — входные данные и начальное состояние, нужные тесту: записи, учётные записи, файлы, сообщения. Хранение отдельно от кода делает тест понятнее и позволяет запускать его на другой машине.'
