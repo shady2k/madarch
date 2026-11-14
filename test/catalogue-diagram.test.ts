@@ -71,8 +71,15 @@ test('a catalogue with 80 related kinds reads translated labels and renders with
     const graph = diagramGraphOf(warm, 1, 12);
     expect(graph.nodes).toHaveLength(2);
     expect(graph.folded).toBe(79);
+    const expanded = await owner.transaction('snapshot', (tx) => new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', templates).diagramNeighbourhood(id, 1, 'ru', 100));
+    expect(expanded!.groups[0]!.nodes).toHaveLength(79);
+    expect(diagramGraphOf(expanded!, 1, 100).nodes).toHaveLength(80);
     const database = await owner.run((tx) => tx.query<{ name: string }>('SELECT current_database() AS name'));
     const product = { readDescriptor: async () => ({ folder, connection: { host: process.env['MADARCH_TEST_PG_SOCKET'], port: CLUSTER_PORT, user: 'postgres', database: database.rows[0]!.name } }) } as unknown as KnowledgeProduct;
+    const unfolded = await renderDiagram(product, { entity: id, format: 'mermaid', lang: 'ru', aggregateAbove: 100 });
+    if (!('body' in unfolded)) throw new Error(JSON.stringify(unfolded));
+    expect(unfolded.body['folded']).toBe(0);
+    expect((unfolded.body['source'] as string).match(/^  n\d+\[/gm)).toHaveLength(80);
     for (const format of ['mermaid', 'likec4'] as const) {
       const request = { entity: id, format, lang: 'ru' };
       const warmAnswer = await renderDiagram(product, request);

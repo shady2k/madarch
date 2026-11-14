@@ -22,7 +22,7 @@ async function neighbourhood(owner: DatabaseOwner, folder: string, asked: Extrac
     const published = publishedManifestOf(manifest);
     const templates = readProductTemplates(folder);
     const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
-    return await new ReadContext(tx, manifest, published, folder, asked.request.lang, structure, templates).diagramNeighbourhood(asked.request.entity, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.lang);
+    return await new ReadContext(tx, manifest, published, folder, asked.request.lang, structure, templates).diagramNeighbourhood(asked.request.entity, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.lang, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
   });
 }
 async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: DatabaseOwner): Promise<DiagramAnswer> {

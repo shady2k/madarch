@@ -44,7 +44,7 @@ export async function renderDiagram(product: KnowledgeProduct, request: DiagramR
       // Real products are read in the worker too: field rendering can be just as CPU-heavy as layout.
       const work: Promise<Extract<ReadWork, { kind: 'diagram' }>> = typeof product.readDescriptor === 'function'
         ? product.readDescriptor().then((descriptor) => ({ kind: 'diagram' as const, descriptor, request }))
-        : product.diagramNeighbourhood(request.entity, request.depth ?? DIAGRAM_DEPTH, request.lang).then((neighbourhood) => ({ kind: 'diagram' as const, ...(neighbourhood === undefined ? {} : { neighbourhood }), request }));
+        : product.diagramNeighbourhood(request.entity, request.depth ?? DIAGRAM_DEPTH, request.lang, request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE).then((neighbourhood) => ({ kind: 'diagram' as const, ...(neighbourhood === undefined ? {} : { neighbourhood }), request }));
       return await readWorker(work, deadlineMs, options.workerUrl);
     } catch (error) {
       return { status: 200, code: error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED', error: error instanceof Error ? error.message : String(error) };

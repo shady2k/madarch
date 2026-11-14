@@ -519,7 +519,7 @@ export class KnowledgeProduct {
    * 7 and 8): what a rendered diagram is drawn from. The manifest and the templates are read in the same snapshot, so the
    * schema, the relations and the rows answer one revision.
    */
-  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined): Promise<DiagramNeighbourhood | undefined> {
+  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
     const owner = await this.open();
     await this.followStoreFill();
     return await owner.transaction('snapshot', async (tx) => {
@@ -530,7 +530,7 @@ export class KnowledgeProduct {
       const templates = readProductTemplates(this.options.productFolder);
       const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
       const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates);
-      return await context.diagramNeighbourhood(id, depth, lang);
+      return await context.diagramNeighbourhood(id, depth, lang, first);
     });
   }
 

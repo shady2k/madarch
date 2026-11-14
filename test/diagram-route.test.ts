@@ -212,3 +212,11 @@ test('read budgets default to thirty seconds and accept server or environment se
   expect(mcp.isError).toBe(true);
   expect(reads).toBe(0);
 });
+
+test('the requested fold bound reaches the neighbourhood reader', async () => {
+  let sample: number | undefined;
+  const held = { diagramNeighbourhood: async (_id: string, _depth: number, _lang: string | undefined, first?: number) => { sample = first; return neighbourhood; } } as unknown as KnowledgeProduct;
+  const answer = await renderDiagram(held, { entity: '1', format: 'mermaid', aggregateAbove: 30 });
+  expect('body' in answer).toBe(true);
+  expect(sample).toBe(30);
+});
