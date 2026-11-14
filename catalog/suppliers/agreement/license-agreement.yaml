@@ -1,7 +1,7 @@
 id: practice.license-agreement
 purpose: operations
 audience: [product-lead, operations, security-engineer]
-definition: The terms under which a supplier lets the product use a component or a service.
+definition: A licence agreement sets the terms on which a supplier lets the product use a component or a service.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Лицензионное соглашение
     many: Лицензионные соглашения
 description:
-  en: The terms under which a supplier lets the product use a component or a service.
-  ru: Условия, на которых поставщик разрешает продукту использовать компонент или сервис.
+  en: 'A licence agreement records what a supplier allows the product to do with a component or a service, and under which conditions: how many users or copies, where it may run and what must be paid. It also states what the supplier does not permit.'
+  ru: 'Лицензионное соглашение фиксирует, что поставщик разрешает продукту делать с компонентом или сервисом и на каких условиях: сколько пользователей или копий, где это можно запускать и сколько за это платить. В нём же сказано, чего поставщик не разрешает.'
