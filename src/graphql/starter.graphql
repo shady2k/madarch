@@ -932,6 +932,9 @@ type CodeFile implements Entity {
   removedInOpinionsCount: Int!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
   codeDeclaredInOf(first: Int, after: String): CodeDeclaredInConnection!
+  codeImports(where: CodeImportsEdgeWhere, orderBy: [CodeImportsEdgeOrder!], first: Int, after: String): CodeImportsConnection!
+  codeImportsOf(where: CodeImportsEdgeWhere, orderBy: [CodeImportsEdgeOrder!], first: Int, after: String): CodeImportsConnection!
+  codeImportsPackage(where: CodeImportsPackageEdgeWhere, orderBy: [CodeImportsPackageEdgeOrder!], first: Int, after: String): CodeImportsPackageConnection!
   codeRenamedFrom(first: Int, after: String): CodeRenamedFromConnection!
   codeRenamedFromOf(first: Int, after: String): CodeRenamedFromConnection!
   codeTouchedOf(where: CodeTouchedEdgeWhere, orderBy: [CodeTouchedEdgeOrder!], first: Int, after: String): CodeTouchedConnection!
@@ -1153,6 +1156,72 @@ type CodeImageConnection {
 type CodeImageEdge {
   cursor: String!
   node: CodeImage!
+}
+
+type CodeImportsConnection {
+  edges: [CodeImportsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeImportsConnectionEdge {
+  cursor: String!
+  node: CodeImportsEdge!
+}
+
+type CodeImportsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  place: String
+  placeOpinions: [Opinion!]!
+  placeOpinionsCount: Int!
+  specifier: String
+  specifierOpinions: [Opinion!]!
+  specifierOpinionsCount: Int!
+  form: String
+  formOpinions: [Opinion!]!
+  formOpinionsCount: Int!
+  names: JSON
+  namesOpinions: [Opinion!]!
+  namesOpinionsCount: Int!
+  typeOnly: Boolean
+  typeOnlyOpinions: [Opinion!]!
+  typeOnlyOpinionsCount: Int!
+  node: Entity!
+}
+
+type CodeImportsPackageConnection {
+  edges: [CodeImportsPackageConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeImportsPackageConnectionEdge {
+  cursor: String!
+  node: CodeImportsPackageEdge!
+}
+
+type CodeImportsPackageEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  place: String
+  placeOpinions: [Opinion!]!
+  placeOpinionsCount: Int!
+  specifier: String
+  specifierOpinions: [Opinion!]!
+  specifierOpinionsCount: Int!
+  form: String
+  formOpinions: [Opinion!]!
+  formOpinionsCount: Int!
+  names: JSON
+  namesOpinions: [Opinion!]!
+  namesOpinionsCount: Int!
+  typeOnly: Boolean
+  typeOnlyOpinions: [Opinion!]!
+  typeOnlyOpinionsCount: Int!
+  node: Entity!
 }
 
 type CodeIndex implements Entity {
@@ -1641,15 +1710,13 @@ type CodePackage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
-  repository: String
-  repositoryOpinions: [Opinion!]!
-  repositoryOpinionsCount: Int!
-  path: String
-  pathOpinions: [Opinion!]!
-  pathOpinionsCount: Int!
-  stateMachines: JSON
-  stateMachinesOpinions: [Opinion!]!
-  stateMachinesOpinionsCount: Int!
+  ecosystem: String
+  ecosystemOpinions: [Opinion!]!
+  ecosystemOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  codeImportsPackageOf(where: CodeImportsPackageEdgeWhere, orderBy: [CodeImportsPackageEdgeOrder!], first: Int, after: String): CodeImportsPackageConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -4254,6 +4321,142 @@ input CodeHistoryEdgeWhere {
   walk: CodeHistoryEdgeWalkFilter
 }
 
+input CodeImportsEdgeFormFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeImportsEdgeNamesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeImportsEdgeOrder {
+  field: CodeImportsEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeImportsEdgePlaceFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeImportsEdgeSpecifierFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeImportsEdgeTypeOnlyFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeImportsEdgeWhere {
+  place: CodeImportsEdgePlaceFilter
+  specifier: CodeImportsEdgeSpecifierFilter
+  form: CodeImportsEdgeFormFilter
+  names: CodeImportsEdgeNamesFilter
+  typeOnly: CodeImportsEdgeTypeOnlyFilter
+}
+
+input CodeImportsPackageEdgeFormFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeImportsPackageEdgeNamesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeImportsPackageEdgeOrder {
+  field: CodeImportsPackageEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeImportsPackageEdgePlaceFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeImportsPackageEdgeSpecifierFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeImportsPackageEdgeTypeOnlyFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeImportsPackageEdgeWhere {
+  place: CodeImportsPackageEdgePlaceFilter
+  specifier: CodeImportsPackageEdgeSpecifierFilter
+  form: CodeImportsPackageEdgeFormFilter
+  names: CodeImportsPackageEdgeNamesFilter
+  typeOnly: CodeImportsPackageEdgeTypeOnlyFilter
+}
+
 input CodeIndexColumnsFilter {
   _eq: JSON
   _neq: JSON
@@ -4429,50 +4632,43 @@ input CodeOperationWhere {
   definition: CodeOperationDefinitionFilter
 }
 
+input CodePackageEcosystemFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodePackageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input CodePackageOrder {
   field: CodePackageOrderField!
   direction: OrderDirection
   nulls: NullsOrder
 }
 
-input CodePackagePathFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input CodePackageRepositoryFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input CodePackageStateMachinesFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input CodePackageWhere {
-  repository: CodePackageRepositoryFilter
-  path: CodePackagePathFilter
-  stateMachines: CodePackageStateMachinesFilter
+  ecosystem: CodePackageEcosystemFilter
+  name: CodePackageNameFilter
 }
 
 input CodeParentEdgeOrder {
@@ -6388,6 +6584,22 @@ enum CodeHistoryEdgeOrderField {
   walk
 }
 
+enum CodeImportsEdgeOrderField {
+  place
+  specifier
+  form
+  names
+  typeOnly
+}
+
+enum CodeImportsPackageEdgeOrderField {
+  place
+  specifier
+  form
+  names
+  typeOnly
+}
+
 enum CodeIndexOrderField {
   table
   name
@@ -6410,9 +6622,8 @@ enum CodeOperationOrderField {
 }
 
 enum CodePackageOrderField {
-  repository
-  path
-  stateMachines
+  ecosystem
+  name
 }
 
 enum CodeParentEdgeOrderField {
