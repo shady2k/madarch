@@ -297,15 +297,17 @@ export interface FillRunDetail {
 
 // ---- the client -------------------------------------------------------------------------------------------------
 
-export class CommandError extends Error {}
+export class CommandError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
 
-function messageOf(body: unknown, status: number): string {
+function errorOf(body: unknown, status: number): { message: string; code?: string } {
   if (body !== null && typeof body === 'object') {
-    const held = body as { message?: unknown; error?: { message?: unknown } };
-    if (typeof held.error?.message === 'string') return held.error.message;
-    if (typeof held.message === 'string') return held.message;
+    const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
+    if (typeof held.error?.message === 'string') return { message: held.error.message, ...(typeof held.error.code === 'string' ? { code: held.error.code } : {}) };
+    if (typeof held.message === 'string') return { message: held.message };
   }
-  return `the server answered ${String(status)}`;
+  return { message: `the server answered ${String(status)}` };
 }
 
 async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
@@ -325,7 +327,7 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
   } catch {
     body = undefined;
   }
-  if (!response.ok) throw new CommandError(messageOf(body, response.status));
+  if (!response.ok) { const error = errorOf(body, response.status); throw new CommandError(error.message, error.code); }
   return body as T;
 }
 

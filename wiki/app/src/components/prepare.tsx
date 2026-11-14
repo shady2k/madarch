@@ -18,7 +18,7 @@ import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
 import {
-  readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
+  CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
@@ -58,7 +58,10 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const errors = plan?.errors ?? [];
   const skipped = plan?.skipped ?? [];
   const runnable = (plan?.order.length ?? 0) > 0;
-  const validCap = cap.trim() === '' || (Number.isSafeInteger(Number(cap)) && Number(cap) > 0);
+  const capChosen = !pluginsOnly && requiresAgent && agent !== null;
+  const capRequired = capChosen && cap.trim() === '';
+  const capInvalid = cap.trim() !== '' && !(Number.isSafeInteger(Number(cap)) && Number(cap) > 0);
+  const validCap = !capRequired && !capInvalid;
   const missingAgent = !pluginsOnly && requiresAgent && agent === null;
   const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null);
 
@@ -106,7 +109,11 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       pluginsOnly,
     }).then(
       (answer) => { setBusy(false); context.open(runAddress(answer.runId)); },
-      (error: unknown) => { setBusy(false); setFailure(error instanceof Error ? error.message : String(error)); },
+      (error: unknown) => {
+        setBusy(false);
+        const code = error instanceof CommandError ? error.code : undefined;
+        setFailure(code === 'fill/agent-required' ? t('prepare.agentRequired') : code === 'fill/token-cap' ? t('prepare.capRequired') : error instanceof Error ? error.message : String(error));
+      },
     );
   };
 
@@ -204,7 +211,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {!pluginsOnly && requiresAgent && choices.data?.choices.model?.current !== null && choices.data?.choices.model?.current !== undefined ? <Paragraph className="mt-2 text-small text-muted">{t('prepare.model', { model: choices.data.choices.model.current })}</Paragraph> : null}
           {!pluginsOnly && requiresAgent ? <Paragraph className="mt-2 text-small text-muted" data-testid="prepare-cap-note">{t('prepare.capNote')}</Paragraph> : null}
           {missingAgent ? <Paragraph className="mt-2 text-small" data-testid="prepare-agent-required">{t('prepare.chooseAgent')}</Paragraph> : null}
-          {!validCap ? <Paragraph role="alert" className="mt-2 text-small">{t('prepare.invalidCap')}</Paragraph> : null}
+          {capRequired ? <Paragraph role="alert" className="mt-2 text-small" data-testid="prepare-cap-required">{t('prepare.capRequired')}</Paragraph> : null}
+          {capInvalid ? <Paragraph role="alert" className="mt-2 text-small">{t('prepare.invalidCap')}</Paragraph> : null}
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">

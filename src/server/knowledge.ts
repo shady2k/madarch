@@ -181,6 +181,13 @@ export function createKnowledgePart(
   return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null, pluginsOnly: asked.pluginsOnly === true } };
 }
 
+/** The code a fill press refusal carries, so a page can say it in the reader's language. */
+function fillRefusalCode(message: string): string | undefined {
+  if (message.includes('to an agent, and none is chosen')) return 'fill/agent-required';
+  if (message.includes('token cap is required')) return 'fill/token-cap';
+  return undefined;
+}
+
 
   return {
     graphqlSchema: guarded('read the GraphQL schema', async () => ({
@@ -357,7 +364,7 @@ export function createKnowledgePart(
       // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
       const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
       const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), pluginsOnly: asked.selection.pluginsOnly, targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }), ...(asked.selection.pluginsOnly ? { pluginsOnly: true } : {}) } });
-      if (!started.started) return refused(409, { message: started.message });
+      if (!started.started) return refused(409, { message: started.message, ...(fillRefusalCode(started.message) === undefined ? {} : { code: fillRefusalCode(started.message) }) });
       return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order, plan }) };
     }, true, true),
     pause: guarded('pause the fill', async (request) => {

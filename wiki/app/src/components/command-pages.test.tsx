@@ -82,6 +82,7 @@ const RUN = {
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
+let fillSelectionFailure: { status: number; body: unknown } | null = null;
 
 function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -89,6 +90,7 @@ function answer(_path: string, body: unknown): Response {
 
 beforeEach(async () => {
   requests.length = 0;
+  fillSelectionFailure = null;
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
@@ -101,7 +103,9 @@ beforeEach(async () => {
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
     if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
     if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
-    if (url.pathname.endsWith('/api/fill-selected')) return answer(url.pathname, { runId: 'fill-run-2', order: ['demo.gamma'] });
+    if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
+      ? answer(url.pathname, { runId: 'fill-run-2', order: ['demo.gamma'] })
+      : new Response(JSON.stringify(fillSelectionFailure.body), { status: fillSelectionFailure.status, headers: { 'content-type': 'application/json' } });
     if (url.pathname.endsWith('/api/pause') || url.pathname.endsWith('/api/stop')) return answer(url.pathname, {});
     return answer(url.pathname, {});
   }) as unknown as typeof fetch;
@@ -207,13 +211,38 @@ test('the preparation panel states the final set, both fillers, the agent and th
     const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
     await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
     await settle();
+    // The server needs a positive cap for agent work: the form says so and holds the press until it has one.
+    expect(page.container.querySelector('[data-testid="prepare-cap-required"]')).not.toBeNull();
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     await act(async () => { type(cap, '1000'); });
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
     expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', tokenCap: 1000, pluginsOnly: false });
     expect(page.opened).toContain('/p/run?run=fill-run-2');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a server refusal is shown in the reader\'s language by its code', async () => {
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
+    await settle();
+    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
+    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle();
+    const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
+    await act(async () => { type(cap, '1000'); });
+    fillSelectionFailure = { status: 409, body: { error: { message: 'this fill runs the agent claude-code, and a token cap is required', code: 'fill/token-cap' } } };
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    const text = page.container.textContent ?? '';
+    expect(text).toContain('Укажите лимит токенов');
+    expect(text).not.toContain('a token cap is required');
   } finally {
     await page.close();
   }

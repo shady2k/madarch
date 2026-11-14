@@ -125,6 +125,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(pressed.status).toBe(409);
     expect(JSON.stringify(pressed.body)).toContain('to an agent, and none is chosen');
     expect(JSON.stringify(pressed.body)).toContain('--agent <id>');
+    expect(pressed.body.error.code).toBe('fill/agent-required');
   });
 
   test('a press that chooses an agent and no token cap is refused, naming the cap', async () => {
@@ -133,6 +134,7 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(pressed.status).toBe(409);
     expect(JSON.stringify(pressed.body)).toContain('token cap');
     expect(JSON.stringify(pressed.body)).toContain('--token-cap');
+    expect(pressed.body.error.code).toBe('fill/token-cap');
   });
 
   test('the fill plan answers which plugin fills which field, and which fields the agent fills', async () => {
