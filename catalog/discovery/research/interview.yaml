@@ -1,7 +1,7 @@
 id: practice.interview
 purpose: understand
 audience: [product, analyst, designer]
-definition: A recorded conversation with a person that yields research findings.
+definition: An interview is a recorded conversation with a person that yields research findings.
 sources:
 - https://www.nngroup.com/articles/user-interviews/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Интервью
     many: Интервью
 description:
-  en: A recorded conversation with a person that yields research findings.
-  ru: Записанный разговор с человеком, дающий результаты исследования.
+  en: An interview is a conversation in which a researcher asks a person about their work, their needs and their difficulties, and records what they say. The conversation is later read for findings rather than taken as a vote.
+  ru: Интервью — разговор, в котором исследователь расспрашивает человека о его работе, нуждах и трудностях и записывает сказанное. Позднее из разговора извлекают находки, а не считают его голосом на голосовании.
