@@ -512,6 +512,13 @@ type SearchHit {
   line: String!
 }
 
+type TemplateFinding {
+  file: String!
+  line: Int!
+  path: String!
+  message: String!
+}
+
 type Query {
   entity(id: ID!, lang: String): Entity
   allDemoAuthor(where: DemoAuthorWhere, orderBy: [DemoAuthorOrder!], first: Int, after: String, lang: String): DemoAuthorConnection!
@@ -528,6 +535,7 @@ type Query {
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
   navigation(lang: String): Navigation!
+  templateFindings: [TemplateFinding!]!
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!

@@ -124,10 +124,14 @@ class Builder {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
-      'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
+      'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
+    this.type('TemplateFinding', [
+      { name: 'file', type: 'String!' }, { name: 'line', type: 'Int!' },
+      { name: 'path', type: 'String!' }, { name: 'message', type: 'String!' },
+    ]);
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
     this.type('Evidence', [
       { name: 'type', type: 'String!' },
@@ -481,6 +485,7 @@ class Builder {
     this.registry.claimField('Query', 'allCatalogueEntity', 'the catalogue list root');
     this.registry.claimField('Query', 'home', 'the home root');
     this.registry.claimField('Query', 'navigation', 'the navigation root');
+    this.registry.claimField('Query', 'templateFindings', 'the template findings root');
     this.registry.claimField('Query', 'cochange', 'the entities changed together through an edge');
     this.registry.claimField('Query', 'contributors', 'the entities one more relation beyond an entity');
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
@@ -492,6 +497,7 @@ class Builder {
       { name: 'search', type: 'EntityConnection!', args: [{ name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
       { name: 'navigation', type: 'Navigation!', args: [{ name: 'lang', type: 'String' }] },
+      { name: 'templateFindings', type: '[TemplateFinding!]!' },
       { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'searchGroups', type: '[SearchGroup!]!', args: [

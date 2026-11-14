@@ -27,6 +27,8 @@ import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } 
 import type { ProductTemplates } from './product-templates.js';
 import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
 import { relationWords } from '../knowledge/relation-labels.js';
+import { checkProductTemplates } from './template-check.js';
+import { join } from 'node:path';
 
 /** One open opinion of a vertex or an edge, as the read holds it. */
 export interface OpinionRow {
@@ -1167,6 +1169,7 @@ export class ReadContext {
     if (field === 'searchGroups') return this.searchGroups(args, lang);
     if (field === 'bootstrap') return this.bootstrap();
     if (field === 'navigation') return this.navigation(lang);
+    if (field === 'templateFindings') return checkProductTemplates(this.folder, this.manifest).map((finding) => ({ ...finding, file: join(this.folder, finding.file) }));
     return null;
   }
 
