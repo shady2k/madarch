@@ -13,6 +13,12 @@ relation-constraints:
   - partOf
 template-policy: page
 source: graph
+# The paths this kind leaves out: a product's own declaration, so no engine list decides what a repository's
+# knowledge is. A dependency tree and a build output are not the product (madarch-64o5.83).
+exclude:
+  - "**/node_modules/**"
+  - "**/.git/**"
+  - "**/dist/**"
 fields:
 - name: repository
   type: text
