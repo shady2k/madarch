@@ -1,7 +1,7 @@
 id: practice.screen
 purpose: structure
 audience: [designer, developer]
-definition: A screen is a page or a view a person sees, made of interface components and reached through a route.
+definition: A screen is a view a person sees at one moment in the interface, made of interface components and reached through a route.
 sources:
 - https://www.nngroup.com/articles/usability-testing-101/
 acquisition:
