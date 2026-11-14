@@ -123,7 +123,7 @@ async function extract(_unit: Unit, context: ExtractContext): Promise<UnitResult
     const known = [...(paths.get(repository) ?? [])];
     // A wanted file whose content the graph does not hold is the reader's problem, with its place: it is left out of
     // the texts so the reader reports it rather than passing an empty file off as a file with no imports.
-    const read = readRepository({ repository, files: known, texts: texts.get(repository) ?? new Map(), blobs: blobs.get(repository) ?? new Map() });
+    const read = await readRepository({ repository, files: known, texts: texts.get(repository) ?? new Map(), blobs: blobs.get(repository) ?? new Map() });
     const unread = [...missing].filter((one) => one.startsWith(`${repository}\u0000`)).map((one) => one.slice(repository.length + 1));
     const problems = [...read.problems, ...unread.map((path): ImportProblem => ({ repository, path, line: 1, column: 1, lineEnd: 1, specifier: '', form: 'static', message: 'the file content is not in the graph' }))];
     answers.push({ repository, records: read.records.map((record) => ({ ...record, repository })), packages: read.packages, problems });

@@ -76,8 +76,8 @@ const REPOSITORY = {
 };
 
 describe('the imports reader', () => {
-  test('it reads one edge per import form, with the specifier, the place, the kind and the names as written', () => {
-    const read = readRepository(REPOSITORY);
+  test('it reads one edge per import form, with the specifier, the place, the kind and the names as written', async () => {
+    const read = await readRepository(REPOSITORY);
     expect(read.problems).toEqual([]);
     const byPlace = (left: Record<string, unknown>, right: Record<string, unknown>): number => `${String(left['from'])}:${String(left['line'])}:${String(left['column'])}`.localeCompare(`${String(right['from'])}:${String(right['line'])}:${String(right['column'])}`) || String(left['to']).localeCompare(String(right['to']));
     const edges = read.records.map(edgeOf).sort(byPlace);
@@ -111,8 +111,8 @@ describe('the imports reader', () => {
     expect(read.packages.every((one) => one.evidence.repository === 'app' && one.evidence.commitOrDigest?.startsWith('blob-'))).toBe(true);
   });
 
-  test('an unresolvable relative specifier is a problem with its place, and the other imports of the file are still read', () => {
-    const read = readRepository({
+  test('an unresolvable relative specifier is a problem with its place, and the other imports of the file are still read', async () => {
+    const read = await readRepository({
       repository: 'app',
       files: ['src/a.ts', 'src/util.ts'],
       texts: new Map([
@@ -127,8 +127,8 @@ describe('the imports reader', () => {
     expect(read.records.map(edgeOf)).toEqual([{ from: 'src/a.ts', to: 'src/util.ts', line: 2, column: 1, lineEnd: 2, specifier: './util.js', form: 'static', names: ['default'] }]);
   });
 
-  test('a file the parser refuses is a problem with its place, and the other files are still read', () => {
-    const read = readRepository({
+  test('a file the parser refuses is a problem with its place, and the other files are still read', async () => {
+    const read = await readRepository({
       repository: 'app',
       files: ['src/broken.ts', 'src/user.ts', 'src/target.ts'],
       texts: new Map([
@@ -144,8 +144,8 @@ describe('the imports reader', () => {
     expect(read.records.map(edgeOf)).toEqual([{ from: 'src/user.ts', to: 'src/target.ts', line: 1, column: 1, lineEnd: 1, specifier: './target.js', form: 'static', names: ['default'] }]);
   });
 
-  test('a source the caller did not hand over is not read, and the texts it did hand over are', () => {
-    const read = readRepository({
+  test('a source the caller did not hand over is not read, and the texts it did hand over are', async () => {
+    const read = await readRepository({
       repository: 'app',
       files: ['src/a.ts', 'src/b.ts'],
       texts: new Map([['src/b.ts', "import a from './a.js';\n"], ['src/a.ts', 'export default 1;\n']]),
@@ -153,20 +153,20 @@ describe('the imports reader', () => {
     });
     expect(read.problems).toEqual([]);
     expect(read.records.map(edgeOf)).toEqual([{ from: 'src/b.ts', to: 'src/a.ts', line: 1, column: 1, lineEnd: 1, specifier: './a.js', form: 'static', names: ['default'] }]);
-    const unread = readRepository({ repository: 'app', files: ['src/a.ts'], texts: new Map(), blobs: new Map() });
+    const unread = await readRepository({ repository: 'app', files: ['src/a.ts'], texts: new Map(), blobs: new Map() });
     expect(unread.records).toEqual([]);
     expect(unread.problems).toEqual([]);
   });
 });
 
 /** The resolution cases the review named: the repository's own rules, over the graph's files. */
-function read_with(files: Record<string, string>): ReturnType<typeof readRepository> {
-  return readRepository({ repository: 'app', files: Object.keys(files), texts: new Map(Object.entries(files)), blobs: new Map() });
+async function read_with(files: Record<string, string>): Promise<Awaited<ReturnType<typeof readRepository>>> {
+  return await readRepository({ repository: 'app', files: Object.keys(files), texts: new Map(Object.entries(files)), blobs: new Map() });
 }
 
 describe('the repository resolution', () => {
-  test('a folder\'s package entry precedes its index file', () => {
-    const read = read_with({
+  test('a folder\'s package entry precedes its index file', async () => {
+    const read = await read_with({
       'src/dir/package.json': '{"main":"./entry.js"}',
       'src/dir/index.ts': 'export const index = 1;\n',
       'src/dir/entry.ts': 'export const entry = 1;\n',
@@ -176,8 +176,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => record.to)).toEqual([{ kind: 'file', path: 'src/dir/entry.ts' }]);
   });
 
-  test('the best matching path alias is the exact one, then the longest prefix, and no less specific one replaces it', () => {
-    const read = read_with({
+  test('the best matching path alias is the exact one, then the longest prefix, and no less specific one replaces it', async () => {
+    const read = await read_with({
       'tsconfig.json': '{"compilerOptions":{"paths":{"f*bar":["./wrong.ts"],"foo/*":["./right.ts"]}}}',
       'right.ts': 'export const right = 1;\n',
       'wrong.ts': 'export const wrong = 1;\n',
@@ -186,7 +186,7 @@ describe('the repository resolution', () => {
     expect(read.problems).toEqual([]);
     expect(read.records.map((record) => record.to)).toEqual([{ kind: 'file', path: 'right.ts' }]);
 
-    const failed = read_with({
+    const failed = await read_with({
       'tsconfig.json': '{"compilerOptions":{"paths":{"foo/*":["./missing/*"],"f*":["./wrong.ts"]}}}',
       'wrong.ts': 'export const wrong = 1;\n',
       'user.ts': "import 'foo/bar';\n",
@@ -195,8 +195,8 @@ describe('the repository resolution', () => {
   });
 
 
-  test('a folder package.json types precede its main', () => {
-    const read = read_with({
+  test('a folder package.json types precede its main', async () => {
+    const read = await read_with({
       'src/dir/package.json': '{"main":"./entry.js","types":"./index.d.ts"}',
       'src/dir/entry.js': 'module.exports = 1;\n',
       'src/dir/index.d.ts': 'export declare const value: number;\n',
@@ -206,8 +206,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => record.to)).toEqual([{ kind: 'file', path: 'src/dir/index.d.ts' }]);
   });
 
-  test('inherited paths are anchored at the child\'s effective baseUrl', () => {
-    const read = read_with({
+  test('inherited paths are anchored at the child\'s effective baseUrl', async () => {
+    const read = await read_with({
       'tsconfig.base.json': '{"compilerOptions":{"baseUrl":".","paths":{"@/*":["lib/*"]}}}',
       'child/tsconfig.json': '{"extends":"../tsconfig.base.json","compilerOptions":{"baseUrl":"."}}',
       'child/lib/x.ts': 'export const x = 1;\n',
@@ -217,8 +217,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => [record.specifier, record.to])).toEqual([['@/x', { kind: 'file', path: 'child/lib/x.ts' }]]);
   });
 
-  test('a config without baseUrl does not resolve a bare name to a file at the repository root', () => {
-    const read = read_with({
+  test('a config without baseUrl does not resolve a bare name to a file at the repository root', async () => {
+    const read = await read_with({
       'tsconfig.json': '{}',
       'util.ts': 'export const util = 1;\n',
       'src/user.ts': "import util from 'util';\n",
@@ -227,8 +227,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => record.to)).toEqual([{ kind: 'package', name: 'util' }]);
   });
 
-  test('a child alias resolves against the baseUrl it inherits', () => {
-    const read = read_with({
+  test('a child alias resolves against the baseUrl it inherits', async () => {
+    const read = await read_with({
       'tsconfig.base.json': '{"compilerOptions":{"baseUrl":"src"}}',
       'tsconfig.json': '{"extends":"./tsconfig.base.json","compilerOptions":{"paths":{"@app/*":["*"]}}}',
       'src/foo.ts': 'export const foo = 1;\n',
@@ -238,8 +238,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => [record.specifier, record.to])).toEqual([['@app/foo', { kind: 'file', path: 'src/foo.ts' }]]);
   });
 
-  test('a child paths replaces the inherited paths rather than merging them', () => {
-    const read = read_with({
+  test('a child paths replaces the inherited paths rather than merging them', async () => {
+    const read = await read_with({
       'tsconfig.base.json': '{"compilerOptions":{"paths":{"@old/*":["src/old/*"]}}}',
       'tsconfig.json': '{"extends":"./tsconfig.base.json","compilerOptions":{"paths":{"@new/*":["src/new/*"]}}}',
       'src/old/x.ts': 'export const old = 1;\n',
@@ -253,8 +253,8 @@ describe('the repository resolution', () => {
     ]);
   });
 
-  test('a specifier that names a file outside the repository is unresolved, never redirected inside it', () => {
-    const read = read_with({
+  test('a specifier that names a file outside the repository is unresolved, never redirected inside it', async () => {
+    const read = await read_with({
       'secret.ts': 'export const secret = 1;\n',
       'a.ts': "import secret from '../secret';\n",
     });
@@ -262,8 +262,8 @@ describe('the repository resolution', () => {
     expect(read.problems.map((problem) => [problem.specifier, problem.target])).toEqual([['../secret', '../secret']]);
   });
 
-  test('the parser reads a TypeScript assertion as TypeScript, not as JSX', () => {
-    const read = read_with({
+  test('the parser reads a TypeScript assertion as TypeScript, not as JSX', async () => {
+    const read = await read_with({
       'src/x.ts': 'export default 1;\n',
       'src/user.ts': "import x from './x.js';\nconst y = <number>1;\n",
     });
@@ -271,8 +271,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => record.to)).toEqual([{ kind: 'file', path: 'src/x.ts' }]);
   });
 
-  test('a .jsx specifier may name a .ts source', () => {
-    const read = read_with({
+  test('a .jsx specifier may name a .ts source', async () => {
+    const read = await read_with({
       'src/x.ts': 'export const x = 1;\n',
       'src/user.ts': "import './x.jsx';\n",
     });
@@ -280,8 +280,8 @@ describe('the repository resolution', () => {
     expect(read.records.map((record) => record.to)).toEqual([{ kind: 'file', path: 'src/x.ts' }]);
   });
 
-  test('a dynamic import of a constant template literal states its edge', () => {
-    const read = read_with({
+  test('a dynamic import of a constant template literal states its edge', async () => {
+    const read = await read_with({
       'src/x.ts': 'export const x = 1;\n',
       'src/user.ts': 'const x = import(`./x.js`);\n',
     });

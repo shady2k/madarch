@@ -278,7 +278,7 @@ function statedBy(site: { names?: readonly string[]; typeOnly?: boolean }): { na
  * specifier no file answers is a problem with its place and the path it names; a file the parser refuses is a problem
  * with its place. The other imports are still answered.
  */
-export function readRepository(repository: RepositoryTexts): ReadResult {
+export async function readRepository(repository: RepositoryTexts): Promise<ReadResult> {
   const configs = readTsconfigs(repository.files, repository.texts);
   const known = new Set(repository.files);
   const records: ImportRecord[] = [];
@@ -286,7 +286,8 @@ export function readRepository(repository: RepositoryTexts): ReadResult {
   const packages = new Map<string, PackageRecord>();
   // Only the files whose text the host answered are read: a source the caller did not ask for is not this reader's
   // input, and a source it asked for and did not receive is the caller's problem, with the place it reports.
-  for (const path of [...repository.texts.keys()].filter((one) => sourceExtensionOf(one) !== undefined).sort()) {
+  const paths = [...repository.texts.keys()].filter((one) => sourceExtensionOf(one) !== undefined).sort();
+  for (const path of paths) {
     const text = repository.texts.get(path) ?? '';
     let program: BabelNode;
     try {
@@ -328,6 +329,9 @@ export function readRepository(repository: RepositoryTexts): ReadResult {
         }
       }
     }
+    // The SDK's heartbeat is a timer: a synchronous pass over a repository would silence the plugin for as long as it
+    // parses, and a large repository takes longer than the host allows. One macrotask per file lets the timer run.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
   records.sort(byPlace);
   return {

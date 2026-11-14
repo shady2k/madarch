@@ -73,13 +73,19 @@ commits included, so the count and the dates agree with the edges the same pass 
   Checked by test/plugin-file-facts.test.ts
 
 ## Requirement: imports — Every import a file states is an edge with its place
-The imports producer shall read the TypeScript and JavaScript file vertices and their content through the graph's reads, and shall state — from a parse, never from a pattern over the text — one `code.imports` edge for an import declaration, an `export … from`, a `require()` call, a dynamic `import()` with a constant specifier, and an `import('x').T` type, and one `code.imports-package` edge for a specifier that names no file of the repository. Each edge shall repeat, told apart by the line and column of the import, and shall carry the specifier as written, the form and the imported names; its evidence shall name the repository, the path, the blob and the lines. The catalogue shall declare both edge kinds with the `imports` capability and shall key `code.package` by ecosystem and name.
+The imports producer shall read the TypeScript and JavaScript file vertices and their content through the graph's reads, and shall state — from a parse, never from a pattern over the text — one `code.imports` edge for an import declaration, an `export … from`, a `require()` call, a dynamic `import()` with a constant specifier, and an `import('x').T` type, and one `code.imports-package` edge for a specifier that names no file of the repository. Each edge shall repeat, told apart by the line and column of the import, and shall carry the specifier as written, the form and the imported names; its evidence shall name the repository, the path, the blob and the lines. The producer shall read a repository without silencing the host's heartbeat: a pass over many files shall yield to the event loop between files, so no silence bound is crossed however large the repository. The catalogue shall declare both edge kinds with the `imports` capability and shall key `code.package` by ecosystem and name.
 
 ### Scenario: every-form-with-its-place
 - Given: a fixture repository with one file per import form, a tsconfig path alias and a package
 - When: the imports producer reads the graph's files
 - Then: every import is an edge with its line and column, specifier, form and names, and every package is one entity
   Checked by test/imports-read.test.ts
+
+### Scenario: heartbeat-on-a-large-repository
+- Given: a unit over eight hundred files and a host whose silence bound is one second
+- When: the producer reads the repository
+- Then: the unit completes, its answer names no problem, and the host records no missing heartbeat
+  Checked by test/imports-heartbeat.test.ts
 
 ### Scenario: asserted-types-and-constant-templates
 - Given: a `.ts` file with a type assertion and a dynamic import of a template literal without substitution
