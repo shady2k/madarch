@@ -1,18 +1,16 @@
-/** The app's frame: the one shell the template frontend fills. It holds no page and knows no product data. */
+/** The app's frame: the top bar with the reader's controls, and the column the page is drawn in. */
 import type { ReactElement, ReactNode } from 'react';
 
-export function ShellFrame({ title, children }: { readonly title: string; readonly children: ReactNode }): ReactElement {
+export function ShellFrame({ title, actions, children }: { readonly title: string; readonly actions?: ReactNode; readonly children: ReactNode }): ReactElement {
   return (
-    <div className="min-h-screen bg-page text-foreground">
-      <header className="border-b border-border px-4 py-3">
-        <h1 className="text-lg font-semibold">{title}</h1>
+    <div className="min-h-screen bg-ground text-ink">
+      <header className="border-b border-line bg-chrome">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
+          <h1 className="text-lg font-semibold">{title}</h1>
+          {actions === undefined ? null : <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        </div>
       </header>
-      <main className="px-4 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">{children}</main>
     </div>
   );
-}
-
-/** What the frame says until the template frontend lands. */
-export function ShellNote(): ReactElement {
-  return <p className="text-sm text-muted-foreground">The page templates arrive with the template frontend.</p>;
 }
