@@ -1819,6 +1819,9 @@ export class KnowledgeProduct {
     await this.open();
     await this.followStoreFill();
     this.restorePause();
+    // The revision this poll answers is the one it started at: a publication during the manifest read moves the reader
+    // to a later revision, and these counts must not be remembered under that later one.
+    const statusSeq = this.reader?.seq ?? 0;
     const read = await this.manifestRead(product.folder);
     const run = await this.runViewOf();
     // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
@@ -1859,7 +1862,7 @@ export class KnowledgeProduct {
       manifest: base.filled ? 'ok' : 'not-filled',
       purposes: manifest.purposes === undefined ? undefined : [...manifest.purposes.values()].sort((a, b) => a.order - b.order || byCodePoint(a.id, b.id)).map((purpose) => ({ id: purpose.id, labels: { ...purpose.labels }, order: purpose.order, kinds: [...manifest.kinds.values()].filter((kind) => kind.purpose === purpose.id).map((kind) => kind.name) })),
       roles: Object.fromEntries([...manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
-      kinds: await this.kindCounts(manifest),
+      kinds: await this.kindCounts(manifest, statusSeq),
     };
   }
 
@@ -1868,8 +1871,7 @@ export class KnowledgeProduct {
    * manifest that declares a catalogue names every entry of it, catalogue-only ones included: the wiki's menu is the
    * product's whole map, and a kind nothing filled yet stands with a count of zero.
    */
-  private async kindCounts(manifest: KindsManifest): Promise<WikiStatus['kinds']> {
-    const seq = this.reader?.seq ?? 0;
+  private async kindCounts(manifest: KindsManifest, seq: number): Promise<WikiStatus['kinds']> {
     const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
     const owner = await this.open();
     const kinds = graphKindsOf(manifest);

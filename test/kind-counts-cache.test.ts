@@ -8,3 +8,13 @@ test('a count read that failed is not remembered for the revision', async () => 
   const counts = await cache.counts(1, async () => [{ kind: 'task', count: 3 }]);
   expect(counts).toEqual([{ kind: 'task', count: 3 }]);
 });
+
+test('a late answer for an older revision does not replace a newer revision', async () => {
+  const cache = new KindCountsCache();
+  let release: ((counts: { kind: string; count: number }[]) => void) | undefined;
+  const older = cache.counts(1, () => new Promise((resolve) => { release = resolve; }));
+  await cache.counts(2, async () => [{ kind: 'task', count: 7 }]);
+  release?.([{ kind: 'task', count: 3 }]);
+  expect(await older).toEqual([{ kind: 'task', count: 3 }]);
+  expect(await cache.counts(2, async () => { throw new Error('a newer revision is already cached'); })).toEqual([{ kind: 'task', count: 7 }]);
+});

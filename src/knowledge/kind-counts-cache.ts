@@ -15,6 +15,8 @@ export class KindCountsCache {
   async counts(seq: number, read: () => Promise<readonly KindCount[]>): Promise<readonly KindCount[]> {
     if (this.held?.seq === seq) return this.held.counts;
     const counts = await read();
+    // A read for an older revision may land after a newer one answered: it is this caller's answer, never the cache's.
+    if (this.held !== undefined && this.held.seq > seq) return counts;
     this.held = { seq, counts };
     return counts;
   }
