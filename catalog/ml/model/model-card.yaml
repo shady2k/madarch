@@ -1,7 +1,7 @@
 id: practice.model-card
 purpose: understand
 audience: [product, analyst, developer, product-lead]
-definition: The documented purpose, limits and evaluation of a model, written for the people who use it.
+definition: A model card documents a model's purpose, its limits and its evaluation, for the people who use it.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Карточка модели
     many: Карточки модели
 description:
-  en: The documented purpose, limits and evaluation of a model, written for the people who use it.
-  ru: Описание назначения, ограничений и оценки модели для людей, которые ею пользуются.
+  en: A model card states what a model is for, how it was trained, on which data, how it was evaluated and where it fails or should not be used. It is written for the people who choose or rely on the model.
+  ru: Карточка модели говорит, для чего модель нужна, как её обучали и на каких данных, как её оценивали и где она ошибается или где её нельзя применять. Она написана для тех, кто выбирает модель или полагается на неё.
