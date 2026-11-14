@@ -449,10 +449,10 @@ describe('madarch serve: an existing product served', () => {
     expect(home).toContain('<!doctype html>');
     const asset = await (await fetch(`${address}/assets/app.js`)).text();
     expect(asset).toContain('export const x = 1;');
-    // The app's own routes answer through index.html; the old page route is no route any more.
-    const documentsRoute = await (await fetch(`${address}/docs`)).text();
-    expect(documentsRoute).toContain('<!doctype html>');
-    expect((await fetch(`${address}/p/docs/vision.md`)).status).toBe(404);
+    // The app's own routes answer through index.html (decision 0036, section 7); a page layer's route is no route any more.
+    const templateRoute = await (await fetch(`${address}/p/product-settings`)).text();
+    expect(templateRoute).toContain('<!doctype html>');
+    expect((await fetch(`${address}/docs`)).status).toBe(404);
     await Bun.sleep(500);
     // --no-open never reaches the opener.
     expect(existsSync(opener.replace('march-open', 'open.log'))).toBe(false);

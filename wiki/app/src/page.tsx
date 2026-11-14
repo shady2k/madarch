@@ -47,7 +47,9 @@ export function PageView({ composition, data, runtime }: { readonly composition:
         return held === undefined ? null : render(held);
       },
     };
-    return <Section key={section.id} title={titleIn(section.title, runtime.language)}>{componentOf(section, context, composition.sections)}</Section>;
+    // A header draws the page's own title, so it carries no section title above it.
+    const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
+    return <Section key={section.id} title={title}>{componentOf(section, context, composition.sections)}</Section>;
   };
   return <Stack gap={4}>{composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}</Stack>;
 }

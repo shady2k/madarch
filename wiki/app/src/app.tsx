@@ -59,8 +59,10 @@ export function App(): ReactElement {
   }, [path]);
 
   const open = useCallback((next: string): void => {
-    window.history.pushState({}, '', base + next);
-    setPath(next);
+    // A component names an address of the app; a rendered link carries the base the app is served under.
+    const path = base !== '' && next.startsWith(base) ? next.slice(base.length) : next;
+    window.history.pushState({}, '', base + path);
+    setPath(path);
     // A press on a link scrolls the page it opens to its top, as a page load would.
     window.scrollTo(0, 0);
   }, [base]);

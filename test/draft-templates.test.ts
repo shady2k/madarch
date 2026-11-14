@@ -85,7 +85,8 @@ describe('the templates madarch init offers', () => {
       if (template.kinds === 'none') {
         expect({ template: template.id, present: read.present }).toEqual({ template: template.id, present: false });
         expect(existsSync(join(folder, 'madarch', 'catalog.yaml'))).toBe(false);
-        expect(existsSync(join(folder, 'templates'))).toBe(false);
+        // A product with no manifest still opens pages: the base templates are written for every starter (section 6).
+        expect(existsSync(join(folder, 'templates', 'entity.yaml'))).toBe(true);
         continue;
       }
       expect({ template: template.id, present: read.present }).toEqual({ template: template.id, present: true });
