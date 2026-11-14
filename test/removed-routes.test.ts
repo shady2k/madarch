@@ -27,7 +27,6 @@ const REMOVED: readonly string[] = [
   '/api/glossary',
   '/api/documents',
   '/api/document?path=docs/product.md',
-  '/api/authored?kind=note',
   '/api/authored-schema?kind=note',
   '/api/problems',
   '/api/questions',
@@ -39,6 +38,9 @@ const REMOVED: readonly string[] = [
 
 /** The addresses the app itself owns now (decision 0036, section 7): a page route, never a Markdown answer. */
 const APP_PAGES: readonly string[] = ['/e/product:shop.md', '/kind/domain.md'];
+
+/** The paths whose writes section 8 keeps: their read methods answer 405, and no other method but the kept ones. */
+const WRITE_ONLY: readonly string[] = ['/api/authored?kind=note'];
 
 let work = '';
 let server: StartedServer | undefined;
@@ -69,6 +71,13 @@ test('every read route section 8 deletes answers 404', async () => {
   for (const path of REMOVED) {
     const response = await fetch(`${server!.url}/products/shop${path}`);
     expect({ path, status: response.status }).toEqual({ path, status: 404 });
+  }
+}, 60_000);
+
+test('a path whose writes are kept answers no read: GET is method not allowed', async () => {
+  for (const path of WRITE_ONLY) {
+    const response = await fetch(`${server!.url}/products/shop${path}`);
+    expect({ path, status: response.status }).toEqual({ path, status: 405 });
   }
 }, 60_000);
 

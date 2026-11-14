@@ -2131,6 +2131,10 @@ export class KnowledgeProduct {
    * the `source_text` opinion a fill published, never a second read of the checkout.
    */
   async source(repo: string | null, path: string): Promise<SourceRead | undefined> {
+    // A fill another process published moves the store before this answer reads it: the follow step the old page context
+    // ran, so the commit named here and the kinds the text is read from are the store's, not this process's last look.
+    await this.open();
+    await this.followStoreFill();
     const held = (await this.sourceOpinions()).get(repo === null ? path : `repos/${repo}/${path}`);
     if (held === undefined) return undefined;
     return { text: held.text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };

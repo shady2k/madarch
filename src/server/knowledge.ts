@@ -29,6 +29,8 @@ export interface KnowledgePart {
   graphqlSchema: (request: Request) => Promise<Handled>;
   /** One GraphQL operation against the product's graph (decision 0036, section 2): the one read API a page uses. */
   graphql: (request: Request) => Promise<Handled>;
+  /** The authored writes (section 8: creating, updating and deleting a person's entity is a command, not a read). */
+  authored: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
   /** What the agent spent on one kind: per run, plugin run, field and model (madarch-stm0.4, decision 0035, item 22). */
   kindUsage: (request: Request) => Promise<Handled>;
@@ -191,6 +193,32 @@ export function createKnowledgePart(
         ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
       });
       return { response: json(answer.status, answer.body) };
+    }),
+    authored: guarded('change an authored entity', async (request) => {
+      const url = new URL(request.url);
+      const kind = url.searchParams.get('kind') ?? '';
+      const uid = url.searchParams.get('uid') ?? undefined;
+      // The authored *reads* are GraphQL's (section 8); the commands that change an entity are kept.
+      const methods = { POST: 'create', PATCH: 'update', DELETE: 'delete' } as const;
+      const action = methods[request.method as keyof typeof methods];
+      if (action === undefined) return refused(405, { message: `${import.meta.path}:1: the authored write is POST, PATCH or DELETE; an authored entity is read through /graphql` });
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: `${import.meta.path}:1: ${crossSite}` });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
+      let raw: unknown;
+      try { raw = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON` }); }
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: `${import.meta.path}:1: the body is {values?, words?}` });
+      const held = raw as Record<string, unknown>;
+      if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: `${import.meta.path}:1: words must be text, kept verbatim` });
+      if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: `${import.meta.path}:1: values must be an object keyed by field` });
+      const body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };
+      const match = request.headers.get('if-match');
+      if (match !== null && !/^"[0-9]+"$/u.test(match)) return refused(400, { field: 'if-match', message: `${import.meta.path}:1: If-Match must contain one quoted entity revision from ETag` });
+      const answer = await product.authored(action, kind, { ...body, ...(uid === undefined ? {} : { uid }), ...(match === null ? {} : { ifRevision: match.slice(1, -1) }) });
+      const response = json(action === 'create' ? 201 : 200, answer);
+      if (answer.entity !== undefined && 'revision' in answer.entity) response.headers.set('ETag', `"${String(answer.entity.revision)}"`);
+      return { response };
     }),
     identity: guarded('read the product identity', async () => {
       const identity = product.product();

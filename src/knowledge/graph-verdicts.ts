@@ -25,6 +25,7 @@
  * larger budget reuses what a smaller one decided. The cache and the budgets
  * live beside the product's store, not in the graph.
  */
+import { GIT_KINDS } from '../fill/stages/git-contract.js';
 import { createHash } from 'node:crypto';
 import { SETTINGS_ADDRESS } from './addresses.js';
 import { byCodePoint } from '../model/order.js';
@@ -597,7 +598,7 @@ function judgeHashOf(roles: ModelRoleView, hasJev: boolean, hasJudge: boolean, j
 function declaredFiles(snapshot: GraphSnapshot): Map<string, GraphEvidenceFile> {
   const files = new Map<string, GraphEvidenceFile>();
   for (const node of snapshot.nodes) {
-    if (node.kind !== 'code.file') continue;
+    if (node.kind !== GIT_KINDS.file) continue;
     const props = propsOf(node.properties);
     const path = props.path;
     const lines = props.lines;

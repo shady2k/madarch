@@ -1,5 +1,110 @@
 [
   {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.author"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.channel"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.column"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.commit"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.database"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.env-definition"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.env-var"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.file"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.image"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.index"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.k8s-deployment"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.migration"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.operation"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.repository"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.route"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.service"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.snapshot"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.symbol"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.table"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.task"
+  },
+  {
+    "rule": "no-kind-names",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.test-case"
+  },
+  {
     "rule": "sql-only-in-storage-layer",
     "file": "src/fill/orchestrator-host.ts",
     "symbol": "src/adapters/database-owner.ts"

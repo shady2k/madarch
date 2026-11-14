@@ -568,9 +568,56 @@ describe('the reads and names of decision 0036, section 8', () => {
     const found = architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }));
     expect(found).toHaveLength(1);
     expect(found[0]).toStartWith(`${join(root, 'src/server/http.ts')}:7: graphql-only-reads: `);
-    expect(found[0]).toContain('answers the route /api/page');
+    expect(found[0]).toContain('answers the route GET /api/page');
     writeModule(root, 'src/server/http.ts', routes("  { method: 'GET', path: '/api/kind-usage' },"));
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }))).toEqual([]);
+  });
+
+  test('a route path the check cannot resolve to a literal is a violation, not a pass', async () => {
+    const root = readFixture();
+    const routes = (planted: string): string[] => [
+      '/** The one way in. */',
+      "import { API } from '../knowledge/addresses.js';",
+      '',
+      'export const routes = [',
+      "  { method: 'GET', path: '/graphql/schema' },",
+      "  { method: 'GET', path: API.status },",
+      planted,
+      '];',
+      '',
+    ];
+    // A path this check cannot read is a violation of its own: a variable is not a literal.
+    writeModule(root, 'src/server/http.ts', routes("  { method: 'GET', path: computed },"));
+    const unresolved = architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }));
+    expect(unresolved).toHaveLength(1);
+    expect(unresolved[0]).toStartWith(`${join(root, 'src/server/http.ts')}:7: graphql-only-reads: `);
+    expect(unresolved[0]).toContain('not a literal path');
+    // A template with no substitution is a literal and is checked as one: it is refused for being a retired read.
+    writeModule(root, 'src/server/http.ts', routes("  { method: 'GET', path: `/api/page` },"));
+    const retired = architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }));
+    expect(retired).toHaveLength(1);
+    expect(retired[0]).toContain('answers the route GET /api/page');
+  });
+
+  test('the authored reads are GraphQL\'s and its writes are kept: GET fails, POST, PATCH and DELETE pass', async () => {
+    const root = readFixture();
+    const routes = (method: string): string[] => [
+      '/** The one way in. */',
+      '',
+      'export const routes = [',
+      "  { method: 'GET', path: '/graphql/schema' },",
+      `  { method: '${method}', path: '/api/authored' },`,
+      '];',
+      '',
+    ];
+    writeModule(root, 'src/server/http.ts', routes('GET'));
+    const refused = architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] }));
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toContain('answers the route GET /api/authored');
+    for (const method of ['POST', 'PATCH', 'DELETE']) {
+      writeModule(root, 'src/server/http.ts', routes(method));
+      expect(architectureProblemLines(await architectureCheck({ root, rules: ['graphql-only-reads'] })), method).toEqual([]);
+    }
   });
 
   test('a kind name in the server layer fails, and the catalogue written as data does not', async () => {
@@ -584,5 +631,16 @@ describe('the reads and names of decision 0036, section 8', () => {
     expect(found[0]).toContain('names the kind code.file');
     rmSync(join(root, 'src/server/pages.ts'));
     expect(architectureProblemLines(await architectureCheck({ root, rules: ['no-kind-names'] }))).toEqual([]);
+  });
+
+  test('the kind name is refused in the remaining knowledge modules and in the app too', async () => {
+    const root = readFixture();
+    writeModule(root, 'catalog/code/structure/code.file.yaml', ['id: code.file', '']);
+    writeModule(root, 'src/knowledge/probe.ts', ['/** The knowledge readers name no kind either. */', "export const PAGE_KIND = 'code.file';", '']);
+    writeModule(root, 'wiki/app/src/probe.tsx', ['/** Nor does the app. */', "export const TERM_KIND = 'code.file';", '']);
+    const found = architectureProblemLines(await architectureCheck({ root, rules: ['no-kind-names'] }));
+    expect(found).toHaveLength(2);
+    expect(found[0]).toStartWith(`${join(root, 'src/knowledge/probe.ts')}:2: no-kind-names: `);
+    expect(found[1]).toStartWith(`${join(root, 'wiki/app/src/probe.tsx')}:2: no-kind-names: `);
   });
 });

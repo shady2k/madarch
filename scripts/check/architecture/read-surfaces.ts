@@ -17,55 +17,76 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseSync } from '@swc/core';
+import { existsSync } from 'node:fs';
 import { absolutePathOf, type ModuleSet } from './sources.js';
 import { orderedViolations, type ArchitectureViolation } from './violation.js';
 
-/** The routes section 8 keeps, with the graph's own one: everything else is read through `/graphql`. */
-export const ALLOWED_ROUTES: readonly string[] = [
-  '/graphql',
-  '/graphql/schema',
-  '/api/events',
-  '/api/product',
-  '/api/products',
-  '/api/status',
-  '/api/source',
-  '/api/kind-usage',
-  '/api/run',
-  '/api/fill',
-  '/api/fill-selected',
-  '/api/fill-runs',
-  '/api/pause',
-  '/api/stop',
-  '/api/agents',
-  '/api/agent',
-  '/api/agent-choices',
-  '/api/model-role',
-  '/api/settings',
-  '/api/product-settings',
-  '/api/journal',
-  '/api/refresh-plan',
-  '/api/reset',
-  '/api/graph-verdicts',
-  '/api/rewrite-pages',
-  '/api/start-fresh',
-  '/api/answer',
-  '/api/correction',
-  '/api/problem-dismiss',
-  '/api/problem-task',
-  '/api/task-propose',
-  '/api/task-create',
-  '/api/task-close',
-  '/api/task-run',
-  '/models',
-  '/views',
-  '/sources',
+/**
+ * The routes section 8 keeps, with the graph's own one: everything else is read through `/graphql`. `*` is a route kept
+ * for every method; an entry with a method keeps only that method (`/api/authored` keeps its writes and not its read).
+ */
+export interface AllowedRoute {
+  readonly method: string;
+  readonly path: string;
+}
+
+export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
+  { method: '*', path: '/graphql' },
+  { method: '*', path: '/graphql/schema' },
+  { method: '*', path: '/api/events' },
+  { method: '*', path: '/api/product' },
+  { method: '*', path: '/api/products' },
+  { method: '*', path: '/api/status' },
+  { method: '*', path: '/api/source' },
+  { method: '*', path: '/api/kind-usage' },
+  { method: '*', path: '/api/run' },
+  { method: '*', path: '/api/fill' },
+  { method: '*', path: '/api/fill-selected' },
+  { method: '*', path: '/api/fill-runs' },
+  { method: '*', path: '/api/pause' },
+  { method: '*', path: '/api/stop' },
+  { method: '*', path: '/api/agents' },
+  { method: '*', path: '/api/agent' },
+  { method: '*', path: '/api/agent-choices' },
+  { method: '*', path: '/api/model-role' },
+  { method: '*', path: '/api/settings' },
+  { method: '*', path: '/api/product-settings' },
+  { method: '*', path: '/api/journal' },
+  { method: '*', path: '/api/refresh-plan' },
+  { method: '*', path: '/api/reset' },
+  { method: '*', path: '/api/graph-verdicts' },
+  { method: '*', path: '/api/rewrite-pages' },
+  { method: '*', path: '/api/start-fresh' },
+  { method: '*', path: '/api/answer' },
+  { method: '*', path: '/api/correction' },
+  { method: '*', path: '/api/problem-dismiss' },
+  { method: '*', path: '/api/problem-task' },
+  { method: '*', path: '/api/task-propose' },
+  { method: '*', path: '/api/task-create' },
+  { method: '*', path: '/api/task-close' },
+  { method: '*', path: '/api/task-run' },
+  // The authored writes are commands section 8 keeps; the authored reads are GraphQL's.
+  { method: 'POST', path: '/api/authored' },
+  { method: 'PATCH', path: '/api/authored' },
+  { method: 'DELETE', path: '/api/authored' },
+  // The fill's own unit tool channel: a unit's MCP server forwards its calls here, and it is not a page read.
+  { method: 'POST', path: '/api/fill/unit/tool' },
+  { method: '*', path: '/models' },
+  { method: '*', path: '/views' },
+  { method: '*', path: '/sources' },
 ];
 
 /** The route table's module: where every HTTP route stands, one entry each. */
 const ROUTE_MODULE = 'src/server/http.ts';
 
-/** The modules whose literals must name no kind: the server's page and API layer, and the GraphQL API. */
-const KIND_FREE_FOLDERS: readonly string[] = ['src/server', 'src/graphql'];
+/**
+ * The folders whose literals must name no kind (section 8): the server's page and API layer, the GraphQL API, the
+ * knowledge modules that remain, and the app. The catalogue itself is data and names them freely.
+ */
+export const KIND_FREE_FOLDERS: readonly string[] = ['src/server', 'src/graphql', 'src/knowledge', 'wiki/app/src'];
+
+/** The folders the module set of this rule holds: the product's, plus the app's own package. */
+export const RULE_FOLDERS: readonly string[] = ['src', 'scripts', 'wiki/app/src'];
 
 /** One node of a parsed module, as this rule walks it. */
 type Node = Record<string, unknown>;
@@ -78,7 +99,7 @@ function lineAt(bytes: Uint8Array, byteOffset: number): number {
   return line;
 }
 
-function parseModule(root: string, file: string): { ast: Node; bytes: Uint8Array } {
+function parseModule(root: string, file: string): { ast: Node; bytes: Uint8Array; source: string } {
   const path = absolutePathOf(root, file);
   const source = readFileSync(path, 'utf8');
   let ast: unknown;
@@ -87,7 +108,7 @@ function parseModule(root: string, file: string): { ast: Node; bytes: Uint8Array
   } catch (error) {
     throw new Error(`${path}:1: the module could not be parsed by swc: ${(error as Error).message}`);
   }
-  return { ast: ast as Node, bytes: new TextEncoder().encode(source) };
+  return { ast: ast as Node, bytes: new TextEncoder().encode(source), source };
 }
 
 /** Every node of a tree, in source order. */
@@ -146,8 +167,9 @@ function unwrap(expression: Node | undefined): Node | undefined {
   return held ?? undefined;
 }
 
-/** The module-level string constants of `src/server/http.ts`, by name: a route written as one is read here. */
-function stringConstantsOf(ast: Node): Map<string, string> {
+/** The module-level string constants of one module, by name: a route written as one is read here. */
+function stringConstantsOfModule(root: string, file: string): Map<string, string> {
+  const { ast } = parseModule(root, file);
   const constants = new Map<string, string>();
   for (const node of nodesOf(ast)) {
     if (node['type'] !== 'VariableDeclarator') continue;
@@ -162,10 +184,59 @@ function stringConstantsOf(ast: Node): Map<string, string> {
   return constants;
 }
 
+/** The string constants `file` imports from the repository's own modules, resolved through the module that exports them. */
+function importedStringConstantsOf(root: string, file: string): Map<string, string> {
+  const { ast } = parseModule(root, file);
+  const constants = new Map<string, string>();
+  const visit = (node: Node): void => {
+    if (node['type'] !== 'ImportDeclaration') return;
+    const specifier = String((node['source'] as Node | undefined)?.['value'] ?? '');
+    if (!specifier.startsWith('.')) return;
+    const joined = resolveImport(dirnamePosix(file), specifier);
+    const base = joined.endsWith('.js') ? joined.slice(0, -3) : joined;
+    const target = [`${base}.ts`, `${base}.tsx`, `${joined}`].find((candidate) => existsSync(absolutePathOf(root, candidate)));
+    if (target === undefined) return;
+    const exported = stringConstantsOfModule(root, target);
+    for (const one of node['specifiers'] as Node[] ?? []) {
+      if (one['type'] !== 'ImportSpecifier') continue;
+      // `import { X }` carries no `imported` name in this parser: the local name is the exported one.
+      const local = String((one['local'] as Node | undefined)?.['value'] ?? '');
+      const imported = String((one['imported'] as Node | undefined)?.['value'] ?? local);
+      const value = exported.get(imported);
+      if (value !== undefined) constants.set(local, value);
+    }
+  };
+  for (const node of nodesOf(ast)) visit(node);
+  return constants;
+}
+
+/** A module's directory, as a `/`-separated path from the repository root. */
+function dirnamePosix(file: string): string {
+  const cut = file.lastIndexOf('/');
+  return cut < 0 ? '' : file.slice(0, cut);
+}
+
+/** `a/b/../c` as `a/c`, so an import resolves to the path the module set knows. */
+function resolveImport(dirname: string, specifier: string): string {
+  const parts = [...dirname.split('/'), ...specifier.split('/')].filter((part) => part !== '' && part !== '.');
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part === '..') out.pop();
+    else out.push(part);
+  }
+  return out.join('/');
+}
+
 /** The path an expression names, when it is a literal, a constant, or a member of the API map. */
 function pathOf(expression: Node | undefined, constants: ReadonlyMap<string, string>, api: ReadonlyMap<string, string>): string | undefined {
   if (expression === undefined) return undefined;
   if (expression['type'] === 'StringLiteral') return String(expression['value']);
+  // A template with no substitution names one path: it is read as that path, and then checked like a literal.
+  if (expression['type'] === 'TemplateLiteral') {
+    const expressions = Array.isArray(expression['expressions']) ? (expression['expressions'] as unknown[]) : [];
+    const quasis = Array.isArray(expression['quasis']) ? (expression['quasis'] as Node[]) : [];
+    return expressions.length === 0 && quasis.length === 1 ? String((quasis[0]?.['cooked'] ?? quasis[0]?.['raw']) ?? '') : undefined;
+  }
   if (expression['type'] === 'Identifier') return constants.get(String(expression['value']));
   if (expression['type'] === 'MemberExpression') {
     const object = expression['object'] as Node;
@@ -176,24 +247,40 @@ function pathOf(expression: Node | undefined, constants: ReadonlyMap<string, str
 }
 
 /**
- * Every route of the server's route table that section 8 does not keep: a read route outside `/graphql` and the kept
- * list is refused even when its handler is a stub, because a second read surface is the thing the decision deletes.
+ * Every route of the server's route table that section 8 does not keep: a route outside `/graphql` and the kept list is
+ * refused even when its handler is a stub, because a second read surface is the thing the decision deletes. A route whose
+ * path or method this check cannot read (a computed path, a variable) is refused too: an unreadable route is not a pass.
  */
 export function routeViolations(root: string): ArchitectureViolation[] {
   const { ast, bytes } = parseModule(root, ROUTE_MODULE);
-  const constants = stringConstantsOf(ast);
+  const constants = new Map([...stringConstantsOfModule(root, ROUTE_MODULE), ...importedStringConstantsOf(root, ROUTE_MODULE)]);
   const api = apiRoutesOf(root);
   const violations: ArchitectureViolation[] = [];
+  const decoder = new TextDecoder();
+  const written = (expression: Node): string => {
+    const span = expression['span'] as { start: number; end: number } | undefined;
+    return span === undefined ? '' : decoder.decode(bytes.subarray(Math.max(span.start - 1, 0), Math.max(span.end - 1, 0))).replaceAll('\n', ' ').trim();
+  };
   for (const node of nodesOf(ast)) {
     if (node['type'] !== 'ObjectExpression') continue;
     const method = propertyOf(node, 'method');
     const path = propertyOf(node, 'path');
     if (method === undefined || path === undefined) continue;
-    const named = pathOf(path, constants, api);
-    if (named === undefined) continue;
-    if (ALLOWED_ROUTES.includes(named)) continue;
     const span = node['span'] as { start: number } | undefined;
-    violations.push({ rule: 'graphql-only-reads', file: ROUTE_MODULE, line: span === undefined ? 1 : lineAt(bytes, span.start), symbol: named });
+    const line = span === undefined ? 1 : lineAt(bytes, span.start);
+    const namedMethod = method['type'] === 'StringLiteral' ? String(method['value']) : undefined;
+    const named = pathOf(path, constants, api);
+    if (named === undefined) {
+      violations.push({ rule: 'graphql-only-reads', file: ROUTE_MODULE, line, symbol: `${namedMethod ?? '<computed method>'} ${written(path)}: not a literal path` });
+      continue;
+    }
+    if (namedMethod === undefined) {
+      violations.push({ rule: 'graphql-only-reads', file: ROUTE_MODULE, line, symbol: `${written(method)} ${named}: not a literal method` });
+      continue;
+    }
+    const kept = ALLOWED_ROUTES.some((entry) => entry.path === named && (entry.method === '*' || entry.method === namedMethod));
+    if (kept) continue;
+    violations.push({ rule: 'graphql-only-reads', file: ROUTE_MODULE, line, symbol: `${namedMethod} ${named}` });
   }
   return orderedViolations(violations);
 }
@@ -228,10 +315,13 @@ export function kindNameViolations(root: string, modules: ModuleSet): Architectu
   for (const file of modules.modules) {
     if (!KIND_FREE_FOLDERS.some((folder) => file.startsWith(`${folder}/`))) continue;
     const { ast, bytes } = parseModule(root, file);
+    // One violation per kind and file: a rule that states a kind on six lines is one debt, listed once at its first line.
+    const seen = new Set<string>();
     for (const node of nodesOf(ast)) {
       if (node['type'] !== 'StringLiteral') continue;
       const value = String(node['value']);
-      if (!kinds.has(value)) continue;
+      if (!kinds.has(value) || seen.has(value)) continue;
+      seen.add(value);
       const span = node['span'] as { start: number } | undefined;
       violations.push({ rule: 'no-kind-names', file, line: span === undefined ? 1 : lineAt(bytes, span.start), symbol: value });
     }
