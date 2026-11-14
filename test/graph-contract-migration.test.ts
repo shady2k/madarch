@@ -58,3 +58,65 @@ describe('a populated field a contract removes', () => {
     expect(journal.some((row) => row.words.includes('closed'))).toBe(true);
   }, 60_000);
 });
+
+describe('removing derived kinds with populated edge opinions', () => {
+  const recordTable = generatedTableName('record', 'vertex');
+  const edgeTable = generatedTableName('links', 'edge');
+  const graph: GraphContract = {
+    vertex: [{ name: 'record', table: recordTable, key: ['title'], capability: 'fixture', fields: [{ name: 'title', type: 'text' }] }],
+    edge: [{ name: 'links', table: edgeTable, from: ['any'], to: ['any'], repeats: false, fields: [], capability: 'fixture' }],
+    dictionary: [],
+  };
+  test('removing a plugin vertex kind refuses to delete an incident edge with person-authored history', async () => {
+    const owner = await createTestDatabaseOwner({ graphContract: graph });
+    try {
+      await owner.transaction('write', async (tx) => {
+        await publishGraphDrafts(tx, graph, {
+          vertices: ['left', 'right'].map((title) => ({ kind: 'record', key: { title }, values: {}, producer: 'fixture', producerVersion: '1' })),
+          removals: [],
+        }, 1, { author: 'fixture@1' });
+        await publishGraphDrafts(tx, graph, {
+          vertices: [],
+          edges: [{ kind: 'links', from: { kind: 'record', key: { title: 'left' } }, to: { kind: 'record', key: { title: 'right' } }, producer: 'person:reader', producerVersion: '1' }],
+          removals: [],
+        }, 1, { author: 'person:reader', words: 'Keep this link' });
+      });
+      const snapshot = async () => await owner.run(async (tx) => ({
+        nodes: (await tx.query('SELECT * FROM node ORDER BY id')).rows,
+        edges: (await tx.query('SELECT * FROM edge ORDER BY id')).rows,
+        opinions: (await tx.query(`SELECT * FROM ${edgeTable} ORDER BY id`)).rows,
+        history: (await tx.query("SELECT * FROM operation WHERE author = 'person:reader' ORDER BY seq")).rows,
+      }));
+      const before = await snapshot();
+      expect(before.opinions).toHaveLength(1);
+      expect(before.history).toHaveLength(1);
+      await expect(prepareGraphSchema(owner, { ...graph, vertex: [] })).rejects.toThrow(
+        'the removed kind "record" has 1 incident edge of kind "links" with authored history that would be lost: the change is refused',
+      );
+      expect(await snapshot()).toEqual(before);
+    } finally { await owner.close(); }
+  });
+  for (const removed of ['edge', 'vertex'] as const) {
+    test(`removing the ${removed} kind clears dependent opinions before graph identities`, async () => {
+      const owner = await createTestDatabaseOwner({ graphContract: graph });
+      try {
+        await owner.transaction('write', async (tx) => {
+          await publishGraphDrafts(tx, graph, {
+            vertices: ['left', 'right'].map((title) => ({ kind: 'record', key: { title }, values: {}, producer: 'fixture', producerVersion: '1' })),
+            edges: [{ kind: 'links', from: { kind: 'record', key: { title: 'left' } }, to: { kind: 'record', key: { title: 'right' } }, producer: 'fixture', producerVersion: '1' }],
+            removals: [],
+          });
+        });
+        await prepareGraphSchema(owner, { ...graph, [removed]: [] });
+        const edges = await owner.run((tx) => tx.query('SELECT id FROM edge'));
+        expect(edges.rows).toHaveLength(0);
+        if (removed === 'vertex') {
+          expect((await owner.run((tx) => tx.query(`SELECT id FROM ${edgeTable}`))).rows).toHaveLength(0);
+          expect((await owner.run((tx) => tx.query('SELECT id FROM node'))).rows).toHaveLength(0);
+        } else {
+          expect((await owner.run((tx) => tx.query('SELECT id FROM node'))).rows).toHaveLength(2);
+        }
+      } finally { await owner.close(); }
+    });
+  }
+});

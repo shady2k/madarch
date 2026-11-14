@@ -1,7 +1,7 @@
 id: practice.penetration-test
 purpose: quality
 audience: [security-engineer, tester, developer]
-definition: An authorised attempt to break the product, with what it reached and what it found.
+definition: A penetration test is an authorised attempt to break the product, with what it reached and what it found.
 sources:
 - https://owasp.org/www-project-web-security-testing-guide/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тест на проникновение
     many: Тесты на проникновение
 description:
-  en: An authorised attempt to break the product, with what it reached and what it found.
-  ru: Разрешённая попытка сломать продукт с тем, куда она дошла и что нашла.
+  en: A penetration test has people try, with permission, to defeat the product's defences as a real attacker would, within an agreed scope. Its report says what they reached, how and what should be fixed.
+  ru: Тест на проникновение — разрешённая попытка людей преодолеть защиту продукта так, как это сделал бы настоящий атакующий, в согласованных границах. В отчёте сказано, куда они дошли, как и что надо исправить.

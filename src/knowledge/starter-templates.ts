@@ -17,6 +17,8 @@ export interface StarterTemplate {
   readonly description: StarterTemplateText;
   /** The kinds the manifest declares: `all` is the whole starter catalogue, `none` writes no manifest at all. */
   readonly kinds: 'all' | 'none' | readonly string[];
+  /** The starter value sets the template declares, as the manifest writes them under `values:`. */
+  readonly values?: Readonly<Record<string, unknown>>;
 }
 
 /** Templates are repository data, embedded together with the catalogue for offline creation. */
@@ -32,7 +34,7 @@ const declaredTemplates = Object.entries(CATALOG_FILES)
       if (words === undefined || typeof words.en !== 'string' || typeof words.ru !== 'string') throw new Error(`catalog/${path}:1: ${field} names the template in en and ru`);
     }
     if (data.id !== id || typeof data.order !== 'number' || (data.kinds !== 'all' && data.kinds !== 'none' && (!Array.isArray(data.kinds) || !data.kinds.every((kind) => typeof kind === 'string')))) throw new Error(`catalog/${path}:1: a template declares its file's id, order and kinds (all, none, or kind names/folders)`);
-    return { template: { id, title: data.title, description: data.description, kinds: data.kinds } as StarterTemplate, order: data.order, default: data.default === true };
+    return { template: { id, title: data.title, description: data.description, kinds: data.kinds, ...(data.values === undefined ? {} : { values: data.values as Record<string, unknown> }) } as StarterTemplate, order: data.order, default: data.default === true };
   })
   .sort((a, b) => a.order - b.order || byCodePoint(a.template.id, b.template.id));
 

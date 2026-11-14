@@ -1,7 +1,7 @@
 id: scrum.increment
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: The usable result the team adds to the product in a sprint.
+definition: An increment is the usable result the team adds to the product in a sprint.
 sources:
 - https://scrumguides.org/scrum-guide.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Инкремент
     many: Инкременты
 description:
-  en: The usable result the team adds to the product in a sprint.
-  ru: Полезный результат, который команда добавляет продукту за спринт.
+  en: 'An increment is the part of the product that becomes usable at the end of a sprint: a finished feature, a fix, an improvement that a user can already benefit from. It must meet the definition of done, and it adds to what previous increments built.'
+  ru: 'Инкремент — часть продукта, которая становится пригодной к концу спринта: законченная возможность, исправление или улучшение, которым пользователь уже может воспользоваться. Он должен соответствовать определению готовности и добавляется к тому, что построили прежние инкременты.'

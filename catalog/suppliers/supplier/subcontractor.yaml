@@ -1,7 +1,7 @@
 id: practice.subcontractor
 purpose: operations
 audience: [product-lead, operations, security-engineer]
-definition: A party a supplier passes part of its work to, and the product depends on in turn.
+definition: A subcontractor is a party that a supplier passes part of its work to, and on which the product thereby depends.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Субподрядчик
     many: Субподрядчики
 description:
-  en: A party a supplier passes part of its work to, and the product depends on in turn.
-  ru: Сторона, которой поставщик передаёт часть работы и от которой зависит продукт.
+  en: A subcontractor does part of a supplier's work, for example hosting or support, so the product depends on it as well. The product should know who they are, because their failures and their security become the product's risk.
+  ru: Субподрядчик выполняет часть работы поставщика, например размещение или поддержку, и потому продукт зависит и от него. Продукту важно знать, кто это, ведь их сбои и их безопасность становятся его риском.

@@ -1,7 +1,7 @@
 id: practice.migration
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A step that changes a database's schema, in the order the steps run.
+definition: A migration is a step that changes a database's schema, run in order with the other steps.
 sources:
 - https://www.postgresql.org/docs/
 acquisition:
@@ -25,5 +25,5 @@ labels:
     one: Миграция
     many: Миграции
 description:
-  en: A step that changes a database's schema, in the order they run.
-  ru: Шаг, который меняет схему базы данных, в порядке выполнения.
+  en: A migration is a scripted change to a database's structure or data, such as adding a table or renaming a column. Migrations run in a fixed order, so any database can be brought to the same version.
+  ru: 'Миграция — изменение устройства или данных базы, записанное сценарием: добавить таблицу или переименовать столбец. Миграции выполняют в определённом порядке, поэтому любую базу можно привести к одной версии.'

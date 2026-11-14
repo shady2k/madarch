@@ -1,7 +1,7 @@
 id: istqb.test-charter
 purpose: quality
 audience: [tester, developer]
-definition: The mission statement that guides one exploratory test session.
+definition: A test charter is the mission that guides one exploratory test session.
 sources:
 - https://glossary.istqb.org/en_US/term/test-charter
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Миссия тестовой сессии
     many: Миссии тестовых сессий
 description:
-  en: The mission statement that guides one exploratory test session.
-  ru: Формулировка миссии, которая ведёт одну сессию исследовательского тестирования.
+  en: 'A test charter states what one exploratory session should explore and learn, in a sentence or two: the area, the risks and the questions. It keeps the session focused without prescribing each step.'
+  ru: 'Миссия тестовой сессии говорит, что должна исследовать и узнать одна сессия, в одной-двух фразах: область, риски и вопросы. Она держит сессию в фокусе, не расписывая каждый шаг.'

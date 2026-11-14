@@ -1,0 +1,62 @@
+# The page of a catalogue entity (decision 0036, section 6): what the kind is, then the records the graph holds of it.
+# Extends the base entity page, so the entry's relations and its place in the graph stand beside its records. The words
+# are the catalogue's own (its area and subgroup are the manifest's groups, its purpose and audience the manifest's
+# words), and nothing of the declaration's machinery — its name, its status, its plugins — is shown as a fact.
+template: catalogue-entity
+extends: entity
+sections:
+  # The page's title is the kind's own word; the catalogue entity's own label is that word, so no kind badge stands.
+  - id: header
+    replace: true
+    component: header
+    title: { en: Kind, ru: Вид }
+    query: |
+      label
+    params:
+      titlePath: label
+  - id: facts
+    component: facts
+    after: header
+    title: { en: What it is, ru: Что это }
+    query: |
+      label
+      definition
+      group
+      subgroup
+      purpose
+      audience
+      taken
+      standards
+    params:
+      rows:
+        - { label: { en: Definition, ru: Определение }, path: definition, keep: true }
+        - { label: { en: Area, ru: Область }, path: group, format: group }
+        - { label: { en: Subgroup, ru: Подгруппа }, path: subgroup, format: group }
+        - { label: { en: Purpose, ru: Назначение }, path: purpose, format: purpose }
+        - { label: { en: Audience, ru: Аудитория }, path: audience, format: audience }
+        - { label: { en: In the product, ru: В продукте }, path: taken, format: boolean }
+        - { label: { en: Sources, ru: Источники }, path: standards, format: links }
+  - id: records
+    component: table
+    after: facts
+    title: { en: Records, ru: Записи }
+    query: |
+      instances(first: $records_first, after: $records_after) {
+        edges {
+          node {
+            id
+            kind
+            label
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+      }
+    params:
+      path: instances
+      pageSize: 50
+      columns:
+        - { label: { en: Label, ru: Название }, path: node.label }

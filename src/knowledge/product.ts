@@ -13,6 +13,7 @@
  */
 import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
+import { KindCountsCache } from './kind-counts-cache.js';
 import { cancelRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
@@ -88,7 +89,12 @@ import { withManifestContract } from '../graph/manifest-contract.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
-import { executeGraphql, type MessageBody } from '../graph/graphql-execute.js';
+import type { MessageBody } from '../graph/graphql-execute.js';
+import { readWorker, type ReadDescriptor } from '../render/read-worker.js';
+import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgres-cluster.js';
+import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
+import { readProductTemplates } from '../graph/product-templates.js';
+import { structureRevisionOf } from '../graph/graphql-execute.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
 
 /**
@@ -121,6 +127,8 @@ const READER_IDLE_MS = 10 * 60_000;
 export type AgentFactory = (agentId: string, journal: Journal) => (UnitAgent & { close(): Promise<void> }) | { error: string };
 
 export interface KnowledgeProductOptions {
+  /** Whole GraphQL/diagram request budget, including worker startup (default 30 seconds). */
+  readDeadlineMs?: number;
   productFolder: string;
   /** The folder the product's store lives under: `<root>/<product id>/graph`. */
   storeRoot: string;
@@ -240,6 +248,20 @@ export class KnowledgeProduct {
     this.invalidateInterruptedRun();
   }
 
+  get readDeadlineMs(): number {
+    const bound = this.options.readDeadlineMs ?? Number(this.env.MADARCH_READ_DEADLINE_MS ?? 30_000);
+    if (!Number.isFinite(bound) || bound <= 0) throw new Error(`${import.meta.path}:1: readDeadlineMs / MADARCH_READ_DEADLINE_MS must be a positive number of milliseconds`);
+    return bound;
+  }
+
+  /** The API holds the server lease; isolated readers borrow only a client connection. */
+  async readDescriptor(): Promise<ReadDescriptor> {
+    await this.open();
+    await this.followStoreFill();
+    const endpoint = clusterEndpoint(clusterPaths(storeDatabasePath(this.storeFolder())).socketDir);
+    return { folder: this.folder, connection: { ...endpoint, user: CLUSTER_USER, database: 'madarch' } };
+  }
+
   get folder(): string {
     return this.options.productFolder;
   }
@@ -275,6 +297,7 @@ export class KnowledgeProduct {
         if (this.reader !== undefined) this.reader.seq = this.generation;
         this.filesMemo = undefined;
         this.manifestMemo = undefined;
+        this.kindCountsCache.clear();
         this.notify();
       }
       return answer;
@@ -354,15 +377,16 @@ export class KnowledgeProduct {
     this.opening ??= (async () => {
       // Managed readers use only what the daemon published, not a second read of the checkout.
       const manifests = publication === undefined ? validateProductManifests(this.folder) : undefined;
+      let publicationContract = EMPTY_CONTRACT;
       if (manifests !== undefined) {
         if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
-        const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
-        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
+        publicationContract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
+        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(publicationContract));
       }
       const owner = await this.openStore();
       try {
         await owner.ready;
-        if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
+        if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value, withManifestContract(publicationContract));
         await this.ensureStoreTables(owner);
         await this.loadPins(owner);
         // The publication the pins were read at: the first answer does not read them again (followStoreFill).
@@ -440,6 +464,8 @@ export class KnowledgeProduct {
 
   /** The manifest one graph revision was read as: the whole parse stands for the revision, not for a page. */
   private manifestMemo: { seq: number; folder: string; read: ReturnType<typeof readKindsFrom> } | undefined;
+  /** The kind counts one graph revision answered: a poll reads them again only after a publication moves the revision. */
+  private readonly kindCountsCache = new KindCountsCache();
 
   /** The product's kinds manifest and the declaration files beside it, read from the graph: absent when the graph holds none. */
   private async manifestRead(folder: string): Promise<ReturnType<typeof readKindsFrom>> {
@@ -486,10 +512,31 @@ export class KnowledgeProduct {
    * published, the one executor the wiki and MCP share, and the schema its published manifest derives.
    */
   async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }): Promise<{ readonly status: number; readonly body: MessageBody }> {
+    try {
+      return await readWorker(this.readDescriptor().then((descriptor): { kind: 'graphql'; descriptor: ReadDescriptor; operation: typeof operation } => ({ kind: 'graphql', descriptor, operation })), this.readDeadlineMs);
+    } catch (error) {
+      return { status: 200, body: { errors: [{ message: error instanceof Error ? error.message : String(error), extensions: { code: error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED' } }] } };
+    }
+  }
+
+  /**
+   * One entity's neighbourhood at a depth, read through the graph read layer inside one snapshot (decision 0036, sections
+   * 7 and 8): what a rendered diagram is drawn from. The manifest and the templates are read in the same snapshot, so the
+   * schema, the relations and the rows answer one revision.
+   */
+  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
     const owner = await this.open();
     await this.followStoreFill();
-    // The executor reads the published manifest inside its own snapshot: the schema and the rows answer one revision.
-    return await executeGraphql(owner, { folder: this.options.productFolder }, operation);
+    return await owner.transaction('snapshot', async (tx) => {
+      await tx.query("SET LOCAL statement_timeout = '2000ms'");
+      const manifest = await readPublishedManifest(tx);
+      if (manifest === undefined) throw new WikiReadError(`${join(this.options.productFolder, KINDS_FILE)}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
+      const published = publishedManifestOf(manifest);
+      const templates = readProductTemplates(this.options.productFolder);
+      const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
+      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates);
+      return await context.diagramNeighbourhood(id, depth, lang, first);
+    });
   }
 
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */
@@ -598,6 +645,7 @@ export class KnowledgeProduct {
       if (this.closed) return;
       const owner = await this.open();
       this.generation += 1;
+      this.kindCountsCache.clear();
       this.reader = { owner, seq: this.generation };
       // What the repositories were filled to is read with the graph: a source is read at the commit the graph it is
       // shown beside was filled from.
@@ -1608,6 +1656,7 @@ export class KnowledgeProduct {
       this.countsMemo = undefined;
       this.filesMemo = undefined;
       this.manifestMemo = undefined;
+      this.kindCountsCache.clear();
       this.problemsCache = undefined;
       this.pins.clear();
       this.fill = { state: 'idle' };
@@ -1812,6 +1861,9 @@ export class KnowledgeProduct {
     await this.open();
     await this.followStoreFill();
     this.restorePause();
+    // The revision this poll answers is the one it started at: a publication during the manifest read moves the reader
+    // to a later revision, and these counts must not be remembered under that later one.
+    const statusSeq = this.reader?.seq ?? 0;
     const read = await this.manifestRead(product.folder);
     const run = await this.runViewOf();
     // What the last run's trace and the store's producer results say: the fill's end state, read for the poll.
@@ -1852,7 +1904,7 @@ export class KnowledgeProduct {
       manifest: base.filled ? 'ok' : 'not-filled',
       purposes: manifest.purposes === undefined ? undefined : [...manifest.purposes.values()].sort((a, b) => a.order - b.order || byCodePoint(a.id, b.id)).map((purpose) => ({ id: purpose.id, labels: { ...purpose.labels }, order: purpose.order, kinds: [...manifest.kinds.values()].filter((kind) => kind.purpose === purpose.id).map((kind) => kind.name) })),
       roles: Object.fromEntries([...manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
-      kinds: await this.kindCounts(manifest),
+      kinds: await this.kindCounts(manifest, statusSeq),
     };
   }
 
@@ -1861,13 +1913,19 @@ export class KnowledgeProduct {
    * manifest that declares a catalogue names every entry of it, catalogue-only ones included: the wiki's menu is the
    * product's whole map, and a kind nothing filled yet stands with a count of zero.
    */
-  private async kindCounts(manifest: KindsManifest): Promise<WikiStatus['kinds']> {
+  private async kindCounts(manifest: KindsManifest, seq: number): Promise<WikiStatus['kinds']> {
+    const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
     const owner = await this.open();
     const kinds = graphKindsOf(manifest);
     const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
-    const counts = new Map((await reader.kindCounts().catch(() => [])).map((one) => [one.kind, one.count] as const));
-    const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
-    return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+    try {
+      const rows = await this.kindCountsCache.counts(seq, async () => await reader.kindCounts());
+      const counts = new Map(rows.map((one) => [one.kind, one.count] as const));
+      return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+    } catch {
+      // A read that failed is no revision's answer: the poll says zero now, and the next poll reads again.
+      return names.map((kind) => ({ kind, count: 0 }));
+    }
   }
 
   /** The writer's state as the poll states it: what it does and the plan it holds, never the units it has done. */
@@ -1980,6 +2038,7 @@ export class KnowledgeProduct {
       if (this.storeStamp !== stamp) {
         this.storeStamp = stamp;
         this.generation += 1;
+        this.kindCountsCache.clear();
         this.reader = { owner: this.reader.owner, seq: this.generation };
         await this.loadPins(this.reader.owner).catch(() => undefined);
         // The graph a fill just published has a manifest and templates the worker has not opened yet: warm them beside
@@ -2395,7 +2454,7 @@ export class KnowledgeHost {
   /** The root the products' stores stand in: what the fill role of this server is told to watch (madarch-8bdc.9). */
   readonly root: string;
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'fillQueued'> = {}) {
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'fillQueued' | 'readDeadlineMs'> = {}) {
     this.root = storeRoot;
   }
 

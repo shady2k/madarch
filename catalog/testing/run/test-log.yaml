@@ -1,7 +1,7 @@
 id: istqb.test-log
 purpose: quality
 audience: [tester, developer]
-definition: The chronological record of what a test run did.
+definition: A test log is the chronological record of what a test run did.
 sources:
 - https://glossary.istqb.org/en_US/term/test-log
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Журнал тестирования
     many: Журналы тестирования
 description:
-  en: The chronological record of what a test run did.
-  ru: Хронологическая запись того, что делал запуск тестов.
+  en: 'A test log records what happened during a run, in order: which test started, what it printed, which setup or call failed. It is what a person reads when a result needs explaining.'
+  ru: 'Журнал тестирования записывает по порядку, что происходило во время запуска: какой тест начался, что он вывел, какая подготовка или вызов отказали. Его читают, когда результат нужно объяснить.'

@@ -11,6 +11,7 @@ type AdministratorGuide implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -62,6 +63,7 @@ type AdministratorGuideConnection {
   edges: [AdministratorGuideEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type AdministratorGuideEdge {
@@ -69,8 +71,18 @@ type AdministratorGuideEdge {
   node: AdministratorGuide!
 }
 
+type Aggregate {
+  count: Int!
+  groupBy(field: String!, limit: Int = 20): [Group!]!
+  histogram(field: String!, bounds: [JSON!]!): [Bucket!]!
+  topN(field: String!, n: Int = 10): [Ranked!]!
+}
+
 type Backlink {
   relation: String!
+  label: String!
+  edge: String!
+  inverse: Boolean!
   from: Entity!
 }
 
@@ -78,6 +90,7 @@ type BacklinkConnection {
   edges: [BacklinkEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type BacklinkEdge {
@@ -88,13 +101,23 @@ type BacklinkEdge {
 type Bootstrap {
   structureRevision: String!
   home: BootstrapHome
+  catalogueTemplate: String!
   templates: [PageTemplate!]!
+  recordTemplates: [RecordTemplate!]!
+  ownTemplates: [OwnTemplate!]!
+  roles: [String!]!
 }
 
 type BootstrapHome {
   id: ID!
   kind: String!
   template: String!
+}
+
+type Bucket {
+  from: JSON
+  to: JSON
+  count: Int!
 }
 
 type CatalogueEntity implements Entity {
@@ -104,6 +127,7 @@ type CatalogueEntity implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String!
   title: String
   definition: String
@@ -116,6 +140,8 @@ type CatalogueEntity implements Entity {
   taken: Boolean!
   plugins: [String!]!
   fields: [CatalogueField!]!
+  instances(first: Int, after: String, lang: String): EntityConnection!
+  instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   grounds(first: Int, after: String): GroundsConnection!
@@ -130,6 +156,7 @@ type CatalogueEntityConnection {
   edges: [CatalogueEntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CatalogueEntityEdge {
@@ -145,10 +172,16 @@ type CatalogueField {
   producers: [String!]!
 }
 
+type Cochange {
+  node: Entity!
+  count: Int!
+}
+
 type CodeAsIsConnection {
   edges: [CodeAsIsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeAsIsConnectionEdge {
@@ -170,6 +203,7 @@ type CodeAuthor implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -189,6 +223,7 @@ type CodeAuthorConnection {
   edges: [CodeAuthorEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeAuthorEdge {
@@ -200,6 +235,7 @@ type CodeAuthoredConnection {
   edges: [CodeAuthoredConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeAuthoredConnectionEdge {
@@ -221,6 +257,7 @@ type CodeBroker implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -233,6 +270,7 @@ type CodeBrokerConnection {
   edges: [CodeBrokerEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeBrokerEdge {
@@ -247,6 +285,7 @@ type CodeChannel implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -277,6 +316,7 @@ type CodeChannelConnection {
   edges: [CodeChannelEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeChannelEdge {
@@ -291,6 +331,7 @@ type CodeCiJob implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -303,6 +344,7 @@ type CodeCiJobConnection {
   edges: [CodeCiJobEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeCiJobEdge {
@@ -317,6 +359,7 @@ type CodeCiWorkflow implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -329,6 +372,7 @@ type CodeCiWorkflowConnection {
   edges: [CodeCiWorkflowEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeCiWorkflowEdge {
@@ -343,6 +387,7 @@ type CodeColumn implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   table: String
   tableOpinions: [Opinion!]!
   tableOpinionsCount: Int!
@@ -382,6 +427,7 @@ type CodeColumnConnection {
   edges: [CodeColumnEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeColumnEdge {
@@ -396,6 +442,7 @@ type CodeCommit implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
   hashOpinions: [Opinion!]!
   hashOpinionsCount: Int!
@@ -436,6 +483,7 @@ type CodeCommitConnection {
   edges: [CodeCommitEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeCommitEdge {
@@ -450,6 +498,7 @@ type CodeComposeService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -462,6 +511,7 @@ type CodeComposeServiceConnection {
   edges: [CodeComposeServiceEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeComposeServiceEdge {
@@ -473,6 +523,7 @@ type CodeContainsConnection {
   edges: [CodeContainsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeContainsConnectionEdge {
@@ -494,6 +545,7 @@ type CodeContract implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -515,11 +567,55 @@ type CodeContractConnection {
   edges: [CodeContractEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeContractEdge {
   cursor: String!
   node: CodeContract!
+}
+
+type CodeConvention implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  rule: String
+  ruleOpinions: [Opinion!]!
+  ruleOpinionsCount: Int!
+  example: String
+  exampleOpinions: [Opinion!]!
+  exampleOpinionsCount: Int!
+  paths: JSON
+  pathsOpinions: [Opinion!]!
+  pathsOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeConventionConnection {
+  edges: [CodeConventionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeConventionEdge {
+  cursor: String!
+  node: CodeConvention!
 }
 
 type CodeCycle implements Entity {
@@ -529,6 +625,7 @@ type CodeCycle implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -541,6 +638,7 @@ type CodeCycleConnection {
   edges: [CodeCycleEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeCycleEdge {
@@ -555,6 +653,7 @@ type CodeDatabase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -573,6 +672,7 @@ type CodeDatabaseConnection {
   edges: [CodeDatabaseEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDatabaseEdge {
@@ -587,6 +687,7 @@ type CodeDebt implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -599,6 +700,7 @@ type CodeDebtConnection {
   edges: [CodeDebtEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDebtEdge {
@@ -610,6 +712,7 @@ type CodeDeclaredInConnection {
   edges: [CodeDeclaredInConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDeclaredInConnectionEdge {
@@ -631,6 +734,7 @@ type CodeDependency implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -643,6 +747,7 @@ type CodeDependencyConnection {
   edges: [CodeDependencyEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDependencyEdge {
@@ -657,6 +762,7 @@ type CodeDirectory implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -677,6 +783,7 @@ type CodeDirectoryConnection {
   edges: [CodeDirectoryEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDirectoryEdge {
@@ -691,6 +798,7 @@ type CodeDockerfile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -703,6 +811,7 @@ type CodeDockerfileConnection {
   edges: [CodeDockerfileEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDockerfileEdge {
@@ -717,6 +826,7 @@ type CodeDocumentSection implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -729,6 +839,7 @@ type CodeDocumentSectionConnection {
   edges: [CodeDocumentSectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeDocumentSectionEdge {
@@ -743,6 +854,7 @@ type CodeEntryPoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -755,6 +867,7 @@ type CodeEntryPointConnection {
   edges: [CodeEntryPointEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeEntryPointEdge {
@@ -769,6 +882,7 @@ type CodeEnvDefinition implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -781,6 +895,7 @@ type CodeEnvDefinitionConnection {
   edges: [CodeEnvDefinitionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeEnvDefinitionEdge {
@@ -795,6 +910,7 @@ type CodeEnvVar implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -807,6 +923,7 @@ type CodeEnvVarConnection {
   edges: [CodeEnvVarEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeEnvVarEdge {
@@ -821,6 +938,7 @@ type CodeFacet implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -833,6 +951,7 @@ type CodeFacetConnection {
   edges: [CodeFacetEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeFacetEdge {
@@ -847,6 +966,7 @@ type CodeField implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -859,6 +979,7 @@ type CodeFieldConnection {
   edges: [CodeFieldEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeFieldEdge {
@@ -873,6 +994,7 @@ type CodeFile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
@@ -950,6 +1072,7 @@ type CodeFileConnection {
   edges: [CodeFileEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeFileEdge {
@@ -961,6 +1084,7 @@ type CodeForeignKeyConnection {
   edges: [CodeForeignKeyConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeForeignKeyConnectionEdge {
@@ -991,6 +1115,7 @@ type CodeGitlink implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1016,6 +1141,7 @@ type CodeGitlinkConnection {
   edges: [CodeGitlinkEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeGitlinkEdge {
@@ -1027,6 +1153,7 @@ type CodeHasColumnConnection {
   edges: [CodeHasColumnConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeHasColumnConnectionEdge {
@@ -1045,6 +1172,7 @@ type CodeHasIndexConnection {
   edges: [CodeHasIndexConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeHasIndexConnectionEdge {
@@ -1066,6 +1194,7 @@ type CodeHealthEndpoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1078,6 +1207,7 @@ type CodeHealthEndpointConnection {
   edges: [CodeHealthEndpointEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeHealthEndpointEdge {
@@ -1092,6 +1222,7 @@ type CodeHealthcheck implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1104,6 +1235,7 @@ type CodeHealthcheckConnection {
   edges: [CodeHealthcheckEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeHealthcheckEdge {
@@ -1115,6 +1247,7 @@ type CodeHistoryConnection {
   edges: [CodeHistoryConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeHistoryConnectionEdge {
@@ -1139,6 +1272,7 @@ type CodeImage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1151,6 +1285,7 @@ type CodeImageConnection {
   edges: [CodeImageEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeImageEdge {
@@ -1162,6 +1297,7 @@ type CodeImportsConnection {
   edges: [CodeImportsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeImportsConnectionEdge {
@@ -1195,6 +1331,7 @@ type CodeImportsPackageConnection {
   edges: [CodeImportsPackageConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeImportsPackageConnectionEdge {
@@ -1231,6 +1368,7 @@ type CodeIndex implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   table: String
   tableOpinions: [Opinion!]!
   tableOpinionsCount: Int!
@@ -1259,6 +1397,7 @@ type CodeIndexConnection {
   edges: [CodeIndexEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeIndexEdge {
@@ -1273,6 +1412,7 @@ type CodeInput implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1285,6 +1425,7 @@ type CodeInputConnection {
   edges: [CodeInputEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeInputEdge {
@@ -1299,6 +1440,7 @@ type CodeK8sDeployment implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1311,6 +1453,7 @@ type CodeK8sDeploymentConnection {
   edges: [CodeK8sDeploymentEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeK8sDeploymentEdge {
@@ -1325,6 +1468,7 @@ type CodeK8sService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1337,6 +1481,7 @@ type CodeK8sServiceConnection {
   edges: [CodeK8sServiceEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeK8sServiceEdge {
@@ -1351,6 +1496,7 @@ type CodeLockfile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1363,6 +1509,7 @@ type CodeLockfileConnection {
   edges: [CodeLockfileEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeLockfileEdge {
@@ -1377,6 +1524,7 @@ type CodeLogger implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1389,6 +1537,7 @@ type CodeLoggerConnection {
   edges: [CodeLoggerEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeLoggerEdge {
@@ -1403,6 +1552,7 @@ type CodeMakeTarget implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1415,6 +1565,7 @@ type CodeMakeTargetConnection {
   edges: [CodeMakeTargetEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeMakeTargetEdge {
@@ -1429,6 +1580,7 @@ type CodeManifest implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1441,6 +1593,7 @@ type CodeManifestConnection {
   edges: [CodeManifestEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeManifestEdge {
@@ -1455,6 +1608,7 @@ type CodeMessage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1467,6 +1621,7 @@ type CodeMessageConnection {
   edges: [CodeMessageEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeMessageEdge {
@@ -1481,6 +1636,7 @@ type CodeMetric implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1493,6 +1649,7 @@ type CodeMetricConnection {
   edges: [CodeMetricEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeMetricEdge {
@@ -1507,6 +1664,7 @@ type CodeMetricsEndpoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1519,6 +1677,7 @@ type CodeMetricsEndpointConnection {
   edges: [CodeMetricsEndpointEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeMetricsEndpointEdge {
@@ -1533,6 +1692,7 @@ type CodeMigration implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1545,6 +1705,7 @@ type CodeMigrationConnection {
   edges: [CodeMigrationEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeMigrationEdge {
@@ -1559,6 +1720,7 @@ type CodeModule implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1580,6 +1742,7 @@ type CodeModuleConnection {
   edges: [CodeModuleEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeModuleEdge {
@@ -1594,6 +1757,7 @@ type CodeNewcomerCommand implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1606,6 +1770,7 @@ type CodeNewcomerCommandConnection {
   edges: [CodeNewcomerCommandEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeNewcomerCommandEdge {
@@ -1620,6 +1785,7 @@ type CodeNewcomerFailure implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1632,6 +1798,7 @@ type CodeNewcomerFailureConnection {
   edges: [CodeNewcomerFailureEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeNewcomerFailureEdge {
@@ -1646,6 +1813,7 @@ type CodeNewcomerPrerequisites implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1658,6 +1826,7 @@ type CodeNewcomerPrerequisitesConnection {
   edges: [CodeNewcomerPrerequisitesEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeNewcomerPrerequisitesEdge {
@@ -1672,6 +1841,7 @@ type CodeOperation implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1696,6 +1866,7 @@ type CodeOperationConnection {
   edges: [CodeOperationEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeOperationEdge {
@@ -1710,6 +1881,7 @@ type CodePackage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   ecosystem: String
   ecosystemOpinions: [Opinion!]!
   ecosystemOpinionsCount: Int!
@@ -1729,6 +1901,7 @@ type CodePackageConnection {
   edges: [CodePackageEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodePackageEdge {
@@ -1740,6 +1913,7 @@ type CodeParentConnection {
   edges: [CodeParentConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeParentConnectionEdge {
@@ -1764,6 +1938,7 @@ type CodePort implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1776,6 +1951,7 @@ type CodePortConnection {
   edges: [CodePortEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodePortEdge {
@@ -1790,6 +1966,7 @@ type CodeProbe implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1802,6 +1979,7 @@ type CodeProbeConnection {
   edges: [CodeProbeEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeProbeEdge {
@@ -1816,6 +1994,7 @@ type CodeProcess implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1828,6 +2007,7 @@ type CodeProcessConnection {
   edges: [CodeProcessEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeProcessEdge {
@@ -1839,6 +2019,7 @@ type CodeRenamedFromConnection {
   edges: [CodeRenamedFromConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeRenamedFromConnectionEdge {
@@ -1860,6 +2041,7 @@ type CodeRepository implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -1887,6 +2069,7 @@ type CodeRepositoryConnection {
   edges: [CodeRepositoryEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeRepositoryEdge {
@@ -1901,6 +2084,7 @@ type CodeRoute implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1913,6 +2097,7 @@ type CodeRouteConnection {
   edges: [CodeRouteEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeRouteEdge {
@@ -1927,6 +2112,7 @@ type CodeService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1948,6 +2134,7 @@ type CodeServiceConnection {
   edges: [CodeServiceEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeServiceEdge {
@@ -1962,6 +2149,7 @@ type CodeSnapshot implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1974,6 +2162,7 @@ type CodeSnapshotConnection {
   edges: [CodeSnapshotEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeSnapshotEdge {
@@ -1988,6 +2177,7 @@ type CodeSqlBuild implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2000,6 +2190,7 @@ type CodeSqlBuildConnection {
   edges: [CodeSqlBuildEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeSqlBuildEdge {
@@ -2014,6 +2205,7 @@ type CodeSqlSink implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2026,6 +2218,7 @@ type CodeSqlSinkConnection {
   edges: [CodeSqlSinkEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeSqlSinkEdge {
@@ -2040,6 +2233,7 @@ type CodeSymbol implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -2064,6 +2258,7 @@ type CodeSymbolConnection {
   edges: [CodeSymbolEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeSymbolEdge {
@@ -2078,6 +2273,7 @@ type CodeTable implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   database: String
   databaseOpinions: [Opinion!]!
   databaseOpinionsCount: Int!
@@ -2105,6 +2301,7 @@ type CodeTableConnection {
   edges: [CodeTableEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeTableEdge {
@@ -2119,6 +2316,7 @@ type CodeTask implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2131,6 +2329,7 @@ type CodeTaskConnection {
   edges: [CodeTaskEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeTaskEdge {
@@ -2145,6 +2344,7 @@ type CodeTestCase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2159,6 +2359,7 @@ type CodeTestCaseConnection {
   edges: [CodeTestCaseEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeTestCaseEdge {
@@ -2173,6 +2374,7 @@ type CodeTestQuarantine implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -2211,6 +2413,7 @@ type CodeTestQuarantineConnection {
   edges: [CodeTestQuarantineEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeTestQuarantineEdge {
@@ -2222,6 +2425,7 @@ type CodeTouchedConnection {
   edges: [CodeTouchedConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CodeTouchedConnectionEdge {
@@ -2245,6 +2449,86 @@ type CodeTouchedEdge {
   node: Entity!
 }
 
+type Comment implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  author: String
+  authorOpinions: [Opinion!]!
+  authorOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  about: JSON
+  aboutOpinions: [Opinion!]!
+  aboutOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  editedAt: DateTime
+  editedAtOpinions: [Opinion!]!
+  editedAtOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CommentConnection {
+  edges: [CommentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CommentEdge {
+  cursor: String!
+  node: Comment!
+}
+
+type Constitution implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  precedence: JSON
+  precedenceOpinions: [Opinion!]!
+  precedenceOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type ConstitutionConnection {
+  edges: [ConstitutionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ConstitutionEdge {
+  cursor: String!
+  node: Constitution!
+}
+
 type Correction implements Entity {
   id: ID!
   kind: String!
@@ -2252,6 +2536,7 @@ type Correction implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2276,6 +2561,7 @@ type CorrectionConnection {
   edges: [CorrectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CorrectionEdge {
@@ -2290,6 +2576,7 @@ type DocDecision implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2314,6 +2601,7 @@ type DocDecisionConnection {
   edges: [DocDecisionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DocDecisionEdge {
@@ -2328,6 +2616,7 @@ type DocRequirement implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2352,6 +2641,7 @@ type DocRequirementConnection {
   edges: [DocRequirementEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DocRequirementEdge {
@@ -2366,6 +2656,7 @@ type DocRule implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2390,6 +2681,7 @@ type DocRuleConnection {
   edges: [DocRuleEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DocRuleEdge {
@@ -2404,6 +2696,7 @@ type DocTerm implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2443,6 +2736,7 @@ type DocTermConnection {
   edges: [DocTermEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DocTermEdge {
@@ -2457,6 +2751,7 @@ type DocUseCase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2481,6 +2776,7 @@ type DocUseCaseConnection {
   edges: [DocUseCaseEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DocUseCaseEdge {
@@ -2495,6 +2791,7 @@ type Document implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   commit: String
   commitOpinions: [Opinion!]!
   commitOpinionsCount: Int!
@@ -2525,6 +2822,7 @@ type DocumentConnection {
   edges: [DocumentEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DocumentEdge {
@@ -2539,6 +2837,7 @@ type Domain implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -2590,6 +2889,7 @@ type DomainConnection {
   edges: [DomainEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DomainEdge {
@@ -2604,6 +2904,7 @@ type Enrichment implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -2655,6 +2956,7 @@ type EnrichmentConnection {
   edges: [EnrichmentEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type EnrichmentEdge {
@@ -2669,6 +2971,7 @@ interface Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2681,6 +2984,7 @@ type EntityConnection {
   edges: [EntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type EntityEdge {
@@ -2705,6 +3009,7 @@ type FixedByConnection {
   edges: [FixedByConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type FixedByConnectionEdge {
@@ -2723,6 +3028,7 @@ type GroundsConnection {
   edges: [GroundsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type GroundsConnectionEdge {
@@ -2737,10 +3043,62 @@ type GroundsEdge {
   node: Entity!
 }
 
+type Group {
+  key: JSON
+  count: Int!
+}
+
+type Link implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  relation: ValueSetEntry
+  relationOpinions: [Opinion!]!
+  relationOpinionsCount: Int!
+  source: JSON
+  sourceOpinions: [Opinion!]!
+  sourceOpinionsCount: Int!
+  target: JSON
+  targetOpinions: [Opinion!]!
+  targetOpinionsCount: Int!
+  note: String
+  noteOpinions: [Opinion!]!
+  noteOpinionsCount: Int!
+  createdBy: String
+  createdByOpinions: [Opinion!]!
+  createdByOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type LinkConnection {
+  edges: [LinkEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type LinkEdge {
+  cursor: String!
+  node: Link!
+}
+
 type LinksToConnection {
   edges: [LinksToConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type LinksToConnectionEdge {
@@ -2759,6 +3117,7 @@ type MentionsConnection {
   edges: [MentionsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type MentionsConnectionEdge {
@@ -2773,6 +3132,35 @@ type MentionsEdge {
   node: Entity!
 }
 
+type Navigation {
+  product: String
+  groups: [NavigationGroup!]!
+  kinds: [NavigationKind!]!
+  purposes: [NavigationPurpose!]!
+}
+
+type NavigationGroup {
+  name: String!
+  labels: JSON!
+  short: JSON
+  open: Boolean!
+  parent: String
+}
+
+type NavigationKind {
+  kind: String!
+  one: String!
+  many: String!
+  group: String
+  count: Int!
+  entryId: ID
+}
+
+type NavigationPurpose {
+  id: String!
+  labels: JSON!
+}
+
 type Opinion {
   value: JSON
   producer: String!
@@ -2780,6 +3168,31 @@ type Opinion {
   lang: String
   statedAt: DateTime!
   evidence: [Evidence!]!
+}
+
+type Outgoing {
+  relation: String!
+  label: String!
+  edge: String!
+  inverse: Boolean!
+  to: Entity!
+}
+
+type OutgoingConnection {
+  edges: [OutgoingEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type OutgoingEdge {
+  cursor: String!
+  node: Outgoing!
+}
+
+type OwnTemplate {
+  id: ID!
+  template: String!
 }
 
 type PageInfo {
@@ -2792,6 +3205,52 @@ type PageTemplate {
   body: String!
 }
 
+type Practice implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  rule: String
+  ruleOpinions: [Opinion!]!
+  ruleOpinionsCount: Int!
+  why: String
+  whyOpinions: [Opinion!]!
+  whyOpinionsCount: Int!
+  appliesTo: JSON
+  appliesToOpinions: [Opinion!]!
+  appliesToOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  sinceDate: DateTime
+  sinceDateOpinions: [Opinion!]!
+  sinceDateOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type PracticeConnection {
+  edges: [PracticeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type PracticeEdge {
+  cursor: String!
+  node: Practice!
+}
+
 type ProblemDismissal implements Entity {
   id: ID!
   kind: String!
@@ -2799,6 +3258,7 @@ type ProblemDismissal implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   rule: String
   ruleOpinions: [Opinion!]!
   ruleOpinionsCount: Int!
@@ -2832,6 +3292,7 @@ type ProblemDismissalConnection {
   edges: [ProblemDismissalEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type ProblemDismissalEdge {
@@ -2846,6 +3307,7 @@ type Product implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -2897,6 +3359,7 @@ type ProductConnection {
   edges: [ProductEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type ProductEdge {
@@ -2908,6 +3371,7 @@ type QuarantinesConnection {
   edges: [QuarantinesConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type QuarantinesConnectionEdge {
@@ -2929,6 +3393,7 @@ type Question implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2941,6 +3406,33 @@ type Question implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  priority: ValueSetEntry
+  priorityOpinions: [Opinion!]!
+  priorityOpinionsCount: Int!
+  labels: JSON
+  labelsOpinions: [Opinion!]!
+  labelsOpinionsCount: Int!
+  assignee: String
+  assigneeOpinions: [Opinion!]!
+  assigneeOpinionsCount: Int!
+  owner: String
+  ownerOpinions: [Opinion!]!
+  ownerOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  updatedAt: DateTime
+  updatedAtOpinions: [Opinion!]!
+  updatedAtOpinionsCount: Int!
+  closedAt: DateTime
+  closedAtOpinions: [Opinion!]!
+  closedAtOpinionsCount: Int!
+  closeReason: String
+  closeReasonOpinions: [Opinion!]!
+  closeReasonOpinionsCount: Int!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2953,11 +3445,77 @@ type QuestionConnection {
   edges: [QuestionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type QuestionEdge {
   cursor: String!
   node: Question!
+}
+
+type Ranked {
+  node: Entity!
+  value: JSON!
+}
+
+type RecordTemplate {
+  kind: String!
+  template: String!
+}
+
+type SearchGroup {
+  kind: String!
+  label: String!
+  count: Int!
+  results: [SearchHit!]!
+}
+
+type SearchHit {
+  node: Entity!
+  line: String!
+}
+
+type Skill implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  when: String
+  whenOpinions: [Opinion!]!
+  whenOpinionsCount: Int!
+  instructions: String
+  instructionsOpinions: [Opinion!]!
+  instructionsOpinionsCount: Int!
+  checks: JSON
+  checksOpinions: [Opinion!]!
+  checksOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type SkillConnection {
+  edges: [SkillEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SkillEdge {
+  cursor: String!
+  node: Skill!
 }
 
 type Source implements Entity {
@@ -2967,6 +3525,7 @@ type Source implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -2991,6 +3550,7 @@ type SourceConnection {
   edges: [SourceEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type SourceEdge {
@@ -3005,6 +3565,7 @@ type Task implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -3017,6 +3578,42 @@ type Task implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  priority: ValueSetEntry
+  priorityOpinions: [Opinion!]!
+  priorityOpinionsCount: Int!
+  issueType: ValueSetEntry
+  issueTypeOpinions: [Opinion!]!
+  issueTypeOpinionsCount: Int!
+  labels: JSON
+  labelsOpinions: [Opinion!]!
+  labelsOpinionsCount: Int!
+  assignee: String
+  assigneeOpinions: [Opinion!]!
+  assigneeOpinionsCount: Int!
+  owner: String
+  ownerOpinions: [Opinion!]!
+  ownerOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  updatedAt: DateTime
+  updatedAtOpinions: [Opinion!]!
+  updatedAtOpinionsCount: Int!
+  closedAt: DateTime
+  closedAtOpinions: [Opinion!]!
+  closedAtOpinionsCount: Int!
+  closeReason: String
+  closeReasonOpinions: [Opinion!]!
+  closeReasonOpinionsCount: Int!
+  dependencies: JSON
+  dependenciesOpinions: [Opinion!]!
+  dependenciesOpinionsCount: Int!
+  comments: JSON
+  commentsOpinions: [Opinion!]!
+  commentsOpinionsCount: Int!
   fixedByOf(first: Int, after: String): FixedByConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -3031,11 +3628,77 @@ type TaskConnection {
   edges: [TaskEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type TaskEdge {
   cursor: String!
   node: Task!
+}
+
+type TemplateFinding {
+  file: String!
+  line: Int!
+  path: String!
+  message: String!
+}
+
+type TimeCost implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  entity: JSON
+  entityOpinions: [Opinion!]!
+  entityOpinionsCount: Int!
+  step: String
+  stepOpinions: [Opinion!]!
+  stepOpinionsCount: Int!
+  who: String
+  whoOpinions: [Opinion!]!
+  whoOpinionsCount: Int!
+  executorType: ValueSetEntry
+  executorTypeOpinions: [Opinion!]!
+  executorTypeOpinionsCount: Int!
+  model: String
+  modelOpinions: [Opinion!]!
+  modelOpinionsCount: Int!
+  startedAt: DateTime
+  startedAtOpinions: [Opinion!]!
+  startedAtOpinionsCount: Int!
+  duration: Int
+  durationOpinions: [Opinion!]!
+  durationOpinionsCount: Int!
+  tokens: Int
+  tokensOpinions: [Opinion!]!
+  tokensOpinionsCount: Int!
+  cost: String
+  costOpinions: [Opinion!]!
+  costOpinionsCount: Int!
+  outcome: String
+  outcomeOpinions: [Opinion!]!
+  outcomeOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type TimeCostConnection {
+  edges: [TimeCostEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type TimeCostEdge {
+  cursor: String!
+  node: TimeCost!
 }
 
 type UserGuide implements Entity {
@@ -3045,6 +3708,7 @@ type UserGuide implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -3096,6 +3760,7 @@ type UserGuideConnection {
   edges: [UserGuideEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type UserGuideEdge {
@@ -3103,87 +3768,289 @@ type UserGuideEdge {
   node: UserGuide!
 }
 
+type ValueSet implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  labelEn: String
+  labelEnOpinions: [Opinion!]!
+  labelEnOpinionsCount: Int!
+  labelRu: String
+  labelRuOpinions: [Opinion!]!
+  labelRuOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
+  purpose: String
+  purposeOpinions: [Opinion!]!
+  purposeOpinionsCount: Int!
+  order: Int
+  orderOpinions: [Opinion!]!
+  orderOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  setOfValueSetEntry(where: ValueSetEntryWhere, orderBy: [ValueSetEntryOrder!], first: Int, after: String): ValueSetEntryConnection!
+}
+
+type ValueSetConnection {
+  edges: [ValueSetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ValueSetEdge {
+  cursor: String!
+  node: ValueSet!
+}
+
+type ValueSetEntry implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  set: ValueSet
+  setOpinions: [Opinion!]!
+  setOpinionsCount: Int!
+  value: String
+  valueOpinions: [Opinion!]!
+  valueOpinionsCount: Int!
+  labelEn: String
+  labelEnOpinions: [Opinion!]!
+  labelEnOpinionsCount: Int!
+  labelRu: String
+  labelRuOpinions: [Opinion!]!
+  labelRuOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
+  order: Int
+  orderOpinions: [Opinion!]!
+  orderOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  executorTypeOfTimeCost(where: TimeCostWhere, orderBy: [TimeCostOrder!], first: Int, after: String): TimeCostConnection!
+  issueTypeOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+  priorityOfQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String): QuestionConnection!
+  priorityOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+  relationOfLink(where: LinkWhere, orderBy: [LinkOrder!], first: Int, after: String): LinkConnection!
+  statusOfCodeConvention(where: CodeConventionWhere, orderBy: [CodeConventionOrder!], first: Int, after: String): CodeConventionConnection!
+  statusOfConstitution(where: ConstitutionWhere, orderBy: [ConstitutionOrder!], first: Int, after: String): ConstitutionConnection!
+  statusOfPractice(where: PracticeWhere, orderBy: [PracticeOrder!], first: Int, after: String): PracticeConnection!
+  statusOfQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String): QuestionConnection!
+  statusOfSkill(where: SkillWhere, orderBy: [SkillOrder!], first: Int, after: String): SkillConnection!
+  statusOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+}
+
+type ValueSetEntryConnection {
+  edges: [ValueSetEntryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ValueSetEntryEdge {
+  cursor: String!
+  node: ValueSetEntry!
+}
+
 type Query {
   entity(id: ID!, lang: String): Entity
   allAdministratorGuide(where: AdministratorGuideWhere, orderBy: [AdministratorGuideOrder!], first: Int, after: String, lang: String): AdministratorGuideConnection!
+  allAdministratorGuideAggregate(where: AdministratorGuideWhere, lang: String): Aggregate!
   allCodeAuthor(where: CodeAuthorWhere, orderBy: [CodeAuthorOrder!], first: Int, after: String, lang: String): CodeAuthorConnection!
+  allCodeAuthorAggregate(where: CodeAuthorWhere, lang: String): Aggregate!
   allCodeBroker(first: Int, after: String, lang: String): CodeBrokerConnection!
+  allCodeBrokerAggregate(where: JSON, lang: String): Aggregate!
   allCodeChannel(where: CodeChannelWhere, orderBy: [CodeChannelOrder!], first: Int, after: String, lang: String): CodeChannelConnection!
+  allCodeChannelAggregate(where: CodeChannelWhere, lang: String): Aggregate!
   allCodeCiJob(first: Int, after: String, lang: String): CodeCiJobConnection!
+  allCodeCiJobAggregate(where: JSON, lang: String): Aggregate!
   allCodeCiWorkflow(first: Int, after: String, lang: String): CodeCiWorkflowConnection!
+  allCodeCiWorkflowAggregate(where: JSON, lang: String): Aggregate!
   allCodeColumn(where: CodeColumnWhere, orderBy: [CodeColumnOrder!], first: Int, after: String, lang: String): CodeColumnConnection!
+  allCodeColumnAggregate(where: CodeColumnWhere, lang: String): Aggregate!
   allCodeCommit(where: CodeCommitWhere, orderBy: [CodeCommitOrder!], first: Int, after: String, lang: String): CodeCommitConnection!
+  allCodeCommitAggregate(where: CodeCommitWhere, lang: String): Aggregate!
   allCodeComposeService(first: Int, after: String, lang: String): CodeComposeServiceConnection!
+  allCodeComposeServiceAggregate(where: JSON, lang: String): Aggregate!
   allCodeContract(where: CodeContractWhere, orderBy: [CodeContractOrder!], first: Int, after: String, lang: String): CodeContractConnection!
+  allCodeContractAggregate(where: CodeContractWhere, lang: String): Aggregate!
+  allCodeConvention(where: CodeConventionWhere, orderBy: [CodeConventionOrder!], first: Int, after: String, lang: String): CodeConventionConnection!
+  allCodeConventionAggregate(where: CodeConventionWhere, lang: String): Aggregate!
   allCodeCycle(first: Int, after: String, lang: String): CodeCycleConnection!
+  allCodeCycleAggregate(where: JSON, lang: String): Aggregate!
   allCodeDatabase(where: CodeDatabaseWhere, orderBy: [CodeDatabaseOrder!], first: Int, after: String, lang: String): CodeDatabaseConnection!
+  allCodeDatabaseAggregate(where: CodeDatabaseWhere, lang: String): Aggregate!
   allCodeDebt(first: Int, after: String, lang: String): CodeDebtConnection!
+  allCodeDebtAggregate(where: JSON, lang: String): Aggregate!
   allCodeDependency(first: Int, after: String, lang: String): CodeDependencyConnection!
+  allCodeDependencyAggregate(where: JSON, lang: String): Aggregate!
   allCodeDirectory(where: CodeDirectoryWhere, orderBy: [CodeDirectoryOrder!], first: Int, after: String, lang: String): CodeDirectoryConnection!
+  allCodeDirectoryAggregate(where: CodeDirectoryWhere, lang: String): Aggregate!
   allCodeDockerfile(first: Int, after: String, lang: String): CodeDockerfileConnection!
+  allCodeDockerfileAggregate(where: JSON, lang: String): Aggregate!
   allCodeDocumentSection(first: Int, after: String, lang: String): CodeDocumentSectionConnection!
+  allCodeDocumentSectionAggregate(where: JSON, lang: String): Aggregate!
   allCodeEntryPoint(first: Int, after: String, lang: String): CodeEntryPointConnection!
+  allCodeEntryPointAggregate(where: JSON, lang: String): Aggregate!
   allCodeEnvDefinition(first: Int, after: String, lang: String): CodeEnvDefinitionConnection!
+  allCodeEnvDefinitionAggregate(where: JSON, lang: String): Aggregate!
   allCodeEnvVar(first: Int, after: String, lang: String): CodeEnvVarConnection!
+  allCodeEnvVarAggregate(where: JSON, lang: String): Aggregate!
   allCodeFacet(first: Int, after: String, lang: String): CodeFacetConnection!
+  allCodeFacetAggregate(where: JSON, lang: String): Aggregate!
   allCodeField(first: Int, after: String, lang: String): CodeFieldConnection!
+  allCodeFieldAggregate(where: JSON, lang: String): Aggregate!
   allCodeFile(where: CodeFileWhere, orderBy: [CodeFileOrder!], first: Int, after: String, lang: String): CodeFileConnection!
+  allCodeFileAggregate(where: CodeFileWhere, lang: String): Aggregate!
   allCodeGitlink(where: CodeGitlinkWhere, orderBy: [CodeGitlinkOrder!], first: Int, after: String, lang: String): CodeGitlinkConnection!
+  allCodeGitlinkAggregate(where: CodeGitlinkWhere, lang: String): Aggregate!
   allCodeHealthEndpoint(first: Int, after: String, lang: String): CodeHealthEndpointConnection!
+  allCodeHealthEndpointAggregate(where: JSON, lang: String): Aggregate!
   allCodeHealthcheck(first: Int, after: String, lang: String): CodeHealthcheckConnection!
+  allCodeHealthcheckAggregate(where: JSON, lang: String): Aggregate!
   allCodeImage(first: Int, after: String, lang: String): CodeImageConnection!
+  allCodeImageAggregate(where: JSON, lang: String): Aggregate!
   allCodeIndex(where: CodeIndexWhere, orderBy: [CodeIndexOrder!], first: Int, after: String, lang: String): CodeIndexConnection!
+  allCodeIndexAggregate(where: CodeIndexWhere, lang: String): Aggregate!
   allCodeInput(first: Int, after: String, lang: String): CodeInputConnection!
+  allCodeInputAggregate(where: JSON, lang: String): Aggregate!
   allCodeK8sDeployment(first: Int, after: String, lang: String): CodeK8sDeploymentConnection!
+  allCodeK8sDeploymentAggregate(where: JSON, lang: String): Aggregate!
   allCodeK8sService(first: Int, after: String, lang: String): CodeK8sServiceConnection!
+  allCodeK8sServiceAggregate(where: JSON, lang: String): Aggregate!
   allCodeLockfile(first: Int, after: String, lang: String): CodeLockfileConnection!
+  allCodeLockfileAggregate(where: JSON, lang: String): Aggregate!
   allCodeLogger(first: Int, after: String, lang: String): CodeLoggerConnection!
+  allCodeLoggerAggregate(where: JSON, lang: String): Aggregate!
   allCodeMakeTarget(first: Int, after: String, lang: String): CodeMakeTargetConnection!
+  allCodeMakeTargetAggregate(where: JSON, lang: String): Aggregate!
   allCodeManifest(first: Int, after: String, lang: String): CodeManifestConnection!
+  allCodeManifestAggregate(where: JSON, lang: String): Aggregate!
   allCodeMessage(first: Int, after: String, lang: String): CodeMessageConnection!
+  allCodeMessageAggregate(where: JSON, lang: String): Aggregate!
   allCodeMetric(first: Int, after: String, lang: String): CodeMetricConnection!
+  allCodeMetricAggregate(where: JSON, lang: String): Aggregate!
   allCodeMetricsEndpoint(first: Int, after: String, lang: String): CodeMetricsEndpointConnection!
+  allCodeMetricsEndpointAggregate(where: JSON, lang: String): Aggregate!
   allCodeMigration(first: Int, after: String, lang: String): CodeMigrationConnection!
+  allCodeMigrationAggregate(where: JSON, lang: String): Aggregate!
   allCodeModule(where: CodeModuleWhere, orderBy: [CodeModuleOrder!], first: Int, after: String, lang: String): CodeModuleConnection!
+  allCodeModuleAggregate(where: CodeModuleWhere, lang: String): Aggregate!
   allCodeNewcomerCommand(first: Int, after: String, lang: String): CodeNewcomerCommandConnection!
+  allCodeNewcomerCommandAggregate(where: JSON, lang: String): Aggregate!
   allCodeNewcomerFailure(first: Int, after: String, lang: String): CodeNewcomerFailureConnection!
+  allCodeNewcomerFailureAggregate(where: JSON, lang: String): Aggregate!
   allCodeNewcomerPrerequisites(first: Int, after: String, lang: String): CodeNewcomerPrerequisitesConnection!
+  allCodeNewcomerPrerequisitesAggregate(where: JSON, lang: String): Aggregate!
   allCodeOperation(where: CodeOperationWhere, orderBy: [CodeOperationOrder!], first: Int, after: String, lang: String): CodeOperationConnection!
+  allCodeOperationAggregate(where: CodeOperationWhere, lang: String): Aggregate!
   allCodePackage(where: CodePackageWhere, orderBy: [CodePackageOrder!], first: Int, after: String, lang: String): CodePackageConnection!
+  allCodePackageAggregate(where: CodePackageWhere, lang: String): Aggregate!
   allCodePort(first: Int, after: String, lang: String): CodePortConnection!
+  allCodePortAggregate(where: JSON, lang: String): Aggregate!
   allCodeProbe(first: Int, after: String, lang: String): CodeProbeConnection!
+  allCodeProbeAggregate(where: JSON, lang: String): Aggregate!
   allCodeProcess(first: Int, after: String, lang: String): CodeProcessConnection!
+  allCodeProcessAggregate(where: JSON, lang: String): Aggregate!
   allCodeRepository(where: CodeRepositoryWhere, orderBy: [CodeRepositoryOrder!], first: Int, after: String, lang: String): CodeRepositoryConnection!
+  allCodeRepositoryAggregate(where: CodeRepositoryWhere, lang: String): Aggregate!
   allCodeRoute(first: Int, after: String, lang: String): CodeRouteConnection!
+  allCodeRouteAggregate(where: JSON, lang: String): Aggregate!
   allCodeService(where: CodeServiceWhere, orderBy: [CodeServiceOrder!], first: Int, after: String, lang: String): CodeServiceConnection!
+  allCodeServiceAggregate(where: CodeServiceWhere, lang: String): Aggregate!
   allCodeSnapshot(first: Int, after: String, lang: String): CodeSnapshotConnection!
+  allCodeSnapshotAggregate(where: JSON, lang: String): Aggregate!
   allCodeSqlBuild(first: Int, after: String, lang: String): CodeSqlBuildConnection!
+  allCodeSqlBuildAggregate(where: JSON, lang: String): Aggregate!
   allCodeSqlSink(first: Int, after: String, lang: String): CodeSqlSinkConnection!
+  allCodeSqlSinkAggregate(where: JSON, lang: String): Aggregate!
   allCodeSymbol(where: CodeSymbolWhere, orderBy: [CodeSymbolOrder!], first: Int, after: String, lang: String): CodeSymbolConnection!
+  allCodeSymbolAggregate(where: CodeSymbolWhere, lang: String): Aggregate!
   allCodeTable(where: CodeTableWhere, orderBy: [CodeTableOrder!], first: Int, after: String, lang: String): CodeTableConnection!
+  allCodeTableAggregate(where: CodeTableWhere, lang: String): Aggregate!
   allCodeTask(first: Int, after: String, lang: String): CodeTaskConnection!
+  allCodeTaskAggregate(where: JSON, lang: String): Aggregate!
   allCodeTestCase(first: Int, after: String, lang: String): CodeTestCaseConnection!
+  allCodeTestCaseAggregate(where: JSON, lang: String): Aggregate!
   allCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String, lang: String): CodeTestQuarantineConnection!
+  allCodeTestQuarantineAggregate(where: CodeTestQuarantineWhere, lang: String): Aggregate!
+  allComment(where: CommentWhere, orderBy: [CommentOrder!], first: Int, after: String, lang: String): CommentConnection!
+  allCommentAggregate(where: CommentWhere, lang: String): Aggregate!
+  allConstitution(where: ConstitutionWhere, orderBy: [ConstitutionOrder!], first: Int, after: String, lang: String): ConstitutionConnection!
+  allConstitutionAggregate(where: ConstitutionWhere, lang: String): Aggregate!
   allCorrection(where: CorrectionWhere, orderBy: [CorrectionOrder!], first: Int, after: String, lang: String): CorrectionConnection!
+  allCorrectionAggregate(where: CorrectionWhere, lang: String): Aggregate!
   allDocDecision(where: DocDecisionWhere, orderBy: [DocDecisionOrder!], first: Int, after: String, lang: String): DocDecisionConnection!
+  allDocDecisionAggregate(where: DocDecisionWhere, lang: String): Aggregate!
   allDocRequirement(where: DocRequirementWhere, orderBy: [DocRequirementOrder!], first: Int, after: String, lang: String): DocRequirementConnection!
+  allDocRequirementAggregate(where: DocRequirementWhere, lang: String): Aggregate!
   allDocRule(where: DocRuleWhere, orderBy: [DocRuleOrder!], first: Int, after: String, lang: String): DocRuleConnection!
+  allDocRuleAggregate(where: DocRuleWhere, lang: String): Aggregate!
   allDocTerm(where: DocTermWhere, orderBy: [DocTermOrder!], first: Int, after: String, lang: String): DocTermConnection!
+  allDocTermAggregate(where: DocTermWhere, lang: String): Aggregate!
   allDocUseCase(where: DocUseCaseWhere, orderBy: [DocUseCaseOrder!], first: Int, after: String, lang: String): DocUseCaseConnection!
+  allDocUseCaseAggregate(where: DocUseCaseWhere, lang: String): Aggregate!
   allDocument(where: DocumentWhere, orderBy: [DocumentOrder!], first: Int, after: String, lang: String): DocumentConnection!
+  allDocumentAggregate(where: DocumentWhere, lang: String): Aggregate!
   allDomain(where: DomainWhere, orderBy: [DomainOrder!], first: Int, after: String, lang: String): DomainConnection!
+  allDomainAggregate(where: DomainWhere, lang: String): Aggregate!
   allEnrichment(where: EnrichmentWhere, orderBy: [EnrichmentOrder!], first: Int, after: String, lang: String): EnrichmentConnection!
+  allEnrichmentAggregate(where: EnrichmentWhere, lang: String): Aggregate!
+  allLink(where: LinkWhere, orderBy: [LinkOrder!], first: Int, after: String, lang: String): LinkConnection!
+  allLinkAggregate(where: LinkWhere, lang: String): Aggregate!
+  allPractice(where: PracticeWhere, orderBy: [PracticeOrder!], first: Int, after: String, lang: String): PracticeConnection!
+  allPracticeAggregate(where: PracticeWhere, lang: String): Aggregate!
   allProblemDismissal(where: ProblemDismissalWhere, orderBy: [ProblemDismissalOrder!], first: Int, after: String, lang: String): ProblemDismissalConnection!
+  allProblemDismissalAggregate(where: ProblemDismissalWhere, lang: String): Aggregate!
   allProduct(where: ProductWhere, orderBy: [ProductOrder!], first: Int, after: String, lang: String): ProductConnection!
+  allProductAggregate(where: ProductWhere, lang: String): Aggregate!
   allQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String, lang: String): QuestionConnection!
+  allQuestionAggregate(where: QuestionWhere, lang: String): Aggregate!
+  allSkill(where: SkillWhere, orderBy: [SkillOrder!], first: Int, after: String, lang: String): SkillConnection!
+  allSkillAggregate(where: SkillWhere, lang: String): Aggregate!
   allSource(where: SourceWhere, orderBy: [SourceOrder!], first: Int, after: String, lang: String): SourceConnection!
+  allSourceAggregate(where: SourceWhere, lang: String): Aggregate!
   allTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String, lang: String): TaskConnection!
+  allTaskAggregate(where: TaskWhere, lang: String): Aggregate!
+  allTimeCost(where: TimeCostWhere, orderBy: [TimeCostOrder!], first: Int, after: String, lang: String): TimeCostConnection!
+  allTimeCostAggregate(where: TimeCostWhere, lang: String): Aggregate!
   allUserGuide(where: UserGuideWhere, orderBy: [UserGuideOrder!], first: Int, after: String, lang: String): UserGuideConnection!
+  allUserGuideAggregate(where: UserGuideWhere, lang: String): Aggregate!
+  allValueSet(where: ValueSetWhere, orderBy: [ValueSetOrder!], first: Int, after: String, lang: String): ValueSetConnection!
+  allValueSetAggregate(where: ValueSetWhere, lang: String): Aggregate!
+  allValueSetEntry(where: ValueSetEntryWhere, orderBy: [ValueSetEntryOrder!], first: Int, after: String, lang: String): ValueSetEntryConnection!
+  allValueSetEntryAggregate(where: ValueSetEntryWhere, lang: String): Aggregate!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
+  navigation(lang: String): Navigation!
+  templateFindings: [TemplateFinding!]!
+  cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
+  contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
+  searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
+  related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }
 
 input AdministratorGuideBodyFilter {
@@ -3830,6 +4697,67 @@ input CodeContractWhere {
   repository: CodeContractRepositoryFilter
   path: CodeContractPathFilter
   definition: CodeContractDefinitionFilter
+}
+
+input CodeConventionExampleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeConventionNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeConventionOrder {
+  field: CodeConventionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeConventionPathsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeConventionRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeConventionWhere {
+  name: CodeConventionNameFilter
+  rule: CodeConventionRuleFilter
+  example: CodeConventionExampleFilter
+  paths: CodeConventionPathsFilter
 }
 
 input CodeDatabaseNameFilter {
@@ -5056,6 +5984,109 @@ input CodeTouchedEdgeWhere {
   removed: CodeTouchedEdgeRemovedFilter
 }
 
+input CommentAboutFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CommentAuthorFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CommentBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CommentCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CommentEditedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CommentOrder {
+  field: CommentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CommentWhere {
+  author: CommentAuthorFilter
+  body: CommentBodyFilter
+  about: CommentAboutFilter
+  createdAt: CommentCreatedAtFilter
+  editedAt: CommentEditedAtFilter
+}
+
+input ConstitutionBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ConstitutionOrder {
+  field: ConstitutionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ConstitutionPrecedenceFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ConstitutionWhere {
+  body: ConstitutionBodyFilter
+  precedence: ConstitutionPrecedenceFilter
+}
+
 input CorrectionBodyFilter {
   _eq: String
   _neq: String
@@ -5864,6 +6895,146 @@ input EnrichmentWhere {
   ungrounded: EnrichmentUngroundedFilter
 }
 
+input LinkCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input LinkCreatedByFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input LinkNoteFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input LinkOrder {
+  field: LinkOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input LinkSourceFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input LinkTargetFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input LinkWhere {
+  source: LinkSourceFilter
+  target: LinkTargetFilter
+  note: LinkNoteFilter
+  createdBy: LinkCreatedByFilter
+  createdAt: LinkCreatedAtFilter
+}
+
+input PracticeAppliesToFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input PracticeNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PracticeOrder {
+  field: PracticeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input PracticeRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PracticeSinceDateFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input PracticeWhere {
+  name: PracticeNameFilter
+  rule: PracticeRuleFilter
+  why: PracticeWhyFilter
+  appliesTo: PracticeAppliesToFilter
+  sinceDate: PracticeSinceDateFilter
+}
+
+input PracticeWhyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input ProblemDismissalAtFilter {
   _eq: DateTime
   _neq: DateTime
@@ -6122,6 +7293,20 @@ input ProductWhere {
   ungrounded: ProductUngroundedFilter
 }
 
+input QuestionAssigneeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input QuestionBodyFilter {
   _eq: String
   _neq: String
@@ -6136,7 +7321,51 @@ input QuestionBodyFilter {
   _is_null: Boolean
 }
 
+input QuestionCloseReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input QuestionClosedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input QuestionCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
 input QuestionFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input QuestionLabelsFilter {
   _eq: JSON
   _neq: JSON
   _is_null: Boolean
@@ -6162,6 +7391,20 @@ input QuestionOrder {
   nulls: NullsOrder
 }
 
+input QuestionOwnerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input QuestionTitleFilter {
   _eq: String
   _neq: String
@@ -6176,11 +7419,97 @@ input QuestionTitleFilter {
   _is_null: Boolean
 }
 
+input QuestionUpdatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
 input QuestionWhere {
   legacyId: QuestionLegacyIdFilter
   title: QuestionTitleFilter
   body: QuestionBodyFilter
   front: QuestionFrontFilter
+  labels: QuestionLabelsFilter
+  assignee: QuestionAssigneeFilter
+  owner: QuestionOwnerFilter
+  createdAt: QuestionCreatedAtFilter
+  updatedAt: QuestionUpdatedAtFilter
+  closedAt: QuestionClosedAtFilter
+  closeReason: QuestionCloseReasonFilter
+}
+
+input RelatedOrder {
+  field: String!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SkillChecksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input SkillInstructionsFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SkillNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SkillOrder {
+  field: SkillOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SkillWhenFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SkillWhere {
+  name: SkillNameFilter
+  when: SkillWhenFilter
+  instructions: SkillInstructionsFilter
+  checks: SkillChecksFilter
 }
 
 input SourceCommitFilter {
@@ -6252,6 +7581,20 @@ input SourceWhere {
   commit: SourceCommitFilter
 }
 
+input TaskAssigneeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input TaskBodyFilter {
   _eq: String
   _neq: String
@@ -6266,7 +7609,63 @@ input TaskBodyFilter {
   _is_null: Boolean
 }
 
+input TaskCloseReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TaskClosedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input TaskCommentsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TaskCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input TaskDependenciesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input TaskFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TaskLabelsFilter {
   _eq: JSON
   _neq: JSON
   _is_null: Boolean
@@ -6292,6 +7691,20 @@ input TaskOrder {
   nulls: NullsOrder
 }
 
+input TaskOwnerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input TaskTitleFilter {
   _eq: String
   _neq: String
@@ -6306,11 +7719,162 @@ input TaskTitleFilter {
   _is_null: Boolean
 }
 
+input TaskUpdatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
 input TaskWhere {
   legacyId: TaskLegacyIdFilter
   title: TaskTitleFilter
   body: TaskBodyFilter
   front: TaskFrontFilter
+  labels: TaskLabelsFilter
+  assignee: TaskAssigneeFilter
+  owner: TaskOwnerFilter
+  createdAt: TaskCreatedAtFilter
+  updatedAt: TaskUpdatedAtFilter
+  closedAt: TaskClosedAtFilter
+  closeReason: TaskCloseReasonFilter
+  dependencies: TaskDependenciesFilter
+  comments: TaskCommentsFilter
+}
+
+input TimeCostCostFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostDurationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input TimeCostEntityFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TimeCostModelFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostOrder {
+  field: TimeCostOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input TimeCostOutcomeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostStartedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input TimeCostStepFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostTokensFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input TimeCostWhere {
+  entity: TimeCostEntityFilter
+  step: TimeCostStepFilter
+  who: TimeCostWhoFilter
+  model: TimeCostModelFilter
+  startedAt: TimeCostStartedAtFilter
+  duration: TimeCostDurationFilter
+  tokens: TimeCostTokensFilter
+  cost: TimeCostCostFilter
+  outcome: TimeCostOutcomeFilter
+}
+
+input TimeCostWhoFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input UserGuideBodyFilter {
@@ -6467,6 +8031,185 @@ input UserGuideWhere {
   ungrounded: UserGuideUngroundedFilter
 }
 
+input ValueSetDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryLabelEnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryLabelRuFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryOrder {
+  field: ValueSetEntryOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ValueSetEntryOrderFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input ValueSetEntryValueFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryWhere {
+  value: ValueSetEntryValueFilter
+  labelEn: ValueSetEntryLabelEnFilter
+  labelRu: ValueSetEntryLabelRuFilter
+  description: ValueSetEntryDescriptionFilter
+  order: ValueSetEntryOrderFilter
+}
+
+input ValueSetLabelEnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetLabelRuFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetOrder {
+  field: ValueSetOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ValueSetOrderFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input ValueSetPurposeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetWhere {
+  name: ValueSetNameFilter
+  labelEn: ValueSetLabelEnFilter
+  labelRu: ValueSetLabelRuFilter
+  description: ValueSetDescriptionFilter
+  purpose: ValueSetPurposeFilter
+  order: ValueSetOrderFilter
+}
+
 enum AdministratorGuideOrderField {
   title
   slug
@@ -6533,6 +8276,13 @@ enum CodeContractOrderField {
   repository
   path
   definition
+}
+
+enum CodeConventionOrderField {
+  name
+  rule
+  example
+  paths
 }
 
 enum CodeDatabaseOrderField {
@@ -6671,6 +8421,19 @@ enum CodeTouchedEdgeOrderField {
   removed
 }
 
+enum CommentOrderField {
+  author
+  body
+  about
+  createdAt
+  editedAt
+}
+
+enum ConstitutionOrderField {
+  body
+  precedence
+}
+
 enum CorrectionOrderField {
   legacyId
   title
@@ -6759,6 +8522,14 @@ enum EnrichmentOrderField {
   ungrounded
 }
 
+enum LinkOrderField {
+  source
+  target
+  note
+  createdBy
+  createdAt
+}
+
 enum NullsOrder {
   FIRST
   LAST
@@ -6767,6 +8538,14 @@ enum NullsOrder {
 enum OrderDirection {
   ASC
   DESC
+}
+
+enum PracticeOrderField {
+  name
+  rule
+  why
+  appliesTo
+  sinceDate
 }
 
 enum ProblemDismissalOrderField {
@@ -6800,6 +8579,20 @@ enum QuestionOrderField {
   title
   body
   front
+  labels
+  assignee
+  owner
+  createdAt
+  updatedAt
+  closedAt
+  closeReason
+}
+
+enum SkillOrderField {
+  name
+  when
+  instructions
+  checks
 }
 
 enum SourceOrderField {
@@ -6814,6 +8607,27 @@ enum TaskOrderField {
   title
   body
   front
+  labels
+  assignee
+  owner
+  createdAt
+  updatedAt
+  closedAt
+  closeReason
+  dependencies
+  comments
+}
+
+enum TimeCostOrderField {
+  entity
+  step
+  who
+  model
+  startedAt
+  duration
+  tokens
+  cost
+  outcome
 }
 
 enum UserGuideOrderField {
@@ -6830,4 +8644,21 @@ enum UserGuideOrderField {
   links
   findings
   ungrounded
+}
+
+enum ValueSetEntryOrderField {
+  value
+  labelEn
+  labelRu
+  description
+  order
+}
+
+enum ValueSetOrderField {
+  name
+  labelEn
+  labelRu
+  description
+  purpose
+  order
 }

@@ -1,7 +1,7 @@
 id: practice.git-remote
 purpose: structure
 audience: [developer, platform-devops]
-definition: A place a repository is published to and fetched from, by its address.
+definition: A remote is a published copy of a repository, reached by an address, from which changes are fetched and to which they are sent.
 sources:
 - https://git-scm.com/docs/git-remote
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Удалённый репозиторий
     many: Удалённые репозитории
 description:
-  en: A place a repository is published to and fetched from, by its address.
-  ru: Место, куда публикуют репозиторий и откуда его получают, по его адресу.
+  en: A remote is a copy of a repository that stands somewhere else — a hosting service, a server or another folder — and is reached by a name and an address. People fetch other people's changes from it and send their own to it, so several copies stay in step.
+  ru: 'Удалённый репозиторий — копия репозитория, которая лежит в другом месте: на хостинге, на сервере или в другой папке, — и доступна по имени и адресу. Из неё забирают чужие изменения и отправляют туда свои, чтобы несколько копий не расходились.'

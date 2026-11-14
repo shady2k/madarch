@@ -1,7 +1,7 @@
 id: alertmanager.receiver
 purpose: operations
 audience: [operations, platform-devops]
-definition: A place alerts are delivered to, such as a chat channel or a paging service.
+definition: An alert notification target is a place alerts are delivered to, such as a chat channel or a paging service.
 sources:
 - https://prometheus.io/docs/alerting/latest/configuration/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Получатель оповещений
     many: Получатели оповещений
 description:
-  en: A place alerts are delivered to, such as a chat channel or a paging service.
-  ru: 'Место доставки оповещений: канал чата или сервис вызова.'
+  en: 'An alert notification target is one destination for alerts: a chat channel, an e-mail list, a paging service or a ticket queue. Each target has its own urgency and its own people.'
+  ru: 'Получатель оповещений — одно место доставки: канал чата, список рассылки, служба вызова или очередь заявок. У каждого получателя своя срочность и свои люди.'

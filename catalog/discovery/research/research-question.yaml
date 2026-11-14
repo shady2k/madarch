@@ -1,7 +1,7 @@
 id: practice.research-question
 purpose: understand
 audience: [product, analyst, designer]
-definition: The question a piece of user research is meant to answer.
+definition: A research question is the question a piece of user research is meant to answer.
 sources:
 - https://www.nngroup.com/articles/ux-research-cheat-sheet/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Вопрос исследования
     many: Вопросы исследования
 description:
-  en: The question a piece of user research is meant to answer.
-  ru: Вопрос, на который должно ответить исследование пользователей.
+  en: A research question states what a team does not yet know about its users and wants to learn, such as why people abandon a purchase. It keeps the interviews, observations and surveys pointed at one answer.
+  ru: 'Вопрос исследования формулирует то, чего команда ещё не знает о своих пользователях и хочет выяснить: например, почему люди бросают покупку. Он держит интервью, наблюдения и опросы нацеленными на один ответ.'

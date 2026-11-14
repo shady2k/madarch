@@ -1,7 +1,7 @@
 id: practice.prerequisites
 purpose: operations
 audience: [developer, platform-devops]
-definition: The tools the README says a newcomer needs.
+definition: A newcomer prerequisite is a tool the README says a newcomer needs.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Что нужно установить
     many: Что нужно установить
 description:
-  en: The tools the README says a newcomer needs.
-  ru: Инструменты, которые по README нужны новичку.
+  en: 'A newcomer prerequisite is something that must be installed before the project can run: a language runtime, a package manager, a database, a command-line tool. The README names it with the version that was tested.'
+  ru: 'Что нужно установить — то, что должно стоять на машине до запуска проекта: среда языка, менеджер пакетов, база данных, программа командной строки. README называет это вместе с проверенной версией.'

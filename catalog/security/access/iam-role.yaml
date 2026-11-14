@@ -1,7 +1,7 @@
 id: practice.iam-role
 purpose: structure
 audience: [security-engineer, architect]
-definition: A named set of permissions a subject can be given, in a cloud or an application.
+definition: An IAM role is a named set of permissions a subject can take on, in a cloud or an application.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Роль IAM
     many: Роли IAM
 description:
-  en: A named set of permissions a subject can be given, in a cloud or an application.
-  ru: Именованный набор прав, который можно дать субъекту в облаке или приложении.
+  en: An IAM role bundles permissions that a person or a service may assume for a while, often without permanent keys. Assuming the role gives the subject its permissions and records who did it.
+  ru: Роль IAM объединяет права, которые человек или сервис может принять на время, часто без постоянных ключей. Принятие роли даёт субъекту её права и записывает, кто это сделал.

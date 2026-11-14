@@ -1,7 +1,7 @@
 id: practice.load-test
 purpose: quality
 audience: [tester, developer]
-definition: A performance test at the load the product is expected to meet.
+definition: A load test is a performance test at the load the product is expected to meet.
 sources:
 - https://glossary.istqb.org/en_US/term/load-testing
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Нагрузочный тест
     many: Нагрузочные тесты
 description:
-  en: A performance test at the load the product is expected to meet.
-  ru: Тест производительности при нагрузке, которую продукт должен выдерживать.
+  en: A load test drives the product with the number of users, requests or messages it is designed to handle, for a stated period. It shows whether response times and errors stay within the agreed limits at that level.
+  ru: Нагрузочный тест подаёт на продукт столько пользователей, запросов или сообщений, сколько он рассчитан выдерживать, в течение заданного времени. Он показывает, остаются ли время ответа и ошибки в согласованных пределах на этом уровне.

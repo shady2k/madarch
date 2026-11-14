@@ -1,7 +1,7 @@
 id: arc42.section
 purpose: structure
 audience: [architect, developer, analyst]
-definition: One section of an arc42 architecture document, such as the context, the building blocks or the quality tree.
+definition: An architecture section is one part of an arc42 architecture document, such as the context, the building blocks or the quality tree.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Раздел архитектуры
     many: Разделы архитектуры
 description:
-  en: One section of an arc42 architecture document, such as the context, the building blocks or the quality tree.
-  ru: 'Один раздел документа архитектуры arc42: контекст, строительные блоки или дерево качества.'
+  en: 'An architecture section is one of the chapters arc42 divides an architecture description into: goals, constraints, context, building blocks, runtime, deployment, crosscutting concepts, decisions and quality. Each chapter answers one set of questions about the system.'
+  ru: 'Раздел архитектуры — одна из глав, на которые arc42 делит описание архитектуры: цели, ограничения, контекст, строительные блоки, работу, развёртывание, сквозные понятия, решения и качество. Каждая глава отвечает на свой круг вопросов о системе.'

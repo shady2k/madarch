@@ -1,7 +1,7 @@
 id: nist800-34.disaster-recovery-plan
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The part of the contingency plan that covers a site or a region loss.
+definition: A disaster recovery plan is the part of the contingency plan that covers the loss of a site or a region.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: План аварийного восстановления
     many: Планы аварийного восстановления
 description:
-  en: The part of the contingency plan that covers a site or a region loss.
-  ru: Часть плана на случай сбоя, которая покрывает потерю площадки или региона.
+  en: 'A disaster recovery plan takes over when a whole site or region is lost: where the service runs instead, how the data gets there and how long the move takes. It is tested by drills that assume the primary place is gone.'
+  ru: 'План аварийного восстановления включается, когда потеряна целая площадка или регион: где сервис работает вместо них, как туда попадают данные и сколько занимает переезд. Его проверяют учениями, которые исходят из того, что основное место потеряно.'

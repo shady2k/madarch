@@ -1,7 +1,7 @@
 id: practice.feature
 purpose: understand
 audience: [developer, product, product-lead, tester]
-definition: A service the product offers that fulfils a stakeholder need, refined by stories and requirements.
+definition: A feature is a service the product offers that meets a need of a stakeholder, made of smaller stories and requirements.
 sources:
 - https://cucumber.io/docs/gherkin/reference/
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
@@ -19,6 +19,81 @@ relation-constraints:
   - hasPart
   - refines
 template-policy: none
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: issue_type
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: dependencies
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: comments
+  type: json
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Feature
@@ -27,5 +102,5 @@ labels:
     one: Возможность
     many: Возможности
 description:
-  en: A service the product offers that fulfils a stakeholder need.
-  ru: Услуга продукта, которая удовлетворяет потребность заинтересованной стороны.
+  en: A feature is a service the product gives its users, described by the need it meets. User stories and requirements break the feature into what has to be built.
+  ru: Возможность — услуга, которую продукт даёт своим пользователям, описанная через потребность, которую она закрывает. Истории пользователя и требования делят её на то, что нужно построить.

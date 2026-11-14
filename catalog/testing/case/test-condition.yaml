@@ -1,7 +1,7 @@
 id: istqb.test-condition
 purpose: quality
 audience: [tester, developer]
-definition: A testable aspect of the product that is meant to be tested.
+definition: A test condition is a testable aspect of the product that is meant to be tested.
 sources:
 - https://glossary.istqb.org/en_US/term/test-condition
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Условие тестирования
     many: Условия тестирования
 description:
-  en: A testable aspect of the product that is meant to be tested.
-  ru: Проверяемый аспект продукта, который собираются проверить.
+  en: A test condition names one aspect that should be checked, such as a discount applied above a limit or a failure answered with an error. It is written before the cases, so the cases can cover it deliberately.
+  ru: 'Условие тестирования называет один аспект, который следует проверить: скидку выше предела или отказ, на который отвечают ошибкой. Его пишут до тестов, чтобы те покрывали его намеренно.'

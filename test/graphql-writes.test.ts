@@ -173,7 +173,7 @@ describe('the agent writes the graph', () => {
     expect((refused.answer as Record<string, any>).error.message).toContain('is no tool');
   });
   test('one product session serves the schema, the query and the writes', async () => {
-    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'put_entity', 'put_edge', 'retract']);
+    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual(['graph_schema', 'graph_query', 'render_diagram', 'put_entity', 'put_edge', 'retract']);
     const stub = {
       graphqlSchema: async () => 'scalar BigInt\ntype Query { bootstrap: String }',
       graphql: async (operation: { query: string }) => ({ status: 200, body: { data: { echoed: operation.query } } }),

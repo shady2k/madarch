@@ -1,7 +1,7 @@
 id: gdpr.special-category-data
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: Personal data of the kinds the GDPR treats as specially protected, such as health or beliefs.
+definition: Special-category data is personal data of the kinds the GDPR protects more strictly, such as health, beliefs or ethnic origin.
 sources:
 - https://gdpr-info.eu/art-9-gdpr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Особые категории данных
     many: Особые категории данных
 description:
-  en: Personal data of the kinds the GDPR treats as specially protected, such as health or beliefs.
-  ru: 'Персональные данные, которые GDPR считает особо защищёнными: здоровье или убеждения.'
+  en: 'Special-category data is personal data that the GDPR treats as especially sensitive: health, genetic and biometric data, sexual life, religion, political opinions, ethnic origin and trade-union membership. Handling it needs a stronger legal ground and tighter protection.'
+  ru: 'Особые категории данных — персональные сведения, которые GDPR защищает строже: здоровье, генетические и биометрические данные, половая жизнь, религия, политические взгляды, этническое происхождение и членство в профсоюзе. Для их обработки нужно более сильное правовое основание и более строгая защита.'

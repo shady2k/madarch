@@ -1,7 +1,7 @@
 id: otel.cicd-worker
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The machine or the agent a pipeline job runs on.
+definition: A runner is the machine or the agent that a pipeline job runs on.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Исполнитель
     many: Исполнители
 description:
-  en: The machine or the agent a pipeline job runs on.
-  ru: Машина или агент, на которых выполняется задача конвейера.
+  en: 'A runner is the worker that executes pipeline jobs: a hosted machine, a container or a server in the organisation''s own network. Its capabilities and its access decide what a job can do.'
+  ru: 'Исполнитель — работник, который выполняет задачи конвейера: размещённая машина, контейнер или сервер в собственной сети организации. Его возможности и доступ решают, что может сделать задача.'

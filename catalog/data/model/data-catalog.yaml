@@ -1,7 +1,7 @@
 id: dcat.catalog
 purpose: structure
 audience: [analyst, architect, developer]
-definition: 'A curated collection of dataset records, as a DCAT catalog is: the datasets one publisher describes together.'
+definition: 'A data catalog is a curated collection of dataset records, as a DCAT catalog is: the datasets one publisher describes together.'
 sources:
 - https://www.w3.org/TR/vocab-dcat-3/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Каталог данных
     many: Каталоги данных
 description:
-  en: 'A curated collection of dataset records, as a DCAT catalog is: the datasets one publisher describes together.'
-  ru: 'Собранная коллекция записей наборов данных, как каталог DCAT: наборы, которые один издатель описывает вместе.'
+  en: A data catalog gathers descriptions of datasets that one publisher makes available, with the metadata that helps someone find and judge them. DCAT defines such a catalog as a set of dataset records published together.
+  ru: Каталог данных собирает описания наборов, которые один издатель делает доступными, с метаданными, помогающими найти их и оценить. DCAT определяет такой каталог как набор записей о наборах, опубликованных вместе.

@@ -1,7 +1,7 @@
 id: istqb.test-run
 purpose: quality
 audience: [tester, developer]
-definition: One execution of a test suite on one version of the product.
+definition: A test run is one execution of a test suite on one version of the product.
 sources:
 - https://glossary.istqb.org/en_US/term/test-run
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Запуск тестов
     many: Запуски тестов
 description:
-  en: One execution of a test suite on one version of the product.
-  ru: Одно выполнение набора тестов на одной версии продукта.
+  en: A test run records one execution of a suite on a stated version, in one environment and at one time. Its results and its log belong to that run, so two runs can be compared.
+  ru: Запуск тестов фиксирует одно выполнение набора на определённой версии, в одной среде и в одно время. Его результаты и журнал принадлежат этому запуску, поэтому два запуска можно сравнить.

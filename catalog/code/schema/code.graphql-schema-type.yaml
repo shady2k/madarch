@@ -1,7 +1,7 @@
 id: graphql.schema-type
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A type of a GraphQL schema, with its fields.
+definition: A GraphQL schema type is one named type of a GraphQL schema, with its fields.
 sources:
 - https://spec.graphql.org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тип GraphQL
     many: Типы GraphQL
 description:
-  en: A type of a GraphQL schema, with its fields.
-  ru: Тип схемы GraphQL с его полями.
+  en: A GraphQL schema type describes one kind of object a service can return or accept, with its fields, their types and which of them are required. Queries and mutations are written against these types.
+  ru: 'Тип GraphQL описывает один вид объекта, который сервис может вернуть или принять: его поля, их типы и обязательность. Запросы и мутации пишут против этих типов.'

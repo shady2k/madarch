@@ -1,7 +1,7 @@
 id: bpmn.gateway
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A BPMN point where a process branches or joins, by a condition or an event.
+definition: A process gateway is a BPMN point where a process branches into several paths or joins them again, by a condition or an event.
 sources:
 - https://www.omg.org/spec/BPMN/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Шлюз процесса
     many: Шлюзы процесса
 description:
-  en: A BPMN point where a process branches or joins, by a condition or an event.
-  ru: Точка BPMN, где процесс ветвится или соединяется по условию или событию.
+  en: 'A process gateway is a decision point in a BPMN process: the flow either splits into paths chosen by conditions, or several paths meet and continue as one. It shows where the process can go differently.'
+  ru: 'Шлюз процесса — точка решения в процессе BPMN: поток либо разделяется на пути по условиям, либо несколько путей сходятся и продолжаются одним. Он показывает, где процесс может пойти по-разному.'

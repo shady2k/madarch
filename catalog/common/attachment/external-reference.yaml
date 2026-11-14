@@ -1,8 +1,7 @@
 id: practice.external-reference
 purpose: structure
 audience: [product-lead, analyst, developer]
-definition: 'A record of the same thing in another system: the system, its number there and the link, which any entity may
-  carry.'
+definition: An external reference points to the same thing in another system, by that system's name, its identifier there and a link.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/link-issues/
 - https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue
@@ -27,5 +26,5 @@ labels:
     one: Внешняя ссылка
     many: Внешние ссылки
 description:
-  en: The system, number and link of the same thing in another system.
-  ru: Система, номер и ссылка на ту же сущность в другой системе.
+  en: 'An external reference connects an entity to its counterpart elsewhere: a ticket in an issue tracker, a record in a customer system, a row in a catalogue. It names the other system, the identifier used there and the address a person can open.'
+  ru: 'Внешняя ссылка связывает сущность с её двойником в другой системе: тикетом в трекере, записью в системе клиентов, строкой в каталоге. В ней названы другая система, тамошний идентификатор и адрес, который можно открыть.'

@@ -1,7 +1,7 @@
 id: owasp.mitigation
 purpose: quality
 audience: [security-engineer, architect]
-definition: A measure that reduces a threat's likelihood or its effect.
+definition: A mitigation is a measure that reduces a threat's likelihood or its effect.
 sources:
 - https://community.owasp.org/Threat_Modeling
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Смягчение
     many: Смягчения
 description:
-  en: A measure that reduces a threat's likelihood or its effect.
-  ru: Мера, которая снижает вероятность угрозы или её эффект.
+  en: 'A mitigation is a control the team puts in place against one threat: validating input, limiting access, encrypting data, adding a check. It is chosen because it lowers either the chance of the attack or the harm it would do.'
+  ru: 'Смягчение — мера, которую команда ставит против одной угрозы: проверка входных данных, ограничение доступа, шифрование, добавочная проверка. Её выбирают потому, что она снижает либо вероятность атаки, либо её вред.'

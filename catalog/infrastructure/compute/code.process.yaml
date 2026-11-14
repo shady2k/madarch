@@ -1,7 +1,7 @@
 id: practice.runtime-process
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A program the system starts, and the port it listens on.
+definition: A process is a running program the system starts, with the port it listens on.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/resource/process/
 acquisition:
@@ -25,5 +25,5 @@ labels:
     one: Процесс
     many: Процессы
 description:
-  en: A program the system starts, and the port it listens on.
-  ru: Программа, которую запускает система, и порт, который она слушает.
+  en: A process is one running instance of a program in the system, with the command that started it, its environment and the ports it listens on. Several processes of the same program may run side by side.
+  ru: Процесс — один работающий экземпляр программы в системе с командой, которая его запустила, его окружением и портами, которые он слушает. Несколько процессов одной программы могут работать одновременно.

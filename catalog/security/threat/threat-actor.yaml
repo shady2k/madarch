@@ -1,7 +1,7 @@
 id: practice.threat-actor
 purpose: quality
 audience: [security-engineer, architect]
-definition: A person or a group whose capabilities and intentions the threat model reasons about.
+definition: A threat actor is a person or a group whose capabilities and intentions the threat model reasons about.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9121.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Субъект угрозы
     many: Субъекты угрозы
 description:
-  en: A person or a group whose capabilities and intentions the threat model reasons about.
-  ru: Человек или группа, чьи возможности и намерения рассматривает модель угроз.
+  en: 'A threat actor is who might attack the product: an outsider, a customer with an account, a supplier, an insider, an automated bot. Its capabilities and its motives decide which threats are worth taking seriously.'
+  ru: 'Субъект угрозы — тот, кто может атаковать продукт: посторонний, клиент с учётной записью, поставщик, свой сотрудник, автоматический робот. Его возможности и мотивы решают, какие угрозы стоит воспринимать серьёзно.'

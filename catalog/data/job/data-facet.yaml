@@ -1,7 +1,7 @@
 id: openlineage.facet
 purpose: structure
 audience: [analyst, developer, operations]
-definition: A piece of metadata attached to a job, a run or a dataset, such as its schema or its column lineage.
+definition: A data facet is a piece of metadata attached to a job, a run or a dataset, such as its schema or its column lineage.
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Срез данных
     many: Срезы данных
 description:
-  en: A piece of metadata attached to a job, a run or a dataset, such as its schema or its column lineage.
-  ru: 'Часть метаданных задачи, запуска или набора данных: схема или происхождение столбцов.'
+  en: A data facet adds one detail to a job, a run or a dataset, such as the schema it uses, the columns a query touched or the source of each value. Facets are how different tools describe the same object without changing its core.
+  ru: 'Срез данных добавляет одну подробность к задаче, запуску или набору данных: использованную схему, затронутые запросом столбцы или источник каждого значения. Так разные инструменты описывают один объект, не меняя его основы.'

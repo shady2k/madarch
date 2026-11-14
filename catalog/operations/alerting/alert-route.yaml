@@ -1,7 +1,7 @@
 id: alertmanager.route
 purpose: operations
 audience: [operations, platform-devops]
-definition: The rule that decides which receiver an alert goes to, by its labels.
+definition: An alert route is the rule that decides which target an alert goes to, by its labels.
 sources:
 - https://prometheus.io/docs/alerting/latest/configuration/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Маршрут оповещений
     many: Маршруты оповещений
 description:
-  en: The rule that decides which receiver an alert goes to, by its labels.
-  ru: Правило, которое по меткам решает, какому получателю уйдёт оповещение.
+  en: 'An alert route matches an alert''s labels to a target and a set of settings: grouping, silence, escalation. A route lets one rule send payment alerts to one team and database alerts to another.'
+  ru: 'Маршрут оповещений сопоставляет метки оповещения с получателем и набором настроек: группировкой, молчанием, эскалацией. Маршрут позволяет одним правилом отправлять оповещения об оплате одной команде, а о базе данных — другой.'

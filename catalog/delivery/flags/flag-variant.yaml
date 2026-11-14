@@ -1,7 +1,7 @@
 id: openfeature.variant
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: One value a feature flag can take, chosen by its rules.
+definition: A flag variant is one value a feature flag can take, chosen by its rules.
 sources:
 - https://openfeature.dev/specification/glossary
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Вариант флага
     many: Варианты флага
 description:
-  en: One value a feature flag can take, chosen by its rules.
-  ru: Одно значение, которое может принимать флаг функции, выбранное его правилами.
+  en: A flag variant is one of the possible answers of a feature flag, such as on, off or a version name, with optional data that goes with it. The rules decide which variant a caller gets.
+  ru: 'Вариант флага — один из возможных ответов флага функции: включён, выключен или имя версии, — с необязательными данными при нём. Правила решают, какой вариант получит вызывающий.'

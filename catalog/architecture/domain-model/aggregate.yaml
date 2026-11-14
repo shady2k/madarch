@@ -1,7 +1,7 @@
 id: ddd.aggregate
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A cluster of domain objects that changes as one unit, with one root entity.
+definition: An aggregate is a cluster of domain objects that changes as one unit, with one root entity.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Агрегат
     many: Агрегаты
 description:
-  en: A cluster of domain objects that changes as one unit, with one root entity.
-  ru: Группа объектов предметной области, которая меняется как одно целое и имеет один корневой объект.
+  en: An aggregate groups domain objects that must stay consistent together, with one entity as its root; the outside world reaches the others only through the root. A transaction usually changes one aggregate at a time.
+  ru: Агрегат объединяет объекты предметной области, которые должны сохранять согласованность вместе, и один объект в нём — корень; снаружи к остальным обращаются только через корень. Одна транзакция обычно меняет один агрегат.

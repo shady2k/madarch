@@ -1,6 +1,6 @@
 id: spdx.file
 purpose: structure
-definition: A file of a code repository.
+definition: A file is a named item of content in a repository, such as a source file, a configuration file, a document or an image.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/File/
 acquisition:
@@ -240,8 +240,8 @@ labels:
     one: Файл
     many: Файлы
 description:
-  en: A file of a code repository.
-  ru: Файл репозитория кода.
+  en: 'A file is a named unit of content in a repository: for example a source file, a configuration file, a document or an image. Its path places it in a folder, and its content is what a person or a program reads or runs.'
+  ru: 'Файл — именованная единица содержимого в репозитории: например, исходный код, настройки, документ или изображение. Путь указывает его место в папках, а содержимое читает человек или программа.'
 derives-from:
 - code.repository
 - code.directory

@@ -1,7 +1,7 @@
 id: practice.chaos-result
 purpose: quality
 audience: [tester, developer]
-definition: What a chaos experiment showed, with the steady state it compared against.
+definition: A chaos result is what a chaos experiment showed, with the steady state it compared against.
 sources:
 - https://principlesofchaos.org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Результат эксперимента с отказами
     many: Результаты экспериментов с отказами
 description:
-  en: What a chaos experiment showed, with the steady state it compared against.
-  ru: То, что показал эксперимент с отказами, и устойчивое состояние, с которым сравнивали.
+  en: 'A chaos result records what happened when the fault was injected: whether the steady state held, what the users saw and how the system recovered. It says which weaknesses were confirmed and which were not.'
+  ru: 'Результат эксперимента с отказами записывает, что произошло при внесении сбоя: удержалось ли устойчивое состояние, что видели пользователи и как система восстановилась. Он говорит, какие слабости подтвердились, а какие нет.'

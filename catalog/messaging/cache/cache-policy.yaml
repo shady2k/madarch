@@ -1,7 +1,7 @@
 id: practice.cache-policy
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: The rule that decides when a cached value is written, reused and dropped.
+definition: A cache policy is the rule that decides when a cached value is written, reused and dropped.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9111.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Политика кэша
     many: Политики кэша
 description:
-  en: The rule that decides when a cached value is written, reused and dropped.
-  ru: Правило, которое решает, когда закэшированное значение записывают, переиспользуют и удаляют.
+  en: A cache policy sets how long a cached value may be reused, when it is written or refreshed, and what happens when it expires. It balances the speed a cache gives against the risk of serving stale data.
+  ru: Политика кэша задаёт, сколько времени значение можно переиспользовать, когда его записывают или обновляют и что происходит при истечении срока. Она уравновешивает скорость, которую даёт кэш, и риск показать устаревшие данные.

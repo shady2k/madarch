@@ -1,7 +1,7 @@
 id: istqb.test-session
 purpose: quality
 audience: [tester, developer]
-definition: One bounded period of exploratory testing, with what it found.
+definition: A test session is one bounded period of exploratory testing, with what it found.
 sources:
 - https://glossary.istqb.org/en_US/term/exploratory-testing
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тестовая сессия
     many: Тестовые сессии
 description:
-  en: One bounded period of exploratory testing, with what it found.
-  ru: Ограниченный период исследовательского тестирования с его находками.
+  en: A test session is one time-boxed stretch in which a tester explores the product against a charter, notes what happened and records findings. Its record says how long it lasted, what was covered and what was found.
+  ru: Тестовая сессия — ограниченный по времени отрезок, в котором проверяющий исследует продукт по миссии, отмечает происходящее и записывает находки. В её записи сказано, сколько она длилась, что было охвачено и что нашли.

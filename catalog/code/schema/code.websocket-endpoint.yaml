@@ -1,7 +1,7 @@
 id: practice.websocket-endpoint
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A WebSocket endpoint a service offers, with the messages it exchanges.
+definition: A WebSocket endpoint is a two-way connection a service offers, with the messages both sides exchange.
 sources:
 - https://www.rfc-editor.org/rfc/rfc6455.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Конечная точка WebSocket
     many: Конечные точки WebSocket
 description:
-  en: A WebSocket endpoint a service offers, with the messages it exchanges.
-  ru: Конечная точка WebSocket, которую предлагает сервис, с сообщениями, которыми она обменивается.
+  en: A WebSocket endpoint is an address a client connects to once, after which both sides send messages to each other until one closes. It suits live data, where asking again for every change would be wasteful.
+  ru: Конечная точка WebSocket — адрес, к которому клиент подключается один раз, после чего обе стороны шлют друг другу сообщения, пока одна не закроет соединение. Она подходит для живых данных, когда спрашивать заново о каждом изменении расточительно.

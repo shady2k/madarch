@@ -1,7 +1,7 @@
 id: practice.compose-service
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A service of a compose file, with its ports and its dependencies.
+definition: A compose service is one service declared in a compose file, with its ports and its dependencies.
 sources:
 - https://docs.docker.com/compose/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сервис compose
     many: Сервисы compose
 description:
-  en: A service of a docker-compose file, with its ports and dependencies.
-  ru: Сервис файла docker-compose, его порты и зависимости.
+  en: 'A compose service is one container definition inside a compose file: its image, its command, its ports, its volumes and the other services it depends on. One file can describe a whole set of services that run together on a machine.'
+  ru: 'Сервис compose — одно описание контейнера в файле compose: его образ, команда, порты, тома и другие сервисы, от которых он зависит. Один файл может описать целый набор сервисов, работающих вместе на машине.'

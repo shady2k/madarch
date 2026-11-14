@@ -1,7 +1,7 @@
 id: practice.paas-service
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A platform a supplier runs that the product deploys onto.
+definition: A platform service is a platform a supplier runs that the product deploys onto.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сервис PaaS
     many: Сервисы PaaS
 description:
-  en: A platform a supplier runs that the product deploys onto.
-  ru: Платформа поставщика, на которую разворачивают продукт.
+  en: 'A platform service is a supplier''s environment where the product''s code runs without the product managing the servers: an application platform, a managed database or a function service. The supplier keeps it running and the product pays for what it uses.'
+  ru: 'Сервис PaaS — среда поставщика, где работает код продукта, а сам продукт не управляет серверами: платформа приложений, управляемая база данных или служба функций. Поставщик поддерживает её работу, а продукт платит за то, что использует.'

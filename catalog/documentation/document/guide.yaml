@@ -1,7 +1,7 @@
 id: practice.guide
 purpose: understand
 audience: [product, analyst, developer, operations]
-definition: A written walkthrough that takes a person through a task to an outcome.
+definition: A guide is a written walkthrough that takes a person through a task to an outcome.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Руководство
     many: Руководства
 description:
-  en: A written walkthrough that takes a person through a task to an outcome.
-  ru: Написанное прохождение, которое ведёт человека через задачу к результату.
+  en: A guide leads a reader through a piece of work from a starting point to a result, explaining each step and why it is needed. It assumes the reader wants to get something done, not to learn the product from the beginning.
+  ru: Руководство ведёт читателя через работу от начала к результату, объясняя каждый шаг и зачем он нужен. Оно исходит из того, что читатель хочет что-то сделать, а не изучить продукт с самого начала.

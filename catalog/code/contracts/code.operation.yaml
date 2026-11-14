@@ -1,7 +1,7 @@
 id: practice.api-operation
 purpose: structure
 audience: [developer, architect, analyst, tester]
-definition: An operation an OpenAPI or a gRPC contract declares.
+definition: An API operation is one action an OpenAPI or a gRPC contract declares.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html
 acquisition:
@@ -62,5 +62,5 @@ labels:
     one: Операция API
     many: Операции API
 description:
-  en: An operation an OpenAPI or gRPC contract declares.
-  ru: Операция, которую объявляет контракт OpenAPI или gRPC.
+  en: An API operation is one callable action of an interface, such as listing orders or cancelling a booking, with its address, its input and its answers. The contract states it once, and both the service and its clients follow it.
+  ru: 'Операция API — одно вызываемое действие интерфейса: получить список заказов или отменить бронь, — с его адресом, входными данными и ответами. Контракт объявляет её один раз, и ей следуют и сервис, и его клиенты.'

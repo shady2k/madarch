@@ -1,7 +1,7 @@
 id: practice.objective
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A measurable objective under a goal, as an OKR states it.
+definition: An OKR objective is a measurable objective under a goal, as an OKR states it.
 sources:
 - https://www.whatmatters.com/faqs/okr-meaning-definition-example
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Задача OKR
     many: Задачи OKR
 description:
-  en: A measurable objective under a goal, as an OKR states it.
-  ru: Измеримая задача под целью, как её излагает OKR.
+  en: An objective is one concrete aim for a period, such as cutting delivery time in half this quarter, whose progress key results measure. It points the work of a team at one result instead of a list of tasks.
+  ru: 'Задача OKR — одна конкретная цель на период: например, вдвое сократить время доставки за квартал, — а её продвижение измеряют ключевые результаты. Она направляет работу команды на один результат, а не на список дел.'

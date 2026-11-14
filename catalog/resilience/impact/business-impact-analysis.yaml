@@ -1,7 +1,7 @@
 id: nist800-34.business-impact-analysis
 purpose: operations
 audience: [operations, product-lead, analyst, architect]
-definition: The study of what the loss of a process or a system would cost, and how soon it must be back.
+definition: A business impact analysis studies what the loss of a process or a system would cost, and how soon it must be back.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Анализ влияния на бизнес
     many: Анализы влияния на бизнес
 description:
-  en: The study of what the loss of a process or a system would cost, and how soon it must be back.
-  ru: Исследование того, во что обойдётся потеря процесса или системы и как скоро их нужно вернуть.
+  en: A business impact analysis asks, for each process and system, what stops when it fails, what that costs per hour or per day, and which recovery time and data loss the business can bear. Its answers set the recovery objectives.
+  ru: Анализ влияния на бизнес выясняет по каждому процессу и системе, что останавливается при их отказе, во что это обходится за час или за день и какое время восстановления и какую потерю данных бизнес может вынести. Его ответы задают цели восстановления.

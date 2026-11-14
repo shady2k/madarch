@@ -1,7 +1,7 @@
 id: kubernetes.deployment
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: 'A Kubernetes Deployment: the image it runs, its replicas and its probes.'
+definition: A Kubernetes Deployment declares the image a workload runs, how many copies and how they are checked.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -29,5 +29,5 @@ labels:
     one: Развёртывание Kubernetes
     many: Развёртывания Kubernetes
 description:
-  en: 'A Kubernetes Deployment: image, replicas and probes.'
-  ru: 'Развёртывание Kubernetes: образ, число реплик и проверки.'
+  en: A Kubernetes Deployment says which container image should run, how many replicas of it and how the cluster should check and replace them. Changing the declaration makes the cluster roll out a new version gradually.
+  ru: Развёртывание Kubernetes говорит, какой образ контейнера должен работать, сколько его копий нужно и как кластер должен их проверять и заменять. Изменение объявления заставляет кластер постепенно выпустить новую версию.

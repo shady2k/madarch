@@ -1,7 +1,7 @@
 id: cyclonedx.ml-model
 purpose: structure
 audience: [developer, architect, product-lead]
-definition: A trained model the product uses, with the data and the code that produced it.
+definition: A model is a trained artefact that turns an input into a prediction or a generated result, built from data and code.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 - https://spdx.github.io/spdx-spec/v3.0.1/model/AI/
@@ -24,5 +24,5 @@ labels:
     one: Модель ML
     many: Модели ML
 description:
-  en: A trained model the product uses, with the data and the code that produced it.
-  ru: Обученная модель, которую использует продукт, с данными и кодом, которые её создали.
+  en: 'A model is the result of training: a set of learned parameters that turns an input into a prediction, a classification or generated text. It is kept with the data and the code that produced it, so the same result can be rebuilt and checked.'
+  ru: 'Модель — результат обучения: набор выученных параметров, который превращает входные данные в предсказание, классификацию или сгенерированный текст. Её хранят вместе с данными и кодом, которые её создали, чтобы результат можно было повторить и проверить.'

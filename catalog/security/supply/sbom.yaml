@@ -1,7 +1,7 @@
 id: cyclonedx.bom
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
-definition: The list of the components a product is built from, with the versions and the relations between them.
+definition: An SBOM is the list of the components a product is built from, with the versions and the relations between them.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 - https://spdx.github.io/spdx-spec/v3.0.1/
@@ -24,5 +24,5 @@ labels:
     one: SBOM
     many: SBOM
 description:
-  en: The list of the components a product is built from, with the versions and the relations between them.
-  ru: Список компонентов, из которых собран продукт, с версиями и связями между ними.
+  en: A software bill of materials records every component that goes into a product — libraries, bases, tools — with its version, its supplier and its licence, and how the pieces depend on each other. It lets someone answer which products carry a newly found weakness.
+  ru: 'Ведомость состава программы записывает каждый компонент, из которого собран продукт: библиотеки, основы, инструменты, — с версией, поставщиком и лицензией, а также связи между частями. По ней можно ответить, в каких продуктах есть только что найденная слабость.'

@@ -1,7 +1,7 @@
 id: istqb.coverage-item
 purpose: quality
 audience: [tester, developer]
-definition: The thing a test suite is measured to have exercised, such as a branch or a requirement.
+definition: A coverage item is one thing a test suite is measured to have exercised, such as a branch, a line or a requirement.
 sources:
 - https://glossary.istqb.org/en_US/term/coverage
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Элемент покрытия
     many: Элементы покрытия
 description:
-  en: The thing a test suite is measured to have exercised, such as a branch or a requirement.
-  ru: 'То, что набор тестов, как измерено, выполнил: ветвь или требование.'
+  en: 'A coverage item is one unit a coverage measure watches: a line of code, a branch, a function or a requirement. Recording which items the tests reached shows what is untested.'
+  ru: 'Элемент покрытия — одна единица, за которой следит мера покрытия: строка кода, ветвь, функция или требование. Запись о том, какие элементы задели тесты, показывает, что осталось непроверенным.'

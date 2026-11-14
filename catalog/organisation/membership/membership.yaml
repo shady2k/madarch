@@ -1,7 +1,7 @@
 id: org.membership
 purpose: history
 audience: [product-lead, product, architect]
-definition: A person's place in a group, with the role they hold there and for how long.
+definition: A membership is a person's place in a group, with the role held there and how long it lasts.
 sources:
 - https://www.w3.org/TR/vocab-org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Членство
     many: Членства
 description:
-  en: A person's place in a group, with the role they hold there and for how long.
-  ru: Место человека в группе с ролью, которую он там держит, и сроком.
+  en: A membership records that a person belongs to a group, such as a team, a department or a committee, and which role they have there and from when to when. It is what gives the person the rights and duties of that place.
+  ru: 'Членство фиксирует, что человек входит в группу: команду, подразделение или комитет, — какую роль он там занимает и с какого по какое время. Оно даёт человеку права и обязанности этого места.'

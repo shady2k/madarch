@@ -1,11 +1,9 @@
 /**
  * The GraphQL API's executor (decision 0036, sections 1, 4 and 5): one operation, one read-only snapshot transaction,
  * the schema derived from the product's published manifest, and the read layer's resolvers. Admission refuses a query
- * deeper than six levels before any read; the transaction's own deadline stops one that runs longer than two seconds.
+ * deeper than MAX_DEPTH before any read; each request has its own configurable deadline (30 seconds by default).
  * A refused or stopped query returns no data and one error whose `extensions.code` names the limit.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import { buildSchema, execute, getNamedType, GraphQLError, isInterfaceType, isObjectType, Kind, parse, validate, type GraphQLInterfaceType, type GraphQLScalarType, type GraphQLSchema, type DocumentNode, type FieldNode, type GraphQLNamedType, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { sha256Hex } from './digest.js';
@@ -15,11 +13,15 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { ReadContext, entityOf } from './graphql-read.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
+import { readProductTemplates } from './product-templates.js';
 
-/** The depth a query may reach, counting the root field as one (decision 0036, section 5). */
-export const MAX_DEPTH = 6;
+/**
+ * The depth a query may reach, counting the root field as one (decision 0036, section 5; seven since the portal frame's
+ * return, so a page can reach a commit's author through the relation that names it).
+ */
+export const MAX_DEPTH = 7;
 /** The deadline of one operation, in milliseconds. */
-export const DEADLINE_MS = 2000;
+export const DEADLINE_MS = 30_000;
 /** The aliases one operation may hold (decision 0036, section 5). */
 export const MAX_ALIASES = 50;
 /** The nodes one operation may cost, the product of the `first`s along every connection on a path summed (section 5). */
@@ -44,6 +46,7 @@ export interface GraphqlOperation {
 
 /** What the executor needs of the product it answers for. */
 export interface GraphqlProduct {
+  readonly deadlineMs?: number;
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
   readonly folder: string;
@@ -203,28 +206,6 @@ export function queryCost(document: DocumentNode, schema: GraphQLSchema, variabl
   return costOf(operation.selectionSet, schema.getQueryType() ?? undefined, 1, new Set<string>());
 }
 
-/** The product's templates: every file under `templates/`, named by its relative path without its extension. */
-export function templatesOf(folder: string): { name: string; body: string }[] {
-  const root = join(folder, 'templates');
-  const out: { name: string; body: string }[] = [];
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile() && statSync(path).isFile()) {
-        const name = relative(root, path).replace(/\.[^.]*$/u, '');
-        out.push({ name, body: readFileSync(path, 'utf8') });
-      }
-    }
-  };
-  try {
-    visit(root);
-  } catch {
-    return [];
-  }
-  return out.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
-}
-
 /** The revision of the schema and every template: what a client refetches its bootstrap when it changes (section 6). */
 export function structureRevisionOf(sdl: string, templates: readonly { name: string; body: string }[]): string {
   return sha256Hex(new TextEncoder().encode([sdl, ...templates.map((one) => `${one.name}\u0000${one.body}`)].join('\u0000')));
@@ -261,6 +242,7 @@ function prepare(manifest: KindsManifest, document: DocumentNode, operation: Gra
 
 /** Runs one operation against the product's graph: the schema, the admission, one snapshot, the resolvers. */
 export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProduct, operation: GraphqlOperation): Promise<GraphqlAnswer> {
+  const deadlineMs = product.deadlineMs ?? DEADLINE_MS;
   let document: DocumentNode;
   try {
     document = parse(operation.query);
@@ -275,7 +257,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   if (aliases > MAX_ALIASES) {
     return { status: 400, body: { errors: [{ message: `the query holds ${String(aliases)} aliases; the limit is ${String(MAX_ALIASES)}`, extensions: { code: 'LIMIT_ALIASES' } }] } };
   }
-  const templates = templatesOf(product.folder);
+  const templates = readProductTemplates(product.folder);
   let backend: number | undefined;
   // A caller that holds the manifest is admitted before the snapshot: a refusal costs no connection.
   let prepared: { manifest: KindsManifest; published: ReturnType<typeof publishedManifestOf>; sdl: string; schema: GraphQLSchema } | undefined;
@@ -289,15 +271,31 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     }
   }
   const work = owner.transaction('snapshot', async (tx) => {
-    await tx.query("SET LOCAL statement_timeout = '2000ms'");
+    await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(deadlineMs)]);
     const pid = await tx.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
     backend = Number(pid.rows[0]?.pid);
     // The manifest is read inside the operation's snapshot: a publication between the schema and the data would
     // otherwise answer a query whose fields the rows no longer match.
     const see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
     const { manifest, published, sdl, schema } = see;
-    const structure = structureRevisionOf(sdl, templates);
-    const context = new ReadContext(tx, manifest, published, product.folder, operation.lang, structure, templates);
+    const structure = structureRevisionOf(sdl, templates.templates);
+    // One connection, one statement at a time: resolvers of one level run together, and a client asked for a second
+    // query while the first is in flight answers neither (the weight of a page's aliases must not break its read).
+    let queue: Promise<unknown> = Promise.resolve();
+    const serial = new Proxy(tx, {
+      get(target, property, receiver) {
+        if (property === 'query') {
+          return async (text: string, params?: readonly unknown[]) => {
+            const run = queue.then(async () => await target.query(text, params as never));
+            queue = run.catch(() => undefined);
+            return await run;
+          };
+        }
+        const held = Reflect.get(target, property, receiver) as unknown;
+        return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
+      },
+    });
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates);
     const result = await execute({
       schema,
       document,
@@ -308,7 +306,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     });
     // A statement timeout or a cancellation is the operation's, not a field's: the transaction rolls back and the
     // answer is one TIMEOUT error with no data.
-    if (result.errors?.some((error) => isStatementTimeout(error)) === true) throw new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(DEADLINE_MS)} ms`, 200);
+    if (result.errors?.some((error) => isStatementTimeout(error)) === true) throw new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(deadlineMs)} ms`, 200);
     return result;
   });
   // A deadline of the executor's own, beside the statement timeout: when it passes, the backend's statement is
@@ -316,7 +314,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   let timer: ReturnType<typeof setTimeout> | undefined;
   let expired = false;
   const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => { expired = true; reject(new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(DEADLINE_MS)} ms`, 200)); }, DEADLINE_MS);
+    timer = setTimeout(() => { expired = true; reject(new GraphqlRefusal('TIMEOUT', `the query did not finish within ${String(deadlineMs)} ms`, 200)); }, deadlineMs);
   });
   work.catch(() => undefined);
   try {

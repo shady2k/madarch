@@ -59,9 +59,10 @@ export const SCHEMA: readonly string[] = [
     from_node bigint NOT NULL REFERENCES node (id),
     to_node bigint NOT NULL REFERENCES node (id),
     discriminator text NOT NULL DEFAULT '',
-    context_id bigint NOT NULL DEFAULT 1,
-    CHECK (from_node <> to_node)
+    context_id bigint NOT NULL DEFAULT 1
   )`,
+  // A kind may relate to itself (for example, file imports file); existing stores keep their graph.
+  `ALTER TABLE edge DROP CONSTRAINT IF EXISTS edge_check`,
   `CREATE UNIQUE INDEX IF NOT EXISTS edge_once ON edge (entity_id, from_node, to_node, discriminator, context_id)`,
   `CREATE INDEX IF NOT EXISTS edge_to ON edge (to_node, entity_id)`,
   `CREATE INDEX IF NOT EXISTS edge_from ON edge (from_node, entity_id)`,

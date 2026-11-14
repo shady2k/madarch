@@ -1,7 +1,7 @@
 id: ddd.domain-event
 purpose: structure
 audience: [architect, developer, analyst]
-definition: Something that happened in the domain that other parts of the model react to.
+definition: A domain event is something that happened in the domain that other parts of the model react to.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Событие предметной области
     many: События предметной области
 description:
-  en: Something that happened in the domain that other parts of the model react to.
-  ru: То, что произошло в предметной области и на что реагируют другие части модели.
+  en: A domain event records a fact that has already happened in the business, such as an order being placed or a payment being refused, in words the domain uses. Other parts react to it without the sender knowing who listens.
+  ru: 'Событие предметной области фиксирует факт, который уже произошёл в бизнесе: заказ оформлен или платёж отклонён, — на языке самой предметной области. Другие части реагируют на него, а отправитель не знает, кто слушает.'
