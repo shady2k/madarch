@@ -43,7 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readlinkSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -631,11 +631,6 @@ function realPathOf(path: string): string {
   try { return realpathSync(path); } catch { return resolve(path); }
 }
 
-/** The answer a server gives when it cannot take a connection because it is full or shutting down. */
-export function busyConnectionAnswer(text: string): boolean {
-  return /too many clients|remaining connection slots|53300|the database system is shutting down|57P03/iu.test(text);
-}
-
 /** The kernel's start time of a process (Linux `/proc/<pid>/stat` field 22), or undefined where it is not read. */
 export function processStartTime(pid: number, platform: NodeJS.Platform = process.platform): string | undefined {
   if (platform !== 'linux') return undefined;
@@ -648,32 +643,14 @@ export function processStartTime(pid: number, platform: NodeJS.Platform = proces
 }
 
 /**
- * The identity check for a server that answers only that it is busy: the postmaster's own files, never its arguments.
- * On Linux the process's working directory is the data folder; on macOS `lsof` shows its open `postmaster.pid`.
- */
-export function postmasterBusyIdentity(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
-  if (platform === 'linux') {
-    try { return realPathOf(readlinkSync(`/proc/${String(pid)}/cwd`)) === realPathOf(dataDir); }
-    catch { return false; }
-  }
-  if (platform === 'darwin') {
-    const seen = spawnSync('lsof', ['-p', String(pid), '-Fn'], { encoding: 'utf8', timeout: 5_000 });
-    if (seen.status !== 0) return false;
-    const wanted = realPathOf(join(dataDir, 'postmaster.pid'));
-    return (seen.stdout ?? '').split('\n').some((line) => line.startsWith('n') && realPathOf(line.slice(1)) === wanted);
-  }
-  return false;
-}
-
-/**
- * Whether a pid is still the same process the verification saw: the pid file still names it, it is alive, and on Linux its
- * kernel start time is unchanged. This is what the fallback escalation follows; it does not ask the server again, because a
- * server shutting down refuses connections.
+ * Whether a pid is still the exact process verification saw, for the fallback escalation: the pid file still names it, it
+ * is alive, and on Linux its captured kernel start time still matches. On macOS and Windows, and when the start time was
+ * not captured, no stable identity exists, so the escalation never runs.
  */
 export function postmasterStill(dataDir: string, pid: number, startTime: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'linux' || startTime === undefined) return false;
   if (holderOf(dataDir) !== pid || !alive(pid)) return false;
-  if (platform === 'linux' && startTime !== undefined) return processStartTime(pid, platform) === startTime;
-  return true;
+  return processStartTime(pid, platform) === startTime;
 }
 
 /**
@@ -703,10 +680,7 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
     encoding: 'utf8', timeout: 5_000,
     env: { ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) },
   });
-  if (answer.status !== 0) {
-    if (busyConnectionAnswer(`${answer.stdout ?? ''}\n${answer.stderr ?? ''}`)) return postmasterBusyIdentity(dataDir, pid, platform);
-    return false;
-  }
+  if (answer.status !== 0) return false;
   if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
   return holderOf(dataDir) === pid;
 }
@@ -752,7 +726,7 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
         // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
         // must not be touched by it either.
         if (!postmasterOfDataDir(dataDir, pid)) {
-          console.error(`${pidFile}:1: the pid ${String(pid)} is not this data folder's postmaster; pg_ctl and the fallback signals do not touch it, and its record stays`);
+          console.error(`${dataDir}:1: the database (pid ${String(pid)}) could not be verified and is left running; its record stays`);
           continue;
         }
         const verifiedStart = processStartTime(pid);

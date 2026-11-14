@@ -14,7 +14,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
-import { busyConnectionAnswer, postmasterBusyIdentity, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
+import { postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
@@ -275,7 +275,7 @@ test('a reader\'s .psqlrc does not prevent the stop', async () => {
   await noServers(fix.home);
 }, 120_000);
 
-test('a busy server is identified through its own files, and a non-answer is not busy', async () => {
+test('a process whose working directory is pgdata is not taken for the postmaster', async () => {
   const base = mkdtempSync(join(root, 'busy-'));
   const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
   mkdirSync(dataDir, { recursive: true });
@@ -283,11 +283,9 @@ test('a busy server is identified through its own files, and a non-answer is not
   const holder = Bun.spawn(['sleep', '30'], { cwd: dataDir, stdout: 'ignore', stderr: 'ignore' });
   children.push(holder);
   writeFileSync(join(dataDir, 'postmaster.pid'), `${String(holder.pid)}\n`);
-  expect(postmasterBusyIdentity(dataDir, holder.pid)).toBe(true);
-  expect(busyConnectionAnswer('FATAL: sorry, too many clients already')).toBe(true);
-  expect(busyConnectionAnswer('SQLSTATE 53300')).toBe(true);
-  expect(busyConnectionAnswer('FATAL: the database system is shutting down')).toBe(true);
-  expect(busyConnectionAnswer('psql: error: connection refused')).toBe(false);
+  stopDatabasesUnderSync(join(base, 'knowledge'));
+  if (!alive(holder.pid)) throw new Error('the sweep killed a process that only stood in pgdata');
+  if (!existsSync(join(dataDir, 'postmaster.pid'))) throw new Error('the sweep removed the record of a process it could not verify');
   holder.kill('SIGKILL');
 }, 30_000);
 
@@ -301,6 +299,10 @@ test('the escalation follows the verified pid and its start time, not a second s
   writeFileSync(pidFile, `${String(holder.pid)}\n`);
   const start = processStartTime(holder.pid);
   expect(postmasterStill(dataDir, holder.pid, start)).toBe(true);
+  // No stable identity without the captured start time, and none on macOS or Windows.
+  expect(postmasterStill(dataDir, holder.pid, undefined)).toBe(false);
+  expect(postmasterStill(dataDir, holder.pid, start, 'darwin')).toBe(false);
+  expect(postmasterStill(dataDir, holder.pid, start, 'win32')).toBe(false);
   writeFileSync(pidFile, `${String(process.pid)}\n`);
   expect(postmasterStill(dataDir, holder.pid, start)).toBe(false);
   writeFileSync(pidFile, `${String(holder.pid)}\n`);
