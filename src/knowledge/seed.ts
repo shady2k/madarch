@@ -160,8 +160,14 @@ export function starterPageKindNames(template: StarterTemplate): readonly string
   return CATALOG_KINDS.filter((kind) => named.has(kind.name) && kind.policy !== 'none').map((kind) => kind.name);
 }
 
+/** The page templates every product is made with (decision 0036, section 6): one file under its `templates/` folder. */
+export const STARTER_PAGE_TEMPLATES: readonly StarterFile[] = Object.entries(CATALOG_FILES)
+  .filter(([path]) => path.startsWith('templates/pages/'))
+  .map(([path, content]) => ({ path: `templates/${path.slice('templates/pages/'.length)}`, content }));
+
 export function starterFilesFor(template: StarterTemplate): readonly StarterFile[] {
-  if (template.kinds === 'none') return [];
+  // A product with no manifest still opens pages: the base templates are written with every starter.
+  if (template.kinds === 'none') return [...STARTER_PAGE_TEMPLATES];
   const kinds = template.kinds === 'all' ? undefined : starterKindNames(template);
   const chosen = kinds === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kinds.includes(kind.name));
   const names = new Set(chosen.map((kind) => kind.name));
@@ -173,6 +179,7 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
     ...chosen.map((kind) => ({ path: `madarch/kinds/${CATALOG_KIND_FILES[kind.name]}`, content: CATALOG_FILES[CATALOG_KIND_FILES[kind.name]!]! })),
     ...(plugins.length === 0 ? [] : [{ path: 'madarch/plugins.lock', content: pluginLockText(plugins) }]),
     ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),
+    ...STARTER_PAGE_TEMPLATES,
     ...bundledPluginFiles()
       .filter((file) => plugins.some((plugin) => file.path.startsWith(`${plugin.folder}/`)))
       .map((file) => ({ path: file.path, content: file.content, ...(file.bytes === undefined ? {} : { bytes: file.bytes }) })),

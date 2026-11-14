@@ -1,0 +1,74 @@
+# The page of a catalogue entity (decision 0036, section 6): the kind's own declaration, then its records — the
+# entities of that kind, read through the entry's `instances` relation. Extends the base entity page, so the
+# entity's relations and its place in the graph stand beside its records.
+template: catalogue-entity
+extends: entity
+sections:
+  - id: facts
+    component: facts
+    replace: true
+    title: { en: What it is, ru: Что это }
+    query: |
+      name
+      title
+      definition
+      group
+      subgroup
+      purpose
+      status
+      taken
+      audience
+      standards
+      plugins
+    params:
+      rows:
+        - label: { en: Name, ru: Имя }
+          path: name
+        - label: { en: Definition, ru: Определение }
+          path: definition
+        - label: { en: Area, ru: Область }
+          path: group
+        - label: { en: Subgroup, ru: Подгруппа }
+          path: subgroup
+        - label: { en: Purpose, ru: Назначение }
+          path: purpose
+        - label: { en: Status, ru: Состояние }
+          path: status
+        - label: { en: Taken, ru: Взят }
+          path: taken
+        - label: { en: Audience, ru: Аудитория }
+          path: audience
+        - label: { en: Sources, ru: Источники }
+          path: standards
+        - label: { en: Plugins, ru: Плагины }
+          path: plugins
+  - id: records
+    component: table
+    after: facts
+    title: { en: Records, ru: Записи }
+    query: |
+      instances(first: $records_first, after: $records_after) {
+        edges {
+          node {
+            id
+            kind
+            label
+            template
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+      }
+    params:
+      path: instances
+      pageSize: 50
+      columns:
+        - label: { en: Label, ru: Название }
+          path: node.label
+        - label: { en: Kind, ru: Вид }
+          path: node.kind
+        - label: { en: Template, ru: Шаблон }
+          path: node.template

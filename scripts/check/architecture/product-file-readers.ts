@@ -1,4 +1,7 @@
 /** Product text is interpreted by plugins, not by a second reader in the engine.
+ * The page contract's template reader (`src/page-contract/template.ts`) is the one reader of a product's page
+ * templates (decision 0036, section 6): the templates are the product's files, and the mechanism that composes them
+ * reads them once, for the server's start check and for the app alike.
  * The compiler resolves aliases, member symbols and types. The explicit parser
  * surface catalog also covers pure parsers that accept strings rather than files.
  */
@@ -181,7 +184,7 @@ export function productFileReaderViolations(root: string): ArchitectureViolation
     return execution;
   };
   for (const file of files) {
-    if (file.startsWith('src/plugin/') || file === 'src/product/manifest.ts' || ['src/product/manifest/kinds.ts', 'src/product/manifest/workflows.ts', 'src/product/manifest/contract.ts', 'src/product/manifest/registry-file.ts', 'src/product/manifest/fill-config.ts', 'src/product/manifest/registry.ts'].includes(file)) continue;
+    if (file.startsWith('src/plugin/') || file === 'src/product/manifest.ts' || ['src/product/manifest/kinds.ts', 'src/product/manifest/workflows.ts', 'src/product/manifest/contract.ts', 'src/product/manifest/registry-file.ts', 'src/product/manifest/fill-config.ts', 'src/product/manifest/registry.ts', 'src/page-contract/template.ts'].includes(file)) continue;
     const source = program.getSourceFile(resolve(root, file));
     if (!source) throw new Error(`${resolve(root, file)}:1: TypeScript did not load the module`);
     const diagnostics = (source as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics;

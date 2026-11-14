@@ -24,6 +24,7 @@ import { byCodePoint } from '../model/order.js';
 import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
+import type { ProductTemplates } from './product-templates.js';
 
 /** One open opinion of a vertex or an edge, as the read holds it. */
 export interface OpinionRow {
@@ -274,10 +275,10 @@ export class ReadContext {
   private inverseQueue: Map<string, { source: PublishedKind; field: PublishedField; targets: Map<string, EntityValue>; args: ConnectionArgs; lang?: string }> | undefined;
   private inverseFlush: Promise<void> | undefined;
 
-  private readonly backlinkCache = new Map<string, { relation: string; from: EntityValue; id: string }[]>();
-  private readonly backlinkTotals = new Map<string, number>();
-  private backlinkQueue: Map<string, EntityValue> | undefined;
-  private backlinkFlush: Promise<void> | undefined;
+  private readonly linkCache = new Map<string, { relation: string; other: EntityValue; id: string }[]>();
+  private readonly linkTotals = new Map<string, number>();
+  private linkQueue: Map<string, { entity: EntityValue; direction: 'in' | 'out' }> | undefined;
+  private linkFlush: Promise<void> | undefined;
 
   private catalogueRead: { byName: Map<string, CatalogueValue>; byId: Map<string, CatalogueValue> } | undefined;
 
@@ -289,8 +290,8 @@ export class ReadContext {
     lang: string | undefined,
     /** The revision of the schema and the templates, as the bootstrap states it. */
     private readonly structure: string,
-    /** The product's templates, as the bootstrap lists them. */
-    private readonly templates: readonly { name: string; body: string }[],
+    /** The product's templates and the pages they open, as the bootstrap states them. */
+    private readonly productTemplates: ProductTemplates,
   ) {
     this.published = published;
     this.lang = lang ?? manifest.language ?? 'en';
@@ -355,9 +356,10 @@ export class ReadContext {
     if (name === 'id') return entity.uid;
     if (name === 'kind') return entity.kind;
     if (name === 'label') return this.labelOf(entity);
-    if (name === 'template') return this.templateOf(entity.kind);
+    if (name === 'template') return this.templateOf(entity, entity.kind);
     if (name === 'contested') return this.contestedOf(entity);
     if (name === 'backlinks') return this.backlinks(entity, args);
+    if (name === 'outgoing') return this.outgoing(entity, args);
     const field = this.fieldsByType.get(entity.typeName)?.get(name);
     if (field !== undefined) {
       const read = await this.fieldRead(entity, field);
@@ -462,11 +464,13 @@ export class ReadContext {
 
   /**
    * The page template an entity opens with (decision 0036, section 6): its own template, else its kind's record template,
-   * else the base `entity`. A kind's own template is no longer a key of the manifest — templates are the product's
-   * `templates/` files, listed in the bootstrap — so every kind falls back to the base until a catalogue record names one.
+   * else the base `entity`; a catalogue entity's page is the product's catalogue template.
    */
-  private templateOf(_kind: string): string {
-    return 'entity';
+  private templateOf(entity: EntityValue | undefined, kind: string): string {
+    if (entity?.catalogue !== undefined) return this.productTemplates.catalogue;
+    const own = entity === undefined ? undefined : this.productTemplates.own.get(entity.uid);
+    if (own !== undefined) return own;
+    return this.productTemplates.records.get(kind) ?? 'entity';
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {
@@ -822,14 +826,28 @@ export class ReadContext {
   }
 
 
-  // ---- backlinks ---------------------------------------------------------------------------------------------
+  // ---- links both ways ---------------------------------------------------------------------------------------
 
   private async backlinks(entity: EntityValue, args: ConnectionArgs): Promise<unknown> {
-    this.backlinkQueue ??= new Map();
-    this.backlinkQueue.set(entity.nodeId, entity);
-    this.backlinkFlush ??= scheduled(() => this.flushBacklinks());
-    await this.backlinkFlush;
-    const rows = this.backlinkCache.get(entity.nodeId) ?? [];
+    return await this.links(entity, args, 'in');
+  }
+
+  private async outgoing(entity: EntityValue, args: ConnectionArgs): Promise<unknown> {
+    return await this.links(entity, args, 'out');
+  }
+
+  /**
+   * One entity's relations, both ways (section 3): `in` is the row of every edge that ends at it and of every
+   * reference that points at it — the inverse field's name is the relation — and `out` is the row of every edge that
+   * starts at it. A page draws them as one picture: the same edge seen from either end.
+   */
+  private async links(entity: EntityValue, args: ConnectionArgs, direction: 'in' | 'out'): Promise<unknown> {
+    const key = `${direction}\u0000${entity.nodeId}`;
+    this.linkQueue ??= new Map();
+    this.linkQueue.set(key, { entity, direction });
+    this.linkFlush ??= scheduled(() => this.flushLinks());
+    await this.linkFlush;
+    const rows = this.linkCache.get(key) ?? [];
     const first = clampFirst(args.first);
     const cursor = decodeCursor(args.after) as { relation?: string; id?: string } | undefined;
     const ordered = [...rows].sort((left, right) => byCodePoint(left.relation, right.relation) || Number(left.id) - Number(right.id));
@@ -837,35 +855,40 @@ export class ReadContext {
       ? ordered
       : ordered.filter((row) => row.relation > cursor.relation! || (row.relation === cursor.relation && Number(row.id) > Number(cursor.id ?? 0)));
     const page = after.slice(0, first);
+    const nodeOf = (row: { relation: string; other: EntityValue }): unknown =>
+      direction === 'in' ? { relation: row.relation, from: row.other } : { relation: row.relation, to: row.other };
     return {
-      edges: page.map((row) => ({ cursor: encodeCursor({ relation: row.relation, id: row.id }), node: { relation: row.relation, from: row.from } })),
+      edges: page.map((row) => ({ cursor: encodeCursor({ relation: row.relation, id: row.id }), node: nodeOf(row) })),
       pageInfo: { endCursor: page.length === 0 ? null : encodeCursor({ relation: page[page.length - 1]!.relation, id: page[page.length - 1]!.id }), hasNextPage: after.length > first },
-      totalCount: this.backlinkTotals.get(entity.nodeId) ?? ordered.length,
+      totalCount: this.linkTotals.get(`${direction}\u0000${entity.nodeId}`) ?? ordered.length,
     };
   }
 
-  private async flushBacklinks(): Promise<void> {
+  private async flushLinks(): Promise<void> {
     await Promise.resolve();
-    const queue = this.backlinkQueue;
-    this.backlinkQueue = undefined;
-    this.backlinkFlush = undefined;
+    const queue = this.linkQueue;
+    this.linkQueue = undefined;
+    this.linkFlush = undefined;
     if (queue === undefined) return;
-    // Targets of one type and one reader language share a statement; the `from` entities carry that language on.
-    const byType = new Map<string, { ids: string[]; entity: EntityValue }>();
-    for (const entity of queue.values()) {
-      const key = `${entity.typeName}\u0000${entity.lang ?? ''}`;
-      const held = byType.get(key) ?? { ids: [], entity };
-      held.ids.push(entity.nodeId);
-      byType.set(key, held);
+    // Targets of one type, one direction and one reader language share a statement; the other end carries that language on.
+    const byType = new Map<string, { ids: string[]; entity: EntityValue; direction: 'in' | 'out' }>();
+    for (const held of queue.values()) {
+      const key = `${held.direction}\u0000${held.entity.typeName}\u0000${held.entity.lang ?? ''}`;
+      const bucket = byType.get(key) ?? { ids: [], entity: held.entity, direction: held.direction };
+      bucket.ids.push(held.entity.nodeId);
+      byType.set(key, bucket);
     }
     for (const [, held] of byType) {
       const sql = new Sql();
       const ids = sql.param(held.ids, '::bigint[]');
       const parts: string[] = [
-        `SELECT e.to_node AS target, en.name AS relation, e.id::text AS source_id, e.from_node AS other
-         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND e.context_id = 1`,
+        held.direction === 'in'
+          ? `SELECT e.to_node AS target, en.name AS relation, e.id::text AS source_id, e.from_node AS other
+         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND e.context_id = 1`
+          : `SELECT e.from_node AS target, en.name AS relation, e.id::text AS source_id, e.to_node AS other
+         FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND e.context_id = 1`,
       ];
-      for (const [inverseField, inverse] of this.referenceInverseByType.get(held.entity.typeName) ?? new Map()) {
+      for (const [inverseField, inverse] of held.direction === 'out' ? [] : (this.referenceInverseByType.get(held.entity.typeName) ?? new Map())) {
         const targetKind = sql.param(held.entity.kind, '::text');
         const relation = sql.param(inverseField, '::text');
         const sourceKind = sql.param(inverse.source.name, '::text');
@@ -912,21 +935,20 @@ export class ReadContext {
         const node = this.entityFromRow(row, held.entity.lang);
         if (node !== undefined) byId.set(node.nodeId, node);
       }
-      const lists = new Map<string, { relation: string; from: EntityValue; id: string }[]>();
+      const lists = new Map<string, { relation: string; other: EntityValue; id: string }[]>();
       for (const row of rows.rows) {
         const target = String(row['target']);
-        const from = byId.get(String(row['other']));
-        if (from === undefined) continue;
-        const relationName = this.backlinkRelation(String(row['relation']));
+        const other = byId.get(String(row['other']));
+        if (other === undefined) continue;
+        const relationName = held.direction === 'in' ? this.backlinkRelation(String(row['relation'])) : fieldNameOf(String(row['relation']));
         const list = lists.get(target) ?? [];
-        list.push({ relation: relationName, from, id: String(row['source_id']) });
+        list.push({ relation: relationName, other, id: String(row['source_id']) });
         lists.set(target, list);
-        this.backlinkTotals.set(target, Number(row['total']));
+        this.linkTotals.set(`${held.direction}\u0000${target}`, Number(row['total']));
       }
-      for (const id of held.ids) this.backlinkCache.set(id, lists.get(id) ?? []);
+      for (const id of held.ids) this.linkCache.set(`${held.direction}\u0000${id}`, lists.get(id) ?? []);
     }
   }
-
 
   /** The relation name an inverse field gives a backlink: the edge's `<edge>Of` name, or the reference's `<field>Of<Type>`. */
   private backlinkRelation(relation: string): string {
@@ -1063,8 +1085,16 @@ export class ReadContext {
     const home = entityOf(await this.home(undefined));
     return {
       structureRevision: this.structure,
-      home: home === undefined ? null : { id: home.uid, kind: home.kind, template: this.templateOf(home.kind) },
-      templates: this.templates,
+      home: home === undefined ? null : { id: home.uid, kind: home.kind, template: this.templateOf(home, home.kind) },
+      catalogueTemplate: this.productTemplates.catalogue,
+      templates: this.productTemplates.templates,
+      recordTemplates: [...this.productTemplates.records.entries()]
+        .map(([kind, template]) => ({ kind, template }))
+        .sort((left, right) => byCodePoint(left.kind, right.kind)),
+      ownTemplates: [...this.productTemplates.own.entries()]
+        .map(([id, template]) => ({ id, template }))
+        .sort((left, right) => byCodePoint(left.id, right.id)),
+      roles: [...this.manifest.roles.keys()].sort(byCodePoint),
     };
   }
 
@@ -1150,9 +1180,10 @@ export class ReadContext {
     if (name === 'id') return value.uid;
     if (name === 'kind') return 'catalogue';
     if (name === 'label' || name === 'title') return this.catalogueTitle(value, lang);
-    if (name === 'template') return 'catalogue';
+    if (name === 'template') return this.productTemplates.catalogue;
     if (name === 'contested') return [];
     if (name === 'backlinks') return this.backlinks({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value }, args);
+    if (name === 'outgoing') return this.outgoing({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value }, args);
     if (name === 'name') return value.name;
     if (name === 'definition') return this.catalogueDefinition(value, lang);
     if (name === 'group') return String(value.entry['area'] ?? '');
@@ -1164,6 +1195,7 @@ export class ReadContext {
     if (name === 'taken') return value.taken;
     if (name === 'plugins') return value.plugins;
     if (name === 'fields') return value.fields;
+    if (name === 'instances') return this.catalogueInstances(value, args, lang);
     if (name === 'derivesFrom') return this.catalogueLinks(value.derivesFrom, args, lang);
     if (name === 'derivedBy') return this.catalogueLinks(value.derivedBy, args, lang);
     const relation = this.relationByType.get('CatalogueEntity')?.get(name);
@@ -1176,6 +1208,13 @@ export class ReadContext {
   /** The entity a catalogue entry completes as. */
   private catalogueEntityValue(value: CatalogueValue, lang: string | undefined): EntityValue {
     return { nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value, ...(lang === undefined ? {} : { lang }) };
+  }
+
+  /** The records of the kind this catalogue entry declares: the entities of that kind, one page of them. */
+  private async catalogueInstances(value: CatalogueValue, args: ConnectionArgs, lang: string | undefined): Promise<unknown> {
+    const kind = this.published.kinds.find((one) => one.name === value.name);
+    if (kind === undefined) return { edges: [], pageInfo: { endCursor: null, hasNextPage: false }, totalCount: 0 };
+    return await this.listOfKind(kind, args, lang);
   }
 
   private async catalogueLinks(names: readonly string[], args: ConnectionArgs, lang: string | undefined): Promise<unknown> {

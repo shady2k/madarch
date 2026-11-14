@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { buildSchema } from 'graphql';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { publishedManifestOf } from '../src/graphql/manifest.js';
@@ -33,9 +33,9 @@ beforeAll(async () => {
   const draft = createDraft({ home, name: 'schema-route', gitEnv: gitEnv(SAMPLE_IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   product = draft.folder;
-  // A page template is a file of the product under `templates/` (decision 0036, section 6): the bootstrap lists them.
-  mkdirSync(join(product, 'templates'), { recursive: true });
-  writeFileSync(join(product, 'templates', 'entity.yaml'), 'template: entity\n');
+  // A page template is a file of the product under `templates/` (decision 0036, section 6): the starter set's own are
+  // there, and the bootstrap lists them.
+  if (!existsSync(join(product, 'templates', 'entity.yaml'))) throw new Error('the starter set wrote no page template');
   closeOwner = await prepareTestProduct(product, home);
   server = await startPreparedServer({ productFolder: product, knowledgeRoot: knowledgeRootOf(home), appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined });
 }, 120_000);

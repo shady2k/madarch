@@ -69,6 +69,7 @@ function entityFields(): FieldDef[] {
     { name: 'template', type: 'String!' },
     { name: 'contested', type: '[String!]!' },
     { name: 'backlinks', type: 'BacklinkConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
+    { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
   ];
 }
 
@@ -117,8 +118,9 @@ class Builder {
   /** The types, interfaces, scalars and enums the mechanism owns; a manifest name may not take one of them. */
   private claimOwnTypes(): void {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
-      'EntityEdge', 'EntityConnection', 'CatalogueEntity', 'CatalogueField', 'CatalogueEntityEdge', 'CatalogueEntityConnection',
-      'PageTemplate', 'Bootstrap', 'BootstrapHome', 'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
+      'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
+      'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
+      'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
@@ -145,14 +147,23 @@ class Builder {
     this.type('Backlink', [{ name: 'relation', type: 'String!' }, { name: 'from', type: 'Entity!' }]);
     this.type('BacklinkEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'Backlink!' }]);
     this.type('BacklinkConnection', connectionFields('BacklinkEdge'));
+    this.type('Outgoing', [{ name: 'relation', type: 'String!' }, { name: 'to', type: 'Entity!' }]);
+    this.type('OutgoingEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'Outgoing!' }]);
+    this.type('OutgoingConnection', connectionFields('OutgoingEdge'));
     this.type('EntityEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'Entity!' }]);
     this.type('EntityConnection', connectionFields('EntityEdge'));
     this.type('PageTemplate', [{ name: 'name', type: 'String!' }, { name: 'body', type: 'String!' }]);
     this.type('BootstrapHome', [{ name: 'id', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
+    this.type('RecordTemplate', [{ name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
+    this.type('OwnTemplate', [{ name: 'id', type: 'ID!' }, { name: 'template', type: 'String!' }]);
     this.type('Bootstrap', [
       { name: 'structureRevision', type: 'String!' },
       { name: 'home', type: 'BootstrapHome' },
+      { name: 'catalogueTemplate', type: 'String!' },
       { name: 'templates', type: '[PageTemplate!]!' },
+      { name: 'recordTemplates', type: '[RecordTemplate!]!' },
+      { name: 'ownTemplates', type: '[OwnTemplate!]!' },
+      { name: 'roles', type: '[String!]!' },
     ]);
     this.interfaceType('Entity', entityFields());
     this.buildCatalogue();
@@ -202,6 +213,7 @@ class Builder {
       { name: 'taken', type: 'Boolean!' },
       { name: 'plugins', type: '[String!]!' },
       { name: 'fields', type: '[CatalogueField!]!' },
+      { name: 'instances', type: 'EntityConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'derivesFrom', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
       { name: 'derivedBy', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
     ], ['Entity']);

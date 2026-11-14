@@ -44,6 +44,7 @@ import { createSourceStores, sourceNameProblem } from './sources.js';
 import { API } from '../knowledge/addresses.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { MANIFEST_FILE, readProduct } from '../product/manifest.js';
+import { productTemplateRefusal } from '../graph/template-check.js';
 import { isExistingDirectoryWithoutManifest } from '../product-wiki/manifestless.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
@@ -277,6 +278,9 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       else if (options.allowNoManifest === true && isExistingDirectoryWithoutManifest(options.productFolder)) {
         product = { name: basename(options.productFolder), folder: options.productFolder };
       } else throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: ${read.message} (${read.file}, line ${read.line})`);
+      // A page is the product's template (decision 0036, section 6): a template neither side can run refuses the start.
+      const templates = productTemplateRefusal(options.productFolder);
+      if (templates !== undefined) throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: its page templates cannot be used\n${templates}`);
     }
     if ((options.productFolder !== undefined || options.productHome !== undefined) && appFolder === undefined) {
       const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
@@ -397,6 +401,11 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       const opened = readProduct(item.folder);
       if (!opened.ok) {
         errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: ${opened.message}`);
+        continue;
+      }
+      const templates = productTemplateRefusal(item.folder);
+      if (templates !== undefined) {
+        errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: its page templates cannot be used\n${templates}`);
         continue;
       }
       next.set(name, {

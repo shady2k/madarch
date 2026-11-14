@@ -1,0 +1,117 @@
+# The page every entity opens with unless its kind or the entity itself names another (decision 0036, section 6). Its
+# sections read the entity through the `Entity` interface and its relations both ways, so one base page serves every
+# kind of the product: a kind's own fields are shown by a template that extends this one.
+template: entity
+sections:
+  - id: header
+    component: header
+    title: { en: Page, ru: Страница }
+    query: |
+      id
+      kind
+      label
+      template
+      contested
+    params:
+      titlePath: label
+      kindPath: kind
+  - id: facts
+    component: facts
+    title: { en: Facts, ru: Факты }
+    query: |
+      id
+      kind
+      template
+      contested
+    params:
+      rows:
+        - label: { en: Kind, ru: Вид }
+          path: kind
+        - label: { en: Template, ru: Шаблон }
+          path: template
+        - label: { en: Contested, ru: Спорные }
+          path: contested
+  - id: diagram
+    component: diagram
+    after: facts
+    title: { en: Around it, ru: Вокруг }
+    query: |
+      id
+      kind
+      label
+      template
+      outgoing(first: 50) {
+        edges {
+          node {
+            relation
+            to {
+              id
+              kind
+              label
+              template
+            }
+          }
+        }
+        totalCount
+      }
+      backlinks(first: 50) {
+        edges {
+          node {
+            relation
+            from {
+              id
+              kind
+              label
+              template
+            }
+          }
+        }
+        totalCount
+      }
+    params:
+      path: .
+      aggregateAbove: 12
+  - id: outgoing
+    component: relations
+    title: { en: Leads to, ru: Ведёт к }
+    query: |
+      outgoing(first: 50) {
+        edges {
+          node {
+            relation
+            to {
+              id
+              kind
+              label
+              template
+            }
+          }
+        }
+        totalCount
+      }
+    params:
+      path: outgoing
+      labelPath: relation
+      emptyText: { en: Nothing leads out of it. }
+  - id: backlinks
+    component: relations
+    title: { en: Linked from, ru: Ссылаются }
+    query: |
+      backlinks(first: 50) {
+        edges {
+          node {
+            relation
+            from {
+              id
+              kind
+              label
+              template
+            }
+          }
+        }
+        totalCount
+      }
+    params:
+      path: backlinks
+      labelPath: relation
+      emptyText: { en: Nothing links to it yet. }

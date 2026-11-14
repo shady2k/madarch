@@ -69,6 +69,9 @@ beforeAll(async () => {
   mkdirSync(join(folder, 'madarch/kinds/demo/core'), { recursive: true });
   mkdirSync(join(folder, 'templates'), { recursive: true });
   writeFileSync(join(folder, 'templates/entity.yaml'), 'template: entity\nsections: []\n');
+  // A record template and an entity's own template: the bootstrap names both, and an entity answers the one it opens.
+  writeFileSync(join(folder, 'templates/record.yaml'), 'template: record\nextends: entity\nrecords: [demo.file]\nsections:\n  - id: files\n    component: table\n    after: header\n    query: |\n      id\n      label\n    params:\n      path: .\n      columns: [{ label: { en: Label }, path: label }]\n');
+  writeFileSync(join(folder, 'templates/own.yaml'), 'template: own\nextends: entity\nentities: [own-entity]\nsections: []\n');
   writeFileSync(join(folder, 'madarch/catalog.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.repository.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.repository.yaml'), 'utf8'));
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8'));
@@ -297,6 +300,49 @@ describe('the GraphQL executor', () => {
     const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoFile { demoTouched(orderBy: [{ field: weight }], first: 10) { edges { node { weight } } } } } }`, { id: fileA });
     const file = data['entity'] as Record<string, any>;
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
+  });
+
+  test('the bootstrap names the templates, the pages they open and the roles', async () => {
+    const data = await graphql(`{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name } recordTemplates { kind template } ownTemplates { id template } roles } }`);
+    const held = data['bootstrap'] as Record<string, any>;
+    expect(held.structureRevision).toHaveLength(64);
+    // This fixture holds no home kind: the home is null, and the mechanisms's other names stand.
+    expect(held.home).toBeNull();
+    expect(held.catalogueTemplate).toBe('entity');
+    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['entity', 'own', 'record']);
+    expect(held.recordTemplates).toEqual([{ kind: 'demo.file', template: 'record' }]);
+    expect(held.ownTemplates).toEqual([{ id: 'own-entity', template: 'own' }]);
+    expect(Array.isArray(held.roles)).toBe(true);
+  });
+
+  test('an entity answers the template its kind\'s record template names', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { kind template } }`, { id: fileA });
+    expect((data['entity'] as Record<string, any>).template).toBe('record');
+  });
+
+  test('a catalogue entity\'s template is the product\'s catalogue template', async () => {
+    const data = await graphql(`{ catalogueEntity(name: "demo.file") { kind template } }`);
+    expect((data['catalogueEntity'] as Record<string, any>).template).toBe('entity');
+  });
+
+  test('a catalogue entry lists its records through its instances relation, one page at a time', async () => {
+    const first = await graphql(`{ catalogueEntity(name: "demo.file") { instances(first: 2) { totalCount pageInfo { hasNextPage endCursor } edges { node { id kind label } } } } }`);
+    const page = (first['catalogueEntity'] as Record<string, any>).instances;
+    expect(page.totalCount).toBeGreaterThanOrEqual(3);
+    expect(page.edges).toHaveLength(2);
+    expect(page.edges.map((edge: any) => edge.node.kind)).toEqual(['demo.file', 'demo.file']);
+    expect(page.pageInfo.hasNextPage).toBe(true);
+    const rest = await graphql(`query ($after: String) { catalogueEntity(name: "demo.file") { instances(first: 2, after: $after) { edges { node { id } } } } }`, { after: page.pageInfo.endCursor });
+    const ids = (rest['catalogueEntity'] as Record<string, any>).instances.edges.map((edge: any) => edge.node.id);
+    expect(ids).not.toContain(page.edges[0].node.id);
+  });
+
+  test('an entity answers the relations it leads out with, as backlinks answer the ones it is reached by', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { outgoing(first: 10) { totalCount edges { node { relation to { kind ... on DemoFile { path } } } } } } }`, { id: repositoryId });
+    const outgoing = (data['entity'] as Record<string, any>).outgoing;
+    expect(outgoing.totalCount).toBeGreaterThanOrEqual(3);
+    expect(new Set(outgoing.edges.map((edge: any) => edge.node.relation))).toEqual(new Set(['demoContains']));
+    expect(outgoing.edges.map((edge: any) => edge.node.to.path)).toContain('a.ts');
   });
 
   test('a catalogue page with no order still pages by its id (#8)', async () => {

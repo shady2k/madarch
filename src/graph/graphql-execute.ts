@@ -4,8 +4,6 @@
  * deeper than six levels before any read; the transaction's own deadline stops one that runs longer than two seconds.
  * A refused or stopped query returns no data and one error whose `extensions.code` names the limit.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import { buildSchema, execute, getNamedType, GraphQLError, isInterfaceType, isObjectType, Kind, parse, validate, type GraphQLInterfaceType, type GraphQLScalarType, type GraphQLSchema, type DocumentNode, type FieldNode, type GraphQLNamedType, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { sha256Hex } from './digest.js';
@@ -15,6 +13,7 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { ReadContext, entityOf } from './graphql-read.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
+import { readProductTemplates } from './product-templates.js';
 
 /** The depth a query may reach, counting the root field as one (decision 0036, section 5). */
 export const MAX_DEPTH = 6;
@@ -203,28 +202,6 @@ export function queryCost(document: DocumentNode, schema: GraphQLSchema, variabl
   return costOf(operation.selectionSet, schema.getQueryType() ?? undefined, 1, new Set<string>());
 }
 
-/** The product's templates: every file under `templates/`, named by its relative path without its extension. */
-export function templatesOf(folder: string): { name: string; body: string }[] {
-  const root = join(folder, 'templates');
-  const out: { name: string; body: string }[] = [];
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile() && statSync(path).isFile()) {
-        const name = relative(root, path).replace(/\.[^.]*$/u, '');
-        out.push({ name, body: readFileSync(path, 'utf8') });
-      }
-    }
-  };
-  try {
-    visit(root);
-  } catch {
-    return [];
-  }
-  return out.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
-}
-
 /** The revision of the schema and every template: what a client refetches its bootstrap when it changes (section 6). */
 export function structureRevisionOf(sdl: string, templates: readonly { name: string; body: string }[]): string {
   return sha256Hex(new TextEncoder().encode([sdl, ...templates.map((one) => `${one.name}\u0000${one.body}`)].join('\u0000')));
@@ -275,7 +252,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
   if (aliases > MAX_ALIASES) {
     return { status: 400, body: { errors: [{ message: `the query holds ${String(aliases)} aliases; the limit is ${String(MAX_ALIASES)}`, extensions: { code: 'LIMIT_ALIASES' } }] } };
   }
-  const templates = templatesOf(product.folder);
+  const templates = readProductTemplates(product.folder);
   let backend: number | undefined;
   // A caller that holds the manifest is admitted before the snapshot: a refusal costs no connection.
   let prepared: { manifest: KindsManifest; published: ReturnType<typeof publishedManifestOf>; sdl: string; schema: GraphQLSchema } | undefined;
@@ -296,7 +273,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     // otherwise answer a query whose fields the rows no longer match.
     const see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
     const { manifest, published, sdl, schema } = see;
-    const structure = structureRevisionOf(sdl, templates);
+    const structure = structureRevisionOf(sdl, templates.templates);
     const context = new ReadContext(tx, manifest, published, product.folder, operation.lang, structure, templates);
     const result = await execute({
       schema,

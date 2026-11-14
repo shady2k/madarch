@@ -1,0 +1,73 @@
+# The product's home page (decision 0036, section 6): the page every product opens at `/`. Its sections ask the graph
+# through the roots: the home entity when the product has one, and the catalogue of the kinds it declares.
+template: home
+variables:
+  kinds_where:
+    type: CatalogueEntityWhere
+  kinds_orderBy:
+    type: '[CatalogueEntityOrder!]'
+    default:
+      - { field: group, direction: ASC }
+        # the order the catalogue reads in: the area, then the subgroup, then the kind
+sections:
+  - id: header
+    component: header
+    on: root
+    title: { en: Product, ru: Продукт }
+    query: |
+      home(lang: $lang) {
+        id
+        kind
+        label
+        template
+      }
+    params:
+      titlePath: label
+      kindPath: kind
+  - id: search
+    component: search
+    title: { en: Search, ru: Поиск }
+  - id: kinds
+    component: table
+    on: root
+    title: { en: Kinds, ru: Виды }
+    query: |
+      allCatalogueEntity(first: $kinds_first, after: $kinds_after, where: $kinds_where, orderBy: $kinds_orderBy) {
+        edges {
+          node {
+            id
+            name
+            label
+            group
+            subgroup
+            taken
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+      }
+    params:
+      path: allCatalogueEntity
+      pageSize: 50
+      columns:
+        - label: { en: Kind, ru: Вид }
+          path: node.label
+          sortField: label
+        - label: { en: Area, ru: Область }
+          path: node.group
+          sortField: group
+        - label: { en: Subgroup, ru: Подгруппа }
+          path: node.subgroup
+          sortField: subgroup
+        - label: { en: Taken, ru: Взят }
+          path: node.taken
+      filterFields:
+        - label: { en: Kind, ru: Вид }
+          field: label
+          operator: _contains
+        - label: { en: Area, ru: Область }
+          field: group
+          operator: _contains

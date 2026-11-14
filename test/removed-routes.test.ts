@@ -34,10 +34,11 @@ const REMOVED: readonly string[] = [
   '/api/tasks',
   '/api/task?id=one',
   '/llms.txt',
+  '/kind/domain.md',
 ];
 
-/** The addresses the app itself owns now (decision 0036, section 7): a page route, never a Markdown answer. */
-const APP_PAGES: readonly string[] = ['/e/product:shop.md', '/kind/domain.md'];
+/** The addresses the app itself owns now (decision 0036, section 7): an entity's page and a template's. */
+const APP_PAGES: readonly string[] = ['/e/code.file/00000000-0000-0000-0000-000000000000', '/p/product-settings'];
 
 /** The paths whose writes section 8 keeps: their read methods answer 405, and no other method but the kept ones. */
 const WRITE_ONLY: readonly string[] = ['/api/authored?kind=note'];

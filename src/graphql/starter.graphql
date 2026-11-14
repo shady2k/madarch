@@ -11,6 +11,7 @@ type AdministratorGuide implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -88,7 +89,11 @@ type BacklinkEdge {
 type Bootstrap {
   structureRevision: String!
   home: BootstrapHome
+  catalogueTemplate: String!
   templates: [PageTemplate!]!
+  recordTemplates: [RecordTemplate!]!
+  ownTemplates: [OwnTemplate!]!
+  roles: [String!]!
 }
 
 type BootstrapHome {
@@ -104,6 +109,7 @@ type CatalogueEntity implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String!
   title: String
   definition: String
@@ -116,6 +122,7 @@ type CatalogueEntity implements Entity {
   taken: Boolean!
   plugins: [String!]!
   fields: [CatalogueField!]!
+  instances(first: Int, after: String, lang: String): EntityConnection!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   grounds(first: Int, after: String): GroundsConnection!
@@ -170,6 +177,7 @@ type CodeAuthor implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -221,6 +229,7 @@ type CodeBroker implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -247,6 +256,7 @@ type CodeChannel implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -291,6 +301,7 @@ type CodeCiJob implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -317,6 +328,7 @@ type CodeCiWorkflow implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -343,6 +355,7 @@ type CodeColumn implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   table: String
   tableOpinions: [Opinion!]!
   tableOpinionsCount: Int!
@@ -396,6 +409,7 @@ type CodeCommit implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
   hashOpinions: [Opinion!]!
   hashOpinionsCount: Int!
@@ -450,6 +464,7 @@ type CodeComposeService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -494,6 +509,7 @@ type CodeContract implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -529,6 +545,7 @@ type CodeCycle implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -555,6 +572,7 @@ type CodeDatabase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -587,6 +605,7 @@ type CodeDebt implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -631,6 +650,7 @@ type CodeDependency implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -657,6 +677,7 @@ type CodeDirectory implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -691,6 +712,7 @@ type CodeDockerfile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -717,6 +739,7 @@ type CodeDocumentSection implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -743,6 +766,7 @@ type CodeEntryPoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -769,6 +793,7 @@ type CodeEnvDefinition implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -795,6 +820,7 @@ type CodeEnvVar implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -821,6 +847,7 @@ type CodeFacet implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -847,6 +874,7 @@ type CodeField implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -873,6 +901,7 @@ type CodeFile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
@@ -991,6 +1020,7 @@ type CodeGitlink implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1066,6 +1096,7 @@ type CodeHealthEndpoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1092,6 +1123,7 @@ type CodeHealthcheck implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1139,6 +1171,7 @@ type CodeImage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1231,6 +1264,7 @@ type CodeIndex implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   table: String
   tableOpinions: [Opinion!]!
   tableOpinionsCount: Int!
@@ -1273,6 +1307,7 @@ type CodeInput implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1299,6 +1334,7 @@ type CodeK8sDeployment implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1325,6 +1361,7 @@ type CodeK8sService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1351,6 +1388,7 @@ type CodeLockfile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1377,6 +1415,7 @@ type CodeLogger implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1403,6 +1442,7 @@ type CodeMakeTarget implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1429,6 +1469,7 @@ type CodeManifest implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1455,6 +1496,7 @@ type CodeMessage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1481,6 +1523,7 @@ type CodeMetric implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1507,6 +1550,7 @@ type CodeMetricsEndpoint implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1533,6 +1577,7 @@ type CodeMigration implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1559,6 +1604,7 @@ type CodeModule implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1594,6 +1640,7 @@ type CodeNewcomerCommand implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1620,6 +1667,7 @@ type CodeNewcomerFailure implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1646,6 +1694,7 @@ type CodeNewcomerPrerequisites implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1672,6 +1721,7 @@ type CodeOperation implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1710,13 +1760,16 @@ type CodePackage implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
-  ecosystem: String
-  ecosystemOpinions: [Opinion!]!
-  ecosystemOpinionsCount: Int!
-  name: String
-  nameOpinions: [Opinion!]!
-  nameOpinionsCount: Int!
-  codeImportsPackageOf(where: CodeImportsPackageEdgeWhere, orderBy: [CodeImportsPackageEdgeOrder!], first: Int, after: String): CodeImportsPackageConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  stateMachines: JSON
+  stateMachinesOpinions: [Opinion!]!
+  stateMachinesOpinionsCount: Int!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1764,6 +1817,7 @@ type CodePort implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1790,6 +1844,7 @@ type CodeProbe implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1816,6 +1871,7 @@ type CodeProcess implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1860,6 +1916,7 @@ type CodeRepository implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -1901,6 +1958,7 @@ type CodeRoute implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1927,6 +1985,7 @@ type CodeService implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1962,6 +2021,7 @@ type CodeSnapshot implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -1988,6 +2048,7 @@ type CodeSqlBuild implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2014,6 +2075,7 @@ type CodeSqlSink implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2040,6 +2102,7 @@ type CodeSymbol implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -2078,6 +2141,7 @@ type CodeTable implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   database: String
   databaseOpinions: [Opinion!]!
   databaseOpinionsCount: Int!
@@ -2119,6 +2183,7 @@ type CodeTask implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2145,6 +2210,7 @@ type CodeTestCase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2173,6 +2239,7 @@ type CodeTestQuarantine implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -2252,6 +2319,7 @@ type Correction implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2290,6 +2358,7 @@ type DocDecision implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2328,6 +2397,7 @@ type DocRequirement implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2366,6 +2436,7 @@ type DocRule implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2404,6 +2475,7 @@ type DocTerm implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2457,6 +2529,7 @@ type DocUseCase implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2495,6 +2568,7 @@ type Document implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   commit: String
   commitOpinions: [Opinion!]!
   commitOpinionsCount: Int!
@@ -2539,6 +2613,7 @@ type Domain implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -2604,6 +2679,7 @@ type Enrichment implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -2669,6 +2745,7 @@ interface Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2782,6 +2859,27 @@ type Opinion {
   evidence: [Evidence!]!
 }
 
+type Outgoing {
+  relation: String!
+  to: Entity!
+}
+
+type OutgoingConnection {
+  edges: [OutgoingEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type OutgoingEdge {
+  cursor: String!
+  node: Outgoing!
+}
+
+type OwnTemplate {
+  id: ID!
+  template: String!
+}
+
 type PageInfo {
   endCursor: String
   hasNextPage: Boolean!
@@ -2799,6 +2897,7 @@ type ProblemDismissal implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   rule: String
   ruleOpinions: [Opinion!]!
   ruleOpinionsCount: Int!
@@ -2846,6 +2945,7 @@ type Product implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!
@@ -2929,6 +3029,7 @@ type Question implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -2960,6 +3061,11 @@ type QuestionEdge {
   node: Question!
 }
 
+type RecordTemplate {
+  kind: String!
+  template: String!
+}
+
 type Source implements Entity {
   id: ID!
   kind: String!
@@ -2967,6 +3073,7 @@ type Source implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -3005,6 +3112,7 @@ type Task implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   legacyId: String
   legacyIdOpinions: [Opinion!]!
   legacyIdOpinionsCount: Int!
@@ -3045,6 +3153,7 @@ type UserGuide implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   title: String
   titleOpinions: [Opinion!]!
   titleOpinionsCount: Int!

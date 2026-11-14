@@ -26,6 +26,7 @@ import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import type { StartedServer } from '../server/http.js';
 import { knowledgeRootOf } from '../product/store.js';
+import { productTemplateRefusal } from '../graph/template-check.js';
 import { readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
 import { ensureBuilt, type AppBuildOptions } from './app.js';
@@ -137,6 +138,10 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const noManifest = !read.ok && isExistingDirectoryWithoutManifest(folder);
   if (!read.ok && !noManifest) {
     return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: ${read.message} (${read.file}, line ${read.line})` };
+  }
+  const templates = productTemplateRefusal(folder);
+  if (templates !== undefined) {
+    return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: its page templates cannot be used\n${templates}` };
   }
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
   if (!built.ok) return { outcome: 'refused', message: built.message };

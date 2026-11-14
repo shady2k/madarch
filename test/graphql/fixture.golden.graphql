@@ -23,7 +23,11 @@ type BacklinkEdge {
 type Bootstrap {
   structureRevision: String!
   home: BootstrapHome
+  catalogueTemplate: String!
   templates: [PageTemplate!]!
+  recordTemplates: [RecordTemplate!]!
+  ownTemplates: [OwnTemplate!]!
+  roles: [String!]!
 }
 
 type BootstrapHome {
@@ -39,6 +43,7 @@ type CatalogueEntity implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String!
   title: String
   definition: String
@@ -51,6 +56,7 @@ type CatalogueEntity implements Entity {
   taken: Boolean!
   plugins: [String!]!
   fields: [CatalogueField!]!
+  instances(first: Int, after: String, lang: String): EntityConnection!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   mentions(first: Int, after: String): MentionsConnection!
@@ -83,6 +89,7 @@ type DemoAuthor implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -133,6 +140,7 @@ type DemoCommit implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
   hashOpinions: [Opinion!]!
   hashOpinionsCount: Int!
@@ -190,6 +198,7 @@ type DemoFile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: DemoRepository
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -238,6 +247,7 @@ type DemoRepository implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -322,6 +332,7 @@ interface Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
 }
@@ -377,6 +388,27 @@ type Opinion {
   evidence: [Evidence!]!
 }
 
+type Outgoing {
+  relation: String!
+  to: Entity!
+}
+
+type OutgoingConnection {
+  edges: [OutgoingEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type OutgoingEdge {
+  cursor: String!
+  node: Outgoing!
+}
+
+type OwnTemplate {
+  id: ID!
+  template: String!
+}
+
 type PageInfo {
   endCursor: String
   hasNextPage: Boolean!
@@ -385,6 +417,11 @@ type PageInfo {
 type PageTemplate {
   name: String!
   body: String!
+}
+
+type RecordTemplate {
+  kind: String!
+  template: String!
 }
 
 type Query {
