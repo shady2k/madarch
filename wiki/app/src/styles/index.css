@@ -18,6 +18,7 @@
 @import "tailwindcss";
 @import "./fonts.css";
 @import "./tokens.css";
+@import "./charts.css";
 @plugin "@tailwindcss/typography";
 
 @theme {

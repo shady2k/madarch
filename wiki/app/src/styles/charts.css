@@ -1,0 +1,43 @@
+/**
+ * The chart forms' tokens (vendor/diagrammatic), every one set from the kit's
+ * design tokens: a figure is drawn in the page's palette, its type and its
+ * light/dark scheme, and carries no colour of its own (task madarch-64o5.82).
+ *
+ * The kit has one voice, graphite: the categorical ramp is the text colour at
+ * descending strength over the page surface, so a treemap's areas read as
+ * steps of one ink rather than as seven hues, and a second palette never
+ * appears. The diagrammatic defaults stay the fallbacks for a host that has no
+ * tokens at all (a test render, a server-side figure).
+ */
+[data-dg],
+[data-dg-legend] {
+  /* Seven steps of one ink: the first is the text colour itself. */
+  --dg-c1: var(--text);
+  --dg-c2: color-mix(in oklab, var(--text) 86%, var(--bg-page));
+  --dg-c3: color-mix(in oklab, var(--text) 72%, var(--bg-page));
+  --dg-c4: color-mix(in oklab, var(--text) 58%, var(--bg-page));
+  --dg-c5: color-mix(in oklab, var(--text) 44%, var(--bg-page));
+  --dg-c6: color-mix(in oklab, var(--text) 32%, var(--bg-page));
+  --dg-c7: color-mix(in oklab, var(--text) 22%, var(--bg-page));
+  /* A gain and a loss are one ink at two strengths: hue never carries meaning here. */
+  --dg-pos: var(--text);
+  --dg-neg: var(--text-muted);
+  --dg-ink: var(--text);
+  --dg-muted: var(--text-muted);
+  --dg-grid: var(--border);
+  --dg-surface: var(--bg-page);
+  --dg-font: var(--font-sans);
+}
+
+/* A figure that stands in a table cell or beside a value keeps the small step. */
+[data-dg] text {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The heat graph's cells: the same steps of one ink, as the host's colour scale (charts.tsx hands them over). */
+[data-testid="activity-calendar"] {
+  --heat-step-1: color-mix(in oklab, var(--text) 22%, var(--bg-page));
+  --heat-step-2: color-mix(in oklab, var(--text) 40%, var(--bg-page));
+  --heat-step-3: color-mix(in oklab, var(--text) 62%, var(--bg-page));
+  --heat-step-4: color-mix(in oklab, var(--text) 84%, var(--bg-page));
+}
