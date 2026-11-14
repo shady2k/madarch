@@ -176,21 +176,19 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
     } finally { await reader.close(); }
   }, 300_000);
 
-  test('a product whose agent plugin is removed names the kinds and fields it leaves without a producer, and fails them', async () => {
-    // The agent plugin is missing from the manifest: the fields it would fill have no producer at all, which is an error
-    // naming the kind, the fields and the missing plugin — never a kind status, a badge or a filter (madarch-64o5.60).
+  test('a product whose agent plugin is removed skips the fields it leaves without a producer, and fills the rest', async () => {
+    // The agent plugin is missing from the manifest: the fields it would fill have no producer at all. A product without
+    // an agent fills what its plugins fill and leaves the rest (decision 0035, item 22), and the plan says so — never a
+    // failed kind, a status, a badge or a filter.
     const f = fixture({ agent: false });
     const declarations = readKinds(f.product);
     if (!declarations.present) throw new Error('the fixture manifest is absent');
     expect(declarations.manifest.findings).toEqual([]);
     const plan = fillPlanView(declarations.manifest, f.product, ['code.directory', 'doc.decision'], ['code.directory', 'doc.decision']);
-    const error = plan.errors.find((one) => one.kind === 'doc.decision');
-    expect(error).toBeDefined();
-    expect(error!.fields).toEqual(['body', 'legacy_id', 'title']);
-    expect(error!.message).toContain('kind "doc.decision"');
-    expect(error!.message).toContain('no producer');
-    expect(error!.message).toContain('the agent plugin is missing from the manifest');
-    expect(plan.errors.some((one) => one.kind === 'code.directory')).toBe(false);
+    const skip = plan.skipped.find((one) => one.kind === 'doc.decision');
+    expect(skip).toEqual({ kind: 'doc.decision', fields: ['body', 'legacy_id', 'title'], reason: 'no producer in the manifest' });
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped.some((one) => one.kind === 'code.directory')).toBe(false);
 
     const store = productStoreFolder(f.product, knowledgeRootOf(f.home));
     const owner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
@@ -203,14 +201,10 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
-      // The kind nothing produces fails with the plan's error; the kind that has a producer runs.
-      expect(run.state).toBe('completed_partial');
-      const failed = run.units.find((unit) => unit.unitId === 'plugin-turns/missing:doc.decision');
-      expect(failed?.state).toBe('failed');
+      // The kind with a producer runs and publishes; the kind nothing produces is skipped, so no unit fails.
+      expect(run.state).toBe('succeeded');
+      expect(run.units.some((unit) => unit.unitId.includes('missing:'))).toBe(false);
       expect(run.units.find((unit) => unit.unitId === 'plugin-turns/disk:code.directory')?.state).toBe('published');
-      const { readProgress } = await import('../src/fill/orchestrator-store.js');
-      const events = await readProgress(owner, run.runId);
-      expect(events.some((event) => event.kind === 'unit-failed' && event.unitId === 'plugin-turns/missing:doc.decision' && event.summary.includes('the agent plugin is missing from the manifest'))).toBe(true);
     } finally { await owner.close(); }
   }, 300_000);
 });

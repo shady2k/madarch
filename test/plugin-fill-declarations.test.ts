@@ -206,9 +206,10 @@ test('manifest planning reports kinds no output at all names, without scheduling
   expect(plan.producers('File', 'description')).toEqual([]);
   expect(plan.producers('Summary', 'description')).toEqual([]);
   expect(plan.requiresAgent).toBe(false);
-  expect(plan.errors).toEqual([
-    { kind: 'File', fields: ['description', 'title'], message: 'kind "File": the fields "description", "title" have no producer: no plugin in the manifest produces them' },
-    { kind: 'Summary', fields: [], message: 'kind "Summary" cannot be filled: its prerequisite "File" has no producer in the manifest' },
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped).toEqual([
+    { kind: 'File', fields: ['description', 'title'], reason: 'no producer in the manifest' },
+    { kind: 'Summary', fields: [], reason: 'its prerequisite "File" has no producer in the manifest' },
   ]);
 });
 
@@ -272,7 +273,7 @@ test('64o5.49: a request nothing in the manifest can produce fails with the reas
   const manifest = manifestOf(catalogue, [plugin('summary', [output('Summary', '*', { reads: ['File'] })])]);
   const wiring = { manifest, productFolder: '/product', targets: { kinds: ['Summary'], requested: ['Summary'] }, locks: new Map([['summary', { id: 'summary', version: '1.0.0', closure: 'a'.repeat(64), path: 'plugins/summary', line: 1 }]]) } as unknown as PluginTurnWiring;
   const stage = createPluginTurnStage(wiring);
-  await expect(stage.plan(undefined as never)).rejects.toThrow(/nothing the fill was asked for has a producer: kind "File": the fields "description", "title" have no producer/);
+  await expect(stage.plan(undefined as never)).rejects.toThrow(/nothing the fill was asked for has a producer: kind "File" \(the fields "description", "title"\) is skipped: no producer in the manifest/);
 });
 
 test('64o5.60: a kind configuring a missing agent plugin is an error naming its fields and the plugin', () => {
@@ -304,14 +305,12 @@ test('review 1: a field no producer fills is an error, never a silent gap', asyn
   ], [plugin('index', [output('File', ['title'])])]);
   const plan = planManifestFill(manifest, '/product', ['File'], true);
   expect(plan.fieldProducers('File').get('body')).toEqual([]);
-  expect(plan.errors).toEqual([{
-    kind: 'File', fields: ['body'],
-    message: 'kind "File": the field "body" has no producer: the agent plugin is missing from the manifest',
-  }]);
-  // The run fails that kind and the kind's own producer still runs.
+  // No agent plugin is held: the field is skipped, named, and the kind's own producer still runs.
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped).toEqual([{ kind: 'File', fields: ['body'], reason: 'no producer in the manifest' }]);
   const wiring = { manifest, productFolder: '/product', targets: { kinds: ['File'], requested: ['File'] }, locks: new Map([['index', { id: 'index', version: '1.0.0', closure: 'a'.repeat(64), path: 'plugins/index', line: 1 }]]) } as unknown as PluginTurnWiring;
   const planned = await createPluginTurnStage(wiring).plan(undefined as never);
-  expect(planned.units.map((unit) => unit.id)).toEqual(['index:File', 'missing:File']);
+  expect(planned.units.map((unit) => unit.id)).toEqual(['index:File']);
 });
 
 test('review 2: target selection does not count an unasked kind\'s agent fallback reads', async () => {
@@ -344,12 +343,10 @@ test('review 3: a kind whose input has no producer is an error, and the other ki
   ];
   const manifest = manifestWithFields(catalogue, [general(['code.file']), plugin('other', [output('Other')])]);
   const plan = planManifestFill(manifest, '/product', ['Summary', 'Other'], true, ['Summary', 'Other']);
-  // Both are named: the input the product lacks, and the kind that reads it. Neither throws, and Other still runs.
-  expect(plan.errors.map((error) => error.kind).sort()).toEqual(['Summary', 'code.file']);
-  expect(plan.errors.find((error) => error.kind === 'Summary')).toEqual({
-    kind: 'Summary', fields: [],
-    message: 'kind "Summary" cannot be filled: its input "code.file" has no producer in the manifest',
-  });
+  // Both are named as skipped: the input the product lacks, and the kind that reads it. Nothing throws, and Other runs.
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped.map((skip) => skip.kind).sort()).toEqual(['Summary', 'code.file']);
+  expect(plan.skipped.find((skip) => skip.kind === 'Summary')).toEqual({ kind: 'Summary', fields: [], reason: 'its input "code.file" has no producer in the manifest' });
   expect(plan.order).toEqual(['other']);
   expect(plan.outputs.get('other')?.has('Other')).toBe(true);
 });
