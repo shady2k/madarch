@@ -25,11 +25,24 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'archify', label: 'archify' },
 ];
 
+/** The format the reader opened last; the first visit draws nothing until the reader asks, because each picture costs a render. */
+const PREFERRED_KEY = 'madarch-wiki-diagram';
+
+function preferredTab(): Tab | null {
+  try {
+    const held = window.localStorage.getItem(PREFERRED_KEY);
+    if (held === 'likec4' || held === 'mermaid' || held === 'archify') return held;
+  } catch {
+    // A browser that refuses storage keeps the choice for this page only.
+  }
+  return null;
+}
+
 export function DiagramSection({ context }: { readonly context: SectionContext }): ReactElement {
   const id = typeof valueAt(context.data, 'id') === 'string' ? String(valueAt(context.data, 'id')) : '';
   const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
-  const [tab, setTab] = useState<Tab>('likec4');
+  const [tab, setTab] = useState<Tab | null>(() => preferredTab());
   const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
   const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
@@ -52,12 +65,14 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
       setAnswers((held) => ({ ...held, [format]: { failed: error instanceof Error ? error.message : String(error) } }));
     }
   }, [address, answers, id]);
-  useEffect(() => { void ask(tab); }, [tab, ask]);
-  const held = answers[tab];
+  useEffect(() => { if (tab !== null) void ask(tab); }, [tab, ask]);
+  const held = tab === null ? undefined : answers[tab];
   return (
     <Stack gap={2}>
-      <Tabs tabs={TABS} active={tab} onSelect={(next) => setTab(next as Tab)} />
-      {tab === 'archify' ? (
+      <Tabs tabs={TABS} active={tab ?? ''} onSelect={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }} />
+      {tab === null ? (
+        <Muted>Choose a picture.</Muted>
+      ) : tab === 'archify' ? (
         <ArchifyPane src={address('archify')} root={root} open={context.open} />
       ) : held === undefined ? (
         <Muted>Loading the picture…</Muted>

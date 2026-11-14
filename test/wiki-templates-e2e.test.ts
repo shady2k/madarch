@@ -70,6 +70,9 @@ function snapshot(name: string, element: HTMLElement): void {
 
 /** One app load at one address: the built script imported afresh, its requests answered by the real server. */
 async function openPage(path: string, mockup?: string): Promise<{ text: string; nodes: number; links: string[]; buttons: string[]; tabs: string[] }> {
+  // The walk mounts no picture: LikeC4's and Mermaid's runtimes and archify's page need a browser's layout engine, and this
+  // run checks the page's three tabs and the server's three answers; the panes are checked by the component's own tests.
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage in this run */ }
   window.history.pushState({}, '', path);
   document.getElementById('root')?.remove();
   const element = document.createElement('div');
@@ -126,7 +129,9 @@ run('the template frontend on madarch\'s own filled product', () => {
     server = await startPreparedServer({ productFolder: folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
     // The app is drawn in happy-dom, registered once the server and the store owner are up: their own Response class is
     // the process's, and only the page's rendering needs a DOM.
-    GlobalRegistrator.register({ url: 'http://localhost/' });
+    // The page's own origin is the served product, so an address the app names (a frame's `src` included) reaches the
+    // server in this walk.
+    GlobalRegistrator.register({ url: `${server!.url}/` });
     // The server's handler and the page's client both answer with the process's Response: only the drawing needs a DOM.
     globalThis.Response = nativeResponse;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -184,15 +189,7 @@ run('the template frontend on madarch\'s own filled product', () => {
     expect(page.text).toContain('codeContainsOf');
     // The diagram is the server's picture, in three tabs (decision 0036, sections 7 and 8).
     expect(page.tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
-    const mermaidTab = [...document.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');
-    mermaidTab?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    const archifyTab = [...document.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'archify');
-    archifyTab?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    for (let at = 0; at < 40; at += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      if (document.querySelector('iframe') !== null) break;
-    }
-    expect(document.querySelector('iframe')?.getAttribute('src')).toContain('format=archify');
+    // Nothing is drawn until the reader picks a picture; the server's three answers are read below.
     // The server's own answers carry each node's page: the archify page and the Mermaid source alike.
     const mermaidAnswer = await (await fetch(`${server!.url}/render/diagram?entity=${id}&format=mermaid`)).json() as { source: string };
     expect(mermaidAnswer.source).toContain('click ');
@@ -208,7 +205,7 @@ run('the template frontend on madarch\'s own filled product', () => {
     const one = found.allCodeRepository.edges[0]!.node;
     const page = await openPage(`/e/code.repository/${one.id}`, 'repository');
     expect(page.text).toContain(one.label);
-    expect(page.text).toContain('code.file');
+    expect(page.text).toContain('codeContains');
     expect(page.tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
     // The page is one operation: bootstrap once, page once.
     expect(posts.filter((one) => !one.query.includes('bootstrap'))).toHaveLength(1);

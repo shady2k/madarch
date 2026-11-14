@@ -180,11 +180,15 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
       : { format: 'mermaid', entity: { id: 'uid', kind: 'a.b', label: 'Write' }, depth: 1, folded: 0, truncated: false, source: 'flowchart LR\n  n0["Write"]\n' };
     return new Response(JSON.stringify(body), { status: 200 });
   }) as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
   const page = await renderPage([section('diagram', 'diagram', { depth: 1, aggregateAbove: 12 })], { diagram: { id: 'uid' } });
   try {
     const tabs = [...page.container.querySelectorAll('[role="tab"]')].map((one) => one.textContent);
     expect(tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
-    // The first tab asks the server for the LikeC4 picture: one picture, one request.
+    // A picture costs a server render: nothing is asked until the reader picks a tab.
+    expect(requested).toHaveLength(0);
+    const likeC4Tab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'LikeC4');
+    await act(async () => { likeC4Tab?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
     expect(requested).toHaveLength(1);
     expect(requested[0]).toContain('/render/diagram?entity=uid');
     expect(requested[0]).toContain('format=likec4');
