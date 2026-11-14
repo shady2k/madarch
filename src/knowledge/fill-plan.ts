@@ -4,6 +4,7 @@
  * CLI and the fill route answer the same view, so the wiki's fill page and `madarch fill` can never say different things
  * about the same press.
  */
+import { byCodePoint } from '../model/order.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { planManifestFill, type AgentNeed, type FillPlanError } from '../plugin/fill-declarations.js';
 
@@ -29,6 +30,8 @@ export interface FillPlanUnit {
 
 /** The whole plan of one press, as the command and the route answer it. */
 export interface FillPlanView {
+  /** The plugins the manifest declares, with their names for a reader (an id when a declaration names none). */
+  readonly plugins: readonly { readonly name: string; readonly labels: Readonly<Record<string, string>> }[];
   /** The selected kinds in the order their turns run, every dependency before its dependant. */
   readonly selectedKinds: readonly string[];
   /** The kinds the person asked for (the dependencies are the rest of `selectedKinds`). */
@@ -68,7 +71,11 @@ export function fillPlanView(
   const units = run.order.flatMap((plugin) => run.selectedKinds
     .filter((kind) => run.outputs.get(plugin)?.has(kind) === true)
     .map((kind) => ({ plugin, kind })));
+  const plugins = [...(manifest.plugins?.values() ?? [])]
+    .flatMap((plugin) => plugin.declaration === undefined ? [] : [{ name: plugin.declaration.name, labels: { ...(plugin.declaration.labels ?? {}) } }])
+    .sort((left, right) => byCodePoint(left.name, right.name));
   return {
+    plugins,
     selectedKinds: plan.selectedKinds,
     requestedKinds: [...new Set(requestedKinds ?? entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind))],
     added: entries.filter((entry) => entry.reason === 'dependency').map((entry) => ({ kind: entry.kind, neededBy: entry.namedBy })),

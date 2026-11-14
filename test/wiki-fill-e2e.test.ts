@@ -123,6 +123,8 @@ run('the fill flow on a product filled with disk and git', () => {
       }
       await page.waitForSelector('[data-testid="catalogue-page"]', { timeout: 60_000 });
       await page.waitForSelector('[data-testid="catalogue-kind"]', { timeout: 60_000 });
+      expect(await page.$('[data-testid="top-search"]')).not.toBeNull();
+      expect(await page.$('[data-testid="fill-entry"]')).not.toBeNull();
       const reading = await textOf(page);
       expect(reading).toContain('Каталог сущностей');
       expect(reading).toContain('Выбрать для заполнения');
@@ -143,9 +145,9 @@ run('the fill flow on a product filled with disk and git', () => {
       expect(selected).toContain('добавлено 2 зависимости');
       await page.click('[data-testid="catalogue-show-selected"]');
       await new Promise((resolve) => setTimeout(resolve, 300));
-      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
       await shotAt('catalogue-select', 1440, 900);
-      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
       await shotAt('catalogue-select', 390, 844);
 
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
@@ -196,6 +198,16 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.goto(`${server!.url}/p/settings`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="settings-page"]', { timeout: 60_000 });
       await page.screenshot({ path: join(SHOTS, 'settings-ru.png') });
+      // The top bar's search stays on a page: it opens the home page's search with the query in its address.
+      await page.goto(`${server!.url}/p/catalogue`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="top-search"]', { timeout: 60_000 });
+      await page.click('[data-testid="top-search"]');
+      await page.keyboard.type('index');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => window.location.pathname === '/', { timeout: 30_000 });
+      await page.waitForFunction(() => (document.body.textContent ?? '').includes('Найдено'), { timeout: 30_000 });
+      expect(await page.$('[data-testid="top-search"]')).not.toBeNull();
+      expect(await page.$('[data-testid="fill-entry"]')).not.toBeNull();
       expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
     } finally {
       await page.close();
@@ -232,9 +244,9 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.waitForFunction(() => (document.querySelector('[data-testid="catalogue-selected-count"]')?.textContent ?? '').includes('Выбран 1 вид'), { timeout: 30_000 });
       await page.click('[data-testid="catalogue-show-selected"]');
       await new Promise((resolve) => setTimeout(resolve, 300));
-      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
       await shotAt('catalogue-select-agent', 1440, 900);
-      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
       await shotAt('catalogue-select-agent', 390, 844);
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.click('[data-testid="catalogue-prepare"]');

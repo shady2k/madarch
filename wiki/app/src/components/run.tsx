@@ -17,10 +17,11 @@ import { Progress } from './ui/progress.js';
 import { Skeleton } from './ui/skeleton.js';
 import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import {
-  pauseFillRun, readFillRun, stopFillRun, useChangeStream, useCommandRead,
-  type FillRunDetail, type FillRunGroup,
+  pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
+  type FillPlanView, type FillRunDetail, type FillRunGroup,
 } from './command.js';
 import { RUNS_PAGE } from '../address.js';
+import { InlineCode } from './ui/inline-content.js';
 import type { SectionContext } from './types.js';
 
 const LIVE = ['created', 'planning', 'running', 'pausing', 'cancelling'];
@@ -61,7 +62,7 @@ function seconds(value: number): number {
 }
 
 /** The run's log as a person reads it: state changes and work per kind, never the engine's own sentences. */
-function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, t: TFunction, language: string): { at: string; text: string }[] {
+function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): { at: string; text: string }[] {
   const lines: { at: string; text: string }[] = [];
   for (const event of run.events.slice(-200)) {
     const word = EVENT_WORDS[event.type];
@@ -71,7 +72,7 @@ function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: 
       if (group === undefined) continue;
       const kind = labelOf(group.kind);
       if (kind === undefined) continue;
-      lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`, { kind, plugin: group.plugin }) });
+      lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(group.plugin) ?? group.plugin }) });
       continue;
     }
     lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`) });
@@ -88,6 +89,8 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const runId = typeof bound === 'string' ? bound : '';
   const read = useCommandRead<{ run: FillRunDetail }>(`fill-run:${runId}`, (signal) => readFillRun(context.base, runId, signal), runId !== '');
   const run = read.data?.run ?? null;
+  const orderKey = (run?.order ?? run?.selected ?? []).join(',');
+  const plan = useCommandRead<{ plan: FillPlanView }>(`run-plan-labels:${orderKey}`, (signal) => readFillPlan(context.base, run?.order ?? run?.selected ?? [], signal), run !== null && orderKey !== '');
   useChangeStream(context.base, () => { read.reload(); });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
@@ -104,6 +107,10 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
 
   const catalogue = context.navigation?.kinds ?? [];
   const groups = context.navigation?.groups ?? [];
+  const pluginName = (name: string): string | undefined => {
+    const labels = plan.data?.plan.plugins?.find((plugin) => plugin.name === name)?.labels;
+    return labels?.[language] ?? labels?.['en'];
+  };
   const labelOf = (kind: string): string | undefined => catalogue.find((one) => one.kind === kind)?.many;
   const groupLabelOf = (kind: string): string | undefined => {
     const held = catalogue.find((one) => one.kind === kind);
@@ -112,7 +119,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
     return group?.labels[language] ?? group?.labels['en'] ?? held.group;
   };
   const names = (run?.order ?? run?.selected ?? []).map((kind) => labelOf(kind)).filter((label): label is string => label !== undefined);
-  const lines = run === null ? [] : logLines(run, run.groups, labelOf, t, language);
+  const lines = run === null ? [] : logLines(run, run.groups, labelOf, pluginName, t, language);
 
   const act = (action: 'pause' | 'stop'): void => {
     if (run === null) return;
@@ -167,7 +174,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
       <Card data-testid="fill-run-groups">
         <CardHeader><CardTitle>{t('knowledge.fillRun.result')}</CardTitle></CardHeader>
         <CardContent>
-          <PlainList>
+          <PlainList className="m-0 list-none p-0">
             {liveRun.groups.map((group) => {
               const kind = labelOf(group.kind);
               if (kind === undefined) return null;
@@ -176,7 +183,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                 <ListItem key={`${group.kind}:${group.plugin}`} className="mb-3" data-testid="fill-run-group">
                   <Paragraph className="m-0">
                     {area === undefined || area === kind ? null : <Text className="text-muted">{area} · </Text>}
-                    {kind} · {group.plugin}
+                    {kind} · {pluginName(group.plugin) === undefined ? <InlineCode>{group.plugin}</InlineCode> : pluginName(group.plugin)}
                   </Paragraph>
                   <Paragraph className="m-0 text-small text-muted">
                     {group.total === 0 ? emptyWords : t('knowledge.fillRun.count', { done: group.done, total: group.total })} · {t(`knowledge.fillRun.state.${group.state}`, { defaultValue: group.state })}
@@ -192,7 +199,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
       <Disclosure className="mt-2" data-testid="fill-run-log">
         <DisclosureSummary>{t('knowledge.fillRun.log')}</DisclosureSummary>
         {lines.length === 0 ? <Paragraph className="text-small text-muted">{t('knowledge.fillRun.logEmpty')}</Paragraph> : (
-          <PlainList>
+          <PlainList className="m-0 list-none p-0">
             {lines.map((line, at) => <ListItem key={`${String(at)}:${line.at}`} className="text-small">{line.at} · {line.text}</ListItem>)}
           </PlainList>
         )}

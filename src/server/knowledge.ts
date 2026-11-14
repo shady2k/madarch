@@ -263,7 +263,7 @@ export function createKnowledgePart(
     identity: guarded('read the product identity', async () => {
       const identity = product.product();
       if ('message' in identity) throw new WikiReadError(identity.message);
-      return { response: json(200, { id: identity.id, name: identity.name }) };
+      return { response: json(200, { id: identity.id, name: identity.name, folder: identity.folder }) };
     }, false),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) }), false),
     kindUsage: guarded('read the kind\'s agent spend', async (request) => {

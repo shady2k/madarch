@@ -7,7 +7,7 @@ import { useEffect, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { readFillRun, readFillStatus, useChangeStream, useCommandRead, type FillRunDetail, type FillStatusAnswer } from './command.js';
-import { RUNS_PAGE, catalogueSelectionAddress } from '../address.js';
+import { RUNS_PAGE } from '../address.js';
 
 export function RunIndicator({ base, open }: { readonly base: string; readonly open: (path: string) => void }): ReactElement | null {
   const { t } = useTranslation();
@@ -22,15 +22,8 @@ export function RunIndicator({ base, open }: { readonly base: string; readonly o
     return () => { clearInterval(timer); };
   }, [live, status.reload, detail.reload]);
   if (status.data?.own === true) return null;
-  // No live run: the top bar's way into a fill is the owner's «Заполнить…» press, which opens the catalogue in
-  // selection mode. The runs history stays in the sidebar.
-  if (fill === undefined || !live) {
-    return (
-      <Button variant="default" size="default" data-testid="fill-entry" onClick={() => open(catalogueSelectionAddress())}>
-        {t('knowledge.fillRun.open')}
-      </Button>
-    );
-  }
+  // No live run: the «Заполнить…» entry stands beside this indicator; the indicator is drawn only while a run goes.
+  if (fill === undefined || !live) return null;
   const done = detail.data?.run.publishedUnits;
   const total = detail.data?.run.units.length;
   const words = fill.state === 'paused'

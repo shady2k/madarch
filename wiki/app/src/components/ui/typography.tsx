@@ -55,7 +55,7 @@ export function PageArticle(props: HTMLAttributes<HTMLElement>) { return <articl
 export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) { return <dl className={cn(columns && 'm-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small', className)} {...props} />; }
 export function DefinitionTerm(props: HTMLAttributes<HTMLElement>) { return <dt {...props} />; }
 export function DefinitionValue(props: HTMLAttributes<HTMLElement>) { return <dd {...props} />; }
-export function PlainList(props: HTMLAttributes<HTMLUListElement>) { return <ul {...props} />; }
+export function PlainList({ className, ...props }: HTMLAttributes<HTMLUListElement>) { return <ul className={cn('ui-plain-list list-none', className)} {...props} />; }
 export function SmallTitle(props: HTMLAttributes<HTMLHeadingElement>) { return <h3 {...props} />; }
 export function Form({ className, ...props }: FormHTMLAttributes<HTMLFormElement>) { return <form className={cn('my-4 max-w-2xl space-y-4', className)} {...props} />; }
 export function FieldLabel(props: LabelHTMLAttributes<HTMLLabelElement>) { return <label {...props} />; }

@@ -1111,10 +1111,15 @@ export class ReadContext {
     const parts: string[] = [];
     for (const kind of this.published.kinds) {
       if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(typeNameOf(kind.name))) continue;
-      const kindParam = sql.param(kind.name, '::text');
+      let kindParam: string | undefined;
+      const declared = this.manifest.kinds.get(kind.name)?.fields;
       for (const field of kind.fields) {
         if (field.type !== 'text') continue;
+        // A field only a plugin's contract declares has no column the graph's table holds (a keyless kind's extra
+        // field); the schema lists it and the search leaves it out rather than asking for a column that is not there.
+        if (!kind.key.includes(field.name) && (declared === undefined || !declared.some((one) => one.name === field.name))) continue;
         const expr = this.fieldExpr(kind, field, 'n', sql, lang);
+        kindParam ??= sql.param(kind.name, '::text');
         parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity, (${expr})::text AS value
           FROM node n JOIN entity en ON en.id = n.entity_id
           WHERE en.name = ${kindParam} AND n.context_id = 1 AND NOT n.removed AND (${expr})::text ILIKE ${pattern}`);

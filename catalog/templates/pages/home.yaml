@@ -2,6 +2,8 @@
 # through the roots: the home entity when the product has one, and the catalogue of the kinds it declares.
 template: home
 variables:
+  q:
+    type: String
   kinds_where:
     type: CatalogueEntityWhere
   kinds_orderBy:

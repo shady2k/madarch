@@ -16,11 +16,13 @@ import { Input } from './ui/input.js';
 import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
+import { InlineCode } from './ui/inline-content.js';
 import {
-  readAgentChoices, readAgents, readFillPlan, readFillStatus, startFillSelection, useCommandRead,
+  readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer,
 } from './command.js';
 import { filledBy, planKindOf } from './plan-words.js';
+import { PluginNames } from './plugin-names.js';
 import type { Navigation } from '../client.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
@@ -32,7 +34,8 @@ function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | 
 }
 
 export function PrepareSection({ context }: { readonly context: SectionContext }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
   const navigation = context.navigation;
   const base = context.base;
   const requested = (typeof context.variables['kinds'] === 'string' ? context.variables['kinds'] : '').split(',').filter((kind) => kind !== '').sort();
@@ -47,6 +50,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const key = requested.join(',');
   const planRead = useCommandRead<{ plan: FillPlanView }>(`prepare-plan:${key}:${String(pluginsOnly)}`, (signal) => readFillPlan(base, requested, signal, pluginsOnly), requested.length > 0);
   const agents = useCommandRead<AgentsAnswer>('prepare-agents', (signal) => readAgents(base, signal));
+  const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('prepare-product', (signal) => readProduct(base, signal));
   const status = useCommandRead<FillStatusAnswer>('prepare-status', (signal) => readFillStatus(base, signal));
   const plan = planRead.data?.plan;
   const needsAgent = plan?.needsAgent ?? [];
@@ -114,9 +118,10 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
         <CardContent>
           <InlineGroup className="mb-2"><Text className="font-medium">{status.data?.product?.name ?? navigation?.product ?? t('brand.product')}</Text></InlineGroup>
           <PlainList className="m-0 list-none p-0">
-            <ListItem className="flex flex-wrap items-center gap-2 border-b border-line py-1.5" data-testid="prepare-repository">
-              <Text>{t('knowledge.productRepository')}</Text>
-              <Badge variant="outline">{t('prepare.productRepository')}</Badge>
+            <ListItem className="flex flex-wrap items-center gap-2 border-b border-line py-1.5" data-testid="prepare-product-repository">
+              <Text className="font-medium">{t('prepare.productRepository')}</Text>
+              <Text>{product.data?.name ?? status.data?.product?.name ?? navigation?.product ?? ''}</Text>
+              {product.data?.folder === undefined ? null : <InlineCode>{product.data.folder}</InlineCode>}
             </ListItem>
             {(status.data?.repositories ?? []).map((repository) => (
               <ListItem key={repository.name} className="flex flex-wrap items-center gap-2 border-b border-line py-1.5 last:border-b-0" data-testid="prepare-repository">
@@ -142,7 +147,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                     <Text className="font-medium">{at + 1}. {labelOf(navigation, kind)}</Text>
                     {needed === undefined ? null : <Text className="text-small text-muted">· {t('prepare.neededFor', { kind: labelOf(navigation, needed) })}</Text>}
                   </Stack>
-                  {filled.plugins.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-plugins">{t('prepare.pluginsLine', { plugins: filled.plugins.join(', ') })}</Paragraph>}
+                  {filled.plugins.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-plugins">{t('prepare.pluginsLine')} <PluginNames names={filled.plugins} plan={plan} language={language} /></Paragraph>}
                   {filled.agent.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-agent-fields">{t('prepare.agentLine', { fields: filled.agent.join(', ') })}</Paragraph>}
                   {filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('prepare.noFields')}</Paragraph> : null}
                 </ListItem>

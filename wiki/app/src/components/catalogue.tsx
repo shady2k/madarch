@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDownIcon } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
@@ -19,6 +20,7 @@ import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
 import { readFillPlan, useCommandRead, type FillPlanError, type FillPlanView } from './command.js';
 import { filledBy, planKindOf } from './plan-words.js';
+import { PluginNames } from './plugin-names.js';
 import type { Navigation, NavigationKind } from '../client.js';
 import { CATALOGUE_KIND } from '../../../../src/page-contract/index.js';
 import { catalogueSelectionAddress, entityAddress, prepareAddress } from '../address.js';
@@ -62,6 +64,25 @@ function kindLabel(navigation: Navigation | null, kind: string): string | undefi
 function groupCheck(visible: readonly NavigationKind[], active: ReadonlySet<string>): { all: boolean; some: boolean; count: number } {
   const on = visible.filter((kind) => active.has(kind.kind)).length;
   return { all: visible.length > 0 && on === visible.length, some: on > 0 && on < visible.length, count: visible.length };
+}
+
+/** One filter: a full-width native select with the kit's own chevron, on the same line as the other controls. */
+function FilterSelect({ label, value, options, onChange, testId }: {
+  readonly label: string;
+  readonly value: string;
+  readonly options: readonly { readonly value: string; readonly label: string }[];
+  readonly onChange: (value: string) => void;
+  readonly testId: string;
+}): ReactElement {
+  return (
+    <FieldLabel className="grid gap-1 text-small">
+      {label}
+      <Stack className="relative">
+        <Select className="w-full appearance-none pr-8" value={value} onChange={(event) => onChange(event.target.value)} options={options} data-testid={testId} />
+        <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted" size={15} />
+      </Stack>
+    </FieldLabel>
+  );
 }
 
 export function CatalogueSection({ context }: { readonly context: SectionContext }): ReactElement {
@@ -160,7 +181,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     if (!selecting) return null;
     const box = groupCheck(kinds, active);
     return (
-      <FieldLabel className="flex items-center gap-2 text-small text-muted">
+      <FieldLabel className="ml-auto flex items-center gap-2 text-small text-muted">
         <Checkbox
           checked={box.all}
           ref={(input) => { if (input !== null) input.indeterminate = box.some; }}
@@ -200,7 +221,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             </InlineGroup>
             {kind.definition === null || kind.definition === '' ? null : <Paragraph className="m-0 text-small text-secondary" data-testid="catalogue-definition">{kind.definition}</Paragraph>}
             {error !== undefined ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
-            {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy', { plugins: filled.plugins.join(', ') })}</Paragraph> : null}
+            {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
             {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.join(', ') })}</Paragraph> : null}
             {error === undefined && filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-no-fields">{t('catalogue.noFields')}</Paragraph> : null}
             {neededLabel === undefined ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-needed">{t('catalogue.neededFor', { kind: neededLabel })}</Paragraph>}
@@ -224,19 +245,13 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
       {allPlan === undefined && allRead.error === null ? <Skeleton className="h-8 w-72" /> : null}
       {allPlan === undefined ? null : (
         <>
-          <Stack className="grid gap-3 md:grid-cols-2 wide:grid-cols-4">
+          <Stack className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <FieldLabel className="grid gap-1 text-small">{t('catalogue.search')}
-              <Input type="search" value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={t('catalogue.search')} aria-label={t('catalogue.search')} data-testid="catalogue-search" />
+              <Input type="search" className="w-full" value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={t('catalogue.search')} aria-label={t('catalogue.search')} data-testid="catalogue-search" />
             </FieldLabel>
-            <FieldLabel className="grid gap-1 text-small">{t('catalogue.area')}
-              <Select value={area} onChange={(event) => setArea(event.target.value)} data-testid="catalogue-area" options={[{ value: '', label: t('catalogue.areaAll') }, ...topAreas.map((name) => ({ value: name, label: groupLabels(name) }))]} />
-            </FieldLabel>
-            <FieldLabel className="grid gap-1 text-small">{t('catalogue.inProduct')}
-              <Select value={taken} onChange={(event) => setTaken(event.target.value)} data-testid="catalogue-taken-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'in', label: t('catalogue.inProductOnly') }, { value: 'out', label: t('catalogue.notInProduct') }]} />
-            </FieldLabel>
-            <FieldLabel className="grid gap-1 text-small">{t('catalogue.filledByFilter')}
-              <Select value={fill} onChange={(event) => setFill(event.target.value)} data-testid="catalogue-fill-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
-            </FieldLabel>
+            <FilterSelect label={t('catalogue.area')} value={area} onChange={setArea} testId="catalogue-area" options={[{ value: '', label: t('catalogue.areaAll') }, ...topAreas.map((name) => ({ value: name, label: groupLabels(name) }))]} />
+            <FilterSelect label={t('catalogue.inProduct')} value={taken} onChange={setTaken} testId="catalogue-taken-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'in', label: t('catalogue.inProductOnly') }, { value: 'out', label: t('catalogue.notInProduct') }]} />
+            <FilterSelect label={t('catalogue.filledByFilter')} value={fill} onChange={setFill} testId="catalogue-fill-filter" options={[{ value: 'any', label: t('catalogue.any') }, { value: 'plugins', label: t('catalogue.fillPlugins') }, { value: 'agent', label: t('catalogue.fillAgent') }]} />
           </Stack>
           <Stack className="flex flex-wrap items-center gap-3">
             <Text className="text-small text-muted" data-testid="catalogue-shown">{t('catalogue.shown', { count: shownCount })}</Text>
@@ -245,16 +260,16 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
           {areas.length === 0 ? <Paragraph className="text-small text-muted" data-testid="catalogue-nomatch">{t('catalogue.noMatch')}</Paragraph> : null}
           {areas.map((top) => (
             <Stack key={top.id === '' ? '\u0000other' : top.id} className="grid gap-3" data-testid="catalogue-area">
-              <Stack className="flex flex-wrap items-center gap-3">
-                <SectionTitle className="m-0">{top.id === '' ? t('knowledge.groupOther') : top.label}</SectionTitle>
+              <Stack className="flex w-full flex-wrap items-center justify-between gap-3">
+                <SectionTitle className="m-0 min-w-0">{top.id === '' ? t('knowledge.groupOther') : top.label}</SectionTitle>
                 {groupBox([...top.direct, ...top.subgroups.flatMap((subgroup) => subgroup.kinds)])}
               </Stack>
               {top.direct.length === 0 ? null : <PlainList className="m-0 list-none p-0">{top.direct.map(row)}</PlainList>}
               {top.subgroups.map((subgroup) => (
                 <Disclosure key={subgroup.id} open className="rounded-lg border border-line p-3" data-testid="catalogue-subgroup">
-                  <DisclosureSummary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
+                  <DisclosureSummary className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
                     <SmallTitle className="m-0 text-small font-medium">{subgroup.label}</SmallTitle>
-                    <Badge variant="outline" data-testid="catalogue-subgroup-count">{subgroup.kinds.length}</Badge>
+                    {selecting ? null : <Badge variant="outline" data-testid="catalogue-subgroup-count">{subgroup.kinds.length}</Badge>}
                     {groupBox(subgroup.kinds)}
                   </DisclosureSummary>
                   <PlainList className="m-0 list-none p-0">{subgroup.kinds.map(row)}</PlainList>

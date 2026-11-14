@@ -48,6 +48,7 @@ export interface FillPlanAnswer {
 }
 
 export interface FillPlanView {
+  readonly plugins: readonly { readonly name: string; readonly labels: Readonly<Record<string, string>> }[];
   readonly selectedKinds: readonly string[];
   readonly requestedKinds: readonly string[];
   readonly added: readonly { readonly kind: string; readonly neededBy: string }[];
@@ -335,7 +336,7 @@ export function readFillPlan(base: string, selected: readonly string[], signal?:
 }
 
 /** `GET /api/product`: the product's identity, read from its manifest alone. */
-export const readProduct = (base: string, signal?: AbortSignal): Promise<{ readonly id: string; readonly name: string }> => command(base, '/api/product', signal === undefined ? {} : { signal });
+export const readProduct = (base: string, signal?: AbortSignal): Promise<{ readonly id: string; readonly name: string; readonly folder?: string }> => command(base, '/api/product', signal === undefined ? {} : { signal });
 
 /** The agents the reader may pick, and the one the product saved. */
 export const readAgents = (base: string, signal?: AbortSignal): Promise<AgentsAnswer> => command<AgentsAnswer>(base, '/api/agents', signal === undefined ? {} : { signal });
