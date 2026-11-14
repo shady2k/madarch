@@ -1,67 +1,73 @@
 /**
- * The page's diagram (decision 0036, section 7): the entity in the middle, its relations both ways drawn where the layout
- * puts them, a press on a box walking to that entity, and the same graph as Mermaid text beside the picture.
+ * The diagram of the page's entity (decision 0036, sections 7 and 8): the server renders the picture — the neighbourhood
+ * at a depth, an edge and its inverse drawn once, more than `aggregateAbove` neighbours of one kind folded into one node
+ * with the count — and this section only shows it, in three tabs: LikeC4's interactive runtime over the server's computed
+ * view, Mermaid's own renderer over the server's source, and archify's interactive page the server made. A press on a node
+ * in any tab walks to the entity's page. Nothing here lays anything out.
  */
-import type { ReactElement } from 'react';
-import { Disclosure } from './ui/data.js';
-import { DrawnBox, DrawnLabel, DrawnLine, Drawing } from './ui/drawing.js';
-import { Muted, Pre } from './ui/typography.js';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { valueAt } from '../../../../src/page-contract/index.js';
+import { Notice } from './ui/data.js';
 import { Stack } from './ui/layout.js';
-import { layoutDiagram, type Neighbour } from './diagram-layout.js';
-import { at } from './format.js';
+import { Tabs } from './ui/controls.js';
+import { Muted } from './ui/typography.js';
+import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
+import { MermaidPane } from './diagram-panes/mermaid-pane.js';
+import { ArchifyPane } from './diagram-panes/archify-pane.js';
+import type { LikeC4Answer, MermaidAnswer } from './diagram-types.js';
 import type { SectionContext } from './types.js';
 
-/** One relation connection's rows as the layout's neighbours. */
-function neighboursOf(connection: unknown, direction: 'in' | 'out'): Neighbour[] {
-  if (typeof connection !== 'object' || connection === null) return [];
-  const edges = (connection as Record<string, unknown>)['edges'];
-  if (!Array.isArray(edges)) return [];
-  const out: Neighbour[] = [];
-  for (const edge of edges) {
-    const node = (typeof edge === 'object' && edge !== null ? (edge as Record<string, unknown>)['node'] : undefined) as Record<string, unknown> | undefined;
-    if (node === undefined) continue;
-    const entity = (node[direction === 'in' ? 'from' : 'to'] ?? undefined) as Record<string, unknown> | undefined;
-    if (entity === undefined) continue;
-    const relation = node['relation'];
-    const id = entity['id'];
-    const kind = entity['kind'];
-    const label = entity['label'];
-    if (typeof relation !== 'string' || typeof id !== 'string' || typeof kind !== 'string' || typeof label !== 'string') continue;
-    out.push({ relation, direction, entity: { id, kind, label, template: String(entity['template'] ?? '') } });
-  }
-  return out;
-}
+type Tab = 'likec4' | 'mermaid' | 'archify';
+
+const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
+  { id: 'likec4', label: 'LikeC4' },
+  { id: 'mermaid', label: 'Mermaid' },
+  { id: 'archify', label: 'archify' },
+];
 
 export function DiagramSection({ context }: { readonly context: SectionContext }): ReactElement {
-  const data = at(context.data, context.section.params['path']);
-  const held = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
-  const subject = {
-    id: String(held['id'] ?? ''),
-    kind: String(held['kind'] ?? ''),
-    label: String(held['label'] ?? ''),
-  };
+  const id = typeof valueAt(context.data, 'id') === 'string' ? String(valueAt(context.data, 'id')) : '';
+  const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
-  const layout = layoutDiagram({
-    subject,
-    outgoing: neighboursOf(held['outgoing'], 'out'),
-    backlinks: neighboursOf(held['backlinks'], 'in'),
-    aggregateAbove,
-  });
-  if (layout.nodes.length === 1) {
-    return <Muted>{'—'}</Muted>;
-  }
+  const [tab, setTab] = useState<Tab>('likec4');
+  const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
+  const [root, setRoot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setRoot(document.getElementById('root')); }, []);
+  const address = useMemo(() => {
+    const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove) });
+    return (format: Tab): string => `${context.base}/render/diagram?${query.toString()}&format=${format}`;
+  }, [id, depth, aggregateAbove, context.base]);
+  const ask = useCallback(async (format: Tab): Promise<void> => {
+    if (id === '' || answers[format] !== undefined) return;
+    try {
+      const answer = await fetch(address(format));
+      if (!answer.ok) {
+        const said = (await answer.json().catch(() => ({}))) as { message?: string };
+        setAnswers((held) => ({ ...held, [format]: { failed: said.message ?? `the diagram answered ${String(answer.status)}` } }));
+        return;
+      }
+      const body = (await answer.json()) as Record<string, unknown>;
+      setAnswers((held) => ({ ...held, [format]: body as unknown as LikeC4Answer | MermaidAnswer }));
+    } catch (error) {
+      setAnswers((held) => ({ ...held, [format]: { failed: error instanceof Error ? error.message : String(error) } }));
+    }
+  }, [address, answers, id]);
+  useEffect(() => { void ask(tab); }, [tab, ask]);
+  const held = answers[tab];
   return (
     <Stack gap={2}>
-      <Drawing width={layout.width} height={layout.height} label={subject.label}>
-        {[
-          ...layout.groups.map((group) => <DrawnLabel key={`${group.direction}:${group.label}`} x={group.x} y={group.y + 12}>{group.label}</DrawnLabel>),
-          ...layout.edges.map((edge) => <DrawnLine key={edge.key} edge={edge} />),
-          ...layout.nodes.map((node) => <DrawnBox key={node.key} node={{ ...node, ...(node.href === undefined ? {} : { href: context.base + node.href }) }} onOpen={(href) => context.open(href.startsWith(context.base) ? href.slice(context.base.length) : href)} />),
-        ]}
-      </Drawing>
-      <Disclosure summary="Mermaid">
-        <Pre>{layout.mermaid}</Pre>
-      </Disclosure>
+      <Tabs tabs={TABS} active={tab} onSelect={(next) => setTab(next as Tab)} />
+      {tab === 'archify' ? (
+        <ArchifyPane src={address('archify')} root={root} open={context.open} />
+      ) : held === undefined ? (
+        <Muted>Loading the picture…</Muted>
+      ) : 'failed' in held ? (
+        <Notice>{held.failed}</Notice>
+      ) : tab === 'likec4' ? (
+        <LikeC4Pane answer={held as LikeC4Answer} open={(path) => context.open(path)} />
+      ) : (
+        <MermaidPane answer={held as MermaidAnswer} open={(path) => context.open(path)} />
+      )}
     </Stack>
   );
 }

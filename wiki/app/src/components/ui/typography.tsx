@@ -16,10 +16,6 @@ export function Muted({ children }: { readonly children: ReactNode }): ReactElem
   return <p className="text-small text-muted">{children}</p>;
 }
 
-export function Pre({ children }: { readonly children: ReactNode }): ReactElement {
-  return <pre className="text-small text-secondary">{children}</pre>;
-}
-
 export function Link({ href, children, onOpen }: { readonly href: string; readonly children: ReactNode; readonly onOpen?: (path: string) => void }): ReactElement {
   return (
     <a

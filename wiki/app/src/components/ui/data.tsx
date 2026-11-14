@@ -54,15 +54,6 @@ export function Bars({ rows }: { readonly rows: readonly { readonly label: strin
   );
 }
 
-export function Disclosure({ summary, children }: { readonly summary: string; readonly children: ReactNode }): ReactElement {
-  return (
-    <details className="rounded border border-line px-3 py-2">
-      <summary className="cursor-pointer text-small text-secondary">{summary}</summary>
-      <div className="pt-2">{children}</div>
-    </details>
-  );
-}
-
 export function Notice({ children }: { readonly children: ReactNode }): ReactElement {
   return <p role="status" className="rounded border border-line bg-chrome px-3 py-2 text-small text-secondary">{children}</p>;
 }

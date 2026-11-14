@@ -44,11 +44,11 @@ let bundle = '';
 let reloads = 0;
 let posts: { query: string }[] = [];
 
-/** The built app's one script, by name: Vite names it with a content hash. */
+/** The built app's entry script: Vite names it with a content hash, and the renderers it loads are chunks beside it. */
 function builtBundle(): string {
   const assets = join(APP, 'assets');
-  const held = readdirSync(assets).filter((name) => name.endsWith('.js'));
-  if (held.length !== 1) throw new Error(`${assets}: expected one built script, found ${held.join(', ') || 'none'}`);
+  const held = readdirSync(assets).filter((name) => /^index-.*\.js$/u.test(name));
+  if (held.length !== 1) throw new Error(`${assets}: expected one entry script, found ${held.join(', ') || 'none'}`);
   return join(assets, held[0]!);
 }
 
@@ -69,7 +69,7 @@ function snapshot(name: string, element: HTMLElement): void {
 }
 
 /** One app load at one address: the built script imported afresh, its requests answered by the real server. */
-async function openPage(path: string, mockup?: string): Promise<{ text: string; nodes: number; links: string[]; buttons: string[] }> {
+async function openPage(path: string, mockup?: string): Promise<{ text: string; nodes: number; links: string[]; buttons: string[]; tabs: string[] }> {
   window.history.pushState({}, '', path);
   document.getElementById('root')?.remove();
   const element = document.createElement('div');
@@ -87,6 +87,7 @@ async function openPage(path: string, mockup?: string): Promise<{ text: string; 
   if (mockup !== undefined) snapshot(mockup, element);
   return {
     text: element.textContent ?? '',
+    tabs: [...element.querySelectorAll('[role="tab"]')].map((one) => one.textContent ?? ''),
     nodes: element.querySelectorAll('[data-node]').length,
     links: [...element.querySelectorAll('a')].map((one) => one.getAttribute('href') ?? ''),
     buttons: [...element.querySelectorAll('button')].map((one) => one.textContent ?? ''),
@@ -181,8 +182,24 @@ run('the template frontend on madarch\'s own filled product', () => {
     expect(page.text).toContain('code.file');
     expect(page.text).toContain('Linked from');
     expect(page.text).toContain('codeContainsOf');
-    // The diagram draws the file between the directory and the repository that reach it.
-    expect(page.nodes).toBeGreaterThanOrEqual(3);
+    // The diagram is the server's picture, in three tabs (decision 0036, sections 7 and 8).
+    expect(page.tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
+    const mermaidTab = [...document.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');
+    mermaidTab?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const archifyTab = [...document.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'archify');
+    archifyTab?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    for (let at = 0; at < 40; at += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (document.querySelector('iframe') !== null) break;
+    }
+    expect(document.querySelector('iframe')?.getAttribute('src')).toContain('format=archify');
+    // The server's own answers carry each node's page: the archify page and the Mermaid source alike.
+    const mermaidAnswer = await (await fetch(`${server!.url}/render/diagram?entity=${id}&format=mermaid`)).json() as { source: string };
+    expect(mermaidAnswer.source).toContain('click ');
+    expect(mermaidAnswer.source).toContain('/e/code.');
+    const archifyAnswer = await (await fetch(`${server!.url}/render/diagram?entity=${id}&format=archify`)).text();
+    expect(archifyAnswer).toContain('data-node-id');
+    expect(archifyAnswer).toContain('/e/code.');
     expect(posts.filter((one) => one.query.includes('bootstrap'))).toHaveLength(1);
   }, 120_000);
 
@@ -192,7 +209,7 @@ run('the template frontend on madarch\'s own filled product', () => {
     const page = await openPage(`/e/code.repository/${one.id}`, 'repository');
     expect(page.text).toContain(one.label);
     expect(page.text).toContain('code.file');
-    expect(page.nodes).toBeGreaterThanOrEqual(3);
+    expect(page.tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
     // The page is one operation: bootstrap once, page once.
     expect(posts.filter((one) => !one.query.includes('bootstrap'))).toHaveLength(1);
   }, 120_000);

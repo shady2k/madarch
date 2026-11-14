@@ -10,7 +10,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('./page.js');
-const { layoutDiagram } = await import('./components/diagram-layout.js');
+const { linkOfNode } = await import('./components/diagram-links.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -169,34 +169,40 @@ test('a tabs section draws the chosen section and hides the rest', async () => {
   }
 });
 
-test('the diagram draws the entity, its relations both ways, and one box for many of a kind', async () => {
-  const page = await renderPage(
-    [section('diagram', 'diagram', { path: '.', aggregateAbove: 1 })],
-    { diagram: { id: '0', kind: 'a.b', label: 'Write', template: 'entity',
-      outgoing: { totalCount: 1, edges: [{ node: { relation: 'leadsTo', to: entity('1', 'next') } }] },
-      backlinks: { totalCount: 2, edges: [{ node: { relation: 'partOfOf', from: entity('2', 'up') } }, { node: { relation: 'partOfOf', from: entity('3', 'other') } }] } } },
-  );
+test('the diagram shows the server\'s three pictures as tabs, and asks for one format at a time', async () => {
+  const requested: string[] = [];
+  const real = globalThis.fetch;
+  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    requested.push(url);
+    const body = url.includes('format=likec4')
+      ? { format: 'likec4', entity: { id: 'uid', kind: 'a.b', label: 'Write' }, depth: 1, folded: 0, truncated: false, workspace: 'specification {}\n', view: {}, links: { n0: '/e/a.b/uid' } }
+      : { format: 'mermaid', entity: { id: 'uid', kind: 'a.b', label: 'Write' }, depth: 1, folded: 0, truncated: false, source: 'flowchart LR\n  n0["Write"]\n' };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  const page = await renderPage([section('diagram', 'diagram', { depth: 1, aggregateAbove: 12 })], { diagram: { id: 'uid' } });
   try {
-    const drawn = [...page.container.querySelectorAll('[data-node]')];
-    expect(drawn.map((one) => one.getAttribute('data-node'))).toContain('subject');
-    // One relation, one box: the second neighbour of the same kind is folded into the first.
-    expect(drawn).toHaveLength(3);
-    expect(page.container.textContent).toContain('partOf');
-    expect(page.container.querySelector('a[data-node]')?.getAttribute('href')).toBe('/e/a.b/1');
-    expect(page.container.textContent).toContain('Mermaid');
+    const tabs = [...page.container.querySelectorAll('[role="tab"]')].map((one) => one.textContent);
+    expect(tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
+    // The first tab asks the server for the LikeC4 picture: one picture, one request.
+    expect(requested).toHaveLength(1);
+    expect(requested[0]).toContain('/render/diagram?entity=uid');
+    expect(requested[0]).toContain('format=likec4');
+    const mermaidTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');
+    await act(async () => { mermaidTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    expect(requested.some((one) => one.includes('format=mermaid'))).toBe(true);
+    const archifyTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'archify');
+    await act(async () => { archifyTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    const frame = page.container.querySelector('iframe');
+    expect(frame?.getAttribute('src')).toContain('format=archify');
   } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = real;
     await page.close();
   }
 });
 
-test('the layout keeps an edge and its inverse on one line', () => {
-  const layout = layoutDiagram({
-    subject: { id: '0', kind: 'a.b', label: 'Center' },
-    outgoing: [{ relation: 'leadsTo', direction: 'out', entity: { id: '1', kind: 'a.b', label: 'Both', template: 'entity' } }],
-    backlinks: [{ relation: 'leadsToOf', direction: 'in', entity: { id: '1', kind: 'a.b', label: 'Both', template: 'entity' } }],
-    aggregateAbove: 12,
-  });
-  expect(layout.edges).toHaveLength(1);
-  expect(layout.nodes.filter((one) => one.key.includes('1'))).toHaveLength(1);
-  expect(layout.groups.map((one) => one.label)).toEqual(['leadsTo']);
+test('a pressed node opens the page the server named for it', () => {
+  expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'n1' })).toBe('/e/a.b/1');
+  expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'other', modelRef: 'n1' })).toBe('/e/a.b/1');
+  expect(linkOfNode({}, { id: 'n9' })).toBeUndefined();
 });
