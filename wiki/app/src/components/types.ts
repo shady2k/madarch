@@ -25,4 +25,6 @@ export interface SectionContext {
   readonly navigation: Navigation | null;
   /** Applies a role the reader chose on this page and keeps it for the frame. */
   readonly onRole?: (role: string) => void;
+  /** The frame page or template page the address names, when it names one; an entity's page trails its kind instead. */
+  readonly pageName: string | null;
 }

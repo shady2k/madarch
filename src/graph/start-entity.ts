@@ -1,8 +1,7 @@
 /**
- * The product's own page (decision 0036, section 6: the home is an entity): the start states what the product's own
- * files say it is — its name and the first paragraph of its first repository's README — so the home page opens on the
- * product itself and not on an empty graph. The start's opinion supersedes the one it stated before, so a README that
- * changed is read again on the next start.
+ * The product's own page (decision 0036, section 6: the home is an entity): the start states the product's name from its
+ * manifest, so the home page opens on the product itself and not on an empty graph. Its description and every other
+ * value are the graph's, written by an agent or a person; the start copies no README or vision text into them.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { entityDraft, evidenceOf, writeContractOf } from './graph-writes.js';
@@ -11,7 +10,7 @@ import { publishGraphDrafts } from './write.js';
 import type { KeyValueDraft, VertexRemovalDraft } from './contract.js';
 import type { ProductEntity } from '../product/manifest.js';
 
-/** States the product's own page: its name and the README's first paragraph, as the files state them now. */
+/** States the product's own page: its name, as the manifest states it now. */
 export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEntity | undefined): Promise<void> {
   if (entity === undefined) return;
   await owner.transaction('write', async (tx) => {

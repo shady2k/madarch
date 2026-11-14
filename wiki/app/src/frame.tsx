@@ -4,7 +4,7 @@
  * in the top bar. Everything it draws comes from the one navigation answer and the app's own words: the sidebar knows no
  * kind of its own, and a row opens the catalogue entry of its kind, whose page the product's templates draw.
  */
-import { useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -16,19 +16,21 @@ import {
   NavigationLabel, NavigationLink, NavigationScroll, NavigationSection, NavigationSubheading, ProductButton,
 } from './components/ui/navigation.js';
 import {
-  ShellActions, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellBrandMark, ShellHomeLink, ShellLanguageButton,
-  ShellMenuButton, ShellNavigationSheet, ShellProductLink, ShellProductMenu, ShellRoleButton, ShellRoleLabel, ShellToolbar,
+  ShellActions, ShellBrandMark, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet, ShellProductLink,
+  ShellProductMenu, ShellRoleButton, ShellRoleLabel, ShellToolbar,
 } from './components/ui/shell.js';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './components/ui/dropdown-menu.js';
 import { Button } from './components/ui/button.js';
+import { Input } from './components/ui/input.js';
+import { SearchContainer } from './components/ui/search-results.js';
+import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { RunIndicator } from './components/run-indicator.js';
 import { FillEntry } from './components/fill-entry.js';
-import { GlobalSearch } from './components/global-search.js';
-import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
+import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
@@ -246,11 +248,74 @@ function LanguageMenu({ language, onLanguage }: { readonly language: 'en' | 'ru'
 }
 
 
-export function FrameToolbar({ product, base, task, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
-  readonly product: string | null;
+/**
+ * The search in the top bar (the old portal's field): as the reader types, the graph's `searchGroups` root answers,
+ * grouped by kind in the reader's language with each kind's count; Enter opens the results page, Escape closes them, and
+ * the last row of the answers opens the whole answer.
+ */
+function SearchBox({ base, open }: { readonly base: string; readonly open: (path: string) => void }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const [text, setText] = useState('');
+  const [groups, setGroups] = useState<readonly SearchGroup[] | undefined>(undefined);
+  const [shown, setShown] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [failed, setFailed] = useState<string | undefined>(undefined);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; if (timer.current !== null) clearTimeout(timer.current); }, []);
+  const ask = (value: string): void => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void askSearch(base, value, undefined, 3, (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en').then((result) => {
+        if (!alive.current) return;
+        if (result.failure !== undefined) { setFailed(result.failure); setGroups(undefined); setShown(true); return; }
+        setFailed(undefined);
+        setGroups(result.groups);
+        setActive(-1);
+        setShown(true);
+      });
+    }, 180);
+  };
+  const goResults = (): void => {
+    if (text.trim() === '') return;
+    setShown(false);
+    open(`/p/search?text=${encodeURIComponent(text.trim())}`);
+  };
+  return (
+    <SearchContainer>
+      <Input
+        className="shell-search-input"
+        value={text}
+        aria-label={t('knowledge.searchLabel')}
+        placeholder={t('knowledge.searchPlaceholder')}
+        data-testid="top-search"
+        onChange={(event) => { setText(event.target.value); ask(event.target.value); }}
+        onFocus={() => { if (groups !== undefined) setShown(true); }}
+        onKeyDown={(event) => {
+          const rows = shown && groups !== undefined ? rowsOf(groups, base) : [];
+          if (event.key === 'ArrowDown') { event.preventDefault(); if (rows.length > 0) { setActive((held) => (held + 1) % rows.length); setShown(true); } return; }
+          if (event.key === 'ArrowUp') { event.preventDefault(); if (rows.length > 0) { setActive((held) => (held <= 0 ? rows.length - 1 : held - 1)); setShown(true); } return; }
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            const chosen = active >= 0 ? rows[active] : undefined;
+            if (chosen === undefined) { goResults(); return; }
+            setShown(false);
+            open(chosen.href);
+            return;
+          }
+          if (event.key === 'Escape') { setShown(false); setActive(-1); }
+        }}
+      />
+      {shown && failed === undefined && groups !== undefined && groups.length > 0
+        ? <GroupsOf groups={groups} base={base} active={active} open={(path) => { setShown(false); open(path); }} resultsHref={text.trim() === '' ? undefined : `/p/search?text=${encodeURIComponent(text.trim())}`} />
+        : null}
+    </SearchContainer>
+  );
+}
+
+/** The top bar: the search, then the way to the fill, the role and the language. The page's trail stands in the content. */
+export function FrameToolbar({ base, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
   readonly base: string;
-  /** The section in front, or nothing when the page is an entity's own. */
-  readonly task: string | null;
   readonly language: 'en' | 'ru';
   readonly role: string;
   readonly roles: readonly string[];
@@ -266,13 +331,9 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
   const { t } = useTranslation();
   return (
     <ShellToolbar>
-      <ShellBreadcrumb>
-        <ShellHomeLink href={base + '/'} onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); open('/'); }}>{product ?? t('brand.product')}</ShellHomeLink>
-        {task === null ? null : <><ShellBreadcrumbSeparator /><Text data-testid="crumb-task">{task}</Text></>}
-      </ShellBreadcrumb>
+      {menu}
+      <SearchBox base={base} open={open} />
       <ShellActions>
-        {menu}
-        <GlobalSearch open={open} />
         <FillEntry open={open} />
         <RunIndicator base={base} open={open} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">

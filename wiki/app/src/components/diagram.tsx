@@ -53,6 +53,14 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove), lang: context.language });
     return (format: Tab): string => `${context.base}/render/diagram?${query.toString()}&format=${format}`;
   }, [id, depth, aggregateAbove, context.base, context.language]);
+  const failure = useCallback((code: string | undefined): string => {
+    switch (code) {
+      case 'TIMEOUT': return t('knowledge.diagramTooLong');
+      case 'TOO_LARGE': return t('knowledge.diagramTooLarge');
+      case 'BAD_INPUT': return t('knowledge.diagramBadRequest');
+      default: return t('knowledge.diagramFailed');
+    }
+  }, [t]);
   const ask = useCallback(async (format: Tab): Promise<void> => {
     const key = address(format);
     if (id === '' || answers[key] !== undefined) return;
@@ -61,20 +69,18 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     try {
       const answer = await fetch(key, { signal: stop.signal });
       if (!answer.ok) {
-        const said = (await answer.json().catch(() => ({}))) as { message?: string; code?: string };
-        const shown = said.code === 'TIMEOUT' ? t('knowledge.diagramTooLong') : t('knowledge.diagramFailed', { message: said.message ?? `the diagram answered ${String(answer.status)}` });
-        setAnswers((held) => ({ ...held, [key]: { failed: shown } }));
+        const said = (await answer.json().catch(() => ({}))) as { code?: string };
+        setAnswers((held) => ({ ...held, [key]: { failed: failure(said.code) } }));
         return;
       }
       const body = (await answer.json()) as Record<string, unknown>;
       setAnswers((held) => ({ ...held, [key]: body as unknown as LikeC4Answer | MermaidAnswer }));
     } catch (error) {
-      const message = error instanceof Error && error.name === 'AbortError' ? t('knowledge.diagramTooLong') : error instanceof Error ? error.message : String(error);
-      setAnswers((held) => ({ ...held, [key]: { failed: message } }));
+      setAnswers((held) => ({ ...held, [key]: { failed: failure(error instanceof Error && error.name === 'AbortError' ? 'TIMEOUT' : undefined) } }));
     } finally {
       clearTimeout(timer);
     }
-  }, [address, answers, id, t]);
+  }, [address, answers, id, failure, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
   const held = answers[address(tab)];
   return (

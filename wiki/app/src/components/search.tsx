@@ -51,6 +51,31 @@ export function totalOfGroups(groups: readonly SearchGroup[]): number {
   return groups.reduce((sum, group) => sum + group.count, 0);
 }
 
+/** One row of the answers as the reader walks them with the arrow keys. */
+export interface SearchRow {
+  readonly href: string;
+  readonly line: string;
+  readonly kind: string;
+  readonly label: string;
+}
+
+/** The rows of every group, in the order they are drawn: what the keyboard walks. */
+export function rowsOf(groups: readonly SearchGroup[], base: string): SearchRow[] {
+  const rows: SearchRow[] = [];
+  for (const group of groups) {
+    for (const hit of group.results) {
+      if (typeof hit.node['kind'] !== 'string' || typeof hit.node['id'] !== 'string') continue;
+      rows.push({
+        href: `${base}/e/${encodeURIComponent(String(hit.node['kind']))}/${encodeURIComponent(String(hit.node['id']))}`,
+        line: hit.line,
+        kind: group.kind,
+        label: group.label,
+      });
+    }
+  }
+  return rows;
+}
+
 /** The answers grouped by kind: each kind's word and count, its best rows, and the way to the whole answer. */
 export function GroupsOf({ groups, base, open, resultsHref, testId, active = -1 }: {
   readonly groups: readonly SearchGroup[];

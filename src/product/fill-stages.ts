@@ -315,8 +315,14 @@ function pinOf(id: string, form: 'code' | 'product', root: string, defaultBranch
   return { id, form, root, commit, url, historyBoundaryHash, ...(branch === undefined ? {} : { defaultBranch: branch }) };
 }
 
-/** The branch one checkout's HEAD stands on; `undefined` where it is detached or the branch cannot be read. */
+/**
+ * The default branch a checkout was filled from: the branch `origin/HEAD` names where the checkout knows it, else the
+ * branch HEAD stands on. A link-mode checkout often stands on a working branch; the default is what the repository's
+ * own remote declares.
+ */
 function branchOf(root: string, _id: string): string | undefined {
+  const remoteHead = gitQuietly(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  if (remoteHead !== undefined && remoteHead !== '') return remoteHead.startsWith('origin/') ? remoteHead.slice('origin/'.length) : remoteHead;
   const branch = gitQuietly(root, ['symbolic-ref', '--short', 'HEAD']);
   if (branch === undefined || branch === '') return undefined;
   return branch;

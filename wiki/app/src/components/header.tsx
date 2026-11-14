@@ -1,14 +1,16 @@
 /**
- * The page's title, the kind it is an entity of and where it stands (decision 0036, section 7): the product, the
- * repository and the folders the entity lies in, then its own name. The kind wears the catalogue's word for it in the
- * reader's language; the graph's own name for the kind is never shown.
+ * The page's title and where it stands (decision 0036, section 7): the frame page or the kind the page belongs to, then
+ * the path to the page, then its own name. The kind wears the catalogue's word for it in the reader's language; the
+ * graph's own name for the kind is never shown.
  */
 import type { ReactElement } from 'react';
-import { titleIn, valueAt } from '../../../../src/page-contract/index.js';
+import { useTranslation } from 'react-i18next';
+import { CATALOGUE_KIND, titleIn, valueAt } from '../../../../src/page-contract/index.js';
 import { Badge } from './ui/badge.js';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from './ui/breadcrumb.js';
-import { InlineGroup, Metadata, PageHeader, PageTitle } from './ui/typography.js';
+import { PageBreadcrumb, type TrailCrumb } from './ui/breadcrumb.js';
+import { InlineGroup, Metadata, PageHeader, PageHeading, PageTitle } from './ui/typography.js';
 import { follow } from './relations.js';
+import { entityAddress, PAGE_ADDRESSES } from '../address.js';
 import type { SectionContext } from './types.js';
 
 interface TrailParams {
@@ -16,21 +18,32 @@ interface TrailParams {
   readonly path?: unknown;
 }
 
+interface Trail {
+  readonly repository: string;
+  readonly path: string;
+}
+
 export function HeaderSection({ context }: { readonly context: SectionContext }): ReactElement {
+  const { t } = useTranslation();
   const params = context.section.params;
   const titlePath = typeof params['titlePath'] === 'string' ? params['titlePath'] : 'label';
   const kindPath = typeof params['kindPath'] === 'string' ? params['kindPath'] : undefined;
   const provenancePath = typeof params['provenancePath'] === 'string' ? params['provenancePath'] : undefined;
   // The home page names the product itself: its files' name, which the top bar shows, not the home entity's page title.
   const productTitle = params['productTitle'] === true ? context.product ?? context.navigation?.product ?? undefined : undefined;
-  const title = productTitle ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
   const kind = kindPath === undefined ? undefined : textOf(valueAt(context.data, kindPath));
   const provenance = provenancePath === undefined ? undefined : textOf(valueAt(context.data, provenancePath));
+  const trail = trailOf(params['trail'], context);
+  // A code page is its file: the label is the whole path, so the title is the name and the path stands muted under it.
+  const path = trail === null ? '' : trail.path;
+  const name = lastSegment(path);
+  const title = productTitle ?? name ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
+  const heading = <PageTitle data-testid="page-title">{title}</PageTitle>;
   return (
     <PageHeader data-testid="page-header">
-      {trailOf(params['trail'], title, context)}
-      {kind === undefined ? null : <InlineGroup><Badge data-testid="page-kind">{kindWord(kind, context)}</Badge></InlineGroup>}
-      <PageTitle data-testid="page-title">{title}</PageTitle>
+      <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind, trail)} />
+      {path === '' ? heading : <PageHeading path={path}>{heading}</PageHeading>}
+      {kind === undefined || kind === CATALOGUE_KIND ? null : <InlineGroup><Badge data-testid="page-kind">{kindWord(kind, context)}</Badge></InlineGroup>}
       {provenance === undefined ? null : <Metadata>{provenance}</Metadata>}
     </PageHeader>
   );
@@ -42,38 +55,58 @@ export function kindWord(kind: string, context: SectionContext): string {
   return held === undefined ? kind : held.one;
 }
 
+/** A link into the app's own addresses: the base it is served under, and the press that walks without a page load. */
+function linkTo(context: SectionContext, address: string, label: string): TrailCrumb {
+  const href = context.base + address;
+  return { label, href, onClick: follow(context.open, href) };
+}
+
 /**
- * The way up to the entity: the product, its repository and the folders it lies in, the entity's own name last. The
- * folders are the segments of the path the template named; the product is the frame's own reading, linked home.
+ * The page's trail (the owner's frame decision, restore-9): a frame page or a template page stands by its own name; a
+ * kind's catalogue page is «Catalogue / kind»; every other entity is its kind's plural, linked to the kind's page, then
+ * the repository and folders it lies in, then its own name.
  */
-function trailOf(trail: unknown, title: string, context: SectionContext): ReactElement | null {
+function crumbsOf(context: SectionContext, catalogue: string, title: string, kind: string | undefined, trail: Trail | null): TrailCrumb[] {
+  if (context.pageName !== null) return [{ label: context.pageName }];
+  if (kind === CATALOGUE_KIND) return [linkTo(context, PAGE_ADDRESSES.catalogue, catalogue), { label: title }];
+  if (kind === undefined) return trail === null ? [{ label: title }] : trailCrumbs(trail);
+  const held = context.navigation?.kinds.find((one) => one.kind === kind);
+  const address = held === undefined || held.entryId === null ? PAGE_ADDRESSES.catalogue : entityAddress(CATALOGUE_KIND, held.entryId);
+  const head = linkTo(context, address, held?.many ?? kindWord(kind, context));
+  return trail === null ? [head, { label: title }] : trailCrumbs(trail, head);
+}
+
+/**
+ * The repository and the folders a code entity lies in, the last folder as the page's own tail: the trail ends where the
+ * entity stands, never at the entity's name, which the title already states.
+ */
+function trailCrumbs(trail: Trail, head?: TrailCrumb): TrailCrumb[] {
+  const folders = foldersOf(trail.path);
+  const parent = folders.at(-1);
+  const middle = [trail.repository, ...folders.slice(0, -1)].join(' / ');
+  const body: TrailCrumb[] = parent === undefined
+    ? [{ label: trail.repository }]
+    : middle === '' ? [{ label: parent }] : [{ label: middle }, { label: parent }];
+  return head === undefined ? body : [head, ...body];
+}
+
+/** The repository and the folders a code entity lies in: the trail the template named, less the page's own path. */
+function trailOf(trail: unknown, context: SectionContext): Trail | null {
   if (typeof trail !== 'object' || trail === null) return null;
   const held = trail as TrailParams;
   const repository = typeof held.repository === 'string' ? valueAt(context.data, held.repository) : undefined;
   const path = typeof held.path === 'string' ? valueAt(context.data, held.path) : undefined;
   if (typeof repository !== 'string' || repository === '') return null;
-  const segments = typeof path === 'string' ? path.split('/').filter((one) => one !== '').slice(0, -1) : [];
-  return (
-    <Breadcrumb aria-label="trail" data-testid="trail">
-      <BreadcrumbList>
-        <BreadcrumbItem>
-          <BreadcrumbLink href={context.base + '/'} onClick={follow(context.open, context.base + '/')}>{context.product ?? repository}</BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem><BreadcrumbPage>{repository}</BreadcrumbPage></BreadcrumbItem>
-        {segments.map((segment, at) => (
-          <BreadcrumbItem key={`${segment}-${String(at)}`}>
-            <BreadcrumbSeparator />
-            <BreadcrumbPage>{segment}</BreadcrumbPage>
-          </BreadcrumbItem>
-        ))}
-        <BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbPage>{title}</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  );
+  return { repository, path: typeof path === 'string' ? path : '' };
+}
+
+function foldersOf(path: string): string[] {
+  return path.split('/').filter((one) => one !== '').slice(0, -1);
+}
+
+/** The file a path names: its last segment, or nothing where the path is empty. */
+function lastSegment(path: string): string | undefined {
+  return path.split('/').filter((one) => one !== '').at(-1);
 }
 
 function textOf(value: unknown): string | undefined {

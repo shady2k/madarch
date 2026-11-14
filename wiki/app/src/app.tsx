@@ -23,6 +23,7 @@ import {
   ShellToolbarLoading,
 } from './components/ui/shell.js';
 import { Skeleton } from './components/ui/skeleton.js';
+import { PageBreadcrumb } from './components/ui/breadcrumb.js';
 import { PageSection, Paragraph, Stack } from './components/ui/typography.js';
 import { TooltipProvider } from './components/ui/tooltip.js';
 import { RoleFirstVisit } from './components/role-first.js';
@@ -228,8 +229,10 @@ export function App(): ReactElement {
   const productName = identity.data?.name ?? navigation?.product ?? null;
   const applyRole = useCallback((next: string): void => { setRole(next); keepRole(next); }, []);
   const chooseRole = useCallback((next: string): void => { applyRole(next); void saveReaderRole(base, next).catch(() => undefined); }, [applyRole, base]);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, open, reload, onRole: applyRole };
   const section: FramePage | null = address.frame;
+  // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
+  const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
@@ -276,9 +279,7 @@ export function App(): ReactElement {
         <ShellMain>
           <ShellFixed data-testid="shell-fixed">
             <FrameToolbar
-              product={productName}
               base={base}
-              task={address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}
@@ -300,6 +301,7 @@ export function App(): ReactElement {
                       <AlertDescription>{failure}</AlertDescription>
                     </Alert>
                   )}
+                  {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
                   {page}
                   {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
                 </main>

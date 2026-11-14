@@ -52,10 +52,13 @@ export async function graphMarkdownEntities(graph: Pick<GraphReader, 'list'>, ma
       for (const entity of page.rows) {
         const fields = entity.properties;
         const declared = new Set(decl.fields?.map((field) => field.name));
+        const bodyField = decl.fields?.find((field) => field.name === 'body');
         const location = `${resolve(typeof fields['file'] === 'string' ? fields['file'] : manifest.file)}:1`;
         const fail = (name: string): never => { throw new Error(`${location}: ${entity.key}.${name}: malformed or missing declared structured graph opinion`); };
         if (typeof fields['body'] !== 'string') {
-          if (Object.hasOwn(fields, 'body') || declared.has('body')) fail('body');
+          // An optional body belongs to the producer that writes it later (the product's description, an agent's or a
+          // person's field): its absence is not a malformed page. A required body must stand.
+          if (Object.hasOwn(fields, 'body') || (bodyField !== undefined && bodyField.nullable !== true)) fail('body');
           continue;
         }
         for (const name of declared) if (fields[name] === undefined) fail(name);

@@ -124,7 +124,7 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
     root.render(createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, open: (path: string) => { opened.push(path); }, reload: () => undefined },
+      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined },
     }));
   });
   await settle();

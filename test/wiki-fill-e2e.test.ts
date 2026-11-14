@@ -194,6 +194,15 @@ run('the fill flow on a product filled with disk and git', () => {
       expect(await page.$('[data-testid="page-search"]')).toBeNull();
       await shotAt('home-filled', 1440, 900);
       await shotAt('home-filled', 390, 844);
+      // A file page: the title is the file's name, its path stands under it, and its tabs are the page's own.
+      const foundFiles = await (await fetch(`${server!.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeFile(first: 1) { edges { node { id path } } } }' }) })).json() as { data?: { allCodeFile?: { edges?: { node?: { id?: string; path?: string } }[] } } };
+      const file = foundFiles.data?.allCodeFile?.edges?.[0]?.node;
+      if (file?.id !== undefined) {
+        await page.goto(`${server!.url}/e/code.file/${encodeURIComponent(file.id)}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        await page.waitForSelector('[data-testid="page-title"]', { timeout: 60_000 });
+        expect(await page.$eval('[data-testid="page-title"]', (element) => element.textContent?.trim() ?? '')).toBe(file.path?.split('/').at(-1) ?? '');
+        await shotAt('file-page', 1440, 900);
+      }
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.goto(`${server!.url}/p/runs`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="runs-run"]', { timeout: 60_000 });
