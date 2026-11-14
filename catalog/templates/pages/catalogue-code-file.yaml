@@ -10,9 +10,11 @@ sections:
     component: header
     title: { en: Kind, ru: Вид }
     query: |
+      kind
       label
     params:
       titlePath: label
+      kindPath: kind
   - id: facts
     replace: true
     component: facts

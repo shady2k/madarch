@@ -16,8 +16,8 @@ import {
   NavigationLabel, NavigationLink, NavigationScroll, NavigationSection, NavigationSubheading, ProductButton,
 } from './components/ui/navigation.js';
 import {
-  ShellActions, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellBrandMark, ShellHomeLink, ShellLanguageButton,
-  ShellMenuButton, ShellNavigationSheet, ShellProductLink, ShellProductMenu, ShellRoleButton, ShellRoleLabel, ShellToolbar,
+  ShellActions, ShellBrandMark, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet, ShellProductLink,
+  ShellProductMenu, ShellRoleButton, ShellRoleLabel, ShellToolbar,
 } from './components/ui/shell.js';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
@@ -28,7 +28,7 @@ import { Input } from './components/ui/input.js';
 import { SearchContainer } from './components/ui/search-results.js';
 import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
-import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
+import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
 import { CATALOGUE_PAGE, entityAddress, FRAME_PAGES, GLOSSARY_PAGE, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
@@ -306,12 +306,9 @@ function SearchBox({ base, open }: { readonly base: string; readonly open: (path
   );
 }
 
-/** The top bar: where the reader stands, the search, the way to the fill, the role and the language. */
-export function FrameToolbar({ product, base, task, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
-  readonly product: string | null;
+/** The top bar: the search, then the way to the fill, the role and the language. The page's trail stands in the content. */
+export function FrameToolbar({ base, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
   readonly base: string;
-  /** The section in front, or nothing when the page is an entity's own. */
-  readonly task: string | null;
   readonly language: 'en' | 'ru';
   readonly role: string;
   readonly roles: readonly string[];
@@ -327,13 +324,9 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
   const { t } = useTranslation();
   return (
     <ShellToolbar>
-      <ShellBreadcrumb>
-        <ShellHomeLink href={base + '/'} onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); open('/'); }}>{product ?? t('brand.product')}</ShellHomeLink>
-        {task === null ? null : <><ShellBreadcrumbSeparator /><Text data-testid="crumb-task">{task}</Text></>}
-      </ShellBreadcrumb>
+      {menu}
+      <SearchBox base={base} open={open} />
       <ShellActions>
-        {menu}
-        <SearchBox base={base} open={open} />
         <Button variant="default" size="default" data-testid="fill-button" onClick={() => { open(FRAME_PAGES.fill); }}>{t('knowledge.fillRun.open')}</Button>
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />

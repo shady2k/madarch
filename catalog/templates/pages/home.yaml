@@ -1,7 +1,7 @@
 # The product's home page (decision 0036, section 6): the page every product opens at `/`. It shows the product the
-# graph holds (the entity the start states from the product's own files: its name and its README's first paragraph), the
-# code repositories it spans, the main facts of the graph and what it holds of each kind. The whole catalogue is a page
-# of its own, not this one.
+# graph holds (its name from the manifest, and the description an agent or a person wrote; an unwritten description says
+# so), the code repositories it spans, the main facts of the graph and what it holds of each kind. The whole catalogue
+# is a page of its own, not this one.
 template: home
 sections:
   - id: header
@@ -42,7 +42,6 @@ sections:
             label
             ... on CodeRepository {
               name
-              url
               defaultBranch
             }
           }
@@ -55,18 +54,6 @@ sections:
       columns:
         - { label: { en: Repository, ru: Репозиторий }, path: node.label }
         - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
-        - { label: { en: What it is, ru: Что это }, path: node.url, format: repository }
-  - id: files
-    component: facts
-    on: root
-    title: { en: The graph, ru: Что в графе }
-    query: |
-      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
-        count
-      }
-    params:
-      rows:
-        - { label: { en: Files, ru: Файлы }, path: count, format: number }
   - id: byLanguage
     component: bars
     on: root

@@ -11,6 +11,10 @@ export function PageHeader({ className, ...props }: HTMLAttributes<HTMLElement>)
 export function PageTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return <h1 className={cn('text-title', className)} {...props} />;
 }
+/** A page's title with the path it stands at under it: the title is the file's name, the path its quiet line. */
+export function PageHeading({ path, children, className, ...props }: HTMLAttributes<HTMLDivElement> & { readonly path?: string }) {
+  return <div className={cn('page-heading', className)} {...props}>{children}{path === undefined ? null : <Metadata className="page-path" data-testid="page-path">{path}</Metadata>}</div>;
+}
 export function SectionTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return <h2 className={cn('text-h2', className)} {...props} />;
 }

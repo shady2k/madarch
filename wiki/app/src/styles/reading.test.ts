@@ -47,6 +47,8 @@ describe('the entry stylesheet', () => {
     expect(tokensCss).toContain('--fs-body: 18px;');
     expect(tokensCss).toContain('--leading: 1.58;');
     expect(tokensCss).toContain('--measure: 960px;');
+    expect(tokensCss).toContain('--page-top: 16px;');
+    expect(tokensCss).toContain('--crumb-gap: 8px;');
     expect(tokensCss).toContain('--fs-h1: var(--fs-title);');
     for (const name of ['--bg-page', '--bg-chrome', '--text', '--text-secondary', '--code-bg', '--border', '--border-subtle', '--quote-border', '--selection']) {
       expect(tokensCss).toContain(name + ':');
@@ -66,7 +68,7 @@ describe('the entry stylesheet', () => {
     const content = indexCss.slice(indexCss.indexOf('.shell-document > main,'), indexCss.indexOf('}', indexCss.indexOf('.shell-document > main,')));
     expect(workArea).toContain('width: 100%;');
     expect(workArea).toContain('min-block-size: 100%;');
-    expect(workArea).toContain('padding: 48px 48px 2.5em;');
+    expect(workArea).toContain('padding: var(--page-top) 48px 2.5em;');
     expect(workArea).toContain('overflow-wrap: break-word;');
     expect(workArea).not.toContain('max-inline-size:');
     expect(workArea).not.toContain('margin-inline:');
@@ -75,7 +77,7 @@ describe('the entry stylesheet', () => {
     expect(content).toContain('max-inline-size: var(--measure);');
     expect(content).toContain('margin-inline: auto;');
     expect(indexCss).toMatch(/@media \(max-width: 900px\)[\s\S]*?padding-inline: 32px;/);
-    expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?padding: 20px 20px 2.5em;/);
+    expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?padding: var\(--page-top\) 20px 2.5em;/);
     const scroll = indexCss.slice(indexCss.indexOf('.shell-scroll {'), indexCss.indexOf('}', indexCss.indexOf('.shell-scroll {')));
     expect(scroll).toContain('background: var(--surface-page);');
   });

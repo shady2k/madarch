@@ -22,6 +22,7 @@ import {
   ShellToolbarLoading,
 } from './components/ui/shell.js';
 import { Skeleton } from './components/ui/skeleton.js';
+import { PageBreadcrumb } from './components/ui/breadcrumb.js';
 import { PageSection, Paragraph, Stack } from './components/ui/typography.js';
 import { TooltipProvider } from './components/ui/tooltip.js';
 import { STALE_STRUCTURE } from './stale.js';
@@ -184,8 +185,10 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  const runtime: PageRuntime = { base, language, busy, open, reload, product: navigation?.product ?? null, navigation };
   const section: FramePage | null = address.frame;
+  // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
+  const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
+  const runtime: PageRuntime = { base, language, busy, open, reload, product: navigation?.product ?? null, navigation, pageName };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
@@ -226,9 +229,7 @@ export function App(): ReactElement {
         <ShellMain>
           <ShellFixed data-testid="shell-fixed">
             <FrameToolbar
-              product={navigation?.product ?? null}
               base={base}
-              task={address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}
@@ -250,6 +251,7 @@ export function App(): ReactElement {
                       <AlertDescription>{failure}</AlertDescription>
                     </Alert>
                   )}
+                  {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
                   {page}
                   {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
                 </main>

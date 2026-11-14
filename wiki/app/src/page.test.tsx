@@ -11,6 +11,8 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('./page.js');
 const { linkOfNode } = await import('./components/diagram-links.js');
+const { i18n } = await import('./i18n.js');
+await i18n.changeLanguage('en');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -24,7 +26,7 @@ function compositionOf(sections: Section[]): Parameters<typeof PageView>[0]['com
   return { template: 'probe', operation: '', variables: {}, sections, findings: [] };
 }
 
-async function renderPage(sections: Section[], data: Record<string, unknown>): Promise<{ container: HTMLElement; reloads: Record<string, unknown>[]; close: () => Promise<void> }> {
+async function renderPage(sections: Section[], data: Record<string, unknown>, runtime: Partial<Parameters<typeof PageView>[0]['runtime']> = {}): Promise<{ container: HTMLElement; reloads: Record<string, unknown>[]; close: () => Promise<void> }> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -33,7 +35,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>): P
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, product: 'Madarch', navigation: null },
+      runtime: { base: '', language: 'en', busy: false, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, product: 'Madarch', navigation: null, pageName: null, ...runtime },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -46,6 +48,66 @@ test('the header shows the title the section read and the kind as a badge', asyn
   try {
     expect(page.container.querySelector('h1')?.textContent).toBe('Write');
     expect(page.container.textContent).toContain('a.b');
+  } finally {
+    await page.close();
+  }
+});
+
+const ID = '00000000-0000-0000-0000-00000000dead';
+const navigation = {
+  product: 'Madarch',
+  groups: [],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', group: null, count: 2, entryId: ID }],
+  purposes: [],
+};
+
+test('the header trails the kind, linked to its page, then the path and the title', async () => {
+  const page = await renderPage(
+    [section('header', 'header', { titlePath: 'label', kindPath: 'kind', trail: { repository: 'repository', path: 'path' } })],
+    { header: { label: 'src/x.ts', kind: 'a.b', repository: 'madarch', path: 'src/x.ts' } },
+    { navigation },
+  );
+  try {
+    const kind = page.container.querySelector('[data-testid="trail"] a');
+    expect(kind?.textContent).toBe('As');
+    expect(kind?.getAttribute('href')).toBe(`/e/catalogue/${ID}`);
+    const trail = page.container.querySelector('[data-testid="trail"]')?.textContent ?? '';
+    expect(trail).toContain('madarch');
+    expect(trail.endsWith('src')).toBe(true);
+    expect(page.container.querySelector('h1')?.textContent).toBe('x.ts');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a code page titles the file and trails the folders that hold it', async () => {
+  const page = await renderPage(
+    [section('header', 'header', { titlePath: 'label', kindPath: 'kind', trail: { repository: 'repository', path: 'path' } })],
+    { header: { label: 'src/graph/write.ts', kind: 'a.b', repository: 'madarch', path: 'src/graph/write.ts' } },
+    { navigation },
+  );
+  try {
+    expect(page.container.querySelector('h1')?.textContent).toBe('write.ts');
+    expect(page.container.querySelector('[data-testid="page-path"]')?.textContent).toBe('src/graph/write.ts');
+    const trail = page.container.querySelector('[data-testid="trail"]')?.textContent ?? '';
+    expect(trail.startsWith('As')).toBe(true);
+    expect(trail).toContain('madarch / src');
+    expect(trail.endsWith('graph')).toBe(true);
+    expect(trail).not.toContain('write.ts');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a catalogue kind page trails the catalogue and the kind', async () => {
+  const page = await renderPage(
+    [section('header', 'header', { titlePath: 'label', kindPath: 'kind' })],
+    { header: { label: 'Files', kind: 'catalogue' } },
+  );
+  try {
+    const trail = page.container.querySelector('[data-testid="trail"]');
+    expect(trail?.querySelector('a')?.getAttribute('href')).toBe('/p/catalogue');
+    expect(trail?.textContent).toBe('Entity catalogue/Files');
   } finally {
     await page.close();
   }
@@ -119,6 +181,50 @@ test('a table draws its columns, links a row that is an entity, and asks for the
   }
 });
 
+test('an empty table says so in one line and offers no pager', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, edges: [] } } },
+  );
+  try {
+    expect(page.container.querySelector('[data-testid="table-empty"]')?.textContent).toBe('No records yet');
+    expect(page.container.textContent).not.toContain('0–0');
+    expect([...page.container.querySelectorAll('button')]).toHaveLength(0);
+  } finally {
+    await page.close();
+  }
+});
+
+test('a table whose records fit one page offers no pager line', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', pageSize: 50, columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 2, pageInfo: { hasNextPage: false, endCursor: null }, edges: [{ node: entity('1', 'a') }, { node: entity('2', 'b') }] } } },
+  );
+  try {
+    expect(page.container.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(page.container.textContent).not.toContain('1–2 / 2');
+    expect([...page.container.querySelectorAll('button')].some((one) => one.textContent === '→')).toBe(false);
+  } finally {
+    await page.close();
+  }
+});
+
+test('a table with a next page draws its pager even when the page holds fewer rows than the default size', async () => {
+  const rows = Array.from({ length: 20 }, (_, at) => ({ node: entity(String(at), `row ${String(at)}`) }));
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(first: 20, after: $records_after)' })],
+    { records: { instances: { totalCount: 30, pageInfo: { hasNextPage: true, endCursor: 'c20' }, edges: rows } } },
+  );
+  try {
+    expect(page.container.textContent).toContain('1–20 / 30');
+    const next = [...page.container.querySelectorAll('button')].find((one) => one.textContent === '→');
+    expect(next).not.toBeUndefined();
+    expect(next?.disabled).toBe(false);
+  } finally {
+    await page.close();
+  }
+});
+
 test('a table offers a sort only when its query declares the order variable', async () => {
   const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
   try {
@@ -139,6 +245,15 @@ test('a table offers a sort only when its query declares the order variable', as
     expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }]);
   } finally {
     await withOrder.close();
+  }
+});
+
+test('an empty text section says the description is not written yet', async () => {
+  const page = await renderPage([section('body', 'text', { path: 'body' })], { body: { body: '' } });
+  try {
+    expect(page.container.querySelector('[data-testid="text-empty"]')?.textContent).toBe('The description is not written yet.');
+  } finally {
+    await page.close();
   }
 });
 
@@ -200,6 +315,22 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
     await act(async () => { archifyTab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
     const frame = page.container.querySelector('iframe');
     expect(frame?.getAttribute('src')).toContain('format=archify');
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = real;
+    await page.close();
+  }
+});
+
+test('a failed picture speaks the reader\'s language, never the server\'s', async () => {
+  const real = globalThis.fetch;
+  (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ code: 'FAILED', message: 'the picture did not draw within 2 s' }), { status: 500 })) as unknown as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
+  const page = await renderPage([section('diagram', 'diagram', { depth: 1 })], { diagram: { id: 'uid' } });
+  try {
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const words = page.container.textContent ?? '';
+    expect(words).toContain('The diagram could not be built.');
+    expect(words).not.toContain('did not draw');
   } finally {
     (globalThis as { fetch: typeof fetch }).fetch = real;
     await page.close();

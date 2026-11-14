@@ -9,6 +9,7 @@ import { knowledgeRootOf } from '../src/product/store.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
 import { checkProductTemplates } from '../src/graph/template-check.js';
 import { prepareStoreAcceptanceFixture } from '../scripts/clean-install-fixture.js';
 import { composePage } from '../src/page-contract/compose.js';
@@ -110,7 +111,18 @@ test('a product whose templates are whole serves, and the bootstrap lists them',
   const body = (await answer.json()) as { data?: { bootstrap: { catalogueTemplate: string; templates: { name: string; body: string }[]; recordTemplates: { kind: string; template: string }[]; roles: string[] } } };
   const bootstrap = body.data!.bootstrap;
   expect(bootstrap.catalogueTemplate).toBe('catalogue-entity');
-  expect(bootstrap.templates.map((one) => one.name).sort()).toEqual(['catalogue', 'catalogue-code-file', 'catalogue-entity', 'code-file', 'entity', 'glossary', 'home', 'search', 'text']);
+  const starterTemplates = Object.keys(CATALOG_FILES)
+    .filter((path) => path.startsWith('templates/pages/'))
+    .map((path) => path.slice('templates/pages/'.length, -'.yaml'.length))
+    .sort();
+  expect(bootstrap.templates.map((one) => one.name).sort()).toEqual(starterTemplates);
   expect(bootstrap.templates.every((one) => one.body.length > 0)).toBe(true);
   expect(bootstrap.roles.length).toBeGreaterThan(0);
 }, 180_000);
+
+test('a fresh product names itself by its manifest name in the switcher and the home title', async () => {
+  const answer = await fetch(`${server!.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ home { id label } navigation { product } }' }) });
+  const body = (await answer.json()) as { data?: { home?: { id: string; label: string }; navigation?: { product: string } } };
+  expect(body.data?.navigation?.product).toBe('templates');
+  expect(body.data?.home?.label).toBe('templates');
+}, 60_000);

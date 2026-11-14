@@ -21,4 +21,6 @@ export interface SectionContext {
   /** The product's name and the kinds the frame's navigation read: what a page's own words come from. */
   readonly product: string | null;
   readonly navigation: Navigation | null;
+  /** The frame page or template page the address names, when it names one; an entity's page trails its kind instead. */
+  readonly pageName: string | null;
 }

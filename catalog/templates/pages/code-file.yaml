@@ -33,7 +33,7 @@ sections:
         - title: { en: Co-change, ru: Совместные изменения }
           sections: [cochange]
   - id: facts
-    after: header
+    after: tabs
     component: facts
     title: { en: Facts, ru: Факты }
     query: |

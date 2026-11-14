@@ -29,6 +29,8 @@ export interface PageRuntime {
   /** The frame's own reading: the product's name and the kinds the sidebar lists. */
   readonly product: string | null;
   readonly navigation: Navigation | null;
+  /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
+  readonly pageName: string | null;
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
@@ -55,6 +57,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       },
       product: runtime.product,
       navigation: runtime.navigation,
+      pageName: runtime.pageName,
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);

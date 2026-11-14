@@ -5,7 +5,7 @@
  * holds a value for is not drawn, so a template that asks fields some of its records lack reads as the records' own
  * shape.
  */
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
@@ -102,7 +102,20 @@ export function TableSection({ context }: { readonly context: SectionContext }):
       return index === 0 && href !== undefined ? <TextLink href={context.base + href} onClick={follow(context.open, context.base + href)}>{written}</TextLink> : written;
     });
   });
-  const pageSize = typeof section.params['pageSize'] === 'number' ? section.params['pageSize'] : 50;
+  // The rows each visited page held: a template may ask `first: 20` while the component's own default is 50, so the
+  // summary counts what the connection answered rather than what a parameter guessed.
+  const [sizes, setSizes] = useState<number[]>([]);
+  useEffect(() => {
+    setSizes((held) => {
+      if (held[page] === rows.length) return held;
+      const next = [...held];
+      next[page] = rows.length;
+      return next;
+    });
+  }, [page, rows.length]);
+  const before = sizes.slice(0, page).reduce((sum, size) => sum + (size ?? 0), 0);
+  // The connection's own paging state decides: a page before this one or a next page makes a pager.
+  const paged = canPage && (page > 0 || next.hasNext);
   const firstLabel = localized(filters[0]?.label, language) ?? '';
   return (
     <>
@@ -134,7 +147,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           ) : null}
         </FilterBar>
       ) : null}
-      {rows.length === 0 ? <Paragraph data-testid="table-empty">{localized(section.params['emptyText'], language) ?? '—'}</Paragraph> : (
+      {rows.length === 0 ? <Paragraph data-testid="table-empty">{localized(section.params['emptyText'], language) ?? t('knowledge.tableEmpty')}</Paragraph> : (
         <Table data-testid="table">
           <TableHeader>
             <TableRow>{columns.map((column, index) => <TableHead key={String(index)}>{localized(column.label, language) ?? ''}</TableHead>)}</TableRow>
@@ -144,15 +157,17 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           </TableBody>
         </Table>
       )}
-      <PaginationBar>
-        <PaginationSummary>{`${String(rows.length === 0 ? 0 : page * pageSize + 1)}–${String(page * pageSize + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
-        {canPage ? (
-          <>
-            <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</Button>
-            <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>→</Button>
-          </>
-        ) : null}
-      </PaginationBar>
+      {rows.length === 0 || !paged ? null : (
+        <PaginationBar>
+          <PaginationSummary>{`${String(before + 1)}–${String(before + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
+          {canPage ? (
+            <>
+              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</Button>
+              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>→</Button>
+            </>
+          ) : null}
+        </PaginationBar>
+      )}
     </>
   );
 }

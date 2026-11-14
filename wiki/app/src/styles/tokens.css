@@ -33,6 +33,9 @@
   /* 4.4 Rhythm and measure. */
   --leading: 1.58; /* unitless body line height */
   --measure: 960px; /* maximum text width; the work area remains fluid below it */
+  /* The page's first two gaps: the breadcrumb under the top bar, the title under the breadcrumb. */
+  --page-top: 16px;
+  --crumb-gap: 8px;
 
   /* Calm light surfaces: the work area is one continuous page surface. */
   --surface-ground: #f1f2f3;
