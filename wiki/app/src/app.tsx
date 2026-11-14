@@ -1,34 +1,42 @@
 /**
- * The wiki's one page mechanism (decision 0036, sections 6 and 7): the app reads the product's bootstrap once, composes
- * the page its address names, and asks the graph one operation for it. A press re-asks the same operation with the
- * variables the press named; nothing of the product is known here.
+ * The wiki's one page mechanism (decision 0036, sections 6 and 7) inside the product's frame: the product's card and its
+ * sections in the sidebar, the breadcrumb and the reader's controls in the top bar, and below them the page the address
+ * names. The app reads the product's bootstrap and its navigation once, composes the page its address names, and asks the
+ * graph one operation for it. A press re-asks the same operation with the variables the press named; nothing of the
+ * product is known here.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
-import { basePathOf, codesOf, postQuery, readBootstrap } from './client.js';
-import { parseAddress } from './address.js';
+import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
+import { normalizeLanguage, setWikiLanguage } from './i18n.js';
+import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
+import { KitPage } from './kit-page.js';
+import { parseAddress, type FramePage } from './address.js';
 import { PageView, type PageRuntime } from './page.js';
-import { ShellFrame } from './components/ui/shell.js';
-import { Button, Select } from './components/ui/controls.js';
-import { Inline, PageColumn, Stack } from './components/ui/layout.js';
-import { Notice } from './components/ui/data.js';
-import { Link } from './components/ui/typography.js';
+import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
+import {
+  ShellDocument, ShellError, ShellFixed, ShellMain, ShellNavigationLoading, ShellRow, ShellScroll, ShellSidebar,
+  ShellToolbarLoading,
+} from './components/ui/shell.js';
+import { Skeleton } from './components/ui/skeleton.js';
+import { PageSection, Paragraph, Stack } from './components/ui/typography.js';
+import { TooltipProvider } from './components/ui/tooltip.js';
 import { STALE_STRUCTURE } from './stale.js';
 
-const LANGUAGE_KEY = 'madarch-wiki-language';
 const ROLE_KEY = 'madarch-wiki-role';
 
-function stored(key: string, fallback: string): string {
+function storedRole(): string {
   try {
-    return window.localStorage.getItem(key) ?? fallback;
+    return window.localStorage.getItem(ROLE_KEY) ?? 'all';
   } catch {
-    return fallback;
+    return 'all';
   }
 }
 
-function keep(key: string, value: string): void {
+function keepRole(value: string): void {
   try {
-    window.localStorage.setItem(key, value);
+    window.localStorage.setItem(ROLE_KEY, value);
   } catch {
     // A browser that refuses storage keeps the choice for this page only.
   }
@@ -42,11 +50,13 @@ interface Loaded {
 }
 
 export function App(): ReactElement {
+  const { i18n, t } = useTranslation();
+  const language = normalizeLanguage(i18n.resolvedLanguage);
   const [base] = useState(() => basePathOf(window.location.pathname));
   const [path, setPath] = useState(() => window.location.pathname.slice(base.length) + window.location.search);
-  const [language, setLanguage] = useState(() => stored(LANGUAGE_KEY, document.documentElement.lang || 'en'));
-  const [role, setRole] = useState(() => stored(ROLE_KEY, 'all'));
+  const [role, setRole] = useState(storedRole);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
+  const [navigation, setNavigation] = useState<Navigation | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,8 +73,9 @@ export function App(): ReactElement {
     const path = base !== '' && next.startsWith(base) ? next.slice(base.length) : next;
     window.history.pushState({}, '', base + path);
     setPath(path);
-    // A press on a link scrolls the page it opens to its top, as a page load would.
-    window.scrollTo(0, 0);
+    // A press on a link scrolls the page it opens to its top, as a page load would: the work area is the column that
+    // scrolls, not the window.
+    document.querySelector('[data-testid="shell-content"]')?.scrollTo({ top: 0 });
   }, [base]);
 
   useEffect(() => {
@@ -87,14 +98,22 @@ export function App(): ReactElement {
       return undefined;
     }
     setBootstrap(read.bootstrap);
+    setNavigation(read.navigation ?? null);
     return read.bootstrap;
   }, [base, language]);
 
-  // The bootstrap is read once per structure: its templates and the pages they open change only with a product's files.
+  // The bootstrap and the navigation are read once per structure and language: what they hold changes only with the
+  // product's files or the reader's language.
   useEffect(() => {
     setBootstrap(null);
     void loadBootstrap();
   }, [loadBootstrap]);
+
+  // The document says the language the reader reads and names the product, as the browser's tab shows them.
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.title = t('knowledge.title', { product: navigation?.product ?? 'madarch' });
+  }, [language, navigation?.product, t]);
 
   const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>): Promise<void> => {
     setBusy(true);
@@ -127,6 +146,12 @@ export function App(): ReactElement {
       setLoaded(null);
       return;
     }
+    // A section of the frame whose page is not rebuilt yet says so, and asks the graph for nothing.
+    if (address.frame !== null) {
+      setFailure(null);
+      setLoaded(null);
+      return;
+    }
     const composition = composePage(bootstrap, { ...address.page, lang: language, role });
     if (composition.findings.length > 0) {
       setFailure(composition.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('\n'));
@@ -146,27 +171,79 @@ export function App(): ReactElement {
   }, [ask, loaded]);
 
   const runtime: PageRuntime = { base, language, busy, open, reload };
-  const languages = [{ value: 'en', label: 'English' }, { value: 'ru', label: 'Русский' }].filter((one) => one.value === language || one.value === 'en' || one.value === 'ru');
-  const roles = [{ value: 'all', label: 'all' }, ...(bootstrap?.roles ?? []).map((name) => ({ value: name, label: name }))];
+  const section: FramePage | null = address.frame;
+  const here = `/${path.split('?')[0] ?? ''}`;
+  const tasks = { home: address.home, frame: section };
+  const navigationPanel = (after: () => void): ReactElement => (
+    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} />
+  );
+  const [menuOpen, setMenuOpen] = useState(false);
+  // The graph could not be read at all: the frame says so instead of a page.
+  if (bootstrap === null && failure !== null) {
+    return <ShellError><Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph></ShellError>;
+  }
+  // The first read: the frame stands with its shapes, and nothing of the product is drawn yet.
+  if (bootstrap === null) {
+    return (
+      <Stack layout="shell" data-testid="wiki-loading">
+        <ShellSidebar loading aria-hidden="true"><ShellNavigationLoading /></ShellSidebar>
+        <ShellMain>
+          <ShellToolbarLoading />
+          <ShellScroll data-testid="shell-content">
+            <ShellDocument>
+              <main>
+                <PageSection><Skeleton className="h-9 w-72" /></PageSection>
+                <PageSection><Skeleton className="h-5 w-full" /><Skeleton className="h-5 w-full" /><Skeleton className="h-5 w-64" /></PageSection>
+              </main>
+            </ShellDocument>
+          </ShellScroll>
+        </ShellMain>
+      </Stack>
+    );
+  }
+  // The kit's own review surface stands at `/kit`; every other section of the frame waits for its page.
+  const page = section === null ? null : section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />;
   return (
-    <ShellFrame
-      title="Madarch wiki"
-      actions={
-        <Inline gap={2}>
-          <Link href={base + '/'} onOpen={open}>Home</Link>
-          <Select label="language" value={language} options={languages} onChange={(value) => { setLanguage(value); keep(LANGUAGE_KEY, value); }} />
-          <Select label="role" value={role} options={roles} onChange={(value) => { setRole(value); keep(ROLE_KEY, value); }} />
-          <Button kind="quiet" disabled={busy} onClick={() => { setBootstrap(null); void loadBootstrap(); }}>Reload</Button>
-        </Inline>
-      }
-    >
-      <PageColumn>
-        <Stack gap={4}>
-          {failure === null ? null : <Notice>{failure}</Notice>}
-          {bootstrap === null && failure === null ? <Notice>Reading the product…</Notice> : null}
-          {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
-        </Stack>
-      </PageColumn>
-    </ShellFrame>
+    <TooltipProvider delayDuration={200} skipDelayDuration={100}>
+      <Stack layout="shell" data-testid="wiki-app">
+        <ShellSidebar id="app-nav" aria-label={t('navigation.aria')}>
+          <Stack layout="navigation">{navigationPanel(() => undefined)}</Stack>
+        </ShellSidebar>
+        <ShellMain>
+          <ShellFixed data-testid="shell-fixed">
+            <FrameToolbar
+              product={navigation?.product ?? null}
+              base={base}
+              task={address.home ? t('knowledge.home') : section === null ? null : frameWord(section, t)}
+              language={language}
+              role={role}
+              roles={bootstrap.roles}
+              busy={busy}
+              menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
+              open={open}
+              onLanguage={(next) => { void setWikiLanguage(next); }}
+              onRole={(next) => { setRole(next); keepRole(next); }}
+              onReload={() => { void loadBootstrap(); }}
+            />
+          </ShellFixed>
+          <ShellRow>
+            <ShellScroll data-testid="shell-content">
+              <ShellDocument>
+                <main data-testid="wiki-main">
+                  {failure === null ? null : (
+                    <Alert variant="problem" className="mb-4" data-testid="wiki-error">
+                      <AlertTitle>{t('knowledge.noSuchPage')}</AlertTitle>
+                      <AlertDescription>{failure}</AlertDescription>
+                    </Alert>
+                  )}
+                  {page}
+                  {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                </main>
+              </ShellDocument>
+            </ShellScroll>
+          </ShellRow>
+        </ShellMain>
+      </Stack>
+    </TooltipProvider>
   );
 }

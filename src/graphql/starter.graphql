@@ -1761,15 +1761,13 @@ type CodePackage implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  repository: String
-  repositoryOpinions: [Opinion!]!
-  repositoryOpinionsCount: Int!
-  path: String
-  pathOpinions: [Opinion!]!
-  pathOpinionsCount: Int!
-  stateMachines: JSON
-  stateMachinesOpinions: [Opinion!]!
-  stateMachinesOpinionsCount: Int!
+  ecosystem: String
+  ecosystemOpinions: [Opinion!]!
+  ecosystemOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  codeImportsPackageOf(where: CodeImportsPackageEdgeWhere, orderBy: [CodeImportsPackageEdgeOrder!], first: Int, after: String): CodeImportsPackageConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2850,6 +2848,29 @@ type MentionsEdge {
   node: Entity!
 }
 
+type Navigation {
+  product: String
+  groups: [NavigationGroup!]!
+  kinds: [NavigationKind!]!
+}
+
+type NavigationGroup {
+  name: String!
+  labels: JSON!
+  short: JSON
+  open: Boolean!
+  parent: String
+}
+
+type NavigationKind {
+  kind: String!
+  one: String!
+  many: String!
+  group: String
+  count: Int!
+  entryId: ID
+}
+
 type Opinion {
   value: JSON
   producer: String!
@@ -3293,6 +3314,7 @@ type Query {
   home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
+  navigation(lang: String): Navigation!
 }
 
 input AdministratorGuideBodyFilter {

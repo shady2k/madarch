@@ -4,7 +4,8 @@
  * positions and the model are the server's answer.
  */
 import { useEffect, useState, type ReactElement } from 'react';
-import { Muted } from '../ui/typography.js';
+import { useTranslation } from 'react-i18next';
+import { Metadata } from '../ui/typography.js';
 import type { LikeC4Answer } from '../diagram-types.js';
 import { linkOfNode } from '../diagram-links.js';
 
@@ -33,6 +34,7 @@ function NodeClicks({ links, open }: { readonly links: Readonly<Record<string, s
 }
 
 export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | undefined; readonly open: (path: string) => void }): ReactElement {
+  const { t } = useTranslation();
   const [pane, setPane] = useState<ReactElement | null>(null);
   const [failed, setFailed] = useState<string | undefined>(undefined);
   const key = answer === undefined ? '' : JSON.stringify(answer.links ?? {}).length + String(answer.view === undefined);
@@ -59,7 +61,7 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  if (answer === undefined) return <Muted>Loading the picture…</Muted>;
-  if (failed !== undefined) return <Muted>{failed}</Muted>;
-  return pane ?? <Muted>Loading the picture…</Muted>;
+  if (answer === undefined) return <Metadata>{t('knowledge.loadingPicture')}</Metadata>;
+  if (failed !== undefined) return <Metadata>{failed}</Metadata>;
+  return pane ?? <Metadata>{t('knowledge.loadingPicture')}</Metadata>;
 }

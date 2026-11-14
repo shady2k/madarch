@@ -122,6 +122,7 @@ class Builder {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
+      'Navigation', 'NavigationGroup', 'NavigationKind',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
@@ -166,6 +167,28 @@ class Builder {
       { name: 'recordTemplates', type: '[RecordTemplate!]!' },
       { name: 'ownTemplates', type: '[OwnTemplate!]!' },
       { name: 'roles', type: '[String!]!' },
+    ]);
+    // The frame's one read (decision 0036, sections 6 and 7): the product's groups and every kind it declares, with the
+    // number of entities the graph holds. The sidebar is drawn from this, so the app names no kind of its own.
+    this.type('NavigationKind', [
+      { name: 'kind', type: 'String!' },
+      { name: 'one', type: 'String!' },
+      { name: 'many', type: 'String!' },
+      { name: 'group', type: 'String' },
+      { name: 'count', type: 'Int!' },
+      { name: 'entryId', type: 'ID' },
+    ]);
+    this.type('NavigationGroup', [
+      { name: 'name', type: 'String!' },
+      { name: 'labels', type: 'JSON!' },
+      { name: 'short', type: 'JSON' },
+      { name: 'open', type: 'Boolean!' },
+      { name: 'parent', type: 'String' },
+    ]);
+    this.type('Navigation', [
+      { name: 'product', type: 'String' },
+      { name: 'groups', type: '[NavigationGroup!]!' },
+      { name: 'kinds', type: '[NavigationKind!]!' },
     ]);
     this.interfaceType('Entity', entityFields());
     this.buildCatalogue();
@@ -409,12 +432,14 @@ class Builder {
     this.registry.claimField('Query', 'catalogueEntity', 'the catalogue entity root');
     this.registry.claimField('Query', 'allCatalogueEntity', 'the catalogue list root');
     this.registry.claimField('Query', 'home', 'the home root');
+    this.registry.claimField('Query', 'navigation', 'the navigation root');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
       { name: 'home', type: 'Entity', args: [{ name: 'lang', type: 'String' }] },
       { name: 'search', type: 'EntityConnection!', args: [{ name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
+      { name: 'navigation', type: 'Navigation!', args: [{ name: 'lang', type: 'String' }] },
     );
     this.type('Query', fields);
   }

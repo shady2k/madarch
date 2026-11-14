@@ -4,7 +4,7 @@
  */
 import type { ReactElement } from 'react';
 import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
-import { Section, Stack } from './components/ui/layout.js';
+import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
 import { HeaderSection } from './components/header.js';
 import { FactsSection } from './components/facts.js';
 import { TextSection } from './components/text.js';
@@ -49,9 +49,14 @@ export function PageView({ composition, data, runtime }: { readonly composition:
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
-    return <Section key={section.id} title={title}>{componentOf(section, context, composition.sections)}</Section>;
+    return (
+      <PageSection key={section.id} data-section={section.id}>
+        {title === undefined || title === '' ? null : <SectionTitle>{title}</SectionTitle>}
+        {componentOf(section, context, composition.sections)}
+      </PageSection>
+    );
   };
-  return <Stack gap={4}>{composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}</Stack>;
+  return <PageArticle data-testid="page">{composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}</PageArticle>;
 }
 
 function componentOf(section: ComposedSection, context: SectionContext, sections: readonly ComposedSection[]): ReactElement {

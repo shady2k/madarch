@@ -20,12 +20,19 @@ test('the root is the home, and a name with a slash in it stays one name', () =>
 });
 
 test('a template bound to no entity is its own address, and its query parameters bind variables', () => {
-  const page = parseAddress('/p/settings', '?run=7&lang=ru&role=analyst', '');
-  expect(page.page.template).toBe('settings');
+  const page = parseAddress('/p/run', '?run=7&lang=ru&role=analyst', '');
+  expect(page.page.template).toBe('run');
   expect(page.page.params).toEqual({ run: '7' });
   expect(page.page.lang).toBe('ru');
   expect(page.page.role).toBe('analyst');
   expect(page.unknown).toBe(false);
+});
+
+test('a section of the frame answers at its own template address', () => {
+  const section = parseAddress('/p/glossary', '', '');
+  expect(section.frame).toBe('glossary');
+  expect(section.page.template).toBeUndefined();
+  expect(section.unknown).toBe(false);
 });
 
 test('a path that is no page of the app says so', () => {

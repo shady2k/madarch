@@ -92,7 +92,12 @@ parallel; a change to it is a change to this record.
 - **Roots**: `entity(id: ID!): Entity`, one list root per type, `catalogueEntity(name: String!):
   CatalogueEntity`, `home: Entity` (the product entity), `search(text: String!, kinds: [String!],
   first: Int, after: String): EntityConnection!` (labels and text fields), `bootstrap: Bootstrap!`,
-  `revision: Revision!`. Every root takes `lang: String` (default the reader's language).
+  `revision: Revision!`, and `navigation: Navigation!` — the frame's one read, added with the portal frame's
+  return: `{ product: String  groups: [{ name  labels  short  open  parent }]  kinds: [{ kind  one  many
+  group  count  entryId }] }`, the manifest's groups and every kind it declares with its names in the reader's
+  language, the entities the graph holds of it and the id of its catalogue entry. The sidebar draws itself from
+  that answer alone, so the app still names no kind; a page is still one operation. Every root takes `lang: String`
+  (default the reader's language).
 - **Bootstrap** `{ structureRevision: String!  home: { id: ID!  kind: String!  template: String! }
   catalogueTemplate: String!  templates: [PageTemplate!]!  recordTemplates: [{ kind: String!  template:
   String! }]!  ownTemplates: [{ id: ID!  template: String! }]!  roles: [String!]! }`;

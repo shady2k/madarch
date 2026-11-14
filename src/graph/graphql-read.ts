@@ -1048,6 +1048,7 @@ export class ReadContext {
     if (field === 'home') return this.home(lang);
     if (field === 'search') return this.search(args, lang);
     if (field === 'bootstrap') return this.bootstrap();
+    if (field === 'navigation') return this.navigation(lang);
     return null;
   }
 
@@ -1162,6 +1163,51 @@ export class ReadContext {
         .sort((left, right) => byCodePoint(left.id, right.id)),
       roles: [...this.manifest.roles.keys()].sort(byCodePoint),
     };
+  }
+
+  /**
+   * The frame's one read (decision 0036, sections 6 and 7): the product's groups in the manifest's order and every kind
+   * it declares, each with the count of the entities the graph holds and the id of its catalogue entry. The sidebar is
+   * drawn from this answer alone, so the app names no kind of its own.
+   */
+  private async navigation(lang: string | undefined): Promise<unknown> {
+    const language = lang ?? this.lang;
+    const counts = await this.vertexCounts();
+    const catalogue = await this.catalogueData();
+    // The product's own name is the home entity's label, as the top bar and the product card show it.
+    const home = entityOf(await this.home(language));
+    const groups = [...this.manifest.groups.values()]
+      .map((group) => ({
+        name: group.name,
+        labels: { ...group.labels },
+        short: group.short === undefined ? null : { ...group.short },
+        open: group.open === true,
+        parent: group.parent ?? null,
+      }));
+    const kinds = [...this.manifest.kinds.values()]
+      .map((kind) => ({
+        kind: kind.name,
+        one: kind.labels?.[language]?.one ?? kind.labels?.[this.fallbackLang]?.one ?? kind.name,
+        many: kind.labels?.[language]?.many ?? kind.labels?.[this.fallbackLang]?.many ?? kind.name,
+        group: kind.group ?? null,
+        count: counts.get(kind.name) ?? 0,
+        entryId: catalogue.byName.get(kind.name)?.uid ?? null,
+      }));
+    return { product: home === undefined ? null : await this.labelOf(home), groups, kinds };
+  }
+
+  /** The entities the graph holds of each kind the product takes, in one statement. */
+  private async vertexCounts(): Promise<Map<string, number>> {
+    const names = [...this.manifest.kinds.keys()];
+    if (names.length === 0) return new Map();
+    const found = await this.tx.query<Record<string, unknown>>(
+      `SELECT en.name AS kind, count(*)::int AS n
+       FROM node n JOIN entity en ON en.id = n.entity_id
+       WHERE n.context_id = 1 AND NOT n.removed AND en.name = ANY($1::text[])
+       GROUP BY en.name`,
+      [names],
+    );
+    return new Map(found.rows.map((row) => [String(row['kind']), Number(row['n'])]));
   }
 
   // ---- catalogue ---------------------------------------------------------------------------------------------

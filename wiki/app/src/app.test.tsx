@@ -64,10 +64,16 @@ const bootstrap = {
   roles: ['analyst'],
 };
 
+const navigation = {
+  product: 'Madarch',
+  groups: [{ name: 'code', labels: { en: 'Code', ru: 'Код' }, short: null, open: false, parent: null }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', group: 'code', count: 2, entryId: ID }],
+};
+
 const requests: { query: string; variables: Record<string, unknown> }[] = [];
 
 function answerFor(query: string, variables: Record<string, unknown>): unknown {
-  if (query.includes('bootstrap')) return { data: { bootstrap } };
+  if (query.includes('bootstrap')) return { data: { bootstrap, navigation } };
   const after = variables['records_after'];
   return {
     data: {
@@ -110,7 +116,7 @@ test('one page view is one operation, after one bootstrap', async () => {
   window.history.pushState({}, '', `/e/catalogue/${ID}`);
   const page = await render();
   try {
-    expect(page.container.querySelector('h1')?.textContent).toBe('Madarch wiki');
+    expect(page.container.querySelector('h1')?.textContent).toBe('A kind');
     expect(page.container.textContent).toContain('A kind');
     expect(page.container.textContent).toContain('one');
     expect(requests.filter((one) => one.query.includes('bootstrap'))).toHaveLength(1);

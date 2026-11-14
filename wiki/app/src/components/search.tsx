@@ -3,11 +3,14 @@
  * the reader's own read, so it is a request of its own; a page view is still one request.
  */
 import { useState, type ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { postQuery } from '../client.js';
-import { Button, Field, TextInput } from './ui/controls.js';
-import { Inline, Stack } from './ui/layout.js';
-import { Link, Muted } from './ui/typography.js';
+import { Button } from './ui/button.js';
+import { FilterBar, FilterField } from './ui/filter-bar.js';
+import { Input } from './ui/input.js';
+import { Metadata, Paragraph, Stack, TextLink } from './ui/typography.js';
 import { entityHref } from './connection.js';
+import { follow } from './relations.js';
 import type { SectionContext } from './types.js';
 
 interface SearchAnswer {
@@ -15,6 +18,7 @@ interface SearchAnswer {
 }
 
 export function SearchSection({ context }: { readonly context: SectionContext }): ReactElement {
+  const { t } = useTranslation();
   const [text, setText] = useState('');
   const [answer, setAnswer] = useState<SearchAnswer['search'] | undefined>(undefined);
   const [failed, setFailed] = useState<string | undefined>(undefined);
@@ -32,24 +36,25 @@ export function SearchSection({ context }: { readonly context: SectionContext })
     setAnswer(result.data?.search);
   };
   return (
-    <Stack gap={2}>
-      <Inline gap={2}>
-        <Field label="search">
-          <TextInput value={text} label="search" onInput={setText} onSubmit={() => { void ask(); }} />
-        </Field>
-        <Button onClick={() => { void ask(); }}>Search</Button>
-      </Inline>
-      {failed === undefined ? null : <Muted>{failed}</Muted>}
+    <Stack>
+      <FilterBar>
+        <FilterField>
+          {t('knowledge.searchLabel')}
+          <Input value={text} aria-label={t('knowledge.searchLabel')} placeholder={t('knowledge.searchPlaceholder')} onChange={(event) => { setText(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') void ask(); }} />
+        </FilterField>
+        <Button variant="default" size="sm" onClick={() => { void ask(); }}>{t('knowledge.searchButton')}</Button>
+      </FilterBar>
+      {failed === undefined ? null : <Paragraph>{failed}</Paragraph>}
       {answer === undefined ? null : (
-        <Stack gap={1}>
-          <Muted>{`${String(answer.totalCount)} found`}</Muted>
+        <>
+          <Metadata>{t('knowledge.found', { count: answer.totalCount })}</Metadata>
           {answer.edges.map((edge, at2) => {
             const href = entityHref(edge.node);
             return href === undefined ? null : (
-              <Link key={String(at2)} href={context.base + href} onOpen={context.open}>{String(edge.node['label'] ?? href)}</Link>
+              <TextLink key={String(at2)} href={context.base + href} onClick={follow(context.open, context.base + href)}>{String(edge.node['label'] ?? href)}</TextLink>
             );
           })}
-        </Stack>
+        </>
       )}
     </Stack>
   );

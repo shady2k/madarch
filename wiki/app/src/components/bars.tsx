@@ -1,7 +1,8 @@
 /** The groups of a list the section read, as one bar each (decision 0036, section 7). */
 import type { ReactElement } from 'react';
-import { Bars } from './ui/data.js';
-import { Muted } from './ui/typography.js';
+import { titleIn } from '../../../../src/page-contract/index.js';
+import { FactChart } from './ui/fact-chart.js';
+import { Paragraph } from './ui/typography.js';
 import { at, formatValue } from './format.js';
 import { edgesOf } from './connection.js';
 import type { SectionContext } from './types.js';
@@ -19,6 +20,6 @@ export function BarsSection({ context }: { readonly context: SectionContext }): 
   const rows = [...counts.entries()]
     .sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1))
     .map(([label, value]) => ({ label, value }));
-  if (rows.length === 0) return <Muted>—</Muted>;
-  return <Bars rows={rows} />;
+  if (rows.length === 0) return <Paragraph>—</Paragraph>;
+  return <FactChart display="bar" rows={rows} labelTitle={titleIn(context.section.title, context.language) ?? ''} valueTitle="" />;
 }

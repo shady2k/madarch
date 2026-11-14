@@ -86,7 +86,8 @@ test('a relation row names the relation and links to the entity at its other end
     { backlinks: { backlinks: { totalCount: 1, edges: [{ node: { relation: 'partOf', from: entity('1', 'src') } }] } } },
   );
   try {
-    expect(page.container.textContent).toContain('partOf');
+    // The relation's own word, as the wiki's labels give it, not the graph's field name.
+    expect(page.container.textContent).toContain('part of');
     expect(page.container.querySelector('a')?.getAttribute('href')).toBe('/e/a.b/1');
   } finally {
     await page.close();
@@ -162,7 +163,7 @@ test('a tabs section draws the chosen section and hides the rest', async () => {
     expect(page.container.querySelector('[role="tabpanel"]')?.textContent).toContain('One');
     expect(page.container.querySelector('[role="tabpanel"]')?.textContent).not.toContain('Two');
     const second = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Second');
-    await act(async () => { second?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await act(async () => { second?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
     expect(page.container.querySelector('[role="tabpanel"]')?.textContent).toContain('Two');
   } finally {
     await page.close();
@@ -188,15 +189,15 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
     // A picture costs a server render: nothing is asked until the reader picks a tab.
     expect(requested).toHaveLength(0);
     const likeC4Tab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'LikeC4');
-    await act(async () => { likeC4Tab?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    await act(async () => { likeC4Tab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
     expect(requested).toHaveLength(1);
     expect(requested[0]).toContain('/render/diagram?entity=uid');
     expect(requested[0]).toContain('format=likec4');
     const mermaidTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');
-    await act(async () => { mermaidTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    await act(async () => { mermaidTab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
     expect(requested.some((one) => one.includes('format=mermaid'))).toBe(true);
     const archifyTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'archify');
-    await act(async () => { archifyTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    await act(async () => { archifyTab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
     const frame = page.container.querySelector('iframe');
     expect(frame?.getAttribute('src')).toContain('format=archify');
   } finally {

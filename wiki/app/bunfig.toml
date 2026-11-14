@@ -3,7 +3,7 @@
 # (madarch-1xq): the mechanism is the engine's own preload, shared rather than
 # copied, so the app and the engine are isolated the same way.
 [test]
-preload = ["./test/run-scratch.ts", "./test/deadline.ts"]
+preload = ["./test/run-scratch.ts", "./test/deadline.ts", "./test/browser-modules.ts"]
 # Ten seconds for a test that names no bound of its own, instead of Bun's five,
 # and the engine's own default so both suites agree (madarch-tzte.36): it is the
 # preload beside the scratch one, not `timeout = 10000` here, which Bun 1.4.2

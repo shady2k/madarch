@@ -6,11 +6,11 @@
  * in any tab walks to the entity's page. Nothing here lays anything out.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { valueAt } from '../../../../src/page-contract/index.js';
-import { Notice } from './ui/data.js';
-import { Stack } from './ui/layout.js';
-import { Tabs } from './ui/controls.js';
-import { Muted } from './ui/typography.js';
+import { Alert, AlertDescription } from './ui/alert.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.js';
+import { Paragraph } from './ui/typography.js';
 import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
 import { ArchifyPane } from './diagram-panes/archify-pane.js';
@@ -39,6 +39,7 @@ function preferredTab(): Tab | null {
 }
 
 export function DiagramSection({ context }: { readonly context: SectionContext }): ReactElement {
+  const { t } = useTranslation();
   const id = typeof valueAt(context.data, 'id') === 'string' ? String(valueAt(context.data, 'id')) : '';
   const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
@@ -68,21 +69,27 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   useEffect(() => { if (tab !== null) void ask(tab); }, [tab, ask]);
   const held = tab === null ? undefined : answers[tab];
   return (
-    <Stack gap={2}>
-      <Tabs tabs={TABS} active={tab ?? ''} onSelect={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }} />
+    <Tabs value={tab ?? ''} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
+      <TabsList aria-label="diagram">
+        {TABS.map((one) => <TabsTrigger key={one.id} value={one.id}>{one.label}</TabsTrigger>)}
+      </TabsList>
       {tab === null ? (
-        <Muted>Choose a picture.</Muted>
-      ) : tab === 'archify' ? (
-        <ArchifyPane src={address('archify')} root={root} open={context.open} />
-      ) : held === undefined ? (
-        <Muted>Loading the picture…</Muted>
-      ) : 'failed' in held ? (
-        <Notice>{held.failed}</Notice>
-      ) : tab === 'likec4' ? (
-        <LikeC4Pane answer={held as LikeC4Answer} open={(path) => context.open(path)} />
+        <Paragraph>{t('knowledge.choosePicture')}</Paragraph>
       ) : (
-        <MermaidPane answer={held as MermaidAnswer} open={(path) => context.open(path)} />
+        <TabsContent value={tab}>
+          {tab === 'archify' ? (
+            <ArchifyPane src={address('archify')} root={root} open={context.open} />
+          ) : held === undefined ? (
+            <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
+          ) : 'failed' in held ? (
+            <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+          ) : tab === 'likec4' ? (
+            <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
+          ) : (
+            <MermaidPane answer={held as MermaidAnswer} open={(path) => { context.open(path); }} />
+          )}
+        </TabsContent>
       )}
-    </Stack>
+    </Tabs>
   );
 }
