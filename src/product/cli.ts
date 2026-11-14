@@ -25,9 +25,10 @@ import { API } from '../knowledge/addresses.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
-import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
+import { DEFAULT_HOST, DEFAULT_PORT, serveWiki, portRefusal, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
 import type { LifecycleOutcome, RepoConnectMode } from './lifecycle.js';
 import { readProduct } from './manifest.js';
+import { isExistingDirectoryWithoutManifest } from '../product-wiki/manifestless.js';
 import { runGit } from './git.js';
 import { productsHome, type DraftEnv } from './home.js';
 import type { FinishedKnowledgeStore } from '../knowledge/fill-run.js';
@@ -620,6 +621,14 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         if (args[0] !== 'daemon-serve') {
           const folder = demo?.ok ? demo.folder : resolve(named('--product') ?? process.cwd());
           const read = readProduct(folder);
+          // The address is asked before the work the start needs — the store prepared and the manifests read whole,
+          // seconds on a product of hundreds of kinds — so a port the environment refuses, or one another process
+          // holds, answers at once (madarch-64o5.68). A folder that cannot be served at all is refused without
+          // asking for a port: that refusal is the command's own, and it takes none of that work.
+          if (read.ok || isExistingDirectoryWithoutManifest(folder)) {
+            const refused = portRefusal(parsedOwnerCommand.port ?? DEFAULT_PORT, parsedOwnerCommand.host ?? DEFAULT_HOST);
+            if (refused !== undefined) { console.error(refused.message); return refused.outcome === 'refused' ? 2 : 1; }
+          }
           // A manifestless folder has no graph-backed product to activate.
           if (read.ok) {
             const { readPinnedGraphContract } = await import('./preparation-contract.js');
