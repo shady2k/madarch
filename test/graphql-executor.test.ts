@@ -554,3 +554,34 @@ describe('the GraphQL executor', () => {
     expect(elapsed).toBeLessThan(2000);
   }, 60_000);
 });
+
+test('search transfers only requested SQL rows while keeping exact distinct totals', async () => {
+  const repository = { kind: 'demo.repository', key: { name: 'search-bound' } };
+  await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
+    vertices: [{ ...repository, values: {}, producer: 'search', producerVersion: '1' }, ...Array.from({ length: 60 }, (_, at) => ({ kind: 'demo.file', key: { repository, path: `search-bound-${String(at)}.ts` }, values: {}, producer: 'search', producerVersion: '1' }))], edges: [], removals: [],
+  }, 1, { author: 'search@1' }));
+  const transferred: number[] = [];
+  const wrapped: DatabaseOwner = { ...owner, transaction: (kind, work) => owner.transaction(kind, (tx) => work({ ...tx, query: async (sql: string, values?: readonly unknown[]) => {
+    const answer = await tx.query(sql, values);
+    if (sql.startsWith('WITH hits AS')) transferred.push(answer.rows.length);
+    return answer;
+  } } as OuterTransaction)) };
+  const run = async (query: string) => {
+    const result = await executeGraphql(wrapped, { manifest, folder }, { query });
+    const body = result.body as MessageBody;
+    expect(body.errors).toBeUndefined();
+    return body.data as Record<string, unknown>;
+  };
+  const flat = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 2) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
+  expect(flat['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true } });
+  expect((flat['search'] as { edges: unknown[] }).edges).toHaveLength(2);
+  expect(transferred.pop()).toBeLessThanOrEqual(2);
+  const empty = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 0) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
+  expect(empty['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true }, edges: [] });
+  expect(transferred.pop()).toBeLessThanOrEqual(1);
+  const grouped = await run('{ searchGroups(text: "search-bound", kinds: ["demo.file"], perKind: 2) { kind count results { node { id } } } }');
+  expect(grouped['searchGroups']).toMatchObject([{ kind: 'demo.file', count: 60 }]);
+  expect((grouped['searchGroups'] as { results: unknown[] }[])[0]!.results).toHaveLength(2);
+  expect(transferred.pop()).toBeLessThanOrEqual(40);
+});
+

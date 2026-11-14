@@ -1207,7 +1207,7 @@ export class ReadContext {
 
   /** Search over labels and text fields, one union of every kind's text; the total is before the cursor. */
   /** The entities whose label or text holds the words asked: their node, their kind, the matched value and how well. */
-  private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number }[]> {
+  private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined, limit: number, grouped = false): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number; total: number }[]> {
     if (text.trim() === '') return [];
     const sql = new Sql();
     const pattern = sql.param(`%${text}%`, '::text');
@@ -1235,10 +1235,22 @@ export class ReadContext {
       }
     }
     if (parts.length === 0) return [];
+    const bound = sql.param(limit, '::int');
     const answer = await this.tx.query<Record<string, unknown>>(
-      `WITH hits AS (${parts.join(' UNION ALL ')})
-       SELECT node_id, uid, key, kind, value, rank FROM hits
-       ORDER BY rank ASC, length(value) ASC, node_id::bigint ASC`,
+      `WITH hits AS (${parts.join(' UNION ALL ')}),
+       matched AS (
+         SELECT hits.*, row_number() OVER (PARTITION BY node_id ORDER BY rank, length(value), value COLLATE "C") AS match_row
+         FROM hits
+       ), unique_hits AS (
+         SELECT node_id, uid, key, kind, value, rank FROM matched WHERE match_row = 1
+       ), counted AS (
+         SELECT unique_hits.*, count(*) OVER (${grouped ? 'PARTITION BY kind' : ''})::int AS total,
+                row_number() OVER (${grouped ? 'PARTITION BY kind' : ''} ORDER BY rank, ${grouped ? '' : 'length(value), '}node_id::bigint) AS result_row
+         FROM unique_hits
+       )
+       SELECT node_id, uid, key, kind, value, rank, total FROM counted
+       WHERE result_row <= ${bound}
+       ORDER BY rank, ${grouped ? '' : 'length(value), '}node_id::bigint`,
       sql.params,
     );
     return answer.rows.map((row) => ({
@@ -1248,21 +1260,21 @@ export class ReadContext {
       kind: String(row['kind']),
       value: String(row['value'] ?? ''),
       rank: Number(row['rank'] ?? 3),
+      total: Number(row['total'] ?? 0),
     }));
   }
 
   private async search(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
     const text = typeof args['text'] === 'string' ? args['text'] : '';
     const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
-    const hits = await this.searchHits(text, wanted, lang);
-    const seen = new Set<string>();
-    const unique = hits.filter((hit) => { if (seen.has(hit.nodeId)) return false; seen.add(hit.nodeId); return true; });
     const first = clampFirst(typeof args['first'] === 'number' ? args['first'] : null);
-    const values = unique.slice(0, first).map((hit) => this.entityFromRow({ node_id: hit.nodeId, uid: hit.uid, key: hit.key, entity: hit.kind }, lang)).filter((one): one is EntityValue => one !== undefined);
+    const hits = await this.searchHits(text, wanted, lang, Math.max(first, 1));
+    const total = hits[0]?.total ?? 0;
+    const values = hits.slice(0, first).map((hit) => this.entityFromRow({ node_id: hit.nodeId, uid: hit.uid, key: hit.key, entity: hit.kind }, lang)).filter((one): one is EntityValue => one !== undefined);
     return {
       edges: values.map((node) => ({ cursor: encodeCursor({ k: hits.find((hit) => hit.nodeId === node.nodeId)?.kind ?? '', id: node.nodeId }), node })),
-      pageInfo: { endCursor: null, hasNextPage: unique.length > first },
-      totalCount: unique.length,
+      pageInfo: { endCursor: null, hasNextPage: total > first },
+      totalCount: total,
     };
   }
 
@@ -1275,7 +1287,7 @@ export class ReadContext {
     const text = typeof args['text'] === 'string' ? args['text'] : '';
     const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
     const perKind = Math.min(Math.max(1, Math.trunc(Number(args['perKind'] ?? 5))), 20);
-    const hits = await this.searchHits(text, wanted, lang);
+    const hits = await this.searchHits(text, wanted, lang, Math.max(perKind * 4, 40), true);
     const groups = new Map<string, { rows: Map<string, { hit: (typeof hits)[number]; best: number }> }>();
     for (const hit of hits) {
       const held = groups.get(hit.kind) ?? { rows: new Map() };
@@ -1299,7 +1311,7 @@ export class ReadContext {
       named.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
       const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line }));
       if (results.length === 0) continue;
-      out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.size, best: named[0]?.best ?? 3, results });
+      out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.values().next().value?.hit.total ?? 0, best: named[0]?.best ?? 3, results });
     }
     // The catalogue's own kinds answer too: a reader who types a kind's word means the kind, not only its records.
     const catalogue = await this.catalogueSearchGroup(text, wanted, lang, perKind);
