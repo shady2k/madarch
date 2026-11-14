@@ -49,15 +49,43 @@
           {
             "name": "last_change",
             "type": "timestamp",
-            "meaning": "The latest commit time among non-merge commits touching this exact path at the pinned revision.",
+            "meaning": "The latest commit time among the commits touching this exact path at the pinned revision, merge commits included.",
             "example": "2026-01-01T00:00:00.000Z",
             "required": false
           },
           {
             "name": "commit_count",
             "type": "integer",
-            "meaning": "The number of non-merge commits touching this exact path at the pinned revision.",
+            "meaning": "The number of commits touching this exact path at the pinned revision, merge commits included.",
             "example": 1,
+            "required": false
+          },
+          {
+            "name": "added_at",
+            "type": "timestamp",
+            "meaning": "When the latest period of this path's existence began: the committer date of the first commit that added it after its last removal.",
+            "example": "2026-01-01T00:00:00.000Z",
+            "required": false
+          },
+          {
+            "name": "added_in",
+            "type": "text",
+            "meaning": "The commit that began the latest period of this path's existence.",
+            "example": "0123456789abcdef0123456789abcdef01234567",
+            "required": false
+          },
+          {
+            "name": "removed_at",
+            "type": "timestamp",
+            "meaning": "When the latest period of this path's existence ended: the committer date of the commit that deleted or renamed it away; empty while the path stands in the current tree.",
+            "example": "2026-01-02T00:00:00.000Z",
+            "required": false
+          },
+          {
+            "name": "removed_in",
+            "type": "text",
+            "meaning": "The commit that ended the latest period of this path's existence; empty while the path stands in the current tree.",
+            "example": "0123456789abcdef0123456789abcdef01234567",
             "required": false
           }
         ]

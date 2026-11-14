@@ -1,4 +1,10 @@
-/** Knowledge pages are structured graph opinions. The wiki never interprets product Markdown files. */
+/**
+ * Knowledge pages are structured graph opinions. The wiki never interprets product Markdown files.
+ *
+ * A page's mentions are edges (`mentions`, `linksTo`, `grounds`), published by the producer that states the page and read
+ * through `/graphql` (decision 0036, section 3). There is no page-level `mentions` field here: the read of one went with
+ * the page layer it serviced.
+ */
 import { resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import type { Finding, KindsManifest } from '../product/manifest/kinds.js';
@@ -24,7 +30,6 @@ export interface MarkdownEntity {
   reading: BodyReading;
   statementReading: StatementReading;
   indexedStatements: PageStatement[];
-  mentions: string[];
   digest: string;
 }
 
@@ -99,7 +104,7 @@ export async function graphMarkdownEntities(graph: Pick<GraphReader, 'list'>, ma
             statements: statements.map((statement) => ({ text: statement.text, line: statement.line, paragraph: statement.paragraph ?? statement.text, notes: [...statement.labels] })),
             definitions: new Map(statements.flatMap((statement) => statement.labels.map((label) => [label, statement.grounds.map((ground) => `madarch:${ground}`)] as [string, string[]]))),
           },
-          indexedStatements: statements, mentions: lists('mentions'), digest: text('digest'),
+          indexedStatements: statements, digest: text('digest'),
         });
       }
       after = page.next ?? undefined;

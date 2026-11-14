@@ -21,7 +21,6 @@ import { runFill } from '../src/fill/run.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
-import { publishFixtureTemplate } from './structured-template-fixture.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
@@ -37,7 +36,7 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
   const draft = createDraft({ home, name, gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
   const manifest = parse(readFolderManifestText(draft.folder)) as { kinds: Record<string, { fields?: { reference?: string }[]; 'derives-from'?: string[] }>; edges?: { from: string[]; to: string[] }[]; plugins: { id: string; outputs: string[] }[] };
-  const declared = [...kinds, 'template'];
+  const declared = [...kinds];
   for (const kind of Object.keys(manifest.kinds)) if (!declared.includes(kind)) delete manifest.kinds[kind];
   for (const kind of Object.values(manifest.kinds)) {
     if (kind['derives-from'] !== undefined) kind['derives-from'] = kind['derives-from'].filter((dependency) => declared.includes(dependency));
@@ -84,16 +83,6 @@ async function fillInProcess(product: string, productHome: string) {
   } finally { await owner.close(); }
 }
 
-async function publishPageTemplate(product: string, path: string): Promise<void> {
-  const store = productStoreFolder(product, knowledgeRootOf(home));
-  const owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
-  try {
-    await publishFixtureTemplate(owner, product, path);
-  } finally {
-    await owner.close();
-  }
-}
-
 async function tables(store: string): Promise<string[]> {
   const owner: DatabaseOwner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
   try {
@@ -126,7 +115,6 @@ describe('a manifest declares one code kind and not the other', () => {
   test('code.file without code.repository fills: files are published, no repository table stands', async () => {
     const product = join(home, 'files-only');
     const filled = await fillInProcess(product, home);
-    await publishPageTemplate(product, 'templates/file.liquid');
     const status = await (await fetch(`${server!.url}/products/files-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
     expect(status.filled, JSON.stringify({ filled, status, errors })).toBe(true);
     expect(status.kinds.find((kind) => kind.kind === 'code.file')?.count).toBeGreaterThan(0);
@@ -134,22 +122,16 @@ describe('a manifest declares one code kind and not the other', () => {
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
     expect(names.some((name) => name.startsWith('k_code_file_'))).toBe(true);
     expect(names.some((name) => name.startsWith('k_code_repository_'))).toBe(false);
-    // Its pages: the declared file kind's listing and a file's page answer, and no statement names a table the manifest
-    // did not make (madarch-hsqs stage C: the declared contract, not a caught 42P01).
-    // A file the fill read, by its entity id; the listing itself is the tree's (`code.contains`), which this manifest
-    // does not declare, so the direct page is what proves the file page renders from the one declared kind.
-    const page = await fetch(`${server!.url}/products/files-only/api/page?id=${encodeURIComponent('code.file:files-only/madarch/catalog.yaml')}&full=1`, { headers: { accept: 'application/json' } });
-    expect(page.status, JSON.stringify({ body: await page.clone().text(), errors })).toBe(200);
-    for (const path of ['/api/status', '/api/catalog', '/api/glossary', '/api/documents']) {
-      expect((await fetch(`${server!.url}/products/files-only${path}`, { headers: { accept: 'application/json' } })).status, path).toBe(200);
-    }
+    // Its reads: the product's status answers, and no statement names a table the manifest did not make (madarch-hsqs
+    // stage C: the declared contract, not a caught 42P01). The graph itself is read through `/graphql`.
+    const graph = await fetch(`${server!.url}/products/files-only/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeFile(first: 1) { totalCount } }' }) });
+    expect(graph.status, JSON.stringify({ body: await graph.clone().text(), errors })).toBe(200);
     expect(errors.filter((line) => /does not exist|42P01/i.test(line))).toEqual([]);
   }, 60_000);
 
   test('code.repository without code.file fills: the repository is published, no file table stands', async () => {
     const product = join(home, 'repos-only');
     await fillInProcess(product, home);
-    await publishPageTemplate(product, 'templates/repository.liquid');
     const status = await (await fetch(`${server!.url}/products/repos-only/api/status`, { headers: { accept: 'application/json' } })).json() as { filled: boolean; kinds: { kind: string; count: number }[] };
     expect(status.filled).toBe(true);
     expect(status.kinds.find((kind) => kind.kind === 'code.repository')?.count).toBe(1);
@@ -157,9 +139,9 @@ describe('a manifest declares one code kind and not the other', () => {
     const names = await tables(productStoreFolder(product, knowledgeRootOf(home)));
     expect(names.some((name) => name.startsWith('k_code_repository_'))).toBe(true);
     expect(names.some((name) => name.startsWith('k_code_file_'))).toBe(false);
-    // The repository page renders from the one declared kind, and nothing names a file or commit table.
-    const page = await fetch(`${server!.url}/products/repos-only/api/page?id=${encodeURIComponent('code.repository:repos-only')}&full=1`, { headers: { accept: 'application/json' } });
-    expect(page.status, JSON.stringify({ body: await page.text(), errors })).toBe(200);
+    // The one declared kind answers through the graph, and nothing names a file or commit table.
+    const graph = await fetch(`${server!.url}/products/repos-only/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allCodeRepository(first: 1) { totalCount } }' }) });
+    expect(graph.status, JSON.stringify({ body: await graph.text(), errors })).toBe(200);
     expect(errors.filter((line) => /does not exist|42P01/i.test(line))).toEqual([]);
   }, 60_000);
 });

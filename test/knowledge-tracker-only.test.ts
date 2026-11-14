@@ -1,5 +1,4 @@
 import { writeFolderManifest } from './catalog-folder-fixture.js';
-import { publishFixtureTemplate } from './structured-template-fixture.js';
 import { authoredEntity } from '../src/graph/authored.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
@@ -36,15 +35,7 @@ const MANIFEST = `groups:
   tracker: { en: Tracker, ru: Трекер, short: { en: Tracker, ru: Трекер } }
   tracker.items: { en: Items, ru: Записи, parent: tracker }
 kinds:
-  template:
-    template: templates/item.liquid
-    source: graph
-    key: [path]
-    fields:
-      - { name: path, type: text, binding: { agent: "Fixture template path." } }
-      - { name: template_parts, type: json, binding: { agent: "Fixture structured template parts." } }
   idea:
-    template: templates/item.liquid
     source: graph
     origin: person
     fields:
@@ -55,7 +46,6 @@ kinds:
       en: { one: Idea, many: Ideas }
       ru: { one: Идея, many: Идеи }
   task:
-    template: templates/item.liquid
     source: graph
     origin: person
     fields:
@@ -76,12 +66,9 @@ beforeAll(() => {
   const draft = createDraft({ home, name: 'tracker', gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(`the tracker product was not made: ${JSON.stringify(draft)}`);
   product = draft.folder;
-  mkdirSync(join(product, 'templates'), { recursive: true });
   mkdirSync(join(product, 'docs', 'ideas'), { recursive: true });
   mkdirSync(join(product, 'docs', 'tasks'), { recursive: true });
   writeFolderManifest(product, MANIFEST);
-  writeFileSync(join(product, 'templates', 'entity.liquid'), '{% block lead %}{% endblock %}\n{% block details %}{% endblock %}\n{% block parts %}{% endblock %}\n');
-  writeFileSync(join(product, 'templates', 'item.liquid'), '{% layout "./entity.liquid" %}\n{% block lead %}{{ page.title }}{% endblock %}\n{% block details %}{% properties title="Details" %}{% endblock %}\n');
   writeFileSync(join(product, 'docs', 'ideas', 'one.md'), '---\nid: idea:one\nkind: idea\ntitle: One idea\n---\n\nAn idea.\n');
   writeFileSync(join(product, 'docs', 'tasks', 'one.md'), '---\nid: task:one\nkind: task\ntitle: One task\n---\n\nA task.\n');
   git(product, 'add', '-A');
@@ -98,15 +85,15 @@ describe('a product that is only a tracker', () => {
     const server = await startPreparedServer({ productHome: home, appFolder: app, port: 0, log: () => undefined, errorLog: (line) => errors.push(line) });
     let owner: DatabaseOwner | undefined;
     try {
-      // Startup publishes catalogue and template declarations; authored tracker entities still wait for the person.
+      // Startup publishes the catalogue; authored tracker entities still wait for the person.
       const before = await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } });
       expect(before.status, JSON.stringify({ body: await before.clone().text(), errors })).toBe(200);
       const opening = (await before.json()) as { manifest?: string; manifestFile?: string; filled?: boolean; kinds?: unknown[]; fill?: { state: string } };
       expect(opening).toMatchObject({ manifest: 'not-filled', filled: false, fill: { state: 'idle' } });
-      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 1 }]);
+      expect((opening.kinds as { kind: string; count: number }[]).map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       expect(String(opening.manifestFile)).toContain(join('madarch', 'catalog.yaml'));
-      const unopened = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent('idea:00000000-0000-4000-8000-000000000001')}&full=1`, { headers: { accept: 'application/json' } });
-      expect(unopened.status, JSON.stringify({ body: await unopened.text(), errors })).toBe(404);
+      const unopened = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ entity(id: "idea:00000000-0000-4000-8000-000000000001") { id } }' }) });
+      expect((await unopened.json() as { data: { entity: unknown } }).data.entity).toBeNull();
 
       const store = productStoreFolder(product, knowledgeRootOf(home));
       owner = await createDatabaseOwner({ store: storeDatabasePath(store) });
@@ -118,10 +105,9 @@ describe('a product that is only a tracker', () => {
       // No executable producer is declared: the tracker fill schedules no repository or plugin units.
       expect(filled.units).toEqual([]);
       const unimported = await (await fetch(`${server.url}/products/tracker/api/status`, { headers: { accept: 'application/json' } })).json() as { kinds: { kind: string; count: number }[] };
-      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }, { kind: 'template', count: 1 }]);
+      expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       const manifest = readKinds(product);
       if (!manifest.present) throw new Error('the tracker manifest is absent');
-      await publishFixtureTemplate(owner, product, 'templates/item.liquid');
       const made = await owner.transaction('write', async (tx) => {
         const idea = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
         const task = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
@@ -145,7 +131,7 @@ describe('a product that is only a tracker', () => {
       const names = tables.rows.map((row) => row.table_name);
       // Only declared ordinary opinions and catalogue metadata have generated tables; no file mechanism is implicit.
       const contract = graphContractOf(manifest.manifest);
-      for (const kind of ['idea', 'task', 'template']) {
+      for (const kind of ['idea', 'task']) {
         const declared = contract.vertex.find((vertex) => vertex.name === kind);
         expect(declared).toBeDefined();
         expect(names).toContain(declared!.table);
@@ -153,7 +139,7 @@ describe('a product that is only a tracker', () => {
       expect(names.filter((name) => name.startsWith('k_manifest_'))).toHaveLength(6);
       expect(names.filter((name) => name.startsWith('d_path_'))).toEqual([]);
       expect(names.filter((name) => name.startsWith('d_blob_'))).toEqual([]);
-      // No code kind is declared: only the tracker and structured-template opinion tables stand.
+      // No code kind is declared: only the tracker's own opinion tables stand.
       for (const generated of ['k_file_', 'k_repository_', 'k_directory_', 'k_commit_', 'k_signature_', 'e_contains_', 'e_as-is_', 'd_language_']) {
         expect({ table: generated, present: names.some((name) => name.startsWith(generated)) }).toEqual({ table: generated, present: false });
       }
@@ -164,8 +150,8 @@ describe('a product that is only a tracker', () => {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 
-      const page = await fetch(`${server.url}/products/tracker/api/page?id=${encodeURIComponent(`idea:${made.idea.uid}`)}&full=1`, { headers: { accept: 'application/json' } });
-      expect(page.status).toBe(200);
+      const read = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: `{ entity(id: ${JSON.stringify(made.idea.uid)}) { ... on Idea { title } } }` }) });
+      expect(await read.json()).toMatchObject({ data: { entity: { title: 'One idea' } } });
     } finally {
       await owner?.close();
       await server.stop();

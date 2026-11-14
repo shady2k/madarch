@@ -4,8 +4,8 @@ import type { Finding, KindsManifest } from '../../product/manifest/kinds.js';
 import { graphMarkdownEntities } from '../markdown.js';
 import type { IndexedPage, WrittenAt } from './page.js';
 export type { IndexedPage } from './page.js';
-export { changedGrounds, statementsRelyingOn } from './queries.js';
-export type { GroundChange, RelyingStatement } from './queries.js';
+export { changedGrounds } from './queries.js';
+export type { GroundChange } from './queries.js';
 
 export async function graphKnowledgePages(graph: Pick<GraphReader, 'list'>, manifest: KindsManifest): Promise<{ pages: IndexedPage[]; findings: Finding[] }> {
   const read = await graphMarkdownEntities(graph, manifest);
@@ -14,7 +14,7 @@ export async function graphKnowledgePages(graph: Pick<GraphReader, 'list'>, mani
       id: entity.id, kind: entity.kind, title: entity.title, file: entity.file,
       relates: entity.relates, sources: entity.sources, producer: entity.producer,
       writtenAt: writtenAt(entity.front['written-at'], entity.id),
-      statements: entity.indexedStatements, mentions: entity.mentions, digest: entity.digest,
+      statements: entity.indexedStatements, digest: entity.digest,
     })),
     findings: read.findings,
   };

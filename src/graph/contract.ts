@@ -118,7 +118,8 @@ export interface ClaimEvidenceDraft {
 /** One tagged evidence entry the graph stores (the amendment's point 7): a file place, a conversation, an opinion. */
 export type EvidenceEntry =
   | { readonly type: 'file'; readonly repository?: string; readonly commit_or_digest?: string; readonly path?: string; readonly line_start?: number; readonly line_end?: number }
-  | { readonly type: 'conversation'; readonly id: string; readonly speaker?: string; readonly at?: string }
+  | { readonly type: 'conversation'; readonly id: string; readonly speaker?: string; readonly at?: string; readonly words?: string }
+  | { readonly type: 'url'; readonly url: string; readonly at?: string }
   | { readonly type: 'opinion'; readonly id: string };
 
 /** One evidence entry as a draft states it: a plugin's file place, or any tagged entry a producer gives. */
@@ -128,6 +129,8 @@ export type EvidenceDraft = ClaimEvidenceDraft | EvidenceEntry;
 export interface EntityRefDraft {
   readonly kind: string;
   readonly key: Readonly<Record<string, KeyValueDraft>>;
+  /** The stable uid, for an entity a key cannot name (a keyless kind's entity). */
+  readonly uid?: string;
 }
 
 /** One key field's value: text, a number, a boolean, or the entity a reference field names. */
@@ -142,6 +145,8 @@ export type KeyValueDraft = string | number | boolean | EntityRefDraft;
 export interface VertexDraft {
   /** Replace only these fields; fields outside the scope keep their prior opinions. */
   readonly selectedFields?: readonly string[];
+  /** The stable uid of a keyless entity written again; absent, the writer makes a new one. */
+  readonly uid?: string;
   readonly kind: string;
   /** The entity's natural key values, by the kind's key fields; a reference is its entity's kind and key. */
   readonly key: Readonly<Record<string, KeyValueDraft>>;

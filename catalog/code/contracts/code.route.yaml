@@ -14,7 +14,6 @@ relation-constraints:
   in:
   - routesTo
 template-policy: page
-template: templates/route.liquid
 source: graph
 sequence: route
 details:

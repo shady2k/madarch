@@ -6,7 +6,6 @@ import { CATALOG_GROUPS, CATALOG_KINDS } from '../src/knowledge/catalog-starter.
 import { readFileSync } from 'node:fs';
 import { parse as parseCatalogYaml } from 'yaml';
 const CATALOG_RELATIONS = parseCatalogYaml(readFileSync(new URL('../catalog/catalog.yaml', import.meta.url), 'utf8')).catalog.relations as Record<string, string | null>;
-import { STARTER_FILES } from '../src/knowledge/seed.js';
 
 const row = CATALOG_KINDS.find((kind) => kind.name === 'code.test-quarantine')!;
 const manifest = parseYaml(starterManifestText());
@@ -15,13 +14,13 @@ describe('test quarantine in the starter catalogue', () => {
   test('a quarantine is a bilingual page in testing, not a second test case', () => {
     expect(row).toMatchObject({
       id: 'practice.test-quarantine', group: 'testing.case', status: 'implemented',
-      policy: 'page', source: 'graph', origin: 'code', template: 'test-quarantine.liquid',
+      policy: 'page', source: 'graph', origin: 'code',
+      sources: ['https://docs.gitlab.com/development/testing_guide/quarantining_tests/', 'https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html'],
       acquisition: ['extractor test-quarantine'],
       en: ['Test quarantine', 'Test quarantines'], ru: ['Карантин теста', 'Тесты в карантине'],
     });
     expect(CATALOG_GROUPS.find((group) => group.name === row.group)?.parent).toBe('testing');
     expect(CATALOG_KINDS.find((kind) => kind.name === 'code.test-case')?.id).not.toBe(row.id);
-    expect(STARTER_FILES.some((file) => file.path === `templates/${row.template}`)).toBe(true);
   });
 
   test('the manifest keeps the plugin fields, typed references, natural key and discovery dependencies', () => {

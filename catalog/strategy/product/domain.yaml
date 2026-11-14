@@ -14,7 +14,6 @@ relation-constraints:
   in:
   - partOf
 template-policy: page
-template: templates/domain.liquid
 source: graph
 fields:
 - name: title
@@ -50,10 +49,6 @@ fields:
   binding:
     agent: 'Read docs/domains/**/*.md: Complete statements as [{id,text,digest,labels,mentions,grounds,line,paragraph}], preserving
       ids and grounds.'
-- name: mentions
-  type: json
-  binding:
-    agent: 'Read docs/domains/**/*.md: The array of mentioned entity ids.'
 - name: digest
   type: text
   binding:

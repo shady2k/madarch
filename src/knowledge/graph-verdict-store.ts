@@ -5,6 +5,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { GIT_KINDS } from '../fill/stages/git-contract.js';
 import type { GraphReader } from './graph-read.js';
 import {
   DEFAULT_GRAPH_VERDICT_BUDGETS,
@@ -30,7 +31,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 /** Reads every entity and relation the one graph holds, presented as the wiki's code kinds. */
 export async function loadGraphSnapshot(reader: GraphReader, signal?: AbortSignal): Promise<GraphSnapshot> {
   const nodes: GraphNodeItem[] = [];
-  for (const kind of ['code.repository', 'code.directory', 'code.file', 'code.commit', 'code.author']) {
+  for (const kind of [GIT_KINDS.repository, GIT_KINDS.directory, GIT_KINDS.file, GIT_KINDS.commit, GIT_KINDS.signature]) {
     signal?.throwIfAborted();
     const page = await reader.list(kind, { limit: Number.MAX_SAFE_INTEGER });
     signal?.throwIfAborted();
@@ -39,7 +40,7 @@ export async function loadGraphSnapshot(reader: GraphReader, signal?: AbortSigna
     }
   }
   const edges: GraphEdgeItem[] = [];
-  for (const relation of ['code.contains', 'code.touched', 'code.authored', 'code.parent', 'code.renamed-from']) {
+  for (const relation of [GIT_KINDS.contains, GIT_KINDS.touched, GIT_KINDS.authored, GIT_KINDS.parent, GIT_KINDS.renamedFrom]) {
     signal?.throwIfAborted();
     const page = await reader.relationEdges(relation, Number.MAX_SAFE_INTEGER);
     signal?.throwIfAborted();

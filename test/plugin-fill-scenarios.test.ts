@@ -50,7 +50,7 @@ function fixture(mode: Mode) {
   writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: scenarioContract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
   writeFileSync(join(plugin, 'main.js'), readFileSync(new URL('./fixtures/plugin-declaration-scenarios/main.js', import.meta.url), 'utf8'));
   writeFileSync(join(plugin, 'scenario.js'), `export const contract=${JSON.stringify(scenarioContract)}; export const mode=${JSON.stringify(mode)}; export const files=${JSON.stringify(files)};\n`);
-  const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { template: 'templates/item-plain.liquid', source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
+  const kinds = Object.fromEntries(entries.map(([kind, reads, fields]) => [kind, { source: 'graph', 'derives-from': reads, key: [fields[0]], fields: fields.map(name => ({ name, type: 'text' })) }]));
   const plugins = [{ id: 'scenarios', version: 1, path: 'plugins/scenarios', inputs: [...new Set(entries.flatMap(([, reads]) => [...reads]))], outputs: entries.map(([kind]) => kind), closure: ['plugins/scenarios/plugin.json', 'plugins/scenarios/contract.json', 'plugins/scenarios/main.js', 'plugins/scenarios/scenario.js'] }];
   if (mode === 'system-git') {
     const healthy = join(product, 'plugins/healthy'); mkdirSync(healthy, { recursive: true });

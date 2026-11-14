@@ -29,8 +29,6 @@ export interface IndexedPage {
   readonly writtenAt: readonly WrittenAt[];
   readonly producer: string | null;
   readonly statements: readonly PageStatement[];
-  /** Entity links of the whole text (statements and connecting lines), `madarch:` removed, sorted. */
-  readonly mentions: readonly string[];
   /** SHA-256 of the file's text: the page node's digest. */
   readonly digest: string;
 }

@@ -11,6 +11,7 @@ export function useExtractedGlossary(folder: string): void {
   manifest.setIn(['terms'], ['**/glossary*.md']);
   manifest.setIn(['semantics'], 'term');
   manifest.setIn(['key'], ['name']);
+  manifest.setIn(['title'], 'name');
   manifest.setIn(['fields'], [
     { name: 'name', type: 'text', binding: 'glossary@1.name' },
     { name: 'definition', type: 'text', binding: 'glossary@1.definition' },

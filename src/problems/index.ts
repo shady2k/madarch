@@ -52,11 +52,6 @@ function problemOf(draft: ProblemDraft): Problem {
   };
 }
 
-/** A page's badge counts the work still open: a closed problem is history (madarch-m38l.19, the review's seventh finding). */
-export function openProblemsOf(problems: readonly Pick<Problem, 'entity' | 'closed'>[], key: string): number {
-  return problems.filter((problem) => problem.entity?.key === key && !problem.closed).length;
-}
-
 /** Collects the three sections: code rules over the graph, an explicit note for retired Markdown question rules, the wiki's own findings. */
 export async function collectProblems(input: CollectInput): Promise<Awaited<ReturnType<typeof listProblems>>> {
   const notes: ProblemNote[] = [];

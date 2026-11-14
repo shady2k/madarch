@@ -111,6 +111,14 @@ export interface JournalRead {
 }
 
 /** One publication's journal entry, built as the writer works and written at its end. */
+/** One withdrawal an entry records: what was retracted, and the evidence saying why. */
+export interface JournalWithdrawal {
+  readonly entity?: string;
+  readonly edge?: string;
+  readonly fields?: readonly string[];
+  readonly evidence: readonly EvidenceEntry[];
+}
+
 export class Journal {
   readonly author: string;
   readonly words: string;
@@ -120,6 +128,7 @@ export class Journal {
   readonly edges: JournalEdgeEvent[] = [];
   readonly opinions: JournalOpinionEvent[] = [];
   readonly reads: JournalRead[] = [];
+  readonly withdrawals: JournalWithdrawal[] = [];
   constructor(author: string, options: { readonly words?: string; readonly machine?: string; readonly session?: string } = {}) {
     if (author === '') throw new Error(`${WHERE}:1: a journal entry names its author: a producer and its version, "agent", or "person:<uid>"`);
     this.author = author;
@@ -133,8 +142,9 @@ export class Journal {
   removedEdge(entity: string, edge: string, from: string, to: string, discriminator: string, context: number): void { this.edges.push({ entity, edge, from, to, discriminator, context, state: 'removed' }); }
   opinion(event: JournalOpinionEvent): void { this.opinions.push(event); }
   read(record: JournalRead): void { this.reads.push(record); }
+  withdrew(event: JournalWithdrawal): void { this.withdrawals.push(event); }
   /** The events this entry holds, of every kind. */
-  count(): number { return this.vertices.length + this.edges.length + this.opinions.length + this.reads.length; }
+  count(): number { return this.vertices.length + this.edges.length + this.opinions.length + this.reads.length + this.withdrawals.length; }
   /** Whether the entry states anything: a publication that wrote nothing writes no row. */
   changed(): boolean { return this.count() > 0; }
   /** Empties the entry after its events were written as one row: the next events open the next row of the same run. */
@@ -143,6 +153,7 @@ export class Journal {
     this.edges.length = 0;
     this.opinions.length = 0;
     this.reads.length = 0;
+    this.withdrawals.length = 0;
   }
 }
 
@@ -181,6 +192,7 @@ export async function writeJournal(executor: SqlExecutor, journal: Journal): Pro
     edges: journal.edges,
     opinions: journal.opinions,
     ...(journal.reads.length === 0 ? {} : { reads: journal.reads }),
+    ...(journal.withdrawals.length === 0 ? {} : { withdrawals: journal.withdrawals }),
   };
   const started = performance.now();
   const text = canonicalJson(change);
@@ -336,6 +348,10 @@ function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefi
 /** One entity a draft's reference names, as the node that holds it, or undefined when no vertex does. */
 async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
   const vertex = contract.vertex.find((held) => held.name === ref.kind);
+  if (ref.uid !== undefined) {
+    const found = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed`, [ref.uid, ref.kind]);
+    return found.rows[0]?.id;
+  }
   const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
   const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
   const found = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
@@ -403,7 +419,7 @@ async function declareVertices(executor: SqlExecutor, contract: GraphContract, d
     const prepared = batch.map(draft => {
       const vertex = vertexOf(contract, draft.kind);
       const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
-      const uid = vertex.key.length === 0 ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]);
+      const uid = draft.uid ?? (vertex.key.length === 0 ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]));
       return { draft, key, uid };
     });
     const entityIds = new Map<string, string>();
@@ -437,7 +453,8 @@ export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft
     if (entry === null || typeof entry !== 'object') continue;
     const held = entry as Record<string, unknown>;
     let tagged: EvidenceEntry;
-    if (held['type'] === 'conversation') tagged = { type: 'conversation', id: String(held['id'] ?? ''), ...(held['speaker'] === undefined ? {} : { speaker: String(held['speaker']) }), ...(held['at'] === undefined ? {} : { at: String(held['at']) }) };
+    if (held['type'] === 'conversation') tagged = { type: 'conversation', id: String(held['id'] ?? ''), ...(held['speaker'] === undefined ? {} : { speaker: String(held['speaker']) }), ...(held['at'] === undefined ? {} : { at: String(held['at']) }), ...(held['words'] === undefined ? {} : { words: String(held['words']) }) };
+    else if (held['type'] === 'url') tagged = { type: 'url', url: String(held['url'] ?? ''), ...(held['at'] === undefined ? {} : { at: String(held['at']) }) };
     else if (held['type'] === 'opinion') tagged = { type: 'opinion', id: String(held['id'] ?? '') };
     else tagged = {
       type: 'file',
@@ -598,27 +615,6 @@ export async function publishOpinion(executor: SqlExecutor, contract: GraphContr
   return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
 }
 
-/**
- * One edge by its id, removed whole: every producer's opinions go with it (a consistent cascade), never the vertices
- * it names. This is the delete-everything path, for the callers that remove the edge with no producer to keep: the
- * incident edges of a vertex that leaves the store (every producer's opinion there is about a vertex that is gone) and
- * a journal replay's own teardown of a store built from history. A producer's retraction goes through `withdrawEdge`.
- */
-export async function removeEdgeById(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, journal?: Journal): Promise<boolean> {
-  journal = heldJournal(executor, journal);
-  const kind = edgeOfKind(contract, kindName);
-  const held = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string; context_id: string; from_uid: string; to_uid: string }>(
-    `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator, e.context_id::text AS context_id, fn.uid::text AS from_uid, tn.uid::text AS to_uid
-     FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint`, [edgeId]);
-  const row = held.rows[0];
-  if (row === undefined) return false;
-  const opinions = await executor.query<{ id: string; said_by: string; lang: string | null }>(`SELECT "id"::text AS id, "said_by", "lang" FROM ${kind.table} WHERE edge_id = $1::bigint AND "state" = 'open'`, [edgeId]);
-  for (const one of opinions.rows) journal?.opinion({ id: one.id, entity: kind.name, edge: edgeId, state: 'closed', fields: [], lang: one.lang, said_by: one.said_by });
-  await executor.query(`DELETE FROM ${kind.table} WHERE edge_id = $1::bigint`, [edgeId]);
-  await executor.query(`DELETE FROM edge WHERE id = $1::bigint`, [edgeId]);
-  journal?.removedEdge(kindName, edgeId, row.from_uid, row.to_uid, row.discriminator, Number(row.context_id));
-  return true;
-}
 
 /**
  * One producer's retraction of an edge: its open opinions of the edge — in every language — close and stay as history,
@@ -693,18 +689,26 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   if (closed.rows.length === 0) return scopedChanged;
   for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
   const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
-  const removed = Number(open.rows[0]?.n ?? '0') === 0;
-  // The vertex is journaled as removed only where no open opinion of any producer remains: a producer that withdraws
-  // while another's opinion stands closed its own opinion and removed nothing.
-  if (removed) {
-    const incident = await executor.query<{ id: string; kind: string }>(
-      `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
-       WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
-    );
-    for (const edge of incident.rows) await removeEdgeById(executor, contract, edge.kind, edge.id, journal);
-    journal?.removedVertex(vertex.name, uid, nodeId);
+  const vertexOpen = Number(open.rows[0]?.n ?? '0') > 0;
+  // This producer's incident edges are withdrawn on every entity retraction, even while another producer's opinion of
+  // the vertex stands: a retraction states what this producer no longer holds, edges included. An edge another
+  // producer still states keeps its end, so the vertex stays as an identity for it (owner's review of def819cd, item 1).
+  const incident = await executor.query<{ id: string; kind: string }>(
+    `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
+     WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
+  );
+  let blocked = false;
+  for (const edge of incident.rows) {
+    await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal);
+    const table = contract.edge.find((one) => one.name === edge.kind)?.table;
+    if (table === undefined) continue;
+    const stillOpen = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [edge.id, String(contextId)]);
+    if (Number(stillOpen.rows[0]?.n ?? '0') > 0) blocked = true;
   }
-  await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, removed]);
+  const stillRemoved = !vertexOpen && !blocked;
+  // The vertex is journaled as removed only where no open opinion of any producer remains and no incident edge does.
+  if (stillRemoved) journal?.removedVertex(vertex.name, uid, nodeId);
+  await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, stillRemoved]);
   return true;
 }
 
@@ -827,6 +831,7 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
     while (end < drafts.length && end - at < PUBLICATION_ROWS && drafts[end]!.kind === firstKind) {
       const draft = drafts[end]!;
       const endpointUid = (ref: EntityRefDraft): string => {
+        if (ref.uid !== undefined) return ref.uid;
         const target = contract.vertex.find(kind => kind.name === ref.kind);
         const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `an endpoint of ${JSON.stringify(draft.kind)}`);
         return keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]);
@@ -842,8 +847,8 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
     const refs = batch.map(draft => (['from', 'to'] as const).map(field => {
       const ref = draft[field];
       const target = contract.vertex.find(kind => kind.name === ref.kind);
-      const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
-      return { ref, key, uid: keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
+      const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key ?? {}), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
+      return { ref, key, uid: ref.uid ?? keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
     }));
     const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
     const byUid = new Map(nodes.rows.map(node => [node.uid, node.id]));
@@ -920,7 +925,7 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
   return written;
 }
 
-export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[] } = {}): Promise<number> {
+export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[]; readonly withdrawal?: JournalWithdrawal } = {}): Promise<number> {
   let written = 0;
   // The entry's author is the publication's: a plugin and its version, a record pass's producer, or the agent or a person
   // for an operation; without one named, the drafts' own producers name it — a removal-only or edge-only publication
@@ -933,6 +938,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   const journal = journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...(options.session === undefined ? {} : { session: options.session }) });
   journalOn(executor, journal);
   for (const record of options.reads ?? []) journal.read(record);
+  if (options.withdrawal !== undefined) journal.withdrew(options.withdrawal);
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
   for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
   for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;

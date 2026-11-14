@@ -267,6 +267,7 @@ properties:
   bytes: { en: "Bytes", ru: "Байт", format: "number" }
   form: { en: "Form", ru: "Форма", format: "text" }
   candidates: { en: "Languages", ru: "Языки", format: "list" }
+  class: { en: "Class", ru: "Класс", format: "text" }
   author: { en: "Author", ru: "Автор", format: "text" }
   authorEmail: { en: "Author email", ru: "Почта автора", format: "text" }
   source: { en: "Source", ru: "Источник", format: "text" }
@@ -525,3 +526,8 @@ edges:
   - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }
   - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }
   - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }
+  # The relations any entity may state (decision 0036, section 3): an agent's mention of one entity in another,
+  # a link between two of them, and a statement's ground. `any` is every entity the schema holds, both ways.
+  - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place }
+  - { name: linksTo, from: [any], to: [any], repeats: true, discriminator: place }
+  - { name: grounds, from: [any], to: [any], repeats: true, discriminator: place }

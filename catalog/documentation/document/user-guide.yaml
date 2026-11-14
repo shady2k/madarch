@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - documents
 template-policy: page
-template: templates/guide.liquid
 source: graph
 fields:
 - name: title
@@ -49,10 +48,6 @@ fields:
   binding:
     agent: 'Read docs/guides/user.md: Complete statements as [{id,text,digest,labels,mentions,grounds,line,paragraph}], preserving
       ids and grounds.'
-- name: mentions
-  type: json
-  binding:
-    agent: 'Read docs/guides/user.md: The array of mentioned entity ids.'
 - name: digest
   type: text
   binding:

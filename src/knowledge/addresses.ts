@@ -36,7 +36,6 @@ export const RUN_ADDRESS = '/run';
 
 /** Where an entity page and a source view stand in the app. */
 export const entityAddress = (key: string): string => `/e/${addressName(key)}`;
-export const kindAddress = (kind: string): string => `/kind/${addressName(kind)}`;
 export function sourceAddress(repo: string | null, path: string, line?: number): string {
   const query = new URLSearchParams();
   if (repo !== null) query.set('repo', repo);

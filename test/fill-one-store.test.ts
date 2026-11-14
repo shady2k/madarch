@@ -15,7 +15,6 @@ import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { repositoryFacts } from '../src/graph/index.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import { repositoryStoreFolder } from '../src/mcp/graph.js';
 import { runGit } from '../src/product/git.js';
 import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
@@ -88,7 +87,7 @@ describe('the one store of one product', () => {
   }, 300_000);
 
   test('the store the MCP server resolves is the one the command wrote', () => {
-    expect(repositoryStoreFolder(product, { ...process.env, MADARCH_HOME: ROOT })).toBe(store);
+    expect(productStoreFolder(product, knowledgeRootOf(PRODUCTS_HOME))).toBe(store);
   }, 60_000);
 
   test('the wiki reads the store the command filled, and its pins are the run\'s', async () => {

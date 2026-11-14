@@ -10,52 +10,30 @@
  * connection.
  */
 import { here } from '../model/raise.js';
-import { resolve } from 'node:path';
 import { AuthoredRefusal } from '../graph/authored.js';
-import { catalogSummary } from '../knowledge/catalog-view.js';
-import { languageOf } from '../knowledge/blocks.js';
 import type { ResetPlan } from '../knowledge/reset.js';
-import { archifyFailurePage } from '../knowledge/view-frames.js';
 import { LoopRefusal } from '../loop/answer.js';
-import { QUESTION_SLUG } from '../loop/ids.js';
-import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
 import { readKinds } from '../product/manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
-import { kindFileAt, kindFileDocument, kindFileMarkdown, llmsText, pageFileAt, pageFileDocument, pageFileMarkdown } from '../knowledge/page-files.js';
-import type { EntityRef } from '../knowledge/model.js';
 import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
   identity: (request: Request) => Promise<Handled>;
-  /** A page as Markdown or as the documented JSON document, at its `.md` / `.json` sibling address. */
-  pageFile: (request: Request) => Promise<Handled>;
-  /** A kind's list as Markdown or JSON, every entity of the kind, at its `.md` / `.json` sibling address. */
-  kindFile: (request: Request) => Promise<Handled>;
-  /** The product's `/llms.txt`: its addresses and every declared kind with the address of its list. */
-  llms: (request: Request) => Promise<Handled>;
+  /** The product's GraphQL schema (decision 0036): the SDL its published manifest derives, as `application/graphql`. */
+  graphqlSchema: (request: Request) => Promise<Handled>;
+  /** One GraphQL operation against the product's graph (decision 0036, section 2): the one read API a page uses. */
+  graphql: (request: Request) => Promise<Handled>;
+  /** The authored writes (section 8: creating, updating and deleting a person's entity is a command, not a read). */
+  authored: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
-  /** The entity catalogue: every kind the manifest declares, filled or not (madarch-8bdc.2.5). */
-  catalog: (request: Request) => Promise<Handled>;
-  /** The wiki-wide search: pages and entities by title and text, grouped by kind (madarch-o0d). */
-  search: (request: Request) => Promise<Handled>;
-  page: (request: Request) => Promise<Handled>;
-  block: (request: Request) => Promise<Handled>;
-  statement: (request: Request) => Promise<Handled>;
-  facts: (request: Request) => Promise<Handled>;
-  entities: (request: Request) => Promise<Handled>;
   /** What the agent spent on one kind: per run, plugin run, field and model (madarch-stm0.4, decision 0035, item 22). */
   kindUsage: (request: Request) => Promise<Handled>;
-  authored: (request: Request) => Promise<Handled>;
-  authoredSchema: (request: Request) => Promise<Handled>;
-  neighborhood: (request: Request) => Promise<Handled>;
-  view: (request: Request) => Promise<Handled>;
-  viewFrame: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   /** The newest run's trace as the run page states it: per step its time, its memory and its names. */
   run: (request: Request) => Promise<Handled>;
@@ -71,15 +49,9 @@ export interface KnowledgePart {
   chooseAgent: (request: Request) => Promise<Handled>;
   products: (request: Request) => Promise<Handled>;
   reset: (request: Request) => Promise<Handled>;
-  documents: (request: Request) => Promise<Handled>;
-  document: (request: Request) => Promise<Handled>;
-  glossary: (request: Request) => Promise<Handled>;
   settings: (request: Request) => Promise<Handled>;
-  questions: (request: Request) => Promise<Handled>;
-  question: (request: Request) => Promise<Handled>;
   answer: (request: Request) => Promise<Handled>;
   correction: (request: Request) => Promise<Handled>;
-  problems: (request: Request) => Promise<Handled>;
   problemDismiss: (request: Request) => Promise<Handled>;
   problemTask: (request: Request) => Promise<Handled>;
   refreshPlan: (request: Request) => Promise<Handled>;
@@ -92,13 +64,24 @@ export interface KnowledgePart {
   rewritePages: (request: Request) => Promise<Handled>;
   startFresh: (request: Request) => Promise<Handled>;
   journal: (request: Request) => Promise<Handled>;
-  tasks: (request: Request) => Promise<Handled>;
-  task: (request: Request) => Promise<Handled>;
   proposeTask: (request: Request) => Promise<Handled>;
-  scopeImpact: (request: Request) => Promise<Handled>;
   createTask: (request: Request) => Promise<Handled>;
   closeTask: (request: Request) => Promise<Handled>;
   runTask: (request: Request) => Promise<Handled>;
+}
+
+/** The languages the source view names a file by, from its extension; a file it does not know is plain text. */
+const SOURCE_LANGUAGES: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', mjs: 'javascript', go: 'go', sql: 'sql', json: 'json', yaml: 'yaml', yml: 'yaml',
+  md: 'markdown', proto: 'protobuf', prisma: 'prisma', sh: 'shell', toml: 'toml', mod: 'go',
+};
+
+/** The language of a source file, for the highlighting its view uses. */
+function languageOf(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  if (name === 'Dockerfile' || name.startsWith('Dockerfile.')) return 'dockerfile';
+  if (name === 'Makefile') return 'makefile';
+  return SOURCE_LANGUAGES[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] ?? 'text';
 }
 
 /** The largest file the source view shows whole. */
@@ -129,8 +112,6 @@ export function createKnowledgePart(
   env: DraftEnv = process.env,
   /** madarch's own wiki (decision 0031): it is documentation, so its status says so and the app offers no fill. */
   own = false,
-  /** The product home's mount (`/products/<name>`), so every address a document holds stays inside that product. */
-  prefix = '',
 ): KnowledgePart {
   const { json, refused, errorLog } = makers;
   const guarded = (what: string, work: (request: Request) => Promise<Handled>, needsPublication = true, allowPending = false) => async (request: Request): Promise<Handled> => {
@@ -190,31 +171,48 @@ export function createKnowledgePart(
 
 
   return {
-    authoredSchema: guarded('read the authored contract', async (request) => {
-      const kind = new URL(request.url).searchParams.get('kind') ?? '';
-      return { response: json(200, await product.authored('schema', kind)) };
+    graphqlSchema: guarded('read the GraphQL schema', async () => ({
+      response: new Response(await product.graphqlSchema(), { headers: { 'content-type': 'application/graphql; charset=utf-8' } }),
+    }), false),
+    graphql: guarded('run a GraphQL query', async (request) => {
+      if (request.method !== 'POST') return refused(405, { message: `${import.meta.path}:1: a GraphQL operation is sent with POST` });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
+      let body: unknown;
+      try { body = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON: { query, variables?, operationName?, lang? }` }); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: `${import.meta.path}:1: the body is { query, variables?, operationName?, lang? }` });
+      const held = body as Record<string, unknown>;
+      if (typeof held['query'] !== 'string' || held['query'].trim() === '') return refused(400, { field: 'query', message: `${import.meta.path}:1: "query" is the GraphQL operation's text` });
+      if (held['variables'] !== undefined && held['variables'] !== null && (typeof held['variables'] !== 'object' || Array.isArray(held['variables']))) return refused(400, { field: 'variables', message: `${import.meta.path}:1: "variables" is an object of the operation's variables` });
+      if (held['operationName'] !== undefined && held['operationName'] !== null && typeof held['operationName'] !== 'string') return refused(400, { field: 'operationName', message: `${import.meta.path}:1: "operationName" is the name of the operation to run, or null` });
+      if (held['lang'] !== undefined && typeof held['lang'] !== 'string') return refused(400, { field: 'lang', message: `${import.meta.path}:1: "lang" is the reader's interface language` });
+      const answer = await product.graphql({
+        query: held['query'],
+        ...(held['variables'] === undefined || held['variables'] === null ? {} : { variables: held['variables'] as Readonly<Record<string, unknown>> }),
+        ...(held['operationName'] === undefined ? {} : { operationName: held['operationName'] as string | null }),
+        ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
+      });
+      return { response: json(answer.status, answer.body) };
     }),
     authored: guarded('change an authored entity', async (request) => {
       const url = new URL(request.url);
       const kind = url.searchParams.get('kind') ?? '';
       const uid = url.searchParams.get('uid') ?? undefined;
-      const methods = { GET: uid === undefined ? 'list' : 'show', POST: 'create', PATCH: 'update', DELETE: 'delete' } as const;
+      // The authored *reads* are GraphQL's (section 8); the commands that change an entity are kept.
+      const methods = { POST: 'create', PATCH: 'update', DELETE: 'delete' } as const;
       const action = methods[request.method as keyof typeof methods];
-      if (action === undefined) return refused(405, { message: `${import.meta.path}:1: use GET, POST, PATCH or DELETE` });
-      let body: { values?: Readonly<Record<string, unknown>>; words?: string } = {};
-      if (request.method !== 'GET') {
-        const outside = foreign(request);
-        if (outside !== undefined) return refused(403, { message: `${import.meta.path}:1: ${outside}` });
-        const plain = notJson(request);
-        if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
-        let raw: unknown;
-        try { raw = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON` }); }
-        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: `${import.meta.path}:1: the body is {values?, words?}` });
-        const held = raw as Record<string, unknown>;
-        if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: `${import.meta.path}:1: words must be text, kept verbatim` });
-        if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: `${import.meta.path}:1: values must be an object keyed by field` });
-        body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };
-      }
+      if (action === undefined) return refused(405, { message: `${import.meta.path}:1: the authored write is POST, PATCH or DELETE; an authored entity is read through /graphql` });
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: `${import.meta.path}:1: ${crossSite}` });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
+      let raw: unknown;
+      try { raw = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON` }); }
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: `${import.meta.path}:1: the body is {values?, words?}` });
+      const held = raw as Record<string, unknown>;
+      if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: `${import.meta.path}:1: words must be text, kept verbatim` });
+      if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: `${import.meta.path}:1: values must be an object keyed by field` });
+      const body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };
       const match = request.headers.get('if-match');
       if (match !== null && !/^"[0-9]+"$/u.test(match)) return refused(400, { field: 'if-match', message: `${import.meta.path}:1: If-Match must contain one quoted entity revision from ETag` });
       const answer = await product.authored(action, kind, { ...body, ...(uid === undefined ? {} : { uid }), ...(match === null ? {} : { ifRevision: match.slice(1, -1) }) });
@@ -228,115 +226,10 @@ export function createKnowledgePart(
       return { response: json(200, { id: identity.id, name: identity.name }) };
     }, false),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) }), false),
-    catalog: guarded('read the entity catalogue', async (request) => {
-      const catalog = await product.catalog();
-      const kind = new URL(request.url).searchParams.get('kind');
-      if (kind === null) return { response: json(200, catalogSummary(catalog)) };
-      const detail = catalog.kinds.find((entry) => entry.kind === kind);
-      if (detail === undefined) return refused(404, { field: 'kind', message: `${resolve(product.folder, 'madarch/catalog.yaml')}:1: the manifest declares no kind "${kind}"` });
-      return { response: json(200, detail) };
-    }),
-    search: guarded('search the wiki', async (request) => {
-      const query = new URL(request.url).searchParams.get('q') ?? '';
-      if (query.length > 200) return refused(400, { field: 'q', message: '"q" is longer than 200 characters: a search names what it looks for in words' });
-      const asked = new URL(request.url).searchParams.get('lang');
-      return { response: json(200, await product.search(query, asked === 'ru' || asked === 'en' ? asked : undefined)) };
-    }),
-    page: guarded('draw the page', async (request) => {
-      const id = new URL(request.url).searchParams.get('id');
-      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });
-      const asked = new URL(request.url).searchParams.get('lang');
-      // The diagrams read the graph at length: the page answers at once with a place for each (`deferred`), and the app asks
-      // for each by its line (`/api/block`). `full=1` asks for the whole page in one answer.
-      const after = new URL(request.url).searchParams.get('after');
-      const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined, { defer: new URL(request.url).searchParams.get('at') === null && new URL(request.url).searchParams.get('full') !== '1', ...(after === null || after === '' ? {} : { after }), ...(new URL(request.url).searchParams.has('at') ? { history: { repo: new URL(request.url).searchParams.get('repo') ?? '', at: new URL(request.url).searchParams.get('at')! } } : {}) });
-      if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
-      const format = new URL(request.url).searchParams.get('format');
-      if (format !== null && format !== 'json' && format !== 'markdown') return refused(400, { field: 'format', message: 'format is json or markdown / формат: json или markdown' });
-      if (format === 'markdown') {
-        return { response: new Response(pageFileMarkdown(result.page), { headers: { 'content-type': 'text/markdown; charset=utf-8' } }) };
-      }
-      return { response: json(200, result.page) };
-    }),
-    block: guarded('draw the block', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const id = query.get('id');
-      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page holds the block' });
-      const held = query.get('block');
-      if (held === null || held.trim() === '') return refused(400, { field: 'block', message: `"block" is ${JSON.stringify(query.get('block'))}: the identity of the block of the page, as the page named it` });
-      const asked = query.get('lang');
-      const result = await product.block(id, held, asked === 'ru' || asked === 'en' ? asked : undefined, query.has('at') ? { repo: query.get('repo') ?? '', at: query.get('at')! } : undefined);
-      if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
-      return { response: json(200, result.block) };
-    }),
-    facts: guarded('compute declared facts', async (request) => {
-      const roles = choosableRoles(await product.declaredRoles());
-      const settings = readSettings(env, roles);
-      const lang = new URL(request.url).searchParams.get('lang');
-      return { response: json(200, await product.facts(settings.role, lang === 'ru' || lang === 'en' ? lang : undefined)) };
-    }),
-    statement: guarded('draw the statement', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const id = query.get('id');
-      const sentence = query.get('sentence');
-      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the id of the page the sentence stands on' });
-      if (sentence === null || sentence.trim() === '') return refused(400, { field: 'sentence', message: '"sentence" is required: the text of the sentence' });
-      const asked = query.get('n');
-      const turn = asked === null ? 0 : Number(asked);
-      if (!Number.isInteger(turn) || turn < 0) return refused(400, { field: 'n', message: `"n" is ${JSON.stringify(asked)}: the turn of the sentence among the sentences of the same text on the page, from 0` });
-      const lang = query.get('lang');
-      const result = await product.statement(id, sentence, turn, lang === 'ru' || lang === 'en' ? lang : undefined);
-      if (!result.ok) return refused(result.status, { field: 'sentence', message: result.message });
-      return { response: json(200, result.statement) };
-    }),
-    entities: guarded('list the entities', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const kind = query.get('kind');
-      if (kind === null || kind === '') return refused(400, { field: 'kind', message: '"kind" is required: a kind the manifest declares' });
-      const asked = query.get('limit');
-      const limit = asked === null ? 100 : Number(asked);
-      if (!Number.isInteger(limit) || limit < 1 || limit > 500) return refused(400, { field: 'limit', accepted: '1 to 500', message: `"limit" is ${JSON.stringify(asked)}: a page holds 1 to 500 entities` });
-      const listing = await product.list(kind, { ...(query.get('q') === null ? {} : { q: query.get('q')! }), ...(query.get('after') === null ? {} : { after: query.get('after')! }), limit });
-      if (listing === undefined) return refused(404, { field: 'kind', message: `the manifest declares no kind "${kind}"` });
-      return { response: json(200, listing) };
-    }),
     kindUsage: guarded('read the kind\'s agent spend', async (request) => {
       const kind = new URL(request.url).searchParams.get('kind');
       if (kind === null || kind.trim() === '') return refused(400, { field: 'kind', message: '"kind" is required: a kind the manifest declares' });
       return { response: json(200, { usage: await product.kindUsage(kind) }) };
-    }),
-    neighborhood: guarded('read the neighbourhood', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const id = query.get('id');
-      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose neighbours are asked for' });
-      const direction = query.get('direction');
-      if (direction !== null && direction !== 'out' && direction !== 'in') return refused(400, { field: 'direction', accepted: 'out or in', message: `"direction" is ${JSON.stringify(direction)}: the neighbours that go out of the entity (out) or come in to it (in)` });
-      const asked = query.get('limit');
-      const limit = asked === null ? 8 : Number(asked);
-      if (!Number.isInteger(limit) || limit < 1 || limit > 100) return refused(400, { field: 'limit', accepted: '1 to 100', message: `"limit" is ${JSON.stringify(asked)}: a node opens 1 to 100 neighbours per relation` });
-      const result = await product.neighborhood(id, { ...(query.has('at') ? { history: { repo: query.get('repo') ?? '', at: query.get('at')! } } : {}), ...(query.get('relation') === null ? {} : { relation: query.get('relation')! }), ...(direction === null ? {} : { direction }), limit });
-      if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
-      return { response: json(200, result.neighborhood) };
-    }),
-    view: guarded('draw the view', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const asked = query.get('lang');
-      const result = await product.view(query, asked === 'ru' || asked === 'en' ? asked : undefined);
-      if (!result.ok) return refused(result.status, { field: 'type', message: result.message });
-      return { response: json(200, { renderer: result.renderer, views: result.views }) };
-    }),
-    viewFrame: guarded('draw the view frame', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const renderer = query.get('renderer');
-      if (renderer === null) return refused(400, { field: 'renderer', accepted: 'likec4 or archify', message: '"renderer" is required: likec4 or archify' });
-      const asked = query.get('lang');
-      const result = await product.viewFrame(query, renderer, asked === 'ru' || asked === 'en' ? asked : undefined);
-      if (!result.ok) {
-        if (renderer === 'archify' && result.status === 500) return { response: new Response(archifyFailurePage(asked ?? undefined, result.message), { status: result.status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }) };
-        return refused(result.status, { field: 'renderer', message: result.message });
-      }
-      const contentType = result.type === 'html' ? 'text/html; charset=utf-8' : result.type === 'json' ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8';
-      return { response: new Response(result.body, { status: 200, headers: { 'content-type': contentType, 'cache-control': 'private, max-age=300' } }) };
     }),
     source: guarded('read the source', async (request) => {
       const query = new URL(request.url).searchParams;
@@ -346,17 +239,15 @@ export function createKnowledgePart(
       if (path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) {
         return refused(400, { field: 'path', message: `"${path}" is not a path inside a repository` });
       }
-      const selection = query.has('at') ? { repo: repo ?? '', at: query.get('at')! } : undefined;
-      if (selection !== undefined) {
-        const history = await product.historyAt(selection);
-        if (history.coverage !== 'covered') return refused(409, { field: 'at', message: `historical structure is ${history.coverage} for ${selection.repo} at ${selection.at}; no current source is substituted` });
-      }
-      const read = await product.source(repo === null || repo === '' ? null : repo, path, selection);
+      // The source view answers the text the graph was filled with, at the commit it was filled from (section 8): a past
+      // commit this graph cannot name is refused rather than answered with the current tree's bytes.
+      if (query.has('at')) return refused(409, { field: 'at', message: `historical source is not covered: this graph holds the text of the commit it was filled from, and no other` });
+      const read = await product.source(repo === null || repo === '' ? null : repo, path);
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
       // A past commit's text the graph cannot name is a 404 that says why, never the current tree's bytes under that commit's name.
       if ('absent' in read) return refused(404, { field: 'path', message: read.absent });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
-      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text, ...(read.history === undefined ? {} : { history: read.history }) }) };
+      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }) };
     }),
     run: guarded('read the run', async (request) => {
       const query = new URL(request.url).searchParams;
@@ -458,18 +349,6 @@ export function createKnowledgePart(
       if (!chosen.ok) return refused(chosen.status, { field: 'agent', message: chosen.message });
       return { response: json(200, { chosen: chosen.agent }) };
     }),
-    documents: guarded('list the documents', async () => ({ response: json(200, await product.documents()) })),
-    document: guarded('read the document', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const path = query.get('path');
-      const repo = query.get('repo');
-      if (path === null || path === '') return refused(400, { field: 'path', message: '"path" is required: the Markdown document, relative to its repository' });
-      if (path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) return refused(400, { field: 'path', message: `"${path}" is not a path inside a repository` });
-      const page = await product.document(repo === null || repo === '' ? null : repo, path);
-      if (page === undefined) return refused(404, { field: 'path', message: `the Markdown document ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
-      return { response: json(200, page) };
-    }),
-    glossary: guarded('read the glossary', async () => ({ response: json(200, await product.glossary()) })),
     settings: guarded('read the settings', async (request) => {
       // The settings file is the user's, outside any product: a failure on it is told whole, with its path.
       const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
@@ -504,14 +383,6 @@ export function createKnowledgePart(
       if (!done.ok) return refused(409, { message: done.message });
       return { response: json(200, done.plan) };
     }),
-    questions: guarded('list the questions', async () => ({ response: json(200, await product.questions()) })),
-    question: guarded('read the question', async (request) => {
-      const id = new URL(request.url).searchParams.get('id');
-      if (id === null || !QUESTION_SLUG.test(id)) return refused(400, { field: 'id', message: '"id" is required: a question\'s id, lower-case words joined by hyphens or the 12-character content hash a new file is named by' });
-      const detail = await product.question(id);
-      if (detail === undefined) return refused(404, { field: 'id', message: `there is no question ${id}: docs/questions/${id}.md is not in the product repository` });
-      return { response: json(200, detail) };
-    }),
     answer: guarded('save the answer', async (request) => {
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
@@ -537,32 +408,6 @@ export function createKnowledgePart(
       if (typeof asked.reason !== 'string') return refused(400, { field: 'reason', message: '"reason" is required: why the statement is wrong' });
       const done = await product.correct(asked.statement, asked.reason);
       return { response: json(201, { correction: done.correction.slug, id: done.correction.id, file: done.correction.file, committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.correction.by, at: done.correction.at }) };
-    }),
-    problems: guarded('list the problems', async (request) => {
-      const query = new URL(request.url).searchParams;
-      const section = query.get('section');
-      if (section !== null && section !== 'code' && section !== 'documents' && section !== 'wiki') {
-        return refused(400, { field: 'section', accepted: 'code, documents or wiki', message: `"section" is ${JSON.stringify(section)}: a category belongs to the code, the documents or the wiki` });
-      }
-      const asked = query.get('limit');
-      const limit = asked === null ? 100 : Number(asked);
-      if (!Number.isInteger(limit) || limit < 1 || limit > 100) return refused(400, { field: 'limit', accepted: '1 to 100', message: `"limit" is ${JSON.stringify(asked)}: a page holds 1 to 100 rows` });
-      const after = query.get('after');
-      const rule = query.get('rule');
-      if (rule === null || rule === '') {
-        if (after !== null) return refused(400, { field: 'after', message: '"after" pages a level: name "rule" (the sources of a category) or "rule" and "source" (the items of one source)' });
-        return { response: json(200, await product.problemCategories(section === null ? undefined : section)) };
-      }
-      const source = query.get('source');
-      const page = source === null
-        ? await product.problemSources(rule, { ...(after === null ? {} : { after }), limit })
-        : await product.problemItems(rule, source, { ...(after === null ? {} : { after }), limit });
-      if (page === undefined) {
-        return refused(404, source === null
-          ? { field: 'rule', message: `the problems hold no category ${JSON.stringify(rule)}: the product's manifest declares it in madarch/catalog.yaml under problems.rules, or no problem of it is open` }
-          : { field: 'source', message: `the category ${JSON.stringify(rule)} holds no source ${JSON.stringify(source)}: read the category's sources first` });
-      }
-      return { response: json(200, page) };
     }),
     problemDismiss: guarded('record that a problem is not one', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
@@ -745,14 +590,6 @@ export function createKnowledgePart(
         throw error;
       }
     }),
-    tasks: guarded('list the tasks', async () => ({ response: json(200, await product.tasks()) })),
-    task: guarded('read one task with its impact', async (request) => {
-      const id = new URL(request.url).searchParams.get('id');
-      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the task\'s id (task:<name>) or its name' });
-      const detail = await product.task(id);
-      if (detail === undefined) return refused(404, { field: 'id', message: `there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository` });
-      return { response: json(200, detail) };
-    }),
     proposeTask: guarded('propose the task of an answer', async (request) => {
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
@@ -767,25 +604,6 @@ export function createKnowledgePart(
         const language = asked.language === 'ru' || asked.language === 'en' ? asked.language : undefined;
         return { response: json(200, await product.proposeTask(asked.question, asked.choice, language)) };
       } catch (error) {
-        throw error;
-      }
-    }),
-    scopeImpact: guarded('compute what a scope reaches', async (request) => {
-      const crossSite = foreign(request);
-      if (crossSite !== undefined) return refused(403, { message: crossSite });
-      const plain = notJson(request);
-      if (plain !== undefined) return refused(415, { message: plain });
-      let body: unknown;
-      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const scope = (body as { scope?: unknown } | null)?.scope;
-      if (!Array.isArray(scope)) return refused(400, { field: 'scope', message: '"scope" is the list of places the change names' });
-      const read = scope.map((one) => readScope(one));
-      const bad = read.findIndex((one) => one === undefined);
-      if (bad >= 0) return refused(400, { field: 'scope', message: `scope[${bad}] is ${JSON.stringify(scope[bad])}, and a scope is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }` });
-      try {
-        return { response: json(200, await product.scopeImpact(read as import('../loop/tasks.js').TaskScope[])) };
-      } catch (error) {
-        if (error instanceof WikiReadError) return refused(409, { field: 'scope', message: error.message });
         throw error;
       }
     }),
@@ -824,48 +642,6 @@ export function createKnowledgePart(
       const done = await product.runTask(id);
       if (!done.ok) return refused(409, { field: 'id', message: done.message });
       return { response: json(202, { task: done.task, pages: done.pages, fill: done.fill }) };
-    }),
-    pageFile: guarded('draw the page as a file', async (request) => {
-      const pathname = new URL(request.url).pathname;
-      const asked = pageFileAt(pathname);
-      if (asked === undefined) return refused(404, { message: `no page file answers "${pathname}": a page's files end in .md or .json` });
-      if ('message' in asked) return refused(400, { message: asked.message });
-      const query = new URL(request.url).searchParams;
-      const lang = query.get('lang');
-      const result = await product.page(asked.name, lang === 'ru' || lang === 'en' ? lang : undefined, { defer: false });
-      if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
-      if (asked.format === 'json') return { response: json(200, pageFileDocument(result.page, prefix)) };
-      return { response: new Response(pageFileMarkdown(result.page, prefix), { status: 200, headers: { 'content-type': 'text/markdown; charset=utf-8' } }) };
-    }),
-    kindFile: guarded('draw the kind list as a file', async (request) => {
-      const pathname = new URL(request.url).pathname;
-      const asked = kindFileAt(pathname);
-      if (asked === undefined) return refused(404, { message: `no kind file answers "${pathname}": a kind list's files end in .md or .json` });
-      if ('message' in asked) return refused(400, { message: asked.message });
-      const status = await product.status();
-      const summary = status.kinds.find((kind) => kind.kind === asked.name);
-      if (summary === undefined) return refused(404, { field: 'kind', message: `the product ${JSON.stringify(product.folder)} declares no kind ${JSON.stringify(asked.name)}` });
-      const entries: EntityRef[] = [];
-      let after: string | undefined;
-      let total = -1;
-      for (;;) {
-        const listing = await product.list(asked.name, { ...(after === undefined ? {} : { after }), limit: 500 });
-        if (listing === undefined) return refused(404, { field: 'kind', message: `the product ${JSON.stringify(product.folder)} declares no kind ${JSON.stringify(asked.name)}` });
-        total = listing.total;
-        entries.push(...listing.rows);
-        if (listing.next === null) break;
-        if (listing.rows.length === 0 || listing.next === after) return refused(500, { message: `the list of "${asked.name}" did not advance past ${JSON.stringify(after)}: refusing to answer with a list that cannot be finished` });
-        after = listing.next;
-        if (entries.length > total) return refused(500, { message: `the list of "${asked.name}" returned more than its own total ${total}: refusing to answer with a list that disagrees with itself` });
-      }
-      if (entries.length !== total) return refused(500, { message: `the list of "${asked.name}" holds ${total} entities but ${entries.length} were read: refusing to answer with a smaller list` });
-      const document = kindFileDocument(summary, entries, status.language, prefix);
-      if (asked.format === 'json') return { response: json(200, document) };
-      return { response: new Response(kindFileMarkdown(document), { status: 200, headers: { 'content-type': 'text/markdown; charset=utf-8' } }) };
-    }),
-    llms: guarded('list the product for agents', async () => {
-      const status = await product.status();
-      return { response: new Response(llmsText(status.product.name, status.kinds, status.language, prefix), { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } }) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) }), false),
   };

@@ -144,6 +144,13 @@ const GRAPH_NODE_ESCALATIONS: readonly GraphKindEscalation[] = [
   { id: 'node-without-edge', kindPrefix: '', reason: 'a node with no edge', when: NO_EDGE },
 ];
 
+/**
+ * The rules name the record kinds of the starter catalogue because they validate those records' shape: what a
+ * `code.file` node must carry, what an edge between `code.table`s means. Section 8 keeps the mechanism free of kind
+ * names; this table is the one place that states them, and `.architecture/violations.json` lists it as debt with the
+ * owner's decision — the alternative is a rule set read from the product's catalogue, which a validation rule cannot
+ * be, because the rule is the engine's expectation of what the record holds.
+ */
 export const GRAPH_NODE_RULES: readonly GraphNodeRule[] = [
   // A path the history no longer holds has a span and a record key; the pinned bytes decide it.
   { id: 'node-file', kind: 'code.file', span: 'required', spanNamesSelf: true, requireWholeProperties: ['lines'], recordKeyPrefix: 'code.file:' },

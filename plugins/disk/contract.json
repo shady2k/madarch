@@ -133,6 +133,13 @@
             "required": false
           },
           {
+            "name": "class",
+            "type": "text",
+            "meaning": "The class the catalogue's rules give the file: code, test, documentation, dependency or generated.",
+            "example": "code",
+            "required": false
+          },
+          {
             "name": "directory",
             "type": "text",
             "meaning": "The parent directory of the pinned file path, or . for a root file.",

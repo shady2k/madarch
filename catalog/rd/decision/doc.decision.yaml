@@ -15,7 +15,6 @@ relation-constraints:
   in:
   - supersedes
 template-policy: page
-template: templates/entity-text.liquid
 source: graph
 fields:
 - name: legacy_id

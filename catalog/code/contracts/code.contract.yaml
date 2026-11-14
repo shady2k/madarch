@@ -15,7 +15,6 @@ relation-constraints:
   in:
   - documents
 template-policy: page
-template: templates/contract.liquid
 source: graph
 fields:
 - name: repository

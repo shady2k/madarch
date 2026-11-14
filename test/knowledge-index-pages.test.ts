@@ -10,8 +10,8 @@ const graph = (properties: Record<string, unknown>): Pick<GraphReader, 'list'> =
 test('page identity, written basis, statements, grounds and mentions remain the producer opinions', async () => {
   const statement = { id: 'charge', labels: ['charge', 'policy'], text: 'Payments are charged.', digest: 'sentence', line: 18, mentions: ['domain:ordering'], grounds: ['code.service:payments', 'doc:docs/rules.md#br-4'] };
   const basis = [{ repository: 'training', commit: '0123456789abcdef', branch: 'main', origin: 'https://example.test/shop.git' }];
-  const result = await graphKnowledgePages(graph({ body: 'opaque producer body', file: 'docs/payments.md', relates: ['code.service:payments'], sources: ['docs/rules.md'], 'written-at': basis, statements: [statement], mentions: ['domain:ordering'], digest: 'page', producer: 'agent' }), manifest);
-  expect(result.pages).toEqual([{ id: 'domain:payments', kind: 'domain', title: 'Payments', file: 'docs/payments.md', relates: ['code.service:payments'], sources: ['docs/rules.md'], writtenAt: basis, statements: [statement], mentions: ['domain:ordering'], digest: 'page', producer: 'agent' }]);
+  const result = await graphKnowledgePages(graph({ body: 'opaque producer body', file: 'docs/payments.md', relates: ['code.service:payments'], sources: ['docs/rules.md'], 'written-at': basis, statements: [statement], digest: 'page', producer: 'agent' }), manifest);
+  expect(result.pages).toEqual([{ id: 'domain:payments', kind: 'domain', title: 'Payments', file: 'docs/payments.md', relates: ['code.service:payments'], sources: ['docs/rules.md'], writtenAt: basis, statements: [statement], digest: 'page', producer: 'agent' }]);
 });
 
 test('a missing declared page body and malformed statement or written basis refuse the read', async () => {

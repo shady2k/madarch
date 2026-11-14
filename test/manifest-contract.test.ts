@@ -31,7 +31,7 @@ writeFileSync(join(root, 'madarch', 'plugins.lock'), `plugins:\n  - { id: git, v
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const KIND = (name: string, fields: string, key: string, depends: string): string => `  ${name}:
-    template: templates/a.liquid
+    
     source: graph
     group: g
 ${fields}
@@ -104,7 +104,7 @@ describe('a manifest field names its producer explicitly', () => {
   g: { en: Group, ru: Группа, short: { en: Group, ru: Группа } }
 kinds:
   a:
-    template: templates/a.liquid
+    
     source: graph
     group: g
     fields:

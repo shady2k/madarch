@@ -29,8 +29,8 @@ const MANIFEST = [
   '  code.structure: { en: Structure, ru: Устройство, parent: code }',
   '  code.analysis: { en: Analysis, ru: Анализ, parent: code }',
   'kinds:',
-  '  code.file: { template: templates/file.md, source: graph, group: code.structure }',
-  '  code.cycle: { template: templates/item-plain.md, source: graph, group: code.analysis }',
+  '  code.file: { source: graph, group: code.structure }',
+  '  code.cycle: { source: graph, group: code.analysis }',
   '',
 ].join('\n');
 

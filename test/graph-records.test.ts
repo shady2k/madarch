@@ -10,8 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
-import { fileFacts, listDirectories, listFiles, repositoryFacts } from '../src/graph/index.js';
-import { commitWithPaths as commitFacts } from '../src/graph/records.js';
+import { commitFacts, fileFacts, listFiles, repositoryFacts } from '../src/graph/index.js';
 
 import { generatedTableName } from '../src/graph/contract.js';
 import { repositoryContract as GIT_CONTRACT, repositoryKindReads, repositoryEdgeReads, restrictRepositoryDeclarations } from './repository-contract-fixture.js';
@@ -23,7 +22,6 @@ import { languageOfPath } from '../plugins/disk/reader.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
-import { repositoryBlock, type RenderContext, type Subject } from '../src/knowledge/blocks.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let root = '';
@@ -219,12 +217,12 @@ describe('the two passes over one fixture', () => {
     expect(byPath.get('docs/renamed.md')?.blob).toBe(byPath.get('docs/renamed.md')?.blob);
     expect(byPath.get('blob.bin')?.form).toBe('binary');
     expect(byPath.get('blob.bin')?.lines).toBeNull();
-    // The extension dataset supplies candidates, but no text heuristic chooses among them.
+    // An ambiguous extension is decided by its bytes and its default; the dataset's candidates stand beside it.
     expect(byPath.get('blob.bin')?.language).toBe('unknown');
-    expect(byPath.get('src/a.ts')?.language).toBe('ambiguous');
+    expect(byPath.get('src/a.ts')?.language).toBe('TypeScript');
     expect(byPath.get('src/a.ts')?.candidates).toEqual(['TypeScript', 'XML']);
     const header = byPath.get('src/b.h')!;
-    expect(header.language).toBe('ambiguous');
+    expect(header.language).toBe('C');
     expect(header.candidates).toEqual(['C', 'C++', 'Objective-C']);
     // The touched rows name the deleted path, which no file holds.
     const facts = await repositoryFacts(owner, 'fixture');
@@ -258,7 +256,7 @@ describe('the two passes over one fixture', () => {
       `SELECT o."lang", o."language", o."languages" FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o."node_id"
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'disk'`,
     ));
-    expect(stored.rows).toEqual([{ lang: null, language: 'ambiguous', languages: ['TypeScript', 'XML'] }]);
+    expect(stored.rows).toEqual([{ lang: null, language: 'TypeScript', languages: ['TypeScript', 'XML'] }]);
     const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
@@ -287,13 +285,9 @@ describe('the two passes over one fixture', () => {
     const facts = await repositoryFacts(owner, 'fixture');
     expect(facts?.url).toBe('https://example.test/fixture.git');
     const reader = new GraphReader(owner, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
-    // The repository block renders the graph\'s own repository read: its data carries the clean address.
+    // The graph\'s own repository read carries the clean address, and the credential stands in no opinion.
     const held = await reader.repository('fixture');
     expect(held?.url).toBe('https://example.test/fixture.git');
-    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:fixture', kind: 'code.repository', label: 'fixture', properties: { name: 'fixture' }, nodeIds: [], scope: '' } };
-    const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/catalog.yaml', 1);
-    if (block.type !== 'repository') throw new Error(`the repository block answered ${block.type}: ${block.type === 'problem' ? block.message : ''}`);
-    expect(block.data.url).toBe('https://example.test/fixture.git');
     // The credential stands nowhere in the store.
     // The tree states the address; the history's own opinion of the repository states only its shallow fact, so its
     // url column is null — and the credential stands in neither.
@@ -310,9 +304,20 @@ describe('the two passes over one fixture', () => {
     expect((await repositoryFacts(owner!, 'fixture'))?.historyShallow).toBe(false);
   }, 120_000);
 
+  /** Every folder vertex with the folder it hangs from, read from the graph's own tables. */
+  const listDirectories = async (repository = 'fixture'): Promise<readonly { path: string; parent: string }[]> => {
+    const found = await owner!.transaction('snapshot', async (tx) => await tx.query<{ path: string; parent: string }>(
+      `SELECT DISTINCT (n.key->>'path') AS path, coalesce(pn.key->>'path', '') AS parent FROM node n JOIN entity e ON e.id = n.entity_id AND e.name = 'code.directory'
+       LEFT JOIN edge ed ON ed.to_node = n.id AND ed.entity_id = (SELECT id FROM entity WHERE name = 'code.contains')
+       LEFT JOIN node pn ON pn.id = ed.from_node WHERE (n.key->>'repository') = $1::text AND n.context_id = 1 AND NOT n.removed`,
+      [repository],
+    ));
+    return found.rows;
+  };
+
   test('give every folder a vertex, one parent each, and no repository-to-nested-file edge', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
-    const directories = await listDirectories(owner, 'fixture');
+    const directories = await listDirectories();
     const byPath = new Map(directories.map((row) => [row.path, row.parent]));
     expect(byPath.has('src')).toBe(true);
     expect(byPath.has('docs')).toBe(true);
@@ -326,12 +331,12 @@ describe('the two passes over one fixture', () => {
        LEFT JOIN node pn ON pn.id = e.from_node`,
     ));
     expect(parents.rows.length).toBeGreaterThan(0);
-    for (const row of parents.rows as { child: string; parent: string }[]) {
+    for (const row of parents.rows as unknown as { child: string; parent: string }[]) {
       const folder = row.child.includes('/') ? row.child.slice(0, row.child.lastIndexOf('/')) : '';
       expect({ child: row.child, parent: row.parent }).toEqual({ child: row.child, parent: folder });
     }
     const facts = await repositoryFacts(owner, 'fixture');
-    expect(facts?.directoryCount).toBe(directories.length);
+    expect(facts?.directoryCount).toBe(new Set(directories.map((row) => row.path)).size);
   }, 120_000);
 
   test('take a folder away when its last file goes', async () => {
@@ -340,11 +345,11 @@ describe('the two passes over one fixture', () => {
     writeFileSync(join(repository, 'only', 'deep', 'x.txt'), 'x\n');
     commitAll('four');
     await fillRepository();
-    expect((await listDirectories(owner, 'fixture')).map((row) => row.path)).toContain('only/deep');
+    expect((await listDirectories()).map((row) => row.path)).toContain('only/deep');
     git(['rm', '-q', '-r', 'only']);
     commitAll('five');
     await fillRepository();
-    const again = (await listDirectories(owner, 'fixture')).map((row) => row.path);
+    const again = (await listDirectories()).map((row) => row.path);
     expect(again).not.toContain('only/deep');
     expect(again).not.toContain('only');
   }, 120_000);
@@ -360,21 +365,18 @@ describe('a shallow clone is the history pass\'s own opinion of the repository',
     execFileSync('git', ['clone', '--depth=1', `file://${repository}`, shallow]);
     await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(true);
-    const subject: Subject = { source: 'graph', entity: { key: 'code.repository:shallow', kind: 'code.repository', label: 'shallow', properties: { name: 'shallow' }, nodeIds: [], scope: '' } };
-    const wireBlock = async () => {
+    const wireRead = async () => {
       const reader = new GraphReader(owner!, () => new Date().toISOString(), undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
-      const block = await repositoryBlock({ graph: reader } as unknown as RenderContext, subject, {}, 'madarch/catalog.yaml', 1);
-      if (block.type !== 'repository') throw new Error(`expected repository, got ${block.type}`);
-      return JSON.parse(JSON.stringify(block)).data;
+      return JSON.parse(JSON.stringify(await reader.repository('shallow')));
     };
-    expect((await wireBlock()).historyShallow).toBe(true);
-    expect(await wireBlock()).not.toHaveProperty('gaps');
+    expect((await wireRead()).historyShallow).toBe(true);
+    expect(await wireRead()).not.toHaveProperty('gaps');
     // A deeper clone states false: the same producer's opinion is replaced, never added beside it.
     execFileSync('git', ['fetch', '--unshallow'], { cwd: shallow });
     await fillRepository(shallow, 'shallow');
     expect((await repositoryFacts(owner, 'shallow'))?.historyShallow).toBe(false);
-    expect((await wireBlock()).historyShallow).toBe(false);
-    expect(await wireBlock()).not.toHaveProperty('gaps');
+    expect((await wireRead()).historyShallow).toBe(false);
+    expect(await wireRead()).not.toHaveProperty('gaps');
     const open = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM ${GIT_TABLES.repository} o JOIN node n ON n.id = o."node_id" WHERE o."state" = 'open' AND split_part(o."said_by", '@', 1) = 'git' AND (n.key->>'name') = 'shallow'`,
     ));
@@ -401,7 +403,6 @@ test('an empty disk-only tree is available from its successful inventory publica
     expect(facts).toMatchObject({ hasTree: true, asIsCommit: null, fileCount: 0, directoryCount: 0, commitCount: 0 });
     const reader = new GraphReader(inventory, () => '', undefined, undefined, undefined, repositoryKindReads, repositoryEdgeReads);
     expect((await reader.repository('empty-tree'))?.steps).toEqual({ tree: true, history: false });
-    expect(await reader.folder('empty-tree', '', undefined, 10)).toMatchObject({ folders: [], files: [] });
   } finally {
     await inventory.close();
   }

@@ -1,0 +1,6622 @@
+scalar BigInt
+
+scalar DateTime
+
+scalar JSON
+
+type AdministratorGuide implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  slug: String
+  slugOpinions: [Opinion!]!
+  slugOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  bodyLine: Int
+  bodyLineOpinions: [Opinion!]!
+  bodyLineOpinionsCount: Int!
+  file: String
+  fileOpinions: [Opinion!]!
+  fileOpinionsCount: Int!
+  relates: JSON
+  relatesOpinions: [Opinion!]!
+  relatesOpinionsCount: Int!
+  sources: JSON
+  sourcesOpinions: [Opinion!]!
+  sourcesOpinionsCount: Int!
+  statements: JSON
+  statementsOpinions: [Opinion!]!
+  statementsOpinionsCount: Int!
+  digest: String
+  digestOpinions: [Opinion!]!
+  digestOpinionsCount: Int!
+  producer: String
+  producerOpinions: [Opinion!]!
+  producerOpinionsCount: Int!
+  links: JSON
+  linksOpinions: [Opinion!]!
+  linksOpinionsCount: Int!
+  findings: JSON
+  findingsOpinions: [Opinion!]!
+  findingsOpinionsCount: Int!
+  ungrounded: JSON
+  ungroundedOpinions: [Opinion!]!
+  ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type AdministratorGuideConnection {
+  edges: [AdministratorGuideEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type AdministratorGuideEdge {
+  cursor: String!
+  node: AdministratorGuide!
+}
+
+type Backlink {
+  relation: String!
+  from: Entity!
+}
+
+type BacklinkConnection {
+  edges: [BacklinkEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type BacklinkEdge {
+  cursor: String!
+  node: Backlink!
+}
+
+type Bootstrap {
+  structureRevision: String!
+  home: BootstrapHome
+  templates: [PageTemplate!]!
+}
+
+type BootstrapHome {
+  id: ID!
+  kind: String!
+  template: String!
+}
+
+type CatalogueEntity implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String!
+  title: String
+  definition: String
+  group: String!
+  subgroup: String!
+  purpose: String
+  status: String
+  audience: [String!]!
+  standards: [String!]!
+  taken: Boolean!
+  plugins: [String!]!
+  fields: [CatalogueField!]!
+  derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CatalogueEntityConnection {
+  edges: [CatalogueEntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CatalogueEntityEdge {
+  cursor: String!
+  node: CatalogueEntity!
+}
+
+type CatalogueField {
+  name: String!
+  type: String!
+  nullable: Boolean!
+  reference: String
+  producers: [String!]!
+}
+
+type CodeAsIsConnection {
+  edges: [CodeAsIsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeAsIsConnectionEdge {
+  cursor: String!
+  node: CodeAsIsEdge!
+}
+
+type CodeAsIsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeAuthor implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  email: String
+  emailOpinions: [Opinion!]!
+  emailOpinionsCount: Int!
+  codeAuthored(first: Int, after: String): CodeAuthoredConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeAuthorConnection {
+  edges: [CodeAuthorEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeAuthorEdge {
+  cursor: String!
+  node: CodeAuthor!
+}
+
+type CodeAuthoredConnection {
+  edges: [CodeAuthoredConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeAuthoredConnectionEdge {
+  cursor: String!
+  node: CodeAuthoredEdge!
+}
+
+type CodeAuthoredEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeBroker implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeBrokerConnection {
+  edges: [CodeBrokerEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeBrokerEdge {
+  cursor: String!
+  node: CodeBroker!
+}
+
+type CodeChannel implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  definition: JSON
+  definitionOpinions: [Opinion!]!
+  definitionOpinionsCount: Int!
+  directions: JSON
+  directionsOpinions: [Opinion!]!
+  directionsOpinionsCount: Int!
+  directionStatus: String
+  directionStatusOpinions: [Opinion!]!
+  directionStatusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeChannelConnection {
+  edges: [CodeChannelEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeChannelEdge {
+  cursor: String!
+  node: CodeChannel!
+}
+
+type CodeCiJob implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeCiJobConnection {
+  edges: [CodeCiJobEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeCiJobEdge {
+  cursor: String!
+  node: CodeCiJob!
+}
+
+type CodeCiWorkflow implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeCiWorkflowConnection {
+  edges: [CodeCiWorkflowEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeCiWorkflowEdge {
+  cursor: String!
+  node: CodeCiWorkflow!
+}
+
+type CodeColumn implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  table: String
+  tableOpinions: [Opinion!]!
+  tableOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  type: String
+  typeOpinions: [Opinion!]!
+  typeOpinionsCount: Int!
+  nullable: Boolean
+  nullableOpinions: [Opinion!]!
+  nullableOpinionsCount: Int!
+  default: String
+  defaultOpinions: [Opinion!]!
+  defaultOpinionsCount: Int!
+  primaryKey: Boolean
+  primaryKeyOpinions: [Opinion!]!
+  primaryKeyOpinionsCount: Int!
+  unique: Boolean
+  uniqueOpinions: [Opinion!]!
+  uniqueOpinionsCount: Int!
+  check: JSON
+  checkOpinions: [Opinion!]!
+  checkOpinionsCount: Int!
+  codeForeignKey(where: CodeForeignKeyEdgeWhere, orderBy: [CodeForeignKeyEdgeOrder!], first: Int, after: String): CodeForeignKeyConnection!
+  codeForeignKeyOf(where: CodeForeignKeyEdgeWhere, orderBy: [CodeForeignKeyEdgeOrder!], first: Int, after: String): CodeForeignKeyConnection!
+  codeHasColumnOf(first: Int, after: String): CodeHasColumnConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeColumnConnection {
+  edges: [CodeColumnEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeColumnEdge {
+  cursor: String!
+  node: CodeColumn!
+}
+
+type CodeCommit implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  hash: String
+  hashOpinions: [Opinion!]!
+  hashOpinionsCount: Int!
+  algorithm: String
+  algorithmOpinions: [Opinion!]!
+  algorithmOpinionsCount: Int!
+  subject: String
+  subjectOpinions: [Opinion!]!
+  subjectOpinionsCount: Int!
+  authorDate: DateTime
+  authorDateOpinions: [Opinion!]!
+  authorDateOpinionsCount: Int!
+  authorOffsetMin: Int
+  authorOffsetMinOpinions: [Opinion!]!
+  authorOffsetMinOpinionsCount: Int!
+  commitDate: DateTime
+  commitDateOpinions: [Opinion!]!
+  commitDateOpinionsCount: Int!
+  commitOffsetMin: Int
+  commitOffsetMinOpinions: [Opinion!]!
+  commitOffsetMinOpinionsCount: Int!
+  codeAsIsOf(first: Int, after: String): CodeAsIsConnection!
+  codeAuthoredOf(first: Int, after: String): CodeAuthoredConnection!
+  codeHistoryOf(where: CodeHistoryEdgeWhere, orderBy: [CodeHistoryEdgeOrder!], first: Int, after: String): CodeHistoryConnection!
+  codeParent(where: CodeParentEdgeWhere, orderBy: [CodeParentEdgeOrder!], first: Int, after: String): CodeParentConnection!
+  codeParentOf(where: CodeParentEdgeWhere, orderBy: [CodeParentEdgeOrder!], first: Int, after: String): CodeParentConnection!
+  codeTouched(where: CodeTouchedEdgeWhere, orderBy: [CodeTouchedEdgeOrder!], first: Int, after: String): CodeTouchedConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  sinceOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
+}
+
+type CodeCommitConnection {
+  edges: [CodeCommitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeCommitEdge {
+  cursor: String!
+  node: CodeCommit!
+}
+
+type CodeComposeService implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeComposeServiceConnection {
+  edges: [CodeComposeServiceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeComposeServiceEdge {
+  cursor: String!
+  node: CodeComposeService!
+}
+
+type CodeContainsConnection {
+  edges: [CodeContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeContainsConnectionEdge {
+  cursor: String!
+  node: CodeContainsEdge!
+}
+
+type CodeContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeContract implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  definition: JSON
+  definitionOpinions: [Opinion!]!
+  definitionOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeContractConnection {
+  edges: [CodeContractEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeContractEdge {
+  cursor: String!
+  node: CodeContract!
+}
+
+type CodeCycle implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeCycleConnection {
+  edges: [CodeCycleEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeCycleEdge {
+  cursor: String!
+  node: CodeCycle!
+}
+
+type CodeDatabase implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeDatabaseConnection {
+  edges: [CodeDatabaseEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDatabaseEdge {
+  cursor: String!
+  node: CodeDatabase!
+}
+
+type CodeDebt implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeDebtConnection {
+  edges: [CodeDebtEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDebtEdge {
+  cursor: String!
+  node: CodeDebt!
+}
+
+type CodeDeclaredInConnection {
+  edges: [CodeDeclaredInConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDeclaredInConnectionEdge {
+  cursor: String!
+  node: CodeDeclaredInEdge!
+}
+
+type CodeDeclaredInEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeDependency implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeDependencyConnection {
+  edges: [CodeDependencyEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDependencyEdge {
+  cursor: String!
+  node: CodeDependency!
+}
+
+type CodeDirectory implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  codeContains(first: Int, after: String): CodeContainsConnection!
+  codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeDirectoryConnection {
+  edges: [CodeDirectoryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDirectoryEdge {
+  cursor: String!
+  node: CodeDirectory!
+}
+
+type CodeDockerfile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeDockerfileConnection {
+  edges: [CodeDockerfileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDockerfileEdge {
+  cursor: String!
+  node: CodeDockerfile!
+}
+
+type CodeDocumentSection implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeDocumentSectionConnection {
+  edges: [CodeDocumentSectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeDocumentSectionEdge {
+  cursor: String!
+  node: CodeDocumentSection!
+}
+
+type CodeEntryPoint implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeEntryPointConnection {
+  edges: [CodeEntryPointEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeEntryPointEdge {
+  cursor: String!
+  node: CodeEntryPoint!
+}
+
+type CodeEnvDefinition implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeEnvDefinitionConnection {
+  edges: [CodeEnvDefinitionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeEnvDefinitionEdge {
+  cursor: String!
+  node: CodeEnvDefinition!
+}
+
+type CodeEnvVar implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeEnvVarConnection {
+  edges: [CodeEnvVarEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeEnvVarEdge {
+  cursor: String!
+  node: CodeEnvVar!
+}
+
+type CodeFacet implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeFacetConnection {
+  edges: [CodeFacetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeFacetEdge {
+  cursor: String!
+  node: CodeFacet!
+}
+
+type CodeField implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeFieldConnection {
+  edges: [CodeFieldEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeFieldEdge {
+  cursor: String!
+  node: CodeField!
+}
+
+type CodeFile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  stateMachines: JSON
+  stateMachinesOpinions: [Opinion!]!
+  stateMachinesOpinionsCount: Int!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  mode: String
+  modeOpinions: [Opinion!]!
+  modeOpinionsCount: Int!
+  blob: String
+  blobOpinions: [Opinion!]!
+  blobOpinionsCount: Int!
+  bytes: BigInt
+  bytesOpinions: [Opinion!]!
+  bytesOpinionsCount: Int!
+  form: String
+  formOpinions: [Opinion!]!
+  formOpinionsCount: Int!
+  lines: BigInt
+  linesOpinions: [Opinion!]!
+  linesOpinionsCount: Int!
+  content: String
+  contentOpinions: [Opinion!]!
+  contentOpinionsCount: Int!
+  language: String
+  languageOpinions: [Opinion!]!
+  languageOpinionsCount: Int!
+  languages: JSON
+  languagesOpinions: [Opinion!]!
+  languagesOpinionsCount: Int!
+  class: String
+  classOpinions: [Opinion!]!
+  classOpinionsCount: Int!
+  directory: String
+  directoryOpinions: [Opinion!]!
+  directoryOpinionsCount: Int!
+  lastChange: DateTime
+  lastChangeOpinions: [Opinion!]!
+  lastChangeOpinionsCount: Int!
+  commitCount: Int
+  commitCountOpinions: [Opinion!]!
+  commitCountOpinionsCount: Int!
+  addedAt: DateTime
+  addedAtOpinions: [Opinion!]!
+  addedAtOpinionsCount: Int!
+  addedIn: String
+  addedInOpinions: [Opinion!]!
+  addedInOpinionsCount: Int!
+  removedAt: DateTime
+  removedAtOpinions: [Opinion!]!
+  removedAtOpinionsCount: Int!
+  removedIn: String
+  removedInOpinions: [Opinion!]!
+  removedInOpinionsCount: Int!
+  codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  codeDeclaredInOf(first: Int, after: String): CodeDeclaredInConnection!
+  codeRenamedFrom(first: Int, after: String): CodeRenamedFromConnection!
+  codeRenamedFromOf(first: Int, after: String): CodeRenamedFromConnection!
+  codeTouchedOf(where: CodeTouchedEdgeWhere, orderBy: [CodeTouchedEdgeOrder!], first: Int, after: String): CodeTouchedConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeFileConnection {
+  edges: [CodeFileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeFileEdge {
+  cursor: String!
+  node: CodeFile!
+}
+
+type CodeForeignKeyConnection {
+  edges: [CodeForeignKeyConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeForeignKeyConnectionEdge {
+  cursor: String!
+  node: CodeForeignKeyEdge!
+}
+
+type CodeForeignKeyEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  column: String
+  columnOpinions: [Opinion!]!
+  columnOpinionsCount: Int!
+  targetColumn: String
+  targetColumnOpinions: [Opinion!]!
+  targetColumnOpinionsCount: Int!
+  constraint: String
+  constraintOpinions: [Opinion!]!
+  constraintOpinionsCount: Int!
+  node: Entity!
+}
+
+type CodeGitlink implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  otherRepository: String
+  otherRepositoryOpinions: [Opinion!]!
+  otherRepositoryOpinionsCount: Int!
+  commitHash: String
+  commitHashOpinions: [Opinion!]!
+  commitHashOpinionsCount: Int!
+  codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeGitlinkConnection {
+  edges: [CodeGitlinkEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeGitlinkEdge {
+  cursor: String!
+  node: CodeGitlink!
+}
+
+type CodeHasColumnConnection {
+  edges: [CodeHasColumnConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeHasColumnConnectionEdge {
+  cursor: String!
+  node: CodeHasColumnEdge!
+}
+
+type CodeHasColumnEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeHasIndexConnection {
+  edges: [CodeHasIndexConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeHasIndexConnectionEdge {
+  cursor: String!
+  node: CodeHasIndexEdge!
+}
+
+type CodeHasIndexEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeHealthEndpoint implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeHealthEndpointConnection {
+  edges: [CodeHealthEndpointEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeHealthEndpointEdge {
+  cursor: String!
+  node: CodeHealthEndpoint!
+}
+
+type CodeHealthcheck implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeHealthcheckConnection {
+  edges: [CodeHealthcheckEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeHealthcheckEdge {
+  cursor: String!
+  node: CodeHealthcheck!
+}
+
+type CodeHistoryConnection {
+  edges: [CodeHistoryConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeHistoryConnectionEdge {
+  cursor: String!
+  node: CodeHistoryEdge!
+}
+
+type CodeHistoryEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  walk: Int
+  walkOpinions: [Opinion!]!
+  walkOpinionsCount: Int!
+  node: Entity!
+}
+
+type CodeImage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeImageConnection {
+  edges: [CodeImageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeImageEdge {
+  cursor: String!
+  node: CodeImage!
+}
+
+type CodeIndex implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  table: String
+  tableOpinions: [Opinion!]!
+  tableOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  unique: Boolean
+  uniqueOpinions: [Opinion!]!
+  uniqueOpinionsCount: Int!
+  columns: JSON
+  columnsOpinions: [Opinion!]!
+  columnsOpinionsCount: Int!
+  where: String
+  whereOpinions: [Opinion!]!
+  whereOpinionsCount: Int!
+  codeHasIndexOf(first: Int, after: String): CodeHasIndexConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeIndexConnection {
+  edges: [CodeIndexEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeIndexEdge {
+  cursor: String!
+  node: CodeIndex!
+}
+
+type CodeInput implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeInputConnection {
+  edges: [CodeInputEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeInputEdge {
+  cursor: String!
+  node: CodeInput!
+}
+
+type CodeK8sDeployment implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeK8sDeploymentConnection {
+  edges: [CodeK8sDeploymentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeK8sDeploymentEdge {
+  cursor: String!
+  node: CodeK8sDeployment!
+}
+
+type CodeK8sService implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeK8sServiceConnection {
+  edges: [CodeK8sServiceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeK8sServiceEdge {
+  cursor: String!
+  node: CodeK8sService!
+}
+
+type CodeLockfile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeLockfileConnection {
+  edges: [CodeLockfileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeLockfileEdge {
+  cursor: String!
+  node: CodeLockfile!
+}
+
+type CodeLogger implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeLoggerConnection {
+  edges: [CodeLoggerEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeLoggerEdge {
+  cursor: String!
+  node: CodeLogger!
+}
+
+type CodeMakeTarget implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeMakeTargetConnection {
+  edges: [CodeMakeTargetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeMakeTargetEdge {
+  cursor: String!
+  node: CodeMakeTarget!
+}
+
+type CodeManifest implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeManifestConnection {
+  edges: [CodeManifestEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeManifestEdge {
+  cursor: String!
+  node: CodeManifest!
+}
+
+type CodeMessage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeMessageConnection {
+  edges: [CodeMessageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeMessageEdge {
+  cursor: String!
+  node: CodeMessage!
+}
+
+type CodeMetric implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeMetricConnection {
+  edges: [CodeMetricEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeMetricEdge {
+  cursor: String!
+  node: CodeMetric!
+}
+
+type CodeMetricsEndpoint implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeMetricsEndpointConnection {
+  edges: [CodeMetricsEndpointEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeMetricsEndpointEdge {
+  cursor: String!
+  node: CodeMetricsEndpoint!
+}
+
+type CodeMigration implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeMigrationConnection {
+  edges: [CodeMigrationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeMigrationEdge {
+  cursor: String!
+  node: CodeMigration!
+}
+
+type CodeModule implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  stateMachines: JSON
+  stateMachinesOpinions: [Opinion!]!
+  stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeModuleConnection {
+  edges: [CodeModuleEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeModuleEdge {
+  cursor: String!
+  node: CodeModule!
+}
+
+type CodeNewcomerCommand implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeNewcomerCommandConnection {
+  edges: [CodeNewcomerCommandEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeNewcomerCommandEdge {
+  cursor: String!
+  node: CodeNewcomerCommand!
+}
+
+type CodeNewcomerFailure implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeNewcomerFailureConnection {
+  edges: [CodeNewcomerFailureEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeNewcomerFailureEdge {
+  cursor: String!
+  node: CodeNewcomerFailure!
+}
+
+type CodeNewcomerPrerequisites implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeNewcomerPrerequisitesConnection {
+  edges: [CodeNewcomerPrerequisitesEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeNewcomerPrerequisitesEdge {
+  cursor: String!
+  node: CodeNewcomerPrerequisites!
+}
+
+type CodeOperation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  definition: JSON
+  definitionOpinions: [Opinion!]!
+  definitionOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeOperationConnection {
+  edges: [CodeOperationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeOperationEdge {
+  cursor: String!
+  node: CodeOperation!
+}
+
+type CodePackage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  stateMachines: JSON
+  stateMachinesOpinions: [Opinion!]!
+  stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodePackageConnection {
+  edges: [CodePackageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodePackageEdge {
+  cursor: String!
+  node: CodePackage!
+}
+
+type CodeParentConnection {
+  edges: [CodeParentConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeParentConnectionEdge {
+  cursor: String!
+  node: CodeParentEdge!
+}
+
+type CodeParentEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  position: Int
+  positionOpinions: [Opinion!]!
+  positionOpinionsCount: Int!
+  node: Entity!
+}
+
+type CodePort implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodePortConnection {
+  edges: [CodePortEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodePortEdge {
+  cursor: String!
+  node: CodePort!
+}
+
+type CodeProbe implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeProbeConnection {
+  edges: [CodeProbeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeProbeEdge {
+  cursor: String!
+  node: CodeProbe!
+}
+
+type CodeProcess implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeProcessConnection {
+  edges: [CodeProcessEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeProcessEdge {
+  cursor: String!
+  node: CodeProcess!
+}
+
+type CodeRenamedFromConnection {
+  edges: [CodeRenamedFromConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeRenamedFromConnectionEdge {
+  cursor: String!
+  node: CodeRenamedFromEdge!
+}
+
+type CodeRenamedFromEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type CodeRepository implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  url: String
+  urlOpinions: [Opinion!]!
+  urlOpinionsCount: Int!
+  defaultBranch: String
+  defaultBranchOpinions: [Opinion!]!
+  defaultBranchOpinionsCount: Int!
+  historyShallow: Boolean
+  historyShallowOpinions: [Opinion!]!
+  historyShallowOpinionsCount: Int!
+  codeAsIs(first: Int, after: String): CodeAsIsConnection!
+  codeContains(first: Int, after: String): CodeContainsConnection!
+  codeHistory(where: CodeHistoryEdgeWhere, orderBy: [CodeHistoryEdgeOrder!], first: Int, after: String): CodeHistoryConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeRepositoryConnection {
+  edges: [CodeRepositoryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeRepositoryEdge {
+  cursor: String!
+  node: CodeRepository!
+}
+
+type CodeRoute implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeRouteConnection {
+  edges: [CodeRouteEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeRouteEdge {
+  cursor: String!
+  node: CodeRoute!
+}
+
+type CodeService implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  stateMachines: JSON
+  stateMachinesOpinions: [Opinion!]!
+  stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeServiceConnection {
+  edges: [CodeServiceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeServiceEdge {
+  cursor: String!
+  node: CodeService!
+}
+
+type CodeSnapshot implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeSnapshotConnection {
+  edges: [CodeSnapshotEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeSnapshotEdge {
+  cursor: String!
+  node: CodeSnapshot!
+}
+
+type CodeSqlBuild implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeSqlBuildConnection {
+  edges: [CodeSqlBuildEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeSqlBuildEdge {
+  cursor: String!
+  node: CodeSqlBuild!
+}
+
+type CodeSqlSink implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeSqlSinkConnection {
+  edges: [CodeSqlSinkEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeSqlSinkEdge {
+  cursor: String!
+  node: CodeSqlSink!
+}
+
+type CodeSymbol implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  stateMachines: JSON
+  stateMachinesOpinions: [Opinion!]!
+  stateMachinesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeSymbolConnection {
+  edges: [CodeSymbolEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeSymbolEdge {
+  cursor: String!
+  node: CodeSymbol!
+}
+
+type CodeTable implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  database: String
+  databaseOpinions: [Opinion!]!
+  databaseOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  schema: String
+  schemaOpinions: [Opinion!]!
+  schemaOpinionsCount: Int!
+  unsupported: String
+  unsupportedOpinions: [Opinion!]!
+  unsupportedOpinionsCount: Int!
+  codeDeclaredIn(first: Int, after: String): CodeDeclaredInConnection!
+  codeHasColumn(first: Int, after: String): CodeHasColumnConnection!
+  codeHasIndex(first: Int, after: String): CodeHasIndexConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeTableConnection {
+  edges: [CodeTableEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeTableEdge {
+  cursor: String!
+  node: CodeTable!
+}
+
+type CodeTask implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeTaskConnection {
+  edges: [CodeTaskEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeTaskEdge {
+  cursor: String!
+  node: CodeTask!
+}
+
+type CodeTestCase implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  quarantinesOf(first: Int, after: String): QuarantinesConnection!
+  testOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
+}
+
+type CodeTestCaseConnection {
+  edges: [CodeTestCaseEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeTestCaseEdge {
+  cursor: String!
+  node: CodeTestCase!
+}
+
+type CodeTestQuarantine implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  test: CodeTestCase
+  testOpinions: [Opinion!]!
+  testOpinionsCount: Int!
+  task: Task
+  taskOpinions: [Opinion!]!
+  taskOpinionsCount: Int!
+  quarantineReason: String
+  quarantineReasonOpinions: [Opinion!]!
+  quarantineReasonOpinionsCount: Int!
+  since: CodeCommit
+  sinceOpinions: [Opinion!]!
+  sinceOpinionsCount: Int!
+  latestResult: JSON
+  latestResultOpinions: [Opinion!]!
+  latestResultOpinionsCount: Int!
+  fixedBy(first: Int, after: String): FixedByConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  quarantines(first: Int, after: String): QuarantinesConnection!
+}
+
+type CodeTestQuarantineConnection {
+  edges: [CodeTestQuarantineEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeTestQuarantineEdge {
+  cursor: String!
+  node: CodeTestQuarantine!
+}
+
+type CodeTouchedConnection {
+  edges: [CodeTouchedConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeTouchedConnectionEdge {
+  cursor: String!
+  node: CodeTouchedEdge!
+}
+
+type CodeTouchedEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  change: String
+  changeOpinions: [Opinion!]!
+  changeOpinionsCount: Int!
+  added: BigInt
+  addedOpinions: [Opinion!]!
+  addedOpinionsCount: Int!
+  removed: BigInt
+  removedOpinions: [Opinion!]!
+  removedOpinionsCount: Int!
+  node: Entity!
+}
+
+type Correction implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CorrectionConnection {
+  edges: [CorrectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CorrectionEdge {
+  cursor: String!
+  node: Correction!
+}
+
+type DocDecision implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DocDecisionConnection {
+  edges: [DocDecisionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DocDecisionEdge {
+  cursor: String!
+  node: DocDecision!
+}
+
+type DocRequirement implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DocRequirementConnection {
+  edges: [DocRequirementEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DocRequirementEdge {
+  cursor: String!
+  node: DocRequirement!
+}
+
+type DocRule implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DocRuleConnection {
+  edges: [DocRuleEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DocRuleEdge {
+  cursor: String!
+  node: DocRule!
+}
+
+type DocTerm implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  definition: String
+  definitionOpinions: [Opinion!]!
+  definitionOpinionsCount: Int!
+  synonyms: JSON
+  synonymsOpinions: [Opinion!]!
+  synonymsOpinionsCount: Int!
+  code: JSON
+  codeOpinions: [Opinion!]!
+  codeOpinionsCount: Int!
+  usages: JSON
+  usagesOpinions: [Opinion!]!
+  usagesOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DocTermConnection {
+  edges: [DocTermEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DocTermEdge {
+  cursor: String!
+  node: DocTerm!
+}
+
+type DocUseCase implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DocUseCaseConnection {
+  edges: [DocUseCaseEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DocUseCaseEdge {
+  cursor: String!
+  node: DocUseCase!
+}
+
+type Document implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  commit: String
+  commitOpinions: [Opinion!]!
+  commitOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  markdown: String
+  markdownOpinions: [Opinion!]!
+  markdownOpinionsCount: Int!
+  anchors: JSON
+  anchorsOpinions: [Opinion!]!
+  anchorsOpinionsCount: Int!
+  links: JSON
+  linksOpinions: [Opinion!]!
+  linksOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DocumentConnection {
+  edges: [DocumentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DocumentEdge {
+  cursor: String!
+  node: Document!
+}
+
+type Domain implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  slug: String
+  slugOpinions: [Opinion!]!
+  slugOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  bodyLine: Int
+  bodyLineOpinions: [Opinion!]!
+  bodyLineOpinionsCount: Int!
+  file: String
+  fileOpinions: [Opinion!]!
+  fileOpinionsCount: Int!
+  relates: JSON
+  relatesOpinions: [Opinion!]!
+  relatesOpinionsCount: Int!
+  sources: JSON
+  sourcesOpinions: [Opinion!]!
+  sourcesOpinionsCount: Int!
+  statements: JSON
+  statementsOpinions: [Opinion!]!
+  statementsOpinionsCount: Int!
+  digest: String
+  digestOpinions: [Opinion!]!
+  digestOpinionsCount: Int!
+  producer: String
+  producerOpinions: [Opinion!]!
+  producerOpinionsCount: Int!
+  links: JSON
+  linksOpinions: [Opinion!]!
+  linksOpinionsCount: Int!
+  findings: JSON
+  findingsOpinions: [Opinion!]!
+  findingsOpinionsCount: Int!
+  ungrounded: JSON
+  ungroundedOpinions: [Opinion!]!
+  ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type DomainConnection {
+  edges: [DomainEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type DomainEdge {
+  cursor: String!
+  node: Domain!
+}
+
+type Enrichment implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  slug: String
+  slugOpinions: [Opinion!]!
+  slugOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  bodyLine: Int
+  bodyLineOpinions: [Opinion!]!
+  bodyLineOpinionsCount: Int!
+  file: String
+  fileOpinions: [Opinion!]!
+  fileOpinionsCount: Int!
+  relates: JSON
+  relatesOpinions: [Opinion!]!
+  relatesOpinionsCount: Int!
+  sources: JSON
+  sourcesOpinions: [Opinion!]!
+  sourcesOpinionsCount: Int!
+  statements: JSON
+  statementsOpinions: [Opinion!]!
+  statementsOpinionsCount: Int!
+  digest: String
+  digestOpinions: [Opinion!]!
+  digestOpinionsCount: Int!
+  producer: String
+  producerOpinions: [Opinion!]!
+  producerOpinionsCount: Int!
+  links: JSON
+  linksOpinions: [Opinion!]!
+  linksOpinionsCount: Int!
+  findings: JSON
+  findingsOpinions: [Opinion!]!
+  findingsOpinionsCount: Int!
+  ungrounded: JSON
+  ungroundedOpinions: [Opinion!]!
+  ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type EnrichmentConnection {
+  edges: [EnrichmentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EnrichmentEdge {
+  cursor: String!
+  node: Enrichment!
+}
+
+interface Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type EntityConnection {
+  edges: [EntityEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EntityEdge {
+  cursor: String!
+  node: Entity!
+}
+
+type Evidence {
+  type: String!
+  repository: String
+  path: String
+  lineStart: Int
+  lineEnd: Int
+  revision: String
+  id: String
+  url: String
+  at: String
+  words: String
+}
+
+type FixedByConnection {
+  edges: [FixedByConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type FixedByConnectionEdge {
+  cursor: String!
+  node: FixedByEdge!
+}
+
+type FixedByEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type GroundsConnection {
+  edges: [GroundsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type GroundsConnectionEdge {
+  cursor: String!
+  node: GroundsEdge!
+}
+
+type GroundsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type LinksToConnection {
+  edges: [LinksToConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type LinksToConnectionEdge {
+  cursor: String!
+  node: LinksToEdge!
+}
+
+type LinksToEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type MentionsConnection {
+  edges: [MentionsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type MentionsConnectionEdge {
+  cursor: String!
+  node: MentionsEdge!
+}
+
+type MentionsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type Opinion {
+  value: JSON
+  producer: String!
+  version: String
+  lang: String
+  statedAt: DateTime!
+  evidence: [Evidence!]!
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+type PageTemplate {
+  name: String!
+  body: String!
+}
+
+type ProblemDismissal implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  rule: String
+  ruleOpinions: [Opinion!]!
+  ruleOpinionsCount: Int!
+  identity: String
+  identityOpinions: [Opinion!]!
+  identityOpinionsCount: Int!
+  place: String
+  placeOpinions: [Opinion!]!
+  placeOpinionsCount: Int!
+  dismissalReason: String
+  dismissalReasonOpinions: [Opinion!]!
+  dismissalReasonOpinionsCount: Int!
+  by: JSON
+  byOpinions: [Opinion!]!
+  byOpinionsCount: Int!
+  at: DateTime
+  atOpinions: [Opinion!]!
+  atOpinionsCount: Int!
+  file: String
+  fileOpinions: [Opinion!]!
+  fileOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type ProblemDismissalConnection {
+  edges: [ProblemDismissalEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProblemDismissalEdge {
+  cursor: String!
+  node: ProblemDismissal!
+}
+
+type Product implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  slug: String
+  slugOpinions: [Opinion!]!
+  slugOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  bodyLine: Int
+  bodyLineOpinions: [Opinion!]!
+  bodyLineOpinionsCount: Int!
+  file: String
+  fileOpinions: [Opinion!]!
+  fileOpinionsCount: Int!
+  relates: JSON
+  relatesOpinions: [Opinion!]!
+  relatesOpinionsCount: Int!
+  sources: JSON
+  sourcesOpinions: [Opinion!]!
+  sourcesOpinionsCount: Int!
+  statements: JSON
+  statementsOpinions: [Opinion!]!
+  statementsOpinionsCount: Int!
+  digest: String
+  digestOpinions: [Opinion!]!
+  digestOpinionsCount: Int!
+  producer: String
+  producerOpinions: [Opinion!]!
+  producerOpinionsCount: Int!
+  links: JSON
+  linksOpinions: [Opinion!]!
+  linksOpinionsCount: Int!
+  findings: JSON
+  findingsOpinions: [Opinion!]!
+  findingsOpinionsCount: Int!
+  ungrounded: JSON
+  ungroundedOpinions: [Opinion!]!
+  ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type ProductConnection {
+  edges: [ProductEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProductEdge {
+  cursor: String!
+  node: Product!
+}
+
+type QuarantinesConnection {
+  edges: [QuarantinesConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type QuarantinesConnectionEdge {
+  cursor: String!
+  node: QuarantinesEdge!
+}
+
+type QuarantinesEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type Question implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type QuestionConnection {
+  edges: [QuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type QuestionEdge {
+  cursor: String!
+  node: Question!
+}
+
+type Source implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  repository: String
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  sourceText: String
+  sourceTextOpinions: [Opinion!]!
+  sourceTextOpinionsCount: Int!
+  commit: String
+  commitOpinions: [Opinion!]!
+  commitOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type SourceConnection {
+  edges: [SourceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type SourceEdge {
+  cursor: String!
+  node: Source!
+}
+
+type Task implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  legacyId: String
+  legacyIdOpinions: [Opinion!]!
+  legacyIdOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  front: JSON
+  frontOpinions: [Opinion!]!
+  frontOpinionsCount: Int!
+  fixedByOf(first: Int, after: String): FixedByConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  taskOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
+}
+
+type TaskConnection {
+  edges: [TaskEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TaskEdge {
+  cursor: String!
+  node: Task!
+}
+
+type UserGuide implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  slug: String
+  slugOpinions: [Opinion!]!
+  slugOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  bodyLine: Int
+  bodyLineOpinions: [Opinion!]!
+  bodyLineOpinionsCount: Int!
+  file: String
+  fileOpinions: [Opinion!]!
+  fileOpinionsCount: Int!
+  relates: JSON
+  relatesOpinions: [Opinion!]!
+  relatesOpinionsCount: Int!
+  sources: JSON
+  sourcesOpinions: [Opinion!]!
+  sourcesOpinionsCount: Int!
+  statements: JSON
+  statementsOpinions: [Opinion!]!
+  statementsOpinionsCount: Int!
+  digest: String
+  digestOpinions: [Opinion!]!
+  digestOpinionsCount: Int!
+  producer: String
+  producerOpinions: [Opinion!]!
+  producerOpinionsCount: Int!
+  links: JSON
+  linksOpinions: [Opinion!]!
+  linksOpinionsCount: Int!
+  findings: JSON
+  findingsOpinions: [Opinion!]!
+  findingsOpinionsCount: Int!
+  ungrounded: JSON
+  ungroundedOpinions: [Opinion!]!
+  ungroundedOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type UserGuideConnection {
+  edges: [UserGuideEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type UserGuideEdge {
+  cursor: String!
+  node: UserGuide!
+}
+
+type Query {
+  entity(id: ID!, lang: String): Entity
+  allAdministratorGuide(where: AdministratorGuideWhere, orderBy: [AdministratorGuideOrder!], first: Int, after: String, lang: String): AdministratorGuideConnection!
+  allCodeAuthor(where: CodeAuthorWhere, orderBy: [CodeAuthorOrder!], first: Int, after: String, lang: String): CodeAuthorConnection!
+  allCodeBroker(first: Int, after: String, lang: String): CodeBrokerConnection!
+  allCodeChannel(where: CodeChannelWhere, orderBy: [CodeChannelOrder!], first: Int, after: String, lang: String): CodeChannelConnection!
+  allCodeCiJob(first: Int, after: String, lang: String): CodeCiJobConnection!
+  allCodeCiWorkflow(first: Int, after: String, lang: String): CodeCiWorkflowConnection!
+  allCodeColumn(where: CodeColumnWhere, orderBy: [CodeColumnOrder!], first: Int, after: String, lang: String): CodeColumnConnection!
+  allCodeCommit(where: CodeCommitWhere, orderBy: [CodeCommitOrder!], first: Int, after: String, lang: String): CodeCommitConnection!
+  allCodeComposeService(first: Int, after: String, lang: String): CodeComposeServiceConnection!
+  allCodeContract(where: CodeContractWhere, orderBy: [CodeContractOrder!], first: Int, after: String, lang: String): CodeContractConnection!
+  allCodeCycle(first: Int, after: String, lang: String): CodeCycleConnection!
+  allCodeDatabase(where: CodeDatabaseWhere, orderBy: [CodeDatabaseOrder!], first: Int, after: String, lang: String): CodeDatabaseConnection!
+  allCodeDebt(first: Int, after: String, lang: String): CodeDebtConnection!
+  allCodeDependency(first: Int, after: String, lang: String): CodeDependencyConnection!
+  allCodeDirectory(where: CodeDirectoryWhere, orderBy: [CodeDirectoryOrder!], first: Int, after: String, lang: String): CodeDirectoryConnection!
+  allCodeDockerfile(first: Int, after: String, lang: String): CodeDockerfileConnection!
+  allCodeDocumentSection(first: Int, after: String, lang: String): CodeDocumentSectionConnection!
+  allCodeEntryPoint(first: Int, after: String, lang: String): CodeEntryPointConnection!
+  allCodeEnvDefinition(first: Int, after: String, lang: String): CodeEnvDefinitionConnection!
+  allCodeEnvVar(first: Int, after: String, lang: String): CodeEnvVarConnection!
+  allCodeFacet(first: Int, after: String, lang: String): CodeFacetConnection!
+  allCodeField(first: Int, after: String, lang: String): CodeFieldConnection!
+  allCodeFile(where: CodeFileWhere, orderBy: [CodeFileOrder!], first: Int, after: String, lang: String): CodeFileConnection!
+  allCodeGitlink(where: CodeGitlinkWhere, orderBy: [CodeGitlinkOrder!], first: Int, after: String, lang: String): CodeGitlinkConnection!
+  allCodeHealthEndpoint(first: Int, after: String, lang: String): CodeHealthEndpointConnection!
+  allCodeHealthcheck(first: Int, after: String, lang: String): CodeHealthcheckConnection!
+  allCodeImage(first: Int, after: String, lang: String): CodeImageConnection!
+  allCodeIndex(where: CodeIndexWhere, orderBy: [CodeIndexOrder!], first: Int, after: String, lang: String): CodeIndexConnection!
+  allCodeInput(first: Int, after: String, lang: String): CodeInputConnection!
+  allCodeK8sDeployment(first: Int, after: String, lang: String): CodeK8sDeploymentConnection!
+  allCodeK8sService(first: Int, after: String, lang: String): CodeK8sServiceConnection!
+  allCodeLockfile(first: Int, after: String, lang: String): CodeLockfileConnection!
+  allCodeLogger(first: Int, after: String, lang: String): CodeLoggerConnection!
+  allCodeMakeTarget(first: Int, after: String, lang: String): CodeMakeTargetConnection!
+  allCodeManifest(first: Int, after: String, lang: String): CodeManifestConnection!
+  allCodeMessage(first: Int, after: String, lang: String): CodeMessageConnection!
+  allCodeMetric(first: Int, after: String, lang: String): CodeMetricConnection!
+  allCodeMetricsEndpoint(first: Int, after: String, lang: String): CodeMetricsEndpointConnection!
+  allCodeMigration(first: Int, after: String, lang: String): CodeMigrationConnection!
+  allCodeModule(where: CodeModuleWhere, orderBy: [CodeModuleOrder!], first: Int, after: String, lang: String): CodeModuleConnection!
+  allCodeNewcomerCommand(first: Int, after: String, lang: String): CodeNewcomerCommandConnection!
+  allCodeNewcomerFailure(first: Int, after: String, lang: String): CodeNewcomerFailureConnection!
+  allCodeNewcomerPrerequisites(first: Int, after: String, lang: String): CodeNewcomerPrerequisitesConnection!
+  allCodeOperation(where: CodeOperationWhere, orderBy: [CodeOperationOrder!], first: Int, after: String, lang: String): CodeOperationConnection!
+  allCodePackage(where: CodePackageWhere, orderBy: [CodePackageOrder!], first: Int, after: String, lang: String): CodePackageConnection!
+  allCodePort(first: Int, after: String, lang: String): CodePortConnection!
+  allCodeProbe(first: Int, after: String, lang: String): CodeProbeConnection!
+  allCodeProcess(first: Int, after: String, lang: String): CodeProcessConnection!
+  allCodeRepository(where: CodeRepositoryWhere, orderBy: [CodeRepositoryOrder!], first: Int, after: String, lang: String): CodeRepositoryConnection!
+  allCodeRoute(first: Int, after: String, lang: String): CodeRouteConnection!
+  allCodeService(where: CodeServiceWhere, orderBy: [CodeServiceOrder!], first: Int, after: String, lang: String): CodeServiceConnection!
+  allCodeSnapshot(first: Int, after: String, lang: String): CodeSnapshotConnection!
+  allCodeSqlBuild(first: Int, after: String, lang: String): CodeSqlBuildConnection!
+  allCodeSqlSink(first: Int, after: String, lang: String): CodeSqlSinkConnection!
+  allCodeSymbol(where: CodeSymbolWhere, orderBy: [CodeSymbolOrder!], first: Int, after: String, lang: String): CodeSymbolConnection!
+  allCodeTable(where: CodeTableWhere, orderBy: [CodeTableOrder!], first: Int, after: String, lang: String): CodeTableConnection!
+  allCodeTask(first: Int, after: String, lang: String): CodeTaskConnection!
+  allCodeTestCase(first: Int, after: String, lang: String): CodeTestCaseConnection!
+  allCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String, lang: String): CodeTestQuarantineConnection!
+  allCorrection(where: CorrectionWhere, orderBy: [CorrectionOrder!], first: Int, after: String, lang: String): CorrectionConnection!
+  allDocDecision(where: DocDecisionWhere, orderBy: [DocDecisionOrder!], first: Int, after: String, lang: String): DocDecisionConnection!
+  allDocRequirement(where: DocRequirementWhere, orderBy: [DocRequirementOrder!], first: Int, after: String, lang: String): DocRequirementConnection!
+  allDocRule(where: DocRuleWhere, orderBy: [DocRuleOrder!], first: Int, after: String, lang: String): DocRuleConnection!
+  allDocTerm(where: DocTermWhere, orderBy: [DocTermOrder!], first: Int, after: String, lang: String): DocTermConnection!
+  allDocUseCase(where: DocUseCaseWhere, orderBy: [DocUseCaseOrder!], first: Int, after: String, lang: String): DocUseCaseConnection!
+  allDocument(where: DocumentWhere, orderBy: [DocumentOrder!], first: Int, after: String, lang: String): DocumentConnection!
+  allDomain(where: DomainWhere, orderBy: [DomainOrder!], first: Int, after: String, lang: String): DomainConnection!
+  allEnrichment(where: EnrichmentWhere, orderBy: [EnrichmentOrder!], first: Int, after: String, lang: String): EnrichmentConnection!
+  allProblemDismissal(where: ProblemDismissalWhere, orderBy: [ProblemDismissalOrder!], first: Int, after: String, lang: String): ProblemDismissalConnection!
+  allProduct(where: ProductWhere, orderBy: [ProductOrder!], first: Int, after: String, lang: String): ProductConnection!
+  allQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String, lang: String): QuestionConnection!
+  allSource(where: SourceWhere, orderBy: [SourceOrder!], first: Int, after: String, lang: String): SourceConnection!
+  allTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String, lang: String): TaskConnection!
+  allUserGuide(where: UserGuideWhere, orderBy: [UserGuideOrder!], first: Int, after: String, lang: String): UserGuideConnection!
+  catalogueEntity(name: String!, lang: String): CatalogueEntity
+  allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
+  home(lang: String): Entity
+  search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
+  bootstrap(lang: String): Bootstrap!
+}
+
+input AdministratorGuideBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AdministratorGuideBodyLineFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input AdministratorGuideDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AdministratorGuideFileFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AdministratorGuideFindingsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input AdministratorGuideLinksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input AdministratorGuideOrder {
+  field: AdministratorGuideOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input AdministratorGuideProducerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AdministratorGuideRelatesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input AdministratorGuideSlugFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AdministratorGuideSourcesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input AdministratorGuideStatementsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input AdministratorGuideTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AdministratorGuideUngroundedFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input AdministratorGuideWhere {
+  title: AdministratorGuideTitleFilter
+  slug: AdministratorGuideSlugFilter
+  body: AdministratorGuideBodyFilter
+  bodyLine: AdministratorGuideBodyLineFilter
+  file: AdministratorGuideFileFilter
+  relates: AdministratorGuideRelatesFilter
+  sources: AdministratorGuideSourcesFilter
+  statements: AdministratorGuideStatementsFilter
+  digest: AdministratorGuideDigestFilter
+  producer: AdministratorGuideProducerFilter
+  links: AdministratorGuideLinksFilter
+  findings: AdministratorGuideFindingsFilter
+  ungrounded: AdministratorGuideUngroundedFilter
+}
+
+input CatalogueEntityDefinitionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntityGroupFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntityNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntityOrder {
+  field: CatalogueEntityOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CatalogueEntityPurposeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntityStatusFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntitySubgroupFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntityTakenFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CatalogueEntityTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CatalogueEntityWhere {
+  name: CatalogueEntityNameFilter
+  title: CatalogueEntityTitleFilter
+  definition: CatalogueEntityDefinitionFilter
+  group: CatalogueEntityGroupFilter
+  subgroup: CatalogueEntitySubgroupFilter
+  purpose: CatalogueEntityPurposeFilter
+  status: CatalogueEntityStatusFilter
+  taken: CatalogueEntityTakenFilter
+}
+
+input CodeAuthorEmailFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeAuthorNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeAuthorOrder {
+  field: CodeAuthorOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeAuthorWhere {
+  name: CodeAuthorNameFilter
+  email: CodeAuthorEmailFilter
+}
+
+input CodeChannelDefinitionFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeChannelDirectionStatusFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeChannelDirectionsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeChannelNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeChannelOrder {
+  field: CodeChannelOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeChannelPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeChannelRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeChannelWhere {
+  repository: CodeChannelRepositoryFilter
+  path: CodeChannelPathFilter
+  name: CodeChannelNameFilter
+  definition: CodeChannelDefinitionFilter
+  directions: CodeChannelDirectionsFilter
+  directionStatus: CodeChannelDirectionStatusFilter
+}
+
+input CodeColumnCheckFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeColumnDefaultFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeColumnNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeColumnNullableFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeColumnOrder {
+  field: CodeColumnOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeColumnPrimaryKeyFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeColumnTableFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeColumnTypeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeColumnUniqueFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeColumnWhere {
+  table: CodeColumnTableFilter
+  name: CodeColumnNameFilter
+  type: CodeColumnTypeFilter
+  nullable: CodeColumnNullableFilter
+  default: CodeColumnDefaultFilter
+  primaryKey: CodeColumnPrimaryKeyFilter
+  unique: CodeColumnUniqueFilter
+  check: CodeColumnCheckFilter
+}
+
+input CodeCommitAlgorithmFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeCommitAuthorDateFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeCommitAuthorOffsetMinFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input CodeCommitCommitDateFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeCommitCommitOffsetMinFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input CodeCommitHashFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeCommitOrder {
+  field: CodeCommitOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeCommitSubjectFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeCommitWhere {
+  hash: CodeCommitHashFilter
+  algorithm: CodeCommitAlgorithmFilter
+  subject: CodeCommitSubjectFilter
+  authorDate: CodeCommitAuthorDateFilter
+  authorOffsetMin: CodeCommitAuthorOffsetMinFilter
+  commitDate: CodeCommitCommitDateFilter
+  commitOffsetMin: CodeCommitCommitOffsetMinFilter
+}
+
+input CodeContractDefinitionFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeContractOrder {
+  field: CodeContractOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeContractPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeContractRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeContractWhere {
+  repository: CodeContractRepositoryFilter
+  path: CodeContractPathFilter
+  definition: CodeContractDefinitionFilter
+}
+
+input CodeDatabaseNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeDatabaseOrder {
+  field: CodeDatabaseOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeDatabaseRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeDatabaseWhere {
+  name: CodeDatabaseNameFilter
+  repository: CodeDatabaseRepositoryFilter
+}
+
+input CodeDirectoryOrder {
+  field: CodeDirectoryOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeDirectoryPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeDirectoryRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeDirectoryWhere {
+  repository: CodeDirectoryRepositoryFilter
+  path: CodeDirectoryPathFilter
+}
+
+input CodeFileAddedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeFileAddedInFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileBlobFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileBytesFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input CodeFileClassFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileCommitCountFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input CodeFileContentFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileDirectoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileFormFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileLanguageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileLanguagesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeFileLastChangeFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeFileLinesFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input CodeFileModeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileOrder {
+  field: CodeFileOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeFilePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileRemovedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CodeFileRemovedInFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeFileStateMachinesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeFileWhere {
+  stateMachines: CodeFileStateMachinesFilter
+  repository: CodeFileRepositoryFilter
+  path: CodeFilePathFilter
+  mode: CodeFileModeFilter
+  blob: CodeFileBlobFilter
+  bytes: CodeFileBytesFilter
+  form: CodeFileFormFilter
+  lines: CodeFileLinesFilter
+  content: CodeFileContentFilter
+  language: CodeFileLanguageFilter
+  languages: CodeFileLanguagesFilter
+  class: CodeFileClassFilter
+  directory: CodeFileDirectoryFilter
+  lastChange: CodeFileLastChangeFilter
+  commitCount: CodeFileCommitCountFilter
+  addedAt: CodeFileAddedAtFilter
+  addedIn: CodeFileAddedInFilter
+  removedAt: CodeFileRemovedAtFilter
+  removedIn: CodeFileRemovedInFilter
+}
+
+input CodeForeignKeyEdgeColumnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeForeignKeyEdgeConstraintFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeForeignKeyEdgeOrder {
+  field: CodeForeignKeyEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeForeignKeyEdgeTargetColumnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeForeignKeyEdgeWhere {
+  column: CodeForeignKeyEdgeColumnFilter
+  targetColumn: CodeForeignKeyEdgeTargetColumnFilter
+  constraint: CodeForeignKeyEdgeConstraintFilter
+}
+
+input CodeGitlinkCommitHashFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeGitlinkOrder {
+  field: CodeGitlinkOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeGitlinkOtherRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeGitlinkPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeGitlinkRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeGitlinkWhere {
+  repository: CodeGitlinkRepositoryFilter
+  path: CodeGitlinkPathFilter
+  otherRepository: CodeGitlinkOtherRepositoryFilter
+  commitHash: CodeGitlinkCommitHashFilter
+}
+
+input CodeHistoryEdgeOrder {
+  field: CodeHistoryEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeHistoryEdgeWalkFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input CodeHistoryEdgeWhere {
+  walk: CodeHistoryEdgeWalkFilter
+}
+
+input CodeIndexColumnsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeIndexNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeIndexOrder {
+  field: CodeIndexOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeIndexTableFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeIndexUniqueFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeIndexWhere {
+  table: CodeIndexTableFilter
+  name: CodeIndexNameFilter
+  unique: CodeIndexUniqueFilter
+  columns: CodeIndexColumnsFilter
+  where: CodeIndexWhereFilter
+}
+
+input CodeIndexWhereFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeModuleOrder {
+  field: CodeModuleOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeModulePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeModuleRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeModuleStateMachinesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeModuleWhere {
+  repository: CodeModuleRepositoryFilter
+  path: CodeModulePathFilter
+  stateMachines: CodeModuleStateMachinesFilter
+}
+
+input CodeOperationDefinitionFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeOperationNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeOperationOrder {
+  field: CodeOperationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeOperationPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeOperationRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeOperationWhere {
+  repository: CodeOperationRepositoryFilter
+  path: CodeOperationPathFilter
+  name: CodeOperationNameFilter
+  definition: CodeOperationDefinitionFilter
+}
+
+input CodePackageOrder {
+  field: CodePackageOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodePackagePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodePackageRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodePackageStateMachinesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodePackageWhere {
+  repository: CodePackageRepositoryFilter
+  path: CodePackagePathFilter
+  stateMachines: CodePackageStateMachinesFilter
+}
+
+input CodeParentEdgeOrder {
+  field: CodeParentEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeParentEdgePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input CodeParentEdgeWhere {
+  position: CodeParentEdgePositionFilter
+}
+
+input CodeRepositoryDefaultBranchFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeRepositoryHistoryShallowFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input CodeRepositoryNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeRepositoryOrder {
+  field: CodeRepositoryOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeRepositoryUrlFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeRepositoryWhere {
+  name: CodeRepositoryNameFilter
+  url: CodeRepositoryUrlFilter
+  defaultBranch: CodeRepositoryDefaultBranchFilter
+  historyShallow: CodeRepositoryHistoryShallowFilter
+}
+
+input CodeServiceOrder {
+  field: CodeServiceOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeServicePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeServiceRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeServiceStateMachinesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeServiceWhere {
+  repository: CodeServiceRepositoryFilter
+  path: CodeServicePathFilter
+  stateMachines: CodeServiceStateMachinesFilter
+}
+
+input CodeSymbolNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeSymbolOrder {
+  field: CodeSymbolOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeSymbolPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeSymbolRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeSymbolStateMachinesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeSymbolWhere {
+  repository: CodeSymbolRepositoryFilter
+  path: CodeSymbolPathFilter
+  name: CodeSymbolNameFilter
+  stateMachines: CodeSymbolStateMachinesFilter
+}
+
+input CodeTableDatabaseFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTableNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTableOrder {
+  field: CodeTableOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeTableSchemaFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTableUnsupportedFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTableWhere {
+  database: CodeTableDatabaseFilter
+  name: CodeTableNameFilter
+  schema: CodeTableSchemaFilter
+  unsupported: CodeTableUnsupportedFilter
+}
+
+input CodeTestQuarantineLatestResultFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeTestQuarantineNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTestQuarantineOrder {
+  field: CodeTestQuarantineOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeTestQuarantinePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTestQuarantineQuarantineReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTestQuarantineRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTestQuarantineWhere {
+  repository: CodeTestQuarantineRepositoryFilter
+  path: CodeTestQuarantinePathFilter
+  name: CodeTestQuarantineNameFilter
+  quarantineReason: CodeTestQuarantineQuarantineReasonFilter
+  latestResult: CodeTestQuarantineLatestResultFilter
+}
+
+input CodeTouchedEdgeAddedFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input CodeTouchedEdgeChangeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeTouchedEdgeOrder {
+  field: CodeTouchedEdgeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeTouchedEdgeRemovedFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input CodeTouchedEdgeWhere {
+  change: CodeTouchedEdgeChangeFilter
+  added: CodeTouchedEdgeAddedFilter
+  removed: CodeTouchedEdgeRemovedFilter
+}
+
+input CorrectionBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CorrectionFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CorrectionLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CorrectionOrder {
+  field: CorrectionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CorrectionTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CorrectionWhere {
+  legacyId: CorrectionLegacyIdFilter
+  title: CorrectionTitleFilter
+  body: CorrectionBodyFilter
+  front: CorrectionFrontFilter
+}
+
+input DocDecisionBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocDecisionFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocDecisionLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocDecisionOrder {
+  field: DocDecisionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DocDecisionTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocDecisionWhere {
+  legacyId: DocDecisionLegacyIdFilter
+  title: DocDecisionTitleFilter
+  body: DocDecisionBodyFilter
+  front: DocDecisionFrontFilter
+}
+
+input DocRequirementBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocRequirementFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocRequirementLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocRequirementOrder {
+  field: DocRequirementOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DocRequirementTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocRequirementWhere {
+  legacyId: DocRequirementLegacyIdFilter
+  title: DocRequirementTitleFilter
+  body: DocRequirementBodyFilter
+  front: DocRequirementFrontFilter
+}
+
+input DocRuleBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocRuleFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocRuleLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocRuleOrder {
+  field: DocRuleOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DocRuleTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocRuleWhere {
+  legacyId: DocRuleLegacyIdFilter
+  title: DocRuleTitleFilter
+  body: DocRuleBodyFilter
+  front: DocRuleFrontFilter
+}
+
+input DocTermBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocTermCodeFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocTermDefinitionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocTermFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocTermLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocTermNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocTermOrder {
+  field: DocTermOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DocTermSynonymsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocTermTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocTermUsagesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocTermWhere {
+  legacyId: DocTermLegacyIdFilter
+  title: DocTermTitleFilter
+  body: DocTermBodyFilter
+  front: DocTermFrontFilter
+  name: DocTermNameFilter
+  definition: DocTermDefinitionFilter
+  synonyms: DocTermSynonymsFilter
+  code: DocTermCodeFilter
+  usages: DocTermUsagesFilter
+}
+
+input DocUseCaseBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocUseCaseFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocUseCaseLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocUseCaseOrder {
+  field: DocUseCaseOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DocUseCaseTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocUseCaseWhere {
+  legacyId: DocUseCaseLegacyIdFilter
+  title: DocUseCaseTitleFilter
+  body: DocUseCaseBodyFilter
+  front: DocUseCaseFrontFilter
+}
+
+input DocumentAnchorsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocumentCommitFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocumentLinksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocumentMarkdownFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocumentOrder {
+  field: DocumentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DocumentPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocumentRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocumentWhere {
+  commit: DocumentCommitFilter
+  path: DocumentPathFilter
+  repository: DocumentRepositoryFilter
+  markdown: DocumentMarkdownFilter
+  anchors: DocumentAnchorsFilter
+  links: DocumentLinksFilter
+}
+
+input DomainBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DomainBodyLineFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input DomainDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DomainFileFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DomainFindingsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DomainLinksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DomainOrder {
+  field: DomainOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input DomainProducerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DomainRelatesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DomainSlugFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DomainSourcesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DomainStatementsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DomainTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DomainUngroundedFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DomainWhere {
+  title: DomainTitleFilter
+  slug: DomainSlugFilter
+  body: DomainBodyFilter
+  bodyLine: DomainBodyLineFilter
+  file: DomainFileFilter
+  relates: DomainRelatesFilter
+  sources: DomainSourcesFilter
+  statements: DomainStatementsFilter
+  digest: DomainDigestFilter
+  producer: DomainProducerFilter
+  links: DomainLinksFilter
+  findings: DomainFindingsFilter
+  ungrounded: DomainUngroundedFilter
+}
+
+input EnrichmentBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input EnrichmentBodyLineFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input EnrichmentDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input EnrichmentFileFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input EnrichmentFindingsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input EnrichmentLinksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input EnrichmentOrder {
+  field: EnrichmentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input EnrichmentProducerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input EnrichmentRelatesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input EnrichmentSlugFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input EnrichmentSourcesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input EnrichmentStatementsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input EnrichmentTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input EnrichmentUngroundedFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input EnrichmentWhere {
+  title: EnrichmentTitleFilter
+  slug: EnrichmentSlugFilter
+  body: EnrichmentBodyFilter
+  bodyLine: EnrichmentBodyLineFilter
+  file: EnrichmentFileFilter
+  relates: EnrichmentRelatesFilter
+  sources: EnrichmentSourcesFilter
+  statements: EnrichmentStatementsFilter
+  digest: EnrichmentDigestFilter
+  producer: EnrichmentProducerFilter
+  links: EnrichmentLinksFilter
+  findings: EnrichmentFindingsFilter
+  ungrounded: EnrichmentUngroundedFilter
+}
+
+input ProblemDismissalAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input ProblemDismissalByFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProblemDismissalDismissalReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProblemDismissalFileFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProblemDismissalIdentityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProblemDismissalOrder {
+  field: ProblemDismissalOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ProblemDismissalPlaceFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProblemDismissalRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProblemDismissalWhere {
+  rule: ProblemDismissalRuleFilter
+  identity: ProblemDismissalIdentityFilter
+  place: ProblemDismissalPlaceFilter
+  dismissalReason: ProblemDismissalDismissalReasonFilter
+  by: ProblemDismissalByFilter
+  at: ProblemDismissalAtFilter
+  file: ProblemDismissalFileFilter
+}
+
+input ProductBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProductBodyLineFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input ProductDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProductFileFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProductFindingsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductLinksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductOrder {
+  field: ProductOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ProductProducerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProductRelatesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductSlugFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProductSourcesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductStatementsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProductUngroundedFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductWhere {
+  title: ProductTitleFilter
+  slug: ProductSlugFilter
+  body: ProductBodyFilter
+  bodyLine: ProductBodyLineFilter
+  file: ProductFileFilter
+  relates: ProductRelatesFilter
+  sources: ProductSourcesFilter
+  statements: ProductStatementsFilter
+  digest: ProductDigestFilter
+  producer: ProductProducerFilter
+  links: ProductLinksFilter
+  findings: ProductFindingsFilter
+  ungrounded: ProductUngroundedFilter
+}
+
+input QuestionBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input QuestionFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input QuestionLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input QuestionOrder {
+  field: QuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input QuestionTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input QuestionWhere {
+  legacyId: QuestionLegacyIdFilter
+  title: QuestionTitleFilter
+  body: QuestionBodyFilter
+  front: QuestionFrontFilter
+}
+
+input SourceCommitFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceOrder {
+  field: SourceOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SourcePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceSourceTextFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceWhere {
+  repository: SourceRepositoryFilter
+  path: SourcePathFilter
+  sourceText: SourceSourceTextFilter
+  commit: SourceCommitFilter
+}
+
+input TaskBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TaskFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TaskLegacyIdFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TaskOrder {
+  field: TaskOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input TaskTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TaskWhere {
+  legacyId: TaskLegacyIdFilter
+  title: TaskTitleFilter
+  body: TaskBodyFilter
+  front: TaskFrontFilter
+}
+
+input UserGuideBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UserGuideBodyLineFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input UserGuideDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UserGuideFileFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UserGuideFindingsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input UserGuideLinksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input UserGuideOrder {
+  field: UserGuideOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input UserGuideProducerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UserGuideRelatesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input UserGuideSlugFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UserGuideSourcesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input UserGuideStatementsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input UserGuideTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UserGuideUngroundedFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input UserGuideWhere {
+  title: UserGuideTitleFilter
+  slug: UserGuideSlugFilter
+  body: UserGuideBodyFilter
+  bodyLine: UserGuideBodyLineFilter
+  file: UserGuideFileFilter
+  relates: UserGuideRelatesFilter
+  sources: UserGuideSourcesFilter
+  statements: UserGuideStatementsFilter
+  digest: UserGuideDigestFilter
+  producer: UserGuideProducerFilter
+  links: UserGuideLinksFilter
+  findings: UserGuideFindingsFilter
+  ungrounded: UserGuideUngroundedFilter
+}
+
+enum AdministratorGuideOrderField {
+  title
+  slug
+  body
+  bodyLine
+  file
+  relates
+  sources
+  statements
+  digest
+  producer
+  links
+  findings
+  ungrounded
+}
+
+enum CatalogueEntityOrderField {
+  name
+  title
+  definition
+  group
+  subgroup
+  purpose
+  status
+  taken
+}
+
+enum CodeAuthorOrderField {
+  name
+  email
+}
+
+enum CodeChannelOrderField {
+  repository
+  path
+  name
+  definition
+  directions
+  directionStatus
+}
+
+enum CodeColumnOrderField {
+  table
+  name
+  type
+  nullable
+  default
+  primaryKey
+  unique
+  check
+}
+
+enum CodeCommitOrderField {
+  hash
+  algorithm
+  subject
+  authorDate
+  authorOffsetMin
+  commitDate
+  commitOffsetMin
+}
+
+enum CodeContractOrderField {
+  repository
+  path
+  definition
+}
+
+enum CodeDatabaseOrderField {
+  name
+  repository
+}
+
+enum CodeDirectoryOrderField {
+  repository
+  path
+}
+
+enum CodeFileOrderField {
+  stateMachines
+  repository
+  path
+  mode
+  blob
+  bytes
+  form
+  lines
+  content
+  language
+  languages
+  class
+  directory
+  lastChange
+  commitCount
+  addedAt
+  addedIn
+  removedAt
+  removedIn
+}
+
+enum CodeForeignKeyEdgeOrderField {
+  column
+  targetColumn
+  constraint
+}
+
+enum CodeGitlinkOrderField {
+  repository
+  path
+  otherRepository
+  commitHash
+}
+
+enum CodeHistoryEdgeOrderField {
+  walk
+}
+
+enum CodeIndexOrderField {
+  table
+  name
+  unique
+  columns
+  where
+}
+
+enum CodeModuleOrderField {
+  repository
+  path
+  stateMachines
+}
+
+enum CodeOperationOrderField {
+  repository
+  path
+  name
+  definition
+}
+
+enum CodePackageOrderField {
+  repository
+  path
+  stateMachines
+}
+
+enum CodeParentEdgeOrderField {
+  position
+}
+
+enum CodeRepositoryOrderField {
+  name
+  url
+  defaultBranch
+  historyShallow
+}
+
+enum CodeServiceOrderField {
+  repository
+  path
+  stateMachines
+}
+
+enum CodeSymbolOrderField {
+  repository
+  path
+  name
+  stateMachines
+}
+
+enum CodeTableOrderField {
+  database
+  name
+  schema
+  unsupported
+}
+
+enum CodeTestQuarantineOrderField {
+  repository
+  path
+  name
+  quarantineReason
+  latestResult
+}
+
+enum CodeTouchedEdgeOrderField {
+  change
+  added
+  removed
+}
+
+enum CorrectionOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum DocDecisionOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum DocRequirementOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum DocRuleOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum DocTermOrderField {
+  legacyId
+  title
+  body
+  front
+  name
+  definition
+  synonyms
+  code
+  usages
+}
+
+enum DocUseCaseOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum DocumentOrderField {
+  commit
+  path
+  repository
+  markdown
+  anchors
+  links
+}
+
+enum DomainOrderField {
+  title
+  slug
+  body
+  bodyLine
+  file
+  relates
+  sources
+  statements
+  digest
+  producer
+  links
+  findings
+  ungrounded
+}
+
+enum EnrichmentOrderField {
+  title
+  slug
+  body
+  bodyLine
+  file
+  relates
+  sources
+  statements
+  digest
+  producer
+  links
+  findings
+  ungrounded
+}
+
+enum NullsOrder {
+  FIRST
+  LAST
+}
+
+enum OrderDirection {
+  ASC
+  DESC
+}
+
+enum ProblemDismissalOrderField {
+  rule
+  identity
+  place
+  dismissalReason
+  by
+  at
+  file
+}
+
+enum ProductOrderField {
+  title
+  slug
+  body
+  bodyLine
+  file
+  relates
+  sources
+  statements
+  digest
+  producer
+  links
+  findings
+  ungrounded
+}
+
+enum QuestionOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum SourceOrderField {
+  repository
+  path
+  sourceText
+  commit
+}
+
+enum TaskOrderField {
+  legacyId
+  title
+  body
+  front
+}
+
+enum UserGuideOrderField {
+  title
+  slug
+  body
+  bodyLine
+  file
+  relates
+  sources
+  statements
+  digest
+  producer
+  links
+  findings
+  ungrounded
+}

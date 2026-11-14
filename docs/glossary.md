@@ -14,6 +14,23 @@ listing a product's several repositories comes with `live-graph` (decision
 0013, amended 2026-09-30).
 _Avoid_: landscape, workspace, model (for the whole)
 
+**Entity** (ru: сущность):
+One thing in the graph: the file `src/graph/write.ts`, the repository madarch,
+the task madarch-64o5.65, a decision, a glossary term, or a kind itself.
+Every entity has a stable id, is of one kind, holds its values
+as the opinions of the producers that stated them, and has its own page:
+everything the wiki shows is an entity (decisions 0034, 0036).
+_Avoid_: record, instance, item
+
+**Kind** (ru: вид; `kind` in code and manifests):
+What the catalogue declares a product can hold: File, Repository, Commit,
+Task, Decision. A kind carries its definition, its fields, its relations, the
+kinds it derives from and the plugins that fill it; the starter catalogue
+declares 520. Every entity is of exactly one kind (the file
+`src/graph/write.ts` is of the kind File). A kind is itself an entity of the
+graph, a catalogue entity (ru: сущность каталога), with its own page.
+_Avoid_: entity type, type (outside the GraphQL schema)
+
 **Intended model**:
 What people and agents declare the architecture to be: elements, interfaces,
 relations, zones, data categories, data entities, scenarios, environments and
@@ -229,13 +246,12 @@ repository.
 A module element grouping a core's groups of modules when one page would hold
 too many of them; a modelling choice, not a kind of element.
 
-**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/wiki/archify.ts`):
+**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/graphql/`):
 A product's wiki. The served wiki is madarch's own thin app (`wiki/app/`),
 served by a local madarch through the `madarch init` and `madarch serve`
-commands (`src/product-wiki/`), showing the product's document pages read from
-its working tree and its graph pages read from the fill's record store; the
-archify renderer (`src/wiki/archify.ts`) draws the architecture pages. (Decision
-0018.)
+commands (`src/product-wiki/`). Every page is a template the app runs over one
+GraphQL API derived from the manifest; everything it shows is an entity of the
+graph. (Decisions 0018, 0036.)
 
 **Product repository**:
 One product's knowledge kept as Markdown and YAML in a git repository of its
@@ -283,9 +299,12 @@ every ask and shown at `/doc?path=<its path within the product>`; or a graph
 page, a view of one page-worthy graph node read from the fill's fact store,
 never a file in git, shown at `/e/<id>` (decision 0026, "Pages").
 
-**Diagram tab**:
-One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify
-(drawn by the renderer kept in `vendor/archify/`, at LikeC4's positions).
+**Diagram renderer** (`vendor/archify/`):
+The vendored archify renderer that draws the wiki's architecture and relation
+diagrams at LikeC4's positions; the app's build bundles it into the wiki's
+assets (`scripts/build-wiki-archify.ts`). A template's diagram component draws
+in one of three formats: LikeC4 (interactive), Mermaid, or archify (decision
+0036, section 7).
 
 **Open question**:
 What the fill does not know and a person or an agent must settle: a `question`

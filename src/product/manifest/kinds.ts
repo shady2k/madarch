@@ -33,7 +33,6 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
-import { TEMPLATE_CONTRACT } from '../../plugin/template-declarations.js';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument, isAlias, visit, type Document } from 'yaml';
@@ -44,7 +43,6 @@ import { lineForPath, lineLocator } from '../../model/yaml-position.js';
 import { catalogFindings, CATALOG_ONLY_FIELDS, readCatalogKind, readCatalogSchema, type CatalogEntry, type CatalogSchema } from '../../knowledge/catalog.js';
 import { WORKFLOWS_FILE, parseWorkflows, type WorkflowEntry, type WorkflowFinding } from './workflows.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from '../../knowledge/semantics.js';
-import { BLOCK_NAMES } from '../../knowledge/template.js';
 import { PREDICATES } from '../../problems/rules.js';
 import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../../problems/types.js';
 import { Value } from 'typebox/value';
@@ -136,6 +134,16 @@ export interface FieldDecl {
   readonly binding?: FieldBinding;
   /** The line the field stands at, for a finding the whole contract's check makes. */
   readonly line?: number;
+}
+
+/** One class a kind's entities take (`classes:` of a kind declaration): a name, the path patterns it covers and, for one rule, the default. */
+export interface KindClassRule {
+  readonly name: string;
+  /** The path patterns (the manifest's own: `*` within a folder, `**` across folders) whose entities take the class. */
+  readonly paths?: readonly string[];
+  /** The class of every entity no earlier rule names: at most one rule declares it. */
+  readonly default?: true;
+  readonly line: number;
 }
 
 /** One field a plugin declares for one of its output kinds (decision 0035, item 18). */
@@ -266,6 +274,11 @@ export interface FactDecl {
   readonly buckets?: readonly number[];
   readonly limit?: number;
   readonly audience?: readonly string[];
+  /**
+   * The entities the fact counts: each field named here must hold the value, and `null` matches a field no opinion
+   * states (a current file's `removed_at`, for example). A fact without it counts every entity of its kind.
+   */
+  readonly where?: Readonly<Record<string, string | number | boolean | null>>;
 }
 
 export interface PurposeDecl {
@@ -280,8 +293,6 @@ export interface KindDecl {
   audience?: readonly string[];
   facts?: readonly FactDecl[];
   name: string;
-  /** The template's path in the product repository, `/`-separated. */
-  template: string;
   /** `document`: the entities are identified sections of Markdown documents (use cases, rules, decisions, terms). */
   source: 'graph' | 'markdown' | 'document';
   /** The group the navigation and the catalogue put the kind in. */
@@ -363,6 +374,12 @@ export interface KindDecl {
   capability?: string;
   /** The kinds whose discovery must finish before this kind's turn (decision 0035, item 11). */
   derivesFrom?: readonly string[];
+  /**
+   * The classes a kind's entities take, decided by path patterns the catalogue declares (a file's code, test,
+   * documentation, dependency or generated class): the first rule whose pattern matches names the class, and the one
+   * default rule names the class of every other entity.
+   */
+  classes?: readonly KindClassRule[];
   /** Explicit ordinary plugin output for these fields; overlap requires named refinements. */
   agent?: { readonly plugin: string; readonly fields: '*' | readonly string[]; readonly refines?: readonly string[] };
   line: number;
@@ -440,9 +457,6 @@ export type SystemPart = (typeof SYSTEM_PARTS)[number];
 const DEFINITION_FORMS = ['contract', 'operation', 'channel'] as const;
 export type DefinitionForm = (typeof DEFINITION_FORMS)[number];
 
-/** The forms a definition is read as a row of: a contract's members, beside the contract itself. */
-const DEFINITION_MEMBER_FORMS: readonly DefinitionForm[] = ['operation', 'channel'];
-
 /**
  * The form a kind's listing page takes (`listing:` of a kind declaration): the plain table of names and places when the
  * field is absent, the operations table, which names what declares, serves and calls each one (`operations`), or the
@@ -510,7 +524,7 @@ export const EVERY_ROLE = 'everything';
 interface RoleDecl {
   /** The role's id, as the product's manifest names it (product, analyst, designer, security-engineer ...). */
   name: string;
-  /** The blocks of a template that stand open for the role (block names); the others stay on the page, collapsed. Absent: every block is open. */
+  /** The page sections that stand open for the role, as the product's templates name them (decision 0036, section 6 names them per section). */
   open?: readonly string[];
   /** The groups the navigation lists first for the role, in this order. */
   lead: readonly string[];
@@ -543,12 +557,6 @@ export interface KindsManifest {
   edges?: ReadonlyMap<string, EdgeDecl>;
   /** The plugins the product holds, by id (decision 0035, item 11). */
   plugins?: ReadonlyMap<string, PluginDecl>;
-  /**
-   * Every template path a kind declaration names, including a declaration whose template is missing (or whose other
-   * fields are invalid) and so has no `KindDecl`. The status key reads the paths a declaration names, not only the paths
-   * of the kinds that parsed: creating the missing template changes the answer (madarch-u3vw.8).
-   */
-  declaredTemplates?: readonly string[];
   /** The groups of kinds, in the manifest's order. */
   groups: ReadonlyMap<string, GroupDecl>;
   /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
@@ -593,9 +601,9 @@ export type KindsRead =
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 const KIND_KEYS = new Set([
-  'purpose', 'audience', 'facts', 'template', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
+  'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
 ]);
@@ -603,78 +611,6 @@ const KIND_KEYS = new Set([
 /** Whether a value is one of the shapes a kind's history page can have. */
 function isHistoryShape(value: unknown): value is HistoryShape {
   return typeof value === 'string' && (HISTORY_SHAPES as readonly string[]).includes(value);
-}
-
-/**
- * What the manifest says of one kind, for the modules that draw a page: each reader asks the declaration rather than a
- * kind's name, so a product that renames or removes a kind keeps exactly the views, the listing and the navigation its
- * manifest declares (decision 0033, the owner's rule that the engine holds no product data). A kind the manifest does not
- * declare has none of them.
- */
-function kindDeclOf(manifest: KindsManifest | undefined, kind: string): KindDecl | undefined {
-  return manifest?.kinds?.get(kind);
-}
-
-/**
- * The sentence naming where a kind's declaration stands and what it does not declare: the modules that draw a page read
- * it instead of choosing by a kind's name, so a reader is told what to declare in the product's own manifest (file and
- * line), never that the engine lacks a kind (decision 0033).
- */
-export function declarationMissing(manifest: KindsManifest | undefined, kind: string, declaration: string, what: string): string {
-  const decl = kindDeclOf(manifest, kind);
-  const file = manifest?.file ?? '';
-  const named = file === '' ? 'the manifest' : `the manifest ${file}`;
-  if (decl === undefined) return `${what}: ${named} declares no kind ${kind}`;
-  // A declaration the reader holds always names its line; one a fixture hands in without a line is named by the file
-  // alone, so a refusal never says ":undefined".
-  const at = Number.isFinite(decl.line) ? `${named}${file === '' ? ' line' : ':'}${decl.line}` : named;
-  return `${what}: ${at} gives the kind ${kind} no ${declaration}`;
-}
-
-/** Whether the manifest gives a kind one of the views a page may draw of its entities (`views:`). */
-export function kindDraws(manifest: KindsManifest | undefined, kind: string, view: KindView): boolean {
-  return kindDeclOf(manifest, kind)?.views?.includes(view) === true;
-}
-
-/** How the ER view reads a kind's entities (`er:`), when the manifest gives the kind one. */
-export function erFormOf(manifest: KindsManifest | undefined, kind: string): ErForm | undefined {
-  return kindDeclOf(manifest, kind)?.er;
-}
-
-/** How the chain a page draws starts at a kind's entities (`sequence:`), when the manifest gives the kind one. */
-export function sequenceFormOf(manifest: KindsManifest | undefined, kind: string): SequenceForm | undefined {
-  return kindDeclOf(manifest, kind)?.sequence;
-}
-
-/** The part a kind's entities play in the system view (`system:`), when the manifest gives the kind one. */
-export function systemPartOf(manifest: KindsManifest | undefined, kind: string): SystemPart | undefined {
-  return kindDeclOf(manifest, kind)?.system;
-}
-
-/** The kinds that play a part in the system view (`system: <part>`), in the manifest's order. */
-export function systemKindsOf(manifest: KindsManifest | undefined, part: SystemPart): string[] {
-  return [...(manifest?.kinds?.values() ?? [])].filter((decl) => decl.system === part).map((decl) => decl.name);
-}
-
-/** The first kind the manifest gives a part in the system view, when it declares one. */
-export function systemKindOf(manifest: KindsManifest | undefined, part: SystemPart): string | undefined {
-  return systemKindsOf(manifest, part)[0];
-}
-
-/** What the definition block finds in a kind's entities (`definition-block:`), when the manifest gives the kind one. */
-export function definitionBlockFormOf(manifest: KindsManifest | undefined, kind: string): DefinitionForm | undefined {
-  return kindDeclOf(manifest, kind)?.definitionBlock;
-}
-
-/** Whether the kind's entities are a row of a contract's definition (`definition-block: operation` or `definition-block: channel`). */
-export function definitionBlockMemberOf(manifest: KindsManifest | undefined, kind: string): boolean {
-  const form = definitionBlockFormOf(manifest, kind);
-  return form !== undefined && DEFINITION_MEMBER_FORMS.includes(form);
-}
-
-/** The form a kind's listing page takes (`listing:`), when the manifest gives the kind one. */
-export function listingFormOf(manifest: KindsManifest | undefined, kind: string): ListingForm | undefined {
-  return kindDeclOf(manifest, kind)?.listing;
 }
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
@@ -857,7 +793,7 @@ function parseProblems(
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, roles: new Map(), properties: new Map(), kinds: new Map(), declaredTemplates: [], groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
+  return { file, roles: new Map(), properties: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
 /**
@@ -1440,7 +1376,6 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         };
         const open = list('open');
         const lead = list('lead');
-        for (const block of open ?? []) if (!(BLOCK_NAMES as readonly string[]).includes(block)) findings.push({ file, line: at(['roles', name, 'open']), message: `role "${name}": "${block}" is not a block of the library (${BLOCK_NAMES.join(', ')})` });
         for (const group of lead ?? []) {
           if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
           else declaredLeads.add(group);
@@ -1505,7 +1440,6 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     return { ...nothing(file, findings), groups, roles, excludeDocuments, ignoreBlocks: ignoredBlocks };
   }
   const kinds = new Map<string, KindDecl>();
-  const declaredTemplates: string[] = [];
   // A kind's missing translation is a finding, but not a reason to leave its page out: the kinds a product has not
   // translated yet still show, marked as untranslated. These findings join the manifest's at the end of the read.
   const wordsFound: Finding[] = [];
@@ -1559,28 +1493,19 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const audience = audienceOf(decl['audience'], ['audience']);
     const purpose = decl['purpose'];
     if ((rawPurposes !== undefined || purpose !== undefined) && (typeof purpose !== 'string' || !purposes.has(purpose))) catalogProblem(['purpose'], `purpose names a declared purpose (${[...purposes.keys()].join(', ')}), got ${JSON.stringify(purpose)}`);
+    // The catalogue's row carries the purpose and audience its file declares, so a kind the product does not take
+    // still says what it is for and whom it serves (decision 0036, the catalogue entity's fields).
+    const catalogEntry = catalogEntries.get(name);
+    if (catalogEntry !== undefined && (typeof purpose === 'string' || audience !== undefined)) {
+      catalogEntries.set(name, { ...catalogEntry, ...(typeof purpose === 'string' ? { purpose } : {}), ...(audience === undefined ? {} : { audience }) });
+    }
     const policy = typeof decl['template-policy'] === 'string' ? decl['template-policy'] : 'page';
     if (policy === 'none') {
-      for (const field of ['template', 'source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
+      for (const field of ['source', 'folder', 'file', 'member', 'details', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav'] as const) if (decl[field] !== undefined) catalogProblem([field], `"${field}" belongs to a kind that shows a page, and "template-policy" is "none"`);
       continue;
     }
     const source = decl['source'];
     if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
-    const named = decl['template'];
-    // The stamp follows every path a declaration names, even when the declaration is refused below: a template created
-    // for a kind that named it missing changes the manifest's findings and the kinds the wiki shows (madarch-u3vw.8).
-    if (typeof named === 'string' && named.trim() !== '' && insideFolder(productFolder, named)) declaredTemplates.push(named);
-    let template = named;
-    if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
-    else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
-    else if (!files.has(template)) {
-      // A kind that names a Markdown template of 0029 and a product that holds the Liquid template of the same name (the
-      // starter set of 0032 was written beside the old files) is drawn by that one: the rename is madarch's, and a
-      // product need not edit its manifest for it (madarch-u3vw.1).
-      const liquid = typeof template === 'string' && template.endsWith('.md') ? `${template.slice(0, -'.md'.length)}.liquid` : undefined;
-      if (liquid !== undefined && files.has(liquid)) template = liquid;
-      else problem(['template'], `the template "${String(named)}" does not exist in the product repository`);
-    }
     const importFolder = decl['import-folder'];
     const importFile = decl['import-file'];
     for (const [field, path] of [['import-folder', importFolder], ['import-file', importFile]] as const) {
@@ -1776,7 +1701,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       const path = ['facts', index] as (string | number)[];
       if (!isRecord(raw)) { problem(path, 'a fact is a mapping'); return; }
       const start = findings.length;
-      for (const key of Object.keys(raw)) if (!['id', 'labels', 'measure', 'display', 'field', 'buckets', 'limit', 'audience'].includes(key)) problem([...path, key], `unknown fact field "${key}"`);
+      for (const key of Object.keys(raw)) if (!['id', 'labels', 'measure', 'display', 'field', 'buckets', 'limit', 'audience', 'where'].includes(key)) problem([...path, key], `unknown fact field "${key}"`);
       if (typeof raw['id'] !== 'string' || !/^[a-z][a-z0-9-]*$/u.test(raw['id']) || facts.some((fact) => fact.id === raw['id'])) problem([...path, 'id'], 'a fact id is a unique lower-case identifier');
       const labels = raw['labels'];
       if (!isRecord(labels) || Object.keys(labels).some((key) => !LABEL_LANGUAGES.includes(key)) || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || (labels[lang] as string).trim() === '')) problem([...path, 'labels'], `fact labels must name every language (${LABEL_LANGUAGES.join(', ')})`);
@@ -1798,7 +1723,22 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (typeof raw['limit'] !== 'number' || !Number.isInteger(raw['limit']) || raw['limit'] < 1) problem([...path, 'limit'], 'top-n requires a positive integer limit');
       } else if (raw['limit'] !== undefined) problem([...path, 'limit'], 'only top-n declares a limit');
       const factAudience = audienceOf(raw['audience'], [...path, 'audience']);
-      if (start === findings.length) facts.push({ ...raw, ...(factAudience === undefined ? {} : { audience: factAudience }) } as unknown as FactDecl);
+      // A fact's population: a field's value, where null names a field no opinion states (a current file has no removal).
+      const where = raw['where'];
+      let condition: Readonly<Record<string, string | number | boolean | null>> | undefined;
+      if (where !== undefined) {
+        if (!isRecord(where) || Object.keys(where).length === 0) problem([...path, 'where'], '"where" is a non-empty mapping of a declared field to the value an entity must hold');
+        else {
+          const held: Record<string, string | number | boolean | null> = {};
+          for (const [field, value] of Object.entries(where)) {
+            if (!fields.some((declared) => declared.name === field)) problem([...path, 'where', field], `"where" names the field ${JSON.stringify(field)}, and the kind declares no such field`);
+            else if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') problem([...path, 'where', field], '"where" compares a field with a text, a number, a boolean or null');
+            else held[field] = value;
+          }
+          if (Object.keys(held).length === Object.keys(where).length) condition = held;
+        }
+      }
+      if (start === findings.length) facts.push({ ...raw, ...(factAudience === undefined ? {} : { audience: factAudience }), ...(condition === undefined ? {} : { where: condition }) } as unknown as FactDecl);
     });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
@@ -1822,6 +1762,30 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (!validRefines) problem(['agent', 'refines'], '"refines" is a list of plugin names');
         if (validPlugin && validFields && validRefines) agent = { plugin, fields: agentFields, ...(refines === undefined ? {} : { refines }) };
       }
+    }
+    // The classes a kind's entities take: the catalogue's own patterns, not an engine list. The first matching rule
+    // names a class, and one default rule names every other entity.
+    const classes: KindClassRule[] = [];
+    const rawClasses = decl['classes'];
+    if (rawClasses !== undefined) {
+      if (!Array.isArray(rawClasses) || rawClasses.length === 0) problem(['classes'], '"classes" is a list of { name, paths?, default? }');
+      else rawClasses.forEach((entry: unknown, index: number) => {
+        const path = ['classes', index] as (string | number)[];
+        const body = entry as Record<string, unknown> | null;
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) { problem(path, 'a class is { name, paths?, default? }'); return; }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'paths' && key !== 'default');
+        if (extra.length > 0) { problem([...path, extra[0]!], `"${extra[0]}" is not a field of a class: the fields are name, paths and default`); return; }
+        const name = body['name'];
+        if (typeof name !== 'string' || !/^[a-z][a-z0-9_-]*$/u.test(name)) { problem([...path, 'name'], '"name" is the class a rule names: a lower-case identifier such as code, test, documentation, dependency or generated'); return; }
+        if (classes.some((rule) => rule.name === name)) { problem([...path, 'name'], `the class ${JSON.stringify(name)} is declared twice`); return; }
+        const paths = body['paths'];
+        if (paths !== undefined && (!Array.isArray(paths) || paths.length === 0 || paths.some((one) => typeof one !== 'string' || one.trim() === ''))) { problem([...path, 'paths'], '"paths" is a list of path patterns, such as "**/node_modules/**"'); return; }
+        if (body['default'] !== undefined && body['default'] !== true) { problem([...path, 'default'], '"default" is true on the one rule that names every entity no earlier rule names, and absent otherwise'); return; }
+        if (body['default'] === true && classes.some((rule) => rule.default === true)) { problem([...path, 'default'], 'one rule is the default class: a second default rule leaves no rule to decide the order'); return; }
+        if (paths === undefined && body['default'] !== true) { problem([...path], 'a class names the path patterns it covers, or is the default'); return; }
+        classes.push({ name, ...(Array.isArray(paths) ? { paths: paths as string[] } : {}), ...(body['default'] === true ? { default: true as const } : {}), line: at(path) });
+      });
+      if (classes.length > 0 && !classes.some((rule) => rule.default === true)) problem(['classes'], 'one class is the default: true, so every entity has a class');
     }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
@@ -1848,7 +1812,6 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     if (findings.length > before) continue;
     kinds.set(name, {
       name,
-      template: template as string,
       source: source as 'graph' | 'markdown' | 'document',
       ...(typeof group === 'string' ? { group } : {}),
       ...(typeof origin === 'string' ? { origin: origin as Origin } : {}),
@@ -1883,6 +1846,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(Array.isArray(key) && key.every((entry) => typeof entry === 'string') ? { key: key as string[] } : {}),
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
+      ...(classes.length === 0 ? {} : { classes }),
       ...(agent === undefined ? {} : { agent }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),
@@ -1993,14 +1957,6 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       } catch { /* readPluginContract reports unreadable or malformed plugin manifests. */ }
       plugins.set(id, { id, version: declaredVersion, path, inputs: body['inputs'] as string[], outputs: body['outputs'] as string[], closure: body['closure'] as string[], ...(contract === undefined ? {} : { contract }), ...(bounds === undefined ? {} : { bounds }), ...(declaration === undefined ? {} : { declaration }), declarationFile, ...(declarationText === undefined ? {} : { declarationText }), line });
     });
-  }
-  // Declaration producers own their schema before any content-producing plugin derives its outputs.
-  for (const declaration of TEMPLATE_CONTRACT.vertex) {
-    const kind = kinds.get(declaration.name);
-    if (kind === undefined) continue;
-    kinds.set(kind.name, { ...kind, key: [...declaration.key], fields: declaration.fields.map((field) => ({
-      ...field, producers: [declaration.capability], line: kind.line,
-    })) });
   }
   // A catalogue agent's effective contract comes from the product declarations, never field binding routing.
   for (const catalogueAgent of [...plugins.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true)) {
@@ -2138,7 +2094,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (debug === true) journal = { debug: true };
     }
   }
-  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), declaredTemplates: [...new Set(declaredTemplates)], groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
+  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**

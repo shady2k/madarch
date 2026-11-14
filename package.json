@@ -14,7 +14,6 @@
     "check:architecture-base": "bun scripts/check-architecture.ts --base-guard && bun scripts/check-ui-architecture.ts --base-guard",
     "test": "bun test test/",
     "wiki:demo": "cd wiki/app && bun install --frozen-lockfile && bun run build && cd ../.. && bun scripts/madarch.ts serve --product wiki/demo",
-    "wiki:shots": "bun scripts/walk-shots.ts",
     "install:plugins": "bun scripts/plugin-deps.ts",
     "postinstall": "bun run install:plugins"
   },
@@ -50,6 +49,7 @@
     "@types/pg": "^8.23.1",
     "debug": "^4.4.3",
     "dependency-cruiser": "18.7.1",
+    "graphql": "17.1.0",
     "knip": "6.44.1",
     "likec4": "1.59.4",
     "mermaid": "12.0.0",

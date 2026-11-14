@@ -123,13 +123,8 @@ export function decide(input: DecideInput): RefreshPlan {
   if (product === undefined) add(`product:*`, { kind: 'missing' });
   else {
     if (input.newServices.length > 0) add(product.id, { kind: 'new-service', services: [...input.newServices].sort(byCodePoint) });
-    // A domain the product page links and no page exists for is written, and the product unit declares it again.
-    for (const target of product.mentions) {
-      const slug = /^domain:([a-z][a-z0-9-]*)$/.exec(target)?.[1];
-      if (slug === undefined || byId.has(target)) continue;
-      add(target, { kind: 'missing' });
-      add(product.id, { kind: 'missing-domain', domain: slug });
-    }
+    // A page-level mention is an edge now (decision 0036, section 3), read through `/graphql`: a domain the product
+    // page only names in its prose is not a page's link, and the refresh plan names none of them.
   }
   const planned: PlannedPage[] = [];
   for (const [id, why] of reasons) {
@@ -197,7 +192,7 @@ export async function planRefresh(options: PlanOptions): Promise<Planned> {
     if (since !== undefined) {
       const named = new Set<string>();
       for (const page of pages) {
-        for (const key of [...page.relates, ...page.mentions]) named.add(key);
+        for (const key of page.relates) named.add(key);
         for (const statement of page.statements) for (const key of [...statement.grounds, ...statement.mentions]) named.add(key);
       }
       newServices = await servicesSince(options.owner, since, named);

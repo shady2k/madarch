@@ -45,11 +45,10 @@ process.exit(1);
 test('pending and failed status retain the full unfilled shape without opening the store', async () => {
   const { folder, product, open } = fixture();
   const status = await product.status();
-  expect(status).toMatchObject({ publication: 'pending', manifest: 'not-filled', fill: { state: 'idle' }, filled: false, incomplete: false, kinds: [], groups: [], repositories: [], home: null, roles: {} });
+  expect(status).toMatchObject({ publication: 'pending', manifest: 'not-filled', fill: { state: 'idle' }, filled: false, incomplete: false, kinds: [], groups: [], repositories: [], roles: {} });
   expect(status.product.id).toBeString();
   expect(status.bounds).toBeDefined();
   expect(status.writer).toBeDefined();
-  expect(status.loop).toBeDefined();
   unlinkSync(join(folder, 'madarch/catalog.yaml'));
   rmSync(join(folder, 'madarch/kinds'), { recursive: true });
   expect(await product.status()).toMatchObject({ publication: 'pending', manifest: 'no-manifest' });

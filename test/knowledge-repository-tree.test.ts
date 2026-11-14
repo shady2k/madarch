@@ -15,9 +15,4 @@ test.each([
   const reader = new GraphReader({} as DatabaseOwner, () => '', undefined, tx, new Set(['code.repository']));
   const repository = await reader.repository('fixture');
   expect(repository).toMatchObject({ asIsCommit: null, counts: { files: 0, commits: 0, folders: 0 }, steps: { tree, history: false } });
-  // The empty root folder remains available without requiring a git as-is relation.
-  expect(await reader.folder('fixture', '', undefined, 10)).toEqual(tree ? {
-    repository: 'fixture', id: 'code.repository:fixture', folder: '', parent: null,
-    folders: [], files: [], nextHref: null,
-  } : null);
 });

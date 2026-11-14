@@ -13,40 +13,46 @@ relation-constraints:
   - partOf
 audience: [developer, architect]
 facts:
+# Every fact counts the current tree by default: a file that left it stays an entity with a removal, and is not a file.
 - id: count
   labels: { en: Files, ru: Файлы }
   measure: count
   display: number
+  where: { removed_at: null }
 - id: by-language
   labels: { en: By language, ru: По языку }
   measure: group-by
   field: language
   display: bar
+  where: { removed_at: null }
 - id: by-folder
   labels: { en: By folder, ru: По папке }
   measure: group-by
   field: directory
   display: treemap
+  where: { removed_at: null }
 - id: age
   labels: { en: Time since last change, ru: Время с последнего изменения }
   measure: histogram
   field: last_change
   buckets: [30, 90, 365]
   display: timeline
+  where: { removed_at: null }
 - id: largest
   labels: { en: Largest files in bytes, ru: Самые большие файлы в байтах }
   measure: top-n
   field: bytes
   limit: 10
   display: bar
+  where: { removed_at: null }
 - id: most-changed
-  labels: { en: Most changed files (dated non-merge commits), ru: Чаще изменяемые файлы (датированные немержевые коммиты) }
+  labels: { en: "Most changed files (commits, merge commits included)", ru: "Чаще изменяемые файлы (коммиты, включая слияния)" }
   measure: top-n
   field: commit_count
   limit: 10
   display: bar
+  where: { removed_at: null }
 template-policy: page
-template: templates/file.liquid
 source: graph
 fields:
 - name: state_machines
@@ -105,6 +111,11 @@ fields:
   nullable: true
   producers:
   - disk
+- name: class
+  type: text
+  nullable: true
+  producers:
+  - disk
 - name: directory
   type: text
   producers:
@@ -119,9 +130,94 @@ fields:
   nullable: true
   producers:
   - git
+- name: added_at
+  type: timestamp
+  nullable: true
+  producers:
+  - git
+- name: added_in
+  type: text
+  nullable: true
+  producers:
+  - git
+- name: removed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - git
+- name: removed_in
+  type: text
+  nullable: true
+  producers:
+  - git
 key:
 - repository
 - path
+classes:
+- name: dependency
+  paths:
+  - "**/node_modules/**"
+  - "**/bower_components/**"
+  - "**/vendor/**"
+  - "**/vendored/**"
+  - "**/third_party/**"
+  - "**/third-party/**"
+  - "**/jspm_packages/**"
+  - "**/web_modules/**"
+- name: generated
+  paths:
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/out/**"
+  - "**/target/**"
+  - "**/coverage/**"
+  - "**/*.min.js"
+  - "**/*.min.css"
+  - "**/*.map"
+  - "**/*.generated.*"
+  - "**/*.gen.*"
+  - "**/*.pb.go"
+  - "**/*.pb.ts"
+  - "**/*_pb2.py"
+  - "**/*.lock"
+  - "**/bun.lock"
+  - "**/bun.lockb"
+  - "**/package-lock.json"
+  - "**/yarn.lock"
+  - "**/pnpm-lock.yaml"
+  - "**/composer.lock"
+  - "**/Cargo.lock"
+  - "**/go.sum"
+  - "**/gradle.lockfile"
+  - "**/packages.lock.json"
+- name: test
+  paths:
+  - "**/test/**"
+  - "**/tests/**"
+  - "**/__tests__/**"
+  - "**/spec/**"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/*_test.*"
+  - "**/*_spec.*"
+  - "**/test_*.py"
+- name: documentation
+  paths:
+  - "**/docs/**"
+  - "**/doc/**"
+  - "**/*.md"
+  - "**/*.mdx"
+  - "**/*.rst"
+  - "**/*.adoc"
+  - "**/README*"
+  - "**/CHANGELOG*"
+  - "**/CHANGES*"
+  - "**/CONTRIBUTING*"
+  - "**/LICENSE*"
+  - "**/COPYING*"
+  - "**/AGENTS.md"
+- name: code
+  default: true
 history: path
 views:
 - state
@@ -133,6 +229,7 @@ details:
 - form
 - language
 - candidates
+- class
 - commitCount
 - authors
 labels:

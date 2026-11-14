@@ -24,7 +24,7 @@ type BrokenWhy =
 
 // The addresses themselves are built in one module (`addresses.ts`): the reader's pages and the page
 // files live there, and a caller of this resolver keeps importing them from here.
-export { documentAddress, entityAddress, sourceAddress } from './addresses.js';
+export { entityAddress, sourceAddress } from './addresses.js';
 import { documentAddress, entityAddress, sourceAddress } from './addresses.js';
 
 const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.test(path);

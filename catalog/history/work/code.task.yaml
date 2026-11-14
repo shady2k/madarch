@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - refines
 template-policy: page
-template: templates/history-task.liquid
 source: graph
 origin: history
 history: task

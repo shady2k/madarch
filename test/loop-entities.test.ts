@@ -110,12 +110,6 @@ describe('the refresh decides which pages need an agent unit', () => {
     const first = decide({ ...base, pages: [] });
     expect(first.pages).toEqual([{ id: 'product:*', path: 'docs/product.md', reasons: [{ kind: 'missing' }] }]);
   });
-  test('a product page that links a domain with no page makes the domain missing and the product page an edit', () => {
-    const product = { id: 'product:shop', kind: 'product', title: 'Shop', file: 'docs/product.md', relates: [], sources: [], writtenAt: [], producer: 'agent', statements: [], mentions: ['domain:orders', 'domain:shipping'], digest: 'd' };
-    const orders = { ...product, id: 'domain:orders', kind: 'domain', file: 'docs/domains/orders.md', mentions: [] };
-    const plan = decide({ pages: [product, orders], grounds: [], questions: [], corrections: [], newServices: [], language: { from: 'en', to: 'en', changed: false } });
-    expect(plan.pages.map((p) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/domains/shipping.md', ['missing']], ['docs/product.md', ['missing-domain']]]);
-  });
 });
 
 describe('structured question opinions and identity', () => {

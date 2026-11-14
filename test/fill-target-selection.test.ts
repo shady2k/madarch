@@ -5,15 +5,15 @@ import { fillTargets } from '../src/knowledge/fill-targets.js';
 const text = `kinds:
   source:
     source: graph
-    template: templates/source.md
+    
     derives-from: []
   summary:
     source: graph
-    template: templates/summary.md
+    
     derives-from: [source]
   report:
     source: graph
-    template: templates/report.md
+    
     derives-from: [summary]
 `;
 

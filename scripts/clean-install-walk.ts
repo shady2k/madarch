@@ -176,7 +176,7 @@ async function serveCheck(): Promise<void> {
     rmSync(join(facts.folder, 'madarch/kinds'), { recursive: true });
     mkdirSync(join(facts.folder, 'madarch/kinds/code/files'), { recursive: true });
     writeFileSync(manifest, 'groups:\n  code: { en: Code, ru: Код }\n  files: { en: Files, ru: Файлы, parent: code }\n');
-    writeFileSync(join(facts.folder, 'madarch/kinds/code/files/code.file.yaml'), 'template: templates/file.liquid\nsource: graph\n');
+    writeFileSync(join(facts.folder, 'madarch/kinds/code/files/code.file.yaml'), 'source: graph\n');
     console.log(`${manifest}:1: store acceptance fixture: code.file only, no plugins (Windows has no plugin sandbox)`);
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if (run('git', parameters, facts.folder, env) !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);

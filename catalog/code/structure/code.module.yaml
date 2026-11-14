@@ -14,7 +14,6 @@ relation-constraints:
   in:
   - partOf
 template-policy: page
-template: templates/module.liquid
 source: graph
 fields:
 - name: repository

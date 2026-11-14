@@ -1,0 +1,23 @@
+# The fixture's repository kind: a reference target and the edge's from end.
+id: demo.repository
+purpose: structure
+definition: A repository of the demo.
+sources: [https://example.test/standard]
+acquisition: [document]
+status: implemented
+relation-constraints: { out: [contains], in: [] }
+template-policy: page
+
+source: graph
+title: name
+labels:
+  en: { one: Repository, many: Repositories }
+  ru: { one: Репозиторий, many: Репозитории }
+description: { en: A repository of the demo., ru: Репозиторий демо. }
+fields:
+  - { name: name, type: text, producers: [agent] }
+  - { name: url, type: text, nullable: true, producers: [agent] }
+  - { name: size, type: integer, nullable: true, producers: [agent] }
+  - { name: description, type: text, nullable: true, producers: [agent] }
+  - { name: archived, type: boolean, nullable: true, producers: [agent] }
+key: [name]

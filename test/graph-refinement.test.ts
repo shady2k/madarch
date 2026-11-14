@@ -21,7 +21,7 @@ test('fields resolve explicit refinement rather than reverse arrival while retai
       writeFileSync(join(path, 'plugin.json'), JSON.stringify({ name, version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'note', fields: index === 2 ? ['body'] : '*', reads: [], refines: index === 0 ? [] : [names[index - 1]] }] }));
     }
     const text = [
-      'kinds:', '  note:', '    template: note.md', '    source: graph', '    fields:',
+      'kinds:', '  note:', '    ', '    source: graph', '    fields:',
       '      - { name: name, type: text, binding: "agent-first@1.name" }',
       '      - { name: body, type: text, binding: "agent-first@1.body" }',
       '      - { name: detail, type: text, nullable: true, binding: "agent-first@1.detail" }',

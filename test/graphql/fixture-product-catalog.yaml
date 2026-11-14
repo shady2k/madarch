@@ -1,0 +1,42 @@
+# The metadata of the fixture product the GraphQL executor's integration tests read (decision 0036).
+language: en
+purposes:
+  structure: { labels: { en: Structure, ru: Структура }, order: 10 }
+groups:
+  demo: { en: Demo, ru: Демо, short: { en: Demo, ru: Демо }, open: true }
+  demo.core: { en: Core, ru: Ядро, parent: demo, short: { en: Core, ru: Ядро } }
+catalog:
+  subgroup-kind-bound: 12
+  attributes: [version]
+  origin-marks: [document, conversation, agent-from-graph, live-system, not-implemented]
+  extractor-mark: extractor
+  statuses: [implemented, partial, not-implemented]
+  template-policies: [page, member, none]
+  relations: { contains: null }
+edges:
+  - name: demo.contains
+    from: [demo.repository]
+    to: [demo.file]
+    fields:
+      - { name: position, type: integer, nullable: true, producers: [agent] }
+  - name: demo.touched
+    from: [demo.file]
+    to: [demo.file]
+    repeats: true
+    discriminator: path
+    fields:
+      - { name: changed_at, type: timestamp, nullable: true, producers: [agent] }
+      - { name: weight, type: bigint, nullable: true, producers: [agent] }
+  - name: demo.related
+    from: [demo.file]
+    to: [demo.file]
+  - name: mentions
+    from: [any]
+    to: [any]
+    repeats: true
+    discriminator: place
+  - name: demo.sized
+    from: [demo.repository]
+    to: [demo.file]
+    fields:
+      - { name: weight, type: integer, producers: [agent] }

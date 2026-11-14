@@ -38,8 +38,7 @@ function gitDateOf(localClock: string, offsetMin: number): string {
 }
 
 /** One path the walk has not read: the store says so rather than answering nothing. */
-export class RecordGap extends Error {}
-
+class RecordGap extends Error {}
 
 // ---- what a reader asks ----------------------------------------------------
 
@@ -227,68 +226,6 @@ export async function listFiles(owner: DatabaseOwner, input: { readonly reposito
   }));
 }
 
-/**
- * One page of a repository's current Markdown documents, in code point order of the paths. The suffix and the
- * hidden-folder rules stand in the statement, so a repository of many files answers with its documents and never with
- * the first files of the whole tree: a path a dot begins, and a path a folder a dot begins, is no document.
- */
-export async function listDocuments(owner: DatabaseOwner, input: { readonly repository: string; readonly suffixes: readonly string[]; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-  return await withSpan('records.listDocuments', {
-    'records.repository': input.repository,
-    'records.limit': input.limit,
-  }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await filePage(tx, input.repository,
-      `left((n.key->>'path'), 1) <> '.' AND position('/.' in (n.key->>'path')) = 0
-       AND EXISTS (SELECT 1 FROM unnest($4::text[]) AS suffix WHERE right(lower((n.key->>'path')), length(suffix)) = suffix)`,
-      [[...input.suffixes]], input.after ?? null, input.limit);
-    const rows = found.map(fileOf);
-    const more = rows.length > input.limit;
-    const shown = more ? rows.slice(0, input.limit) : rows;
-    return { rows: shown, next: more ? shown[shown.length - 1]!.path : null };
-  }));
-}
-
-/** One path a commit changed, as the history pass read it. */
-export interface TouchedRecord {
-  readonly path: string;
-  readonly change: 'added' | 'modified' | 'deleted' | 'renamed' | null;
-  readonly added: number | null;
-  readonly removed: number | null;
-  readonly previousPath: string | null;
-  /** Every opinion of what the commit did to the path, with its source. */
-  readonly opinions?: readonly HeldOpinion[];
-}
-
-/** One row of a file's history: the commit that touched the path and what it did to it. */
-export interface FileHistoryRow extends TouchedRecord {
-  readonly commit: string;
-  /** The author's clock with its offset, as `git log %aI` writes it. */
-  readonly date: string;
-  /** The offset `date` stands at, in minutes east of UTC: the same number `date` carries. */
-  readonly offsetMin: number;
-  readonly subject: string;
-  /** The commit's position in the walk from the tip: its order in the history, not on the clock. */
-  readonly walk: number;
-}
-
-/** What one commit did to a path, from the opinions that agree on it. */
-function changeOf(opinions: readonly HeldOpinion[]): TouchedRecord['change'] {
-  const value = fieldRead<string>(opinions, 'change', (one) => (typeof one === 'string' ? one : null)).value;
-  return value === 'added' || value === 'modified' || value === 'deleted' || value === 'renamed' ? value : null;
-}
-
-/** The SQL that reaches a file and every path it was renamed from, through `renamed-from` edges (new file to old). */
-const RENAME_CHAIN = `WITH RECURSIVE chain(file_node) AS (
-    SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-    WHERE n.key @> jsonb_build_object('repository', (SELECT rn.key->>'name' FROM node rn WHERE rn.id = $1::bigint), 'path', $2::text)
-    UNION
-    SELECT e.to_node FROM chain c JOIN edge e ON e.from_node = c.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.renamedFrom}'
-  )`;
-
-/** The open opinions of one `touched` edge, as a jsonb array. */
-const TOUCHED_OPINIONS = (edge: string): string => `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'change', o."change", 'added', o."added", 'removed', o."removed") ORDER BY o."id") FROM ${GIT_TABLES.touched} o WHERE o."edge_id" = ${edge}.id AND o."state" = 'open' AND o."context_id" = 1)`;
-/** The open opinions of one `history` edge (its walk), as a jsonb array. */
-const WALK_OPINIONS = (edge: string): string => `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'walk', o."walk") ORDER BY o."id") FROM ${GIT_TABLES.history} o WHERE o."edge_id" = ${edge}.id AND o."state" = 'open' AND o."context_id" = 1)`;
 /** The open opinions of one commit, as a jsonb array. */
 const COMMIT_OPINIONS = (node: string): string => `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'subject', o."subject", 'author_date', to_char(o."author_date" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'), 'author_offset_min', o."author_offset_min", 'commit_date', to_char(o."commit_date" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'), 'commit_offset_min', o."commit_offset_min") ORDER BY o."id") FROM ${GIT_TABLES.commit} o WHERE o."node_id" = ${node}.id AND o."state" = 'open' AND o."context_id" = 1)`;
 
@@ -303,138 +240,7 @@ function clockOf(opinions: readonly HeldOpinion[], field: 'commit_date' | 'autho
   return { date: gitDateOf(localClock, offset), offsetMin: offset };
 }
 
-/**
- * A page of a file's history, newest first. `next` names the exact row the page ended on — the walk and the commit — so
- * a page boundary between two commits written in the same second neither repeats a row nor skips one.
- */
-export async function fileHistory(owner: DatabaseOwner, input: { readonly repository: string; readonly path: string; readonly after?: { readonly walk: number; readonly commit: string }; readonly limit: number }): Promise<{ readonly rows: readonly FileHistoryRow[]; readonly next: { readonly walk: number; readonly commit: string } | null }> {
-  return await withSpan('records.fileHistory', { 'records.path': input.path, 'records.limit': input.limit }, async () => await owner.transaction('snapshot', async (tx) => {
-    const repositoryId = await repositoryIdOf(tx, input.repository);
-    const found = await tx.query<Record<string, unknown>>(
-      `${RENAME_CHAIN}
-       SELECT (ct.key->>'hash') AS commit, ${TOUCHED_OPINIONS('e')} AS touched, ${COMMIT_OPINIONS('ct')} AS commit_opinions, ${WALK_OPINIONS('he')} AS walk, ${PATH_OF('pn')} AS previous
-       FROM chain ch JOIN edge e ON e.to_node = ch.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.touched}'
-       JOIN node ct ON ct.id = e.from_node
-       JOIN edge he ON he.from_node = $1::bigint AND he.to_node = e.from_node AND he.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.history}') AND he.context_id = 1
-       LEFT JOIN edge r ON r.from_node = ch.file_node AND r.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.renamedFrom}') AND r.context_id = 1 AND r.discriminator = (ct.key->>'hash')
-       LEFT JOIN node pn ON pn.id = r.to_node
-       WHERE ($3::int IS NULL OR (SELECT min((o.item->>'walk')::int) FROM jsonb_array_elements(${WALK_OPINIONS('he')}) AS o(item)) > $3::int OR ((SELECT min((o.item->>'walk')::int) FROM jsonb_array_elements(${WALK_OPINIONS('he')}) AS o(item)) = $3::int AND (ct.key->>'hash') > $4))
-       ORDER BY (SELECT min((o.item->>'walk')::int) FROM jsonb_array_elements(${WALK_OPINIONS('he')}) AS o(item)) ASC, (ct.key->>'hash') ASC LIMIT $5::bigint`,
-      [repositoryId, input.path, input.after?.walk ?? null, input.after?.commit ?? '', String(input.limit + 1)],
-    );
-    const rows = found.rows.map((row) => {
-      const touched = opinionsOfJson(row['touched'], []);
-      const commitOpinions = opinionsOfJson(row['commit_opinions'], []);
-      const walk = opinionsOfJson(row['walk'], []).map((one) => Number(one.values['walk'])).sort((a, b) => a - b)[0] ?? 0;
-      const clock = clockOf(commitOpinions, 'commit_date', 'commit_offset_min');
-      return {
-        commit: String(row['commit']), path: input.path,
-        change: changeOf(touched),
-        added: fieldRead(touched, 'added', asNumber).value,
-        removed: fieldRead(touched, 'removed', asNumber).value,
-        previousPath: row['previous'] === null || row['previous'] === undefined ? null : String(row['previous']),
-        date: clock.date, offsetMin: clock.offsetMin,
-        subject: fieldRead(commitOpinions, 'subject', asText).value ?? '',
-        walk, opinions: touched,
-      } satisfies FileHistoryRow;
-    });
-    const more = rows.length > input.limit;
-    const shown = more ? rows.slice(0, input.limit) : rows;
-    const last = shown[shown.length - 1];
-    return { rows: shown, next: more && last !== undefined ? { walk: last.walk, commit: last.commit } : null };
-  }));
-}
-
 /** One commit with the paths it changed, or null when the store holds no such commit. */
-/** One page's commit read, bound to the page's transaction: a page asks for the same commit twice, and reads it once. */
-const COMMIT_MEMO = new WeakMap<object, Map<string, Promise<(CommitRecord & { readonly touched: readonly TouchedRecord[] }) | null>>>();
-
-/** One commit with the paths it changed, or null when the store holds no such commit; read once per transaction. */
-export async function commitWithPaths(owner: DatabaseOwner, repository: string, hash: string): Promise<(CommitRecord & { readonly touched: readonly TouchedRecord[] }) | null> {
-  return await withSpan('records.commitPaths', { 'records.commit': hash }, async () => await owner.transaction('snapshot', async (tx) => {
-    const memo = COMMIT_MEMO.get(tx) ?? new Map<string, Promise<(CommitRecord & { readonly touched: readonly TouchedRecord[] }) | null>>();
-    COMMIT_MEMO.set(tx, memo);
-    const held = memo.get(hash);
-    if (held !== undefined) return await held;
-    const read = readCommitWithPaths(tx, repository, hash);
-    memo.set(hash, read);
-    read.catch(() => { if (memo.get(hash) === read) memo.delete(hash); });
-    return await read;
-  }));
-}
-
-/** The commit and its changed paths, in statements of this transaction; `commitWithPaths` shares the result per page. */
-async function readCommitWithPaths(tx: OuterTransaction, repository: string, hash: string): Promise<(CommitRecord & { readonly touched: readonly TouchedRecord[] }) | null> {
-  const commit = await readCommitFacts(tx, repository, hash);
-  if (commit === null) return null;
-  const found = await tx.query<Record<string, unknown>>(
-    // The touched rows and their opinions in one pass, grouped per edge: no opinion subquery per row (the page's
-    // history navigation reads a commit's 1 800 changed paths, and a query per row made that span four times main's).
-    `SELECT ${PATH_OF('fn')} AS path,
-            jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'change', o."change", 'added', o."added", 'removed', o."removed") ORDER BY o."id") AS touched,
-            ${PATH_OF('pn')} AS previous
-     FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = '${GIT_KINDS.touched}'
-     JOIN node ct ON ct.id = e.from_node JOIN node fn ON fn.id = e.to_node
-     LEFT JOIN ${GIT_TABLES.touched} o ON o."edge_id" = e.id AND o."state" = 'open' AND o."context_id" = 1
-     LEFT JOIN edge r ON r.from_node = e.to_node AND r.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.renamedFrom}') AND r.context_id = 1 AND r.discriminator = (ct.key->>'hash')
-     LEFT JOIN node pn ON pn.id = r.to_node
-     WHERE (ct.key->>'hash') = $1
-     GROUP BY e.id, ${PATH_OF('fn')}, ${PATH_OF('pn')}
-     ORDER BY ${PATH_OF('fn')}`,
-    [hash],
-  );
-  const touched = found.rows.map((row) => {
-    const opinions = opinionsOfJson(row['touched'], []);
-    return {
-      path: String(row['path']),
-      change: changeOf(opinions),
-      added: fieldRead(opinions, 'added', asNumber).value,
-      removed: fieldRead(opinions, 'removed', asNumber).value,
-      previousPath: row['previous'] === null || row['previous'] === undefined ? null : String(row['previous']),
-      opinions,
-    };
-  });
-  return { ...commit, touched };
-}
-
-/** One page of a folder's own files (not its subfolders'), in code point order of the paths. */
-export async function folderFiles(owner: DatabaseOwner, input: { readonly repository: string; readonly folder: string; readonly after?: string; readonly limit: number }): Promise<{ readonly rows: readonly FileRecord[]; readonly next: string | null }> {
-  return await withSpan('records.folderFiles', { 'records.folder': input.folder, 'records.limit': input.limit }, async () => await owner.transaction('snapshot', async (tx) => {
-    const repositoryId = await repositoryIdOf(tx, input.repository);
-    const parent = input.folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}' WHERE (n.key->>'repository') = $1::text AND (n.key->>'path') = $2::text AND n.context_id = 1 AND NOT n.removed`, [input.repository, input.folder])).rows[0]?.node_id;
-    if (parent === undefined) return { rows: [], next: null };
-    const found = await tx.query<Record<string, unknown>>(
-      `SELECT (n.key->>'path') AS path, fo.opinions FROM (
-         SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
-         JOIN edge e ON e.to_node = n.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}')
-         WHERE e.from_node = $1::bigint AND e.context_id = 1 AND NOT n.removed AND ($2::text IS NULL OR (n.key->>'path') > $2)
-         ORDER BY (n.key->>'path') LIMIT $3::bigint) p
-       JOIN node n ON n.id = p.id ${FILE_OPINIONS} ORDER BY (n.key->>'path')`,
-      [parent, input.after ?? null, String(input.limit + 1)],
-    );
-    const rows = found.rows.map(fileOf);
-    const more = rows.length > input.limit;
-    const shown = more ? rows.slice(0, input.limit) : rows;
-    return { rows: shown, next: more ? shown[shown.length - 1]!.path : null };
-  }));
-}
-
-/** The immediate subfolders of one folder, in code point order; `''` is the repository's root. */
-export async function folderChildrenOf(owner: DatabaseOwner, repository: string, folder: string): Promise<readonly string[]> {
-  return await withSpan('records.folderChildren', { 'records.folder': folder }, async () => await owner.transaction('snapshot', async (tx) => {
-    const repositoryId = await repositoryIdOf(tx, repository);
-    const parent = folder === '' ? repositoryId : (await tx.query<{ node_id: string }>(`SELECT n.id::text AS node_id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.directory}' WHERE (n.key->>'repository') = $1::text AND (n.key->>'path') = $2::text AND n.context_id = 1 AND NOT n.removed`, [repository, folder])).rows[0]?.node_id;
-    if (parent === undefined) return [];
-    const found = await tx.query<{ path: string }>(
-      `SELECT (dn.key->>'path') AS path FROM edge e
-       JOIN node dn ON dn.id = e.to_node AND dn.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.directory}')
-       WHERE e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.from_node = $1::bigint AND e.context_id = 1
-       ORDER BY (dn.key->>'path')`, [parent],
-    );
-    return found.rows.map((row) => row.path);
-  }));
-}
-
 /** One date a file's page states: the author's clock with its offset, and the commit it belongs to. */
 export interface FileDate {
   /** The author's clock with its offset, as `git log %aI` writes it. */
@@ -444,6 +250,17 @@ export interface FileDate {
   readonly commit: string;
   readonly author: string;
 }
+
+/** The SQL that reaches a file and every path it was renamed from, through `renamed-from` edges (new file to old). */
+const RENAME_CHAIN = `WITH RECURSIVE chain(file_node) AS (
+    SELECT n.id FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.file}'
+    WHERE n.key @> jsonb_build_object('repository', (SELECT rn.key->>'name' FROM node rn WHERE rn.id = $1::bigint), 'path', $2::text)
+    UNION
+    SELECT e.to_node FROM chain c JOIN edge e ON e.from_node = c.file_node JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.renamedFrom}'
+  )`;
+
+/** The open opinions of one `history` edge (its walk), as a jsonb array. */
+const WALK_OPINIONS = (edge: string): string => `(SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence", 'walk', o."walk") ORDER BY o."id") FROM ${GIT_TABLES.history} o WHERE o."edge_id" = ${edge}.id AND o."state" = 'open' AND o."context_id" = 1)`;
 
 export async function fileFacts(owner: DatabaseOwner, repository: string, path: string, options: { readonly history?: boolean } = {}): Promise<(FileRecord & { readonly created: FileDate | null; readonly modified: FileDate | null; readonly commitCount: number; readonly authors: readonly string[] }) | null> {
   return await withSpan('records.fileFacts', { 'records.path': path }, async () => await owner.transaction('snapshot', async (tx) => {
@@ -499,16 +316,6 @@ export async function storedFileTexts(owner: DatabaseOwner, repository: string, 
   }));
 }
 
-/** Every current published file, with its opinions and evidence. */
-export async function repositoryFileIndex(owner: DatabaseOwner, repository: string): Promise<readonly FileRecord[]> {
-  return await withSpan('records.repositoryFileIndex', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<Record<string, unknown>>(
-      `${FILE_SELECT} WHERE ${REPOSITORY_OF('n')} = $1 AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE} ORDER BY ${PATH_OF('n')}`, [repository],
-    );
-    return found.rows.map(fileOf);
-  }));
-}
-
 /** The product source needs the whole path inventory, but not file content, languages or opinion evidence. */
 export async function productFileIndex(owner: DatabaseOwner, repository: string): Promise<readonly { path: string; mode: string | null; bytes: number | null; form: 'text' | 'binary' | null }[]> {
   return await withSpan('records.productFileIndex', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
@@ -548,23 +355,6 @@ export async function listRepositories(owner: DatabaseOwner, declared?: Readonly
       const opinions = opinionsOfJson(row.opinions, []);
       return { name: row.name, url: fieldRead(opinions, 'url', asText).value ?? '', defaultBranch: fieldRead(opinions, 'default_branch', asText).value, asIsCommit: row.as_is };
     });
-  }));
-}
-
-/** Every folder of one repository's current tree, in code point order of the paths, with the parent it hangs from. */
-export async function listDirectories(owner: DatabaseOwner, repository: string): Promise<readonly { readonly path: string; readonly parent: string }[]> {
-  return await withSpan('records.listDirectories', { 'records.repository': repository }, async () => await owner.transaction('snapshot', async (tx) => {
-    const repositoryId = await repositoryIdOf(tx, repository);
-    const found = await tx.query<{ path: string; parent: string }>(
-      `SELECT (n.key->>'path') AS path, coalesce((pn.key->>'path'), '') AS parent
-       FROM node n
-       JOIN edge e ON e.to_node = n.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1
-       LEFT JOIN node pn ON pn.id = e.from_node AND pn.id <> $1::bigint
-       WHERE n.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.directory}')
-         AND (n.key->>'repository') = $2::text AND n.context_id = 1 AND NOT n.removed ORDER BY (n.key->>'path')`,
-      [repositoryId, repository],
-    );
-    return found.rows;
   }));
 }
 

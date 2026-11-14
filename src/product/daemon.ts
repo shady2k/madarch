@@ -668,10 +668,20 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
     const folders = products.products.map((one) => one.folder);
     if (ownInstall?.ok && !folders.includes(ownInstall.folder)) folders.push(ownInstall.folder);
     const validationStarted = performance.now();
+    const ownFolder = ownInstall?.ok ? ownInstall.folder : undefined;
     for (const folder of folders) {
       const read = validateProductManifests(folder);
-      if (!read.ok) findings.push(...read.findings);
-      else if (read.value !== undefined) validated.push(read.value);
+      if (!read.ok) {
+        // madarch's own wiki never blocks a start (decision 0031): content the engine cannot publish is named here and
+        // its wiki answers that it could not be published, while every other product is served.
+        if (folder === ownFolder) {
+          const message = read.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n');
+          console.error(`madarch's own wiki at ${folder} cannot be published: ${message}`);
+          setManifestPublicationState(folder, { status: 'failed', message });
+          continue;
+        }
+        findings.push(...read.findings);
+      } else if (read.value !== undefined) validated.push(read.value);
     }
     if (findings.length > 0) throw new Error(findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup manifest.validate ${(performance.now() - validationStarted).toFixed(1)} ms`);

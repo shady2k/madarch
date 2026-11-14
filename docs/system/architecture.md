@@ -50,10 +50,10 @@ set's Mermaid pages and LikeC4 workspace (`src/render/view-set.ts`,
 wiki use, and one view on request at any depth (`src/render/one-view.ts`),
 built from the same parts, which the server answers with.
 
-**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/wiki/archify.ts`): the
-served product wiki reads structured page and template opinions from the graph
-store. Source documents remain repository inputs, not a page parser at request
-time. The archify renderer serves the architecture pages.
+**Wiki** (`src/product-wiki/`, `wiki/app/`, `src/graphql/`): every page is a
+template run in the browser over one GraphQL API derived from the manifest; the
+server answers only `/graphql`, `/graphql/schema` and the commands decision
+0036 section 8 retains (decision 0036).
 
 **Server** (`src/server/`, `src/product/cli.ts`): one process that serves the
 product wiki, its HTTP API, its MCP tools and the built web files

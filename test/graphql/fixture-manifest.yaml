@@ -1,0 +1,76 @@
+# The fixture manifest the golden SDL is derived from (decision 0036, section 9): every scalar, a reference,
+# a repeated edge with attributes, and the inverses the edges and the reference make.
+kinds:
+  demo.repository:
+    
+    source: graph
+    title: name
+    fields:
+      - { name: name, type: text, producers: [agent] }
+      - { name: url, type: text, nullable: true, producers: [agent] }
+      - { name: default_branch, type: text, nullable: true, producers: [agent] }
+      - { name: archived, type: boolean, nullable: true, producers: [agent] }
+      - { name: created_at, type: timestamp, nullable: true, producers: [agent] }
+      - { name: facets, type: json, nullable: true, producers: [agent] }
+      - { name: size, type: bigint, nullable: true, producers: [agent] }
+    key: [name]
+  demo.file:
+    
+    source: graph
+    title: path
+    fields:
+      - { name: repository, type: text, reference: demo.repository, producers: [agent] }
+      - { name: path, type: text, producers: [agent] }
+      - { name: lines, type: integer, nullable: true, producers: [agent] }
+      - { name: bytes, type: bigint, nullable: true, producers: [agent] }
+      - { name: language, type: text, nullable: true, producers: [agent] }
+      - { name: binary, type: boolean, nullable: true, producers: [agent] }
+      - { name: last_change, type: timestamp, nullable: true, producers: [agent] }
+      - { name: facets, type: json, nullable: true, producers: [agent] }
+    key: [repository, path]
+  demo.commit:
+    
+    source: graph
+    title: hash
+    fields:
+      - { name: hash, type: text, producers: [agent] }
+      - { name: subject, type: text, nullable: true, producers: [agent] }
+      - { name: committed_at, type: timestamp, nullable: true, producers: [agent] }
+      - { name: changed_lines, type: bigint, nullable: true, producers: [agent] }
+    key: [hash]
+  demo.author:
+    
+    source: graph
+    title: name
+    fields:
+      - { name: name, type: text, producers: [agent] }
+      - { name: email, type: text, nullable: true, producers: [agent] }
+      - { name: commits, type: integer, nullable: true, producers: [agent] }
+    key: [name]
+edges:
+  - name: demo.contains
+    from: [demo.repository]
+    to: [demo.file]
+    fields:
+      - { name: position, type: integer, nullable: true, producers: [agent] }
+  - name: demo.touched
+    from: [demo.commit]
+    to: [demo.file]
+    repeats: true
+    discriminator: path
+    fields:
+      - { name: change, type: text, nullable: true, producers: [agent] }
+      - { name: added, type: bigint, nullable: true, producers: [agent] }
+      - { name: removed, type: bigint, nullable: true, producers: [agent] }
+      - { name: changed_at, type: timestamp, nullable: true, producers: [agent] }
+      - { name: weight, type: integer, nullable: true, producers: [agent] }
+      - { name: binary, type: boolean, nullable: true, producers: [agent] }
+      - { name: meta, type: json, nullable: true, producers: [agent] }
+  - name: demo.authored
+    from: [demo.author]
+    to: [demo.commit]
+  - name: mentions
+    from: [any]
+    to: [any]
+    repeats: true
+    discriminator: place

@@ -17,6 +17,7 @@ import { graphWriteViolations } from './graph-writes.js';
 import { schemaPreparationViolations } from './schema-preparation.js';
 import { starterDataViolations } from './starter-data.js';
 import { productFileReaderViolations } from './product-file-readers.js';
+import { kindNameViolations, routeViolations, RULE_FOLDERS } from './read-surfaces.js';
 import { unreachableViolations } from './reachability.js';
 import { moduleSet, repositoryRoot } from './sources.js';
 import {
@@ -76,6 +77,8 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
   if (rules.includes('schema-preparation-only')) found.push(...await schemaPreparationViolations(root));
   if (rules.includes('starter-data-when-copying')) found.push(...starterDataViolations(root));
   if (rules.includes('product-file-readers')) found.push(...productFileReaderViolations(root));
+  if (rules.includes('graphql-only-reads')) found.push(...routeViolations(root));
+  if (rules.includes('no-kind-names')) found.push(...kindNameViolations(root, moduleSet(root, RULE_FOLDERS)));
   const located = orderedViolations(found);
   if (!existsSync(listPath)) {
     return {
@@ -199,6 +202,15 @@ function describe(violation: ArchitectureViolation): string {
       return violation.symbol === null
         ? `the module is unreachable from every declared entry point of knip.json`
         : `the export ${violation.symbol} is unreachable from every declared entry point of knip.json`;
+    case 'graphql-only-reads': {
+      const named = violation.symbol ?? '?';
+      if (named.endsWith(': not a literal path') || named.endsWith(': not a literal method')) {
+        return `${violation.file} registers the route ${named}, and a route this check cannot read is not a pass: name its path and method as literals, or add them to the routes section 8 keeps`;
+      }
+      return `${violation.file} answers the route ${named}, and section 8 keeps no such read: pages, catalogue, search, statements, neighborhoods, views and documents are read through /graphql`;
+    }
+    case 'no-kind-names':
+      return `${violation.file} names the kind ${violation.symbol ?? '?'}, and the server's page and API layer name no kind: the kinds are the product's catalogue`;
   }
 }
 

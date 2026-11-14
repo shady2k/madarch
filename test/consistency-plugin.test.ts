@@ -47,19 +47,19 @@ function addConsistency(folder: string): string {
   const manifest = `language: en
 kinds:
   code.file:
-    template: templates/file.liquid
+    
     source: graph
     capability: git
   code.repository:
-    template: templates/repository.liquid
+    
     source: graph
     capability: git
   code.directory:
-    template: templates/directory.liquid
+    
     source: graph
     capability: git
   probe.finding:
-    template: templates/item-plain.liquid
+    
     source: graph
     findings: true
     # Consistency records are read through graphReads rights, not as executable content inputs.
@@ -76,7 +76,7 @@ kinds:
       - { name: severity, type: text, nullable: true, binding: "plugin-consistency@1.severity" }
     key: [id]
   probe.opinion:
-    template: templates/item-plain.liquid
+    
     source: graph
     derives-from: [code.file]
     labels:
@@ -88,7 +88,7 @@ kinds:
       - { name: second, type: text, nullable: true, binding: "plugin-consistency@1.second" }
     key: [id]
   probe.keyed:
-    template: templates/item-plain.liquid
+    
     source: graph
     derives-from: [code.file]
     labels:
@@ -118,7 +118,7 @@ problems:
   for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
   for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
-    template: 'templates/item-plain.liquid', source: 'graph', key: ['repository', 'path'],
+    source: 'graph', key: ['repository', 'path'],
     fields: [{ name: 'repository', type: 'text', reference: 'code.repository', producers: ['test', 'other'] }, { name: 'path', type: 'text', producers: ['test', 'other'] }],
   });
   const descriptions: Record<string, { en: string; ru: string }> = {

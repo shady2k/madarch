@@ -37,8 +37,6 @@ import { fileURLToPath } from 'node:url';
 import { ensureBuilt } from '../src/product-wiki/app.js';
 import { GIT_LEAKS } from '../src/product/git.js';
 import { createHash } from 'node:crypto';
-import { manifestWithRepo } from '../src/product/manifest.js';
-import { STARTER_WORKFLOWS } from '../src/knowledge/starter-workflows.js';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
@@ -314,58 +312,14 @@ async function createsAndServes(outfile: string, products: string, port: number,
           // madarch's own wiki came out of the copy the binary carries, with no network asked for.
           const listed = await fetch(new URL('/api/products', facts.url));
           if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
-          // The archify frame draws a service's diagram, from the `code.service` and `code.symbol` nodes the static
-          // stages publish. This step's fill publishes the tree and the history records, so the frame is read when the
-          // product's first-fill workflow names the stage whose step publishes what the diagram is drawn from.
-          const firstFill = STARTER_WORKFLOWS.find((workflow) => workflow.name === 'first-fill');
-          if (firstFill === undefined || !firstFill.stages.includes('syntax')) {
-            console.log('binary smoke: the archify frame is not read, because this fill publishes no graph reading of a service');
-            return undefined;
-          }
-          return await smokeArchify(facts, products, env);
+          // The wiki reads the graph through `/graphql`; there is no server-rendered frame to smoke any more.
+          return undefined;
         }
       }
     } catch { /* the product's API is still coming up, or its store is opening */ }
     await new Promise((done) => setTimeout(done, 200));
   }
   return `the built binary created a draft but no product answered at ${facts.url}api/product within 60 s: ${said}${lastStatus === '' ? '' : `\n${lastStatus}`}${daemonLog(products)}`;
-}
-
-/** One tiny repository filled through the binary server, then its own archify frame and rendered output. */
-async function smokeArchify(facts: NewFacts, products: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
-  if (facts.folder === undefined || facts.url === undefined) return 'the binary smoke has no product folder or URL';
-  const repo = join(facts.folder, 'repos', 'example');
-  mkdirSync(join(repo, 'services', 'payments'), { recursive: true });
-  writeFileSync(join(repo, 'services', 'payments', 'package.json'), '{"name":"payments","version":"1.0.0"}');
-  writeFileSync(join(repo, 'services', 'payments', 'index.ts'), 'export function pay(): number { return 1; }\n');
-  const gitEnv = { ...env };
-  for (const name of GIT_LEAKS) delete gitEnv[name];
-  for (const args of [['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'A service']]) {
-    const done = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: gitEnv, timeout: 10_000 });
-    if (done.status !== 0) return `${repo}:1: the binary smoke's git ${args[0]} failed (exit ${String(done.status)}): ${done.stderr}`;
-  }
-  const manifest = join(facts.folder, 'workspace.yaml');
-  writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'example', linked: true }));
-  const start = await fetch(`${facts.url}api/fill`, { method: 'POST' });
-  if (!start.ok) return `the binary smoke's fill at ${facts.url} failed: ${await start.text()}${daemonLog(products)}`;
-  const deadline = Date.now() + 90_000;
-  let filled = false;
-  while (Date.now() < deadline) {
-    const status = await fetch(`${facts.url}api/status`);
-    const state = (await status.json()) as { fill: { state: string; message?: string } };
-    if (state.fill.state === 'failed') return `the binary smoke's fill failed: ${state.fill.message}${daemonLog(products)}`;
-    if (state.fill.state === 'done') { filled = true; break; }
-    await new Promise((done) => setTimeout(done, 100));
-  }
-  if (!filled) return `the binary smoke's fill did not end within 90 s${daemonLog(products)}`;
-  const address = `${facts.url}api/view-frame?type=c4-container&subject=&renderer=archify&lang=en`;
-  const response = await fetch(address);
-  const html = await response.text();
-  if (!response.ok || !html.includes('<svg') || html.includes('data-frame-error')) {
-    return `the binary smoke's archify frame at ${address} holds no svg (HTTP ${response.status}): ${html.slice(0, 1000)}${daemonLog(products)}`;
-  }
-  console.log('binary archify smoke ok: its server rendered an svg');
-  return undefined;
 }
 
 /** Lists the scratch home: the draft the graph store holds is the one the list names. */

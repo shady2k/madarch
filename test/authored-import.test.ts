@@ -24,7 +24,7 @@ function fixture(): string {
   note:
     source: graph
     origin: person
-    template: templates/page.liquid
+    
     import-folder: old
     fields:
       - { name: legacy_id, type: text, nullable: true, producers: [person] }

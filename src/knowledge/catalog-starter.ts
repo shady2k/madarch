@@ -36,7 +36,6 @@ export interface CatalogKindData {
   readonly out: readonly string[];
   readonly into: readonly string[];
   readonly policy: 'page' | 'member' | 'none';
-  readonly template?: string;
   readonly source?: 'graph' | 'markdown' | 'document';
   readonly origin?: 'agent' | 'person' | 'code' | 'history';
   readonly en?: readonly [string, string];
@@ -121,11 +120,11 @@ for (const path of Object.keys(CATALOG_FILES).sort(byCodePoint)) {
 }
 export const CATALOG_KIND_FILES: Readonly<Record<string, string>> = kindFiles;
 
-/** Reverse the manifest spelling for the existing seed and template helpers. */
+/** Reverse the manifest spelling for the seed helpers. */
 function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
   const {
     group, id, definition, sources, acquisition, status, 'relation-constraints': constraints,
-    'template-policy': policy, template, source, origin, labels, description, fields, key,
+    'template-policy': policy, source, origin, labels, description, fields, key,
     'derives-from': derivesFrom, 'definition-block': definitionBlock, details,
     card, history, views, er, sequence, system, listing, nav, capability, ...remaining
   } = raw;
@@ -134,7 +133,6 @@ function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
   const relations = constraints as { out: string[]; in: string[] };
   return {
     name, id, group, definition, sources, acquisition, status, out: relations.out, into: relations.in, policy,
-    ...(typeof template === 'string' ? { template: template.replace(/^templates\//, '') } : {}),
     ...(source === undefined ? {} : { source }), ...(origin === undefined ? {} : { origin }),
     ...(names?.en === undefined ? {} : { en: [names.en.one, names.en.many] }),
     ...(names?.ru === undefined ? {} : { ru: [names.ru.one, names.ru.many] }),

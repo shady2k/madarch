@@ -67,22 +67,22 @@ test('disk publishes root and nested directories as selected ordinary fields wit
   });
 }, 60_000);
 
-test('git file facts count exact non-merge touches at the pin and take the maximum date', async () => {
+test('git file facts count the commits the touched edges hold, merge commits included', async () => {
   await fixture(async ({ root, git, commit }) => {
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'old.txt'), 'old\n');
     writeFileSync(join(root, 'src/file.txt'), 'nested\n');
-    commit('base with later clock', '2026-01-10T00:00:00Z');
+    const base = commit('base with later clock', '2026-01-10T00:00:00Z');
     writeFileSync(join(root, 'old.txt'), 'old\nedited\n');
     commit('edit with earlier clock', '2026-01-05T00:00:00Z');
     git('mv', 'old.txt', 'renamed.txt');
-    commit('rename', '2026-01-06T00:00:00Z');
+    const renamed = commit('rename', '2026-01-06T00:00:00Z');
     git('checkout', '-qb', 'side');
     writeFileSync(join(root, 'src/file.txt'), 'nested\nside\n');
     commit('side change', '2026-01-07T00:00:00Z');
     git('checkout', '-q', 'main');
     writeFileSync(join(root, 'main.txt'), 'main\n');
-    commit('main change', '2026-01-08T00:00:00Z');
+    const main = commit('main change', '2026-01-08T00:00:00Z');
     git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'merge', '--no-ff', '--no-commit', 'side');
     const pin = commit('merge is not another file change', '2026-01-20T00:00:00Z');
     writeFileSync(join(root, 'src/file.txt'), 'future\n');
@@ -90,11 +90,27 @@ test('git file facts count exact non-merge touches at the pin and take the maxim
     const result = await gitExtract(unit(root, pin, gitContract.outputs), context(['renamed.txt', 'src/file.txt', 'main.txt', 'untouched.txt']));
     expect(result.end?.state).toBe('complete');
     const vertices = new Map(result.vertices?.map(vertex => [String(vertex.key['path']), vertex]));
-    expect(vertices.get('old.txt')?.values).toEqual({ commit_count: 2, last_change: '2026-01-10T00:00:00.000Z' });
-    expect(vertices.get('renamed.txt')?.values).toEqual({ commit_count: 1, last_change: '2026-01-06T00:00:00.000Z' });
-    expect(vertices.get('src/file.txt')?.values).toEqual({ commit_count: 2, last_change: '2026-01-10T00:00:00.000Z' });
-    expect(vertices.get('main.txt')?.values).toEqual({ commit_count: 1, last_change: '2026-01-08T00:00:00.000Z' });
-    expect(vertices.get('untouched.txt')?.values).toEqual({ commit_count: 0, last_change: null });
+    // A path the tree no longer holds is a file too: its history and the period it existed are stated.
+    expect(vertices.get('old.txt')?.values).toEqual({
+      commit_count: 2, last_change: '2026-01-10T00:00:00.000Z',
+      added_at: '2026-01-10T00:00:00.000Z', added_in: base,
+      removed_at: '2026-01-06T00:00:00.000Z', removed_in: renamed,
+    });
+    expect(vertices.get('renamed.txt')?.values).toEqual({
+      commit_count: 1, last_change: '2026-01-06T00:00:00.000Z',
+      added_at: '2026-01-06T00:00:00.000Z', added_in: renamed, removed_at: null, removed_in: null,
+    });
+    expect(vertices.get('src/file.txt')?.values).toEqual({
+      commit_count: 3, last_change: '2026-01-20T00:00:00.000Z',
+      added_at: '2026-01-10T00:00:00.000Z', added_in: base, removed_at: null, removed_in: null,
+    });
+    expect(vertices.get('main.txt')?.values).toEqual({
+      commit_count: 1, last_change: '2026-01-08T00:00:00.000Z',
+      added_at: '2026-01-08T00:00:00.000Z', added_in: main, removed_at: null, removed_in: null,
+    });
+    expect(vertices.get('untouched.txt')?.values).toEqual({
+      commit_count: 0, last_change: null, added_at: null, added_in: null, removed_at: null, removed_in: null,
+    });
     for (const [path, vertex] of vertices) expect(vertex.evidence).toEqual({ repository: 'fixture', path, commitOrDigest: pin });
   });
 }, 60_000);

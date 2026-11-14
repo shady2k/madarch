@@ -7,6 +7,3 @@ export const GUIDE_OUTPUTS = {
   'administrator-guide': { id: 'administrator-guide:main' },
   'user-guide': { id: 'user-guide:main' },
 } as const;
-
-export type GuideKind = keyof typeof GUIDE_OUTPUTS;
-export type GuideLocale = 'en' | 'ru';

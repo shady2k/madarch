@@ -584,14 +584,6 @@ export async function readUnitGeneration(database: FillStateDatabase, unitId: st
  * a kind's turn published). One row per unit id — the generation the fill last wrote — so the answer is the store's
  * current word on each unit, never a run's own plan.
  */
-export async function readUnitStates(database: FillStateDatabase): Promise<Map<string, string>> {
-  const at = here();
-  return await run(at, database, 'readUnitStates()', ['fill_unit_generation'], async (executor) => {
-    const rows = await executor.query<{ unit_id: string; state: string }>('SELECT DISTINCT ON (unit_id) unit_id, state FROM fill_unit_generation ORDER BY unit_id, generation DESC');
-    return new Map(rows.rows.map((row) => [row.unit_id, row.state] as const));
-  }, 'snapshot');
-}
-
 export async function readRunUnits(database: FillStateDatabase, runId: string): Promise<readonly UnitRecord[]> {
   return await readRunGenerations(database, runId, true);
 }

@@ -16,7 +16,7 @@ describe('the language is a setting of the manifest', () => {
       mkdirSync(join(folder, 'madarch'), { recursive: true });
       mkdirSync(join(folder, 'templates'), { recursive: true });
       writeFileSync(join(folder, 'templates', 'a.md'), ':::body\n');
-      const text = '# a comment that stays\nkinds:\n  product:\n    template: templates/a.md\n    source: markdown\n    file: docs/product.md\n';
+      const text = '# a comment that stays\nkinds:\n  product:\n    \n    source: markdown\n    file: docs/product.md\n';
       writeFolderManifest(folder, text);
       const metadata = join(folder, 'madarch/catalog.yaml');
       writeFileSync(metadata, '# a comment that stays\n' + readFileSync(metadata, 'utf8'));

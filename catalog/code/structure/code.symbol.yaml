@@ -13,7 +13,6 @@ relation-constraints:
   in:
   - partOf
 template-policy: page
-template: templates/symbol.liquid
 source: graph
 fields:
 - name: repository

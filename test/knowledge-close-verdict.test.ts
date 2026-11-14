@@ -132,13 +132,13 @@ test('a standalone fill does not start validation, while an explicit request sti
     expect(judgeCalls).toBe(0);
     expect(existsSync(file)).toBe(false);
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
-    const context = spyOn(product, 'context');
+    const read = spyOn(product as unknown as { sourceOpinions: () => Promise<unknown> }, 'sourceOpinions');
     try {
       const verdict = await product.graphVerdicts();
       expect(verdict.rows.length).toBeGreaterThan(0);
       expect(existsSync(file)).toBe(true);
-      expect(context).toHaveBeenCalledTimes(1);
-    } finally { context.mockRestore(); }
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally { read.mockRestore(); }
   } finally {
     await product?.close();
     rmSync(work, { recursive: true, force: true });

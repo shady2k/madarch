@@ -31,7 +31,7 @@
   "findingLabels": [
     "finding"
   ],
-  "findingBudget": 15,
+  "findingBudget": null,
   "staleDays": 14,
   "holdDays": 2,
   "bulkCluster": 20,

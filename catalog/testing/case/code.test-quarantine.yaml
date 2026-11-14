@@ -15,7 +15,6 @@ relation-constraints:
   - fixedBy
   in: []
 template-policy: page
-template: templates/test-quarantine.liquid
 source: graph
 fields:
 - name: repository

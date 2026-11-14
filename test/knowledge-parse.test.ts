@@ -1,12 +1,11 @@
 /**
  * What the wiki reads from the product repository before it draws anything
  * (decision 0029; the vertical's shared formats, sections 1 and 2): the kinds
- * manifest, the page template, a Markdown entity and its body, and the starter
- * set `madarch init` seeds. A refusal names the file and the line; nothing is
- * dropped without being said.
+ * manifest, the starter set `madarch init` seeds and a product's own template
+ * files. A refusal names the file and the line; nothing is dropped without being said.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
@@ -27,22 +26,14 @@ afterEach(() => {
   for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
-function put(root: string, path: string, text: string): void {
-  mkdirSync(join(root, path, '..'), { recursive: true });
-  writeFileSync(join(root, path), text);
-}
-
 describe('the kinds manifest', () => {
   test('a manifest is read into its kinds, with the home the first kind that is one file', () => {
     const root = scratch();
-    put(root, 'templates/a.md', ':::body\n');
-    put(root, 'templates/b.md', 'text\n');
     const manifest = parseKinds([
       'kinds:',
-      '  domain: { template: templates/a.md, source: markdown, folder: docs/domains }',
-      '  product: { template: templates/a.md, source: markdown, file: docs/product.md }',
+      '  domain: { source: markdown, folder: docs/domains }',
+      '  product: { source: markdown, file: docs/product.md }',
       '  code.thing:',
-      '    template: templates/b.md',
       '    source: graph',
       '    title: name',
       '    attributes: [name, language]',
@@ -59,30 +50,25 @@ describe('the kinds manifest', () => {
 
   test('every mistake is a finding with the file and the line, and the other kinds still stand', () => {
     const root = scratch();
-    put(root, 'templates/a.md', 'x\n');
     const text = [
       'kinds:', // 1
-      '  good: { template: templates/a.md, source: graph }', // 2
-      '  nosource: { template: templates/a.md }', // 3
-      '  missing: { template: templates/none.md, source: graph }', // 4
-      '  climbing: { template: ../outside.md, source: graph }', // 5
-      '  both: { template: templates/a.md, source: markdown, file: a.md, folder: b }', // 6
-      '  neither: { template: templates/a.md, source: markdown }', // 7
-      '  stray: { template: templates/a.md, source: graph, colour: red }', // 8
-      '  graphfolder: { template: templates/a.md, source: graph, folder: docs }', // 9
-      'extra: 1', // 10
+      '  good: { source: graph }', // 2
+      '  nosource: { }', // 3
+      '  both: { source: markdown, file: a.md, folder: b }', // 4
+      '  neither: { source: markdown }', // 5
+      '  stray: { source: graph, colour: red }', // 6
+      '  graphfolder: { source: graph, folder: docs }', // 7
+      'extra: 1', // 8
     ].join('\n');
     const manifest = parseKinds(text, 'madarch/catalog.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
+      [8, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
-      [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
-      [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
-      [6, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [7, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [8, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, template, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, derives-from, agent, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
-      [9, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
+      [4, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
+      [5, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
+      [6, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, derives-from, agent, classes, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      [7, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/catalog.yaml')).toBe(true);
   });
@@ -104,18 +90,10 @@ describe('the starter set madarch init seeds', () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
-    // The starter set of both changes: the document task page and the history task page are two templates of one name
-    // (`task.liquid` for the document, `history-task.liquid` for the graph's task), so both stand in the list
-    // (madarch-m38l.16). The base page and the partials come first: every kind extends the base (decision 0032).
+    // The starter set is the manifest, the kinds, the plugins' files and the workflow: a page is the product's own
+    // template under `templates/` (decision 0036, section 6), and the engine ships none.
     expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/catalog.yaml', ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`), 'madarch/plugins.lock', 'madarch/workflows.yaml',
-      ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`)),
-      'templates/entity.liquid',
-      'templates/partials/around.liquid', 'templates/partials/pages-about.liquid', 'templates/partials/source.liquid',
-      'templates/partials/relations.liquid', 'templates/partials/history.liquid',
-      ...[
-        'product', 'domain', 'dismissal', 'guide', 'service', 'package', 'module', 'file', 'repository', 'directory', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
-        'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'enrichment', 'term', 'question', 'correction', 'task', 'test-quarantine',
-      ].map((name) => `templates/${name}.liquid`)].sort(byCodePoint));
+      ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`))].sort(byCodePoint));
     for (const file of STARTER_FILES) {
       if (file.bytes !== undefined) expect(readFileSync(join(draft.folder, file.path))).toEqual(Buffer.from(file.bytes));
       else expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);

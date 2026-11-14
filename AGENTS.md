@@ -39,10 +39,8 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   The wiki app's own checks run inside `wiki/app`:
   `bun install --frozen-lockfile && bun run check && bun test && bun run build`.
   `madarch demo` clones or updates the Madarch product repository and serves
-  its wiki; `bun run wiki:shots --url <served-product-base> --out <outside-folder>`
-  walks an already served wiki at desktop and phone widths and writes an HTML
-  error index. See `docs/guides/wiki-walk.md`. The specialized
-  `bun scripts/wiki-shots.ts --mockup <dist>` still runs mockup-fidelity acceptance.
+  its wiki. A page reads the graph through `/graphql` (decision 0036): the
+  server renders no page, and the page-walk shot scripts went with that layer.
   Mutation testing is StrykerJS 9
   run from a scratch folder outside the repository with `typescript@5` beside it
   (TypeScript 7 has no JS API); see `.shady2k/integration.md`. With bun's command
@@ -116,11 +114,6 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   own cluster name and staged folder, and it retries every 30 s and starts the
   moment a slot frees (measured 2026-10-20: fifteen wrapper attempts over
   40 minutes all refused, the queued launch held the queue and started).
-- The knowledge wiki (decision 0029) is accepted by `bun scripts/knowledge-shots.ts
-  --out shots` on the pod (`madarch-sky-test --avx2 --cmd`, after `bun run build` in
-  `wiki/app`, then `--fetch` the folder): it serves the generated training repository
-  as two products, walks the empty one into its fill and the filled one from the home
-  page to a function.
 - A store runs on a PostgreSQL server madarch installs (decision 0024, amended
   2026-11-07): the cluster is `<store>/pgdata`, its Unix socket `<store>/pgsock`,
   and a fill of `/work/madarch` peaks at 213 MB of RSS in the process plus 12 MB

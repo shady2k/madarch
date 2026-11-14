@@ -146,7 +146,7 @@ release bugs (madarch-v2vt, madarch-v4qi).
 
 ### Finding budget
 
-15, as in wiki-for-people (`findingBudget` in `.shady2k/config.json`).
+None. The owner removed the budget on 2026-11-13, after the demo walk turned up more findings than 15: «Да какой нафиг бюджет. У нас продукта по сути нет.» (`findingBudget` is null in `.shady2k/config.json`; every finding is filed into the milestone as it is found.) Earlier: 15, as in wiki-for-people.
 
 ### Target date
 

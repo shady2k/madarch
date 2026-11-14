@@ -401,7 +401,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         kinds: [unit.kind], kind: unit.kind,
         files: [],
       };
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();

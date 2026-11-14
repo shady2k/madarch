@@ -100,7 +100,7 @@ function megabytes(bytes: number): string {
  */
 export function refuseRoot(uid: number | undefined = typeof process.getuid === 'function' ? process.getuid() : undefined): void {
   if (uid === 0) {
-    throw new Error(`${WHERE}:1: madarch does not install or run PostgreSQL as root: initdb and postgres both refuse it, and a server root installed is one the person who runs madarch cannot use. Run madarch as an ordinary user, for example: sudo -u <user> bun scripts/fill-step1.ts ...`);
+    throw new Error(`${WHERE}:1: madarch does not install or run PostgreSQL as root: initdb and postgres both refuse it, and a server root installed is one the person who runs madarch cannot use. Run madarch as an ordinary user, for example: sudo -u <user> madarch serve ...`);
   }
 }
 

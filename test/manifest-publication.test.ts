@@ -10,10 +10,8 @@ import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { createManifestWatch } from '../src/product/manifest-watch.js';
-import { catalogKinds } from '../src/knowledge/catalog-view.js';
-import { createKnowledgePart } from '../src/server/knowledge.js';
-import type { KnowledgeProduct } from '../src/knowledge/product.js';
-import type { RenderContext } from '../src/knowledge/blocks.js';
+import { publishedManifestOf } from '../src/graphql/manifest.js';
+import { graphqlSchemaOf } from '../src/graphql/schema.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-manifest-publication-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -25,7 +23,7 @@ function fixture(): string {
   writeFolderManifest(folder, `kinds:
   term:
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
 `);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  future: { status: planned, stages: [] }\n');
@@ -222,7 +220,7 @@ test('named plugin manifests use the existing plugin validator for missing and m
 kinds:
   term:
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
 `);
   const file = join(folder, 'plugins', 'words', 'plugin.json');
@@ -237,14 +235,14 @@ kinds:
   expect(malformed.findings.some((one) => one.file === file && one.line === 1 && one.message.length > 0)).toBe(true);
 });
 
-test('the catalogue route reads published declarations before any fill, even after the checkout changes', async () => {
+test('the published declarations answer before any fill, even after the checkout changes', async () => {
   const folder = fixture();
   writeFolderManifest(folder, `properties:
   summary: { en: Summary, ru: Описание }
 kinds:
   term:
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
     details: [summary]
     fields:
@@ -258,28 +256,14 @@ kinds:
     await publishValidatedManifests(owner, validated.value);
     writeFolderManifest(folder, 'kinds: {}');
     const manifest = (await owner.run((tx) => readPublishedManifest(tx)))!;
-    const kinds = await catalogKinds({ manifest, graph: { kindCounts: async () => [] }, markdown: new Map() } as unknown as RenderContext);
-    const product = { folder, catalog: async () => ({ product: { name: 'Published', id: 'published' }, language: 'ru', groups: [], kinds, findings: [] }) } as unknown as KnowledgeProduct;
-    const part = createKnowledgePart({
-      json: (status, body) => Response.json(body, { status }),
-      refused: (status, body) => ({ response: Response.json(body, { status }) }),
-      errorLog: () => {},
-    }, product, () => []);
-    const result = await part.catalog(new Request('http://localhost/api/catalog?kind=term'));
-    expect(result.response.status).toBe(200);
-    expect(await result.response.json()).toMatchObject({
-      kind: 'term', count: 0, state: 'never',
-      declaration: { file: join(folder, 'madarch', 'kinds/fixture/fixture/term.yaml'), line: 1 },
-      fields: [{ name: 'summary', labels: { en: 'Summary', ru: 'Описание' }, declaration: { file: join(folder, 'madarch', 'catalog.yaml'), line: 2 } }],
-    });
-    const unknown = await part.catalog(new Request('http://localhost/api/catalog?kind=absent'));
-    expect(unknown.response.status).toBe(404);
-    expect((await unknown.response.json()).message).toContain(`${join(folder, 'madarch', 'catalog.yaml')}:1:`);
+    // The graph's published manifest is the one that answers: the checkout's later edit changes nothing.
+    expect([...manifest.kinds.keys()]).toEqual(['term']);
+    expect(manifest.kinds.get('term')?.fields?.map((field) => field.name)).toEqual(['summary']);
+    expect(graphqlSchemaOf(publishedManifestOf(manifest))).toContain('type Term implements Entity');
     const contents = await owner.run((tx) => tx.query<{ count: string }>("SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'code.file'"));
     expect(contents.rows[0]!.count).toBe('0');
   } finally { await owner.close(); }
 }, 30_000);
-
 
 test('purpose labels and order publish through the manifest watcher without a fill', async () => {
   const folder = fixture();
@@ -292,7 +276,7 @@ kinds:
   term:
     purpose: understand
     source: document
-    template: templates/term.md
+    
     terms: ["docs/*.md"]
 `;
   try {

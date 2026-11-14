@@ -124,12 +124,11 @@ describe('serveWiki with a product or a manifestless directory', () => {
         await writeJournal(tx, journal);
       });
     } finally { await owner.close(); }
-    const listed = await (await fetch(`${result.url}/api/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
-    expect(listed.documents).toContainEqual({ repo: 'source', path: 'README.md', title: 'Linked source' });
-    const response = await fetch(`${result.url}/api/document?repo=source&path=README.md`);
-    const page = await response.json() as { title: string; markdown: string };
-    expect(response.status, JSON.stringify(page)).toBe(200);
-    expect({ title: page.title, markdown: page.markdown }).toEqual({ title: 'Linked source', markdown: '# Linked source\n' });
+    // The document is a graph entity (decision 0036, section 8): read through the one read API.
+    const response = await fetch(`${result.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 20) { edges { node { label markdown repository path } } } }' }) });
+    expect(response.status).toBe(200);
+    const listed = await response.json() as { data: { allDocument: { edges: { node: { label: string; markdown: string; repository: string | null; path: string } }[] } } };
+    expect(listed.data.allDocument.edges.map((edge) => edge.node)).toContainEqual({ label: 'Linked source', markdown: '# Linked source\n', repository: 'source', path: 'README.md' });
     // The text is the graph's: the checkout may go, and the source view still answers it (decision 0035, item 24).
     rmSync(join(source, 'README.md'));
     const held = await fetch(`${result.url}/api/source?repo=source&path=README.md`);
