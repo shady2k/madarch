@@ -46,17 +46,17 @@ const ALL_PLAN = {
   units: [{ plugin: 'disk', kind: 'demo.alpha' }, { plugin: 'agent-fill', kind: 'demo.beta' }, { plugin: 'disk', kind: 'demo.gamma' }, { plugin: 'agent-fill', kind: 'demo.gamma' }],
   kinds: [ALPHA, BETA, GAMMA],
   needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }, { kind: 'demo.gamma', fields: ['definition'] }],
-  errors: [], requestedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], added: [], pluginsOnly: false,
+  errors: [], skipped: [], requestedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], added: [], pluginsOnly: false,
 };
 
 function planFor(selected: readonly string[], pluginsOnly = false) {
-  const common = { requestedKinds: selected, added: [] as { kind: string; neededBy: string }[], pluginsOnly, errors: [] as unknown[] };
+  const common = { requestedKinds: selected, added: [] as { kind: string; neededBy: string }[], pluginsOnly, errors: [] as unknown[], skipped: [] as { kind: string; fields: string[]; reason: string }[] };
   if (selected.length === 3) return { plan: { ...ALL_PLAN, ...common } };
   if (selected.includes('demo.gamma')) {
     return { plan: { ...common, selectedKinds: ['demo.alpha', 'demo.gamma'], order: ['disk', 'agent-fill'], units: [], kinds: [ALPHA, GAMMA], needsAgent: [{ kind: 'demo.gamma', fields: ['definition'] }], added: [{ kind: 'demo.alpha', neededBy: 'demo.gamma' }] } };
   }
   if (selected.includes('demo.beta')) {
-    return { plan: { ...common, selectedKinds: ['demo.beta'], order: ['agent-fill'], units: [], kinds: [BETA], needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }] } };
+    return { plan: { ...common, selectedKinds: ['demo.beta'], order: pluginsOnly ? [] : ['agent-fill'], units: [], kinds: [BETA], needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }], skipped: [{ kind: 'demo.beta', fields: ['definition'], reason: 'no producer in the manifest' }] } };
   }
   return { plan: { ...common, selectedKinds: ['demo.alpha'], order: ['disk'], units: [], kinds: [ALPHA], needsAgent: [] } };
 }
@@ -214,6 +214,19 @@ test('the preparation panel states the final set, both fillers, the agent and th
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
     expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', tokenCap: 1000, pluginsOnly: false });
     expect(page.opened).toContain('/p/run?run=fill-run-2');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a skipped kind is named and nothing is pressed when no unit would run', async () => {
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.beta' });
+  try {
+    const text = page.container.textContent ?? '';
+    expect(text).toContain('Пропущенные виды');
+    expect(text).toContain('Термины');
+    expect(page.container.querySelector('[data-testid="prepare-nothing"]')?.textContent).toContain('Запускать нечего');
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
   } finally {
     await page.close();
   }

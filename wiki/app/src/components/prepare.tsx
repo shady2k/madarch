@@ -56,6 +56,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const needsAgent = plan?.needsAgent ?? [];
   const requiresAgent = needsAgent.length > 0;
   const errors = plan?.errors ?? [];
+  const skipped = plan?.skipped ?? [];
+  const runnable = (plan?.order.length ?? 0) > 0;
   const validCap = cap.trim() === '' || (Number.isSafeInteger(Number(cap)) && Number(cap) > 0);
   const missingAgent = !pluginsOnly && requiresAgent && agent === null;
   const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null);
@@ -94,7 +96,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     }
   }, [agents.data, requiresAgent]);
   const run = (): void => {
-    if (plan === undefined || planRead.busy || errors.length > 0 || missingAgent || !validCap) return;
+    if (plan === undefined || planRead.busy || errors.length > 0 || missingAgent || !validCap || !runnable) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, {
@@ -164,6 +166,18 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
               );
             })}
           </PlainList>
+          {skipped.length === 0 ? null : (
+            <Stack className="mt-3 grid gap-2" data-testid="prepare-skipped">
+              <Text className="text-small font-medium">{t('prepare.skippedTitle')}</Text>
+              <PlainList className="m-0 list-none p-0">
+                {skipped.map((entry) => (
+                  <ListItem key={`${entry.kind}:${entry.fields.join(',')}`} className="text-small text-muted">
+                    {labelOf(navigation, entry.kind)} · {entry.reason === 'no producer in the manifest' ? t('prepare.noProducer') : entry.reason}
+                  </ListItem>
+                ))}
+              </PlainList>
+            </Stack>
+          )}
         </CardContent>
       </Card>
 
@@ -194,10 +208,10 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || missingAgent || !validCap} onClick={run} data-testid="prepare-run">
+            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || missingAgent || !validCap || !runnable} onClick={run} data-testid="prepare-run">
               {t(busy ? 'prepare.starting' : 'prepare.run')}
             </Button>
-            <Text className="text-small text-muted">{t('prepare.onePress')}</Text>
+            {runnable ? <Text className="text-small text-muted">{t('prepare.onePress')}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
           </Stack>
         </CardContent>
       </Card>

@@ -59,6 +59,7 @@ export interface FillPlanView {
   readonly kinds: readonly FillPlanKind[];
   readonly needsAgent: readonly FillPlanNeed[];
   readonly errors: readonly FillPlanError[];
+  readonly skipped: readonly { readonly kind: string; readonly fields: readonly string[]; readonly reason: string }[];
   readonly pluginsOnly: boolean;
 }
 
