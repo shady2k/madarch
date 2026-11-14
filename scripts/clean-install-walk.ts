@@ -208,8 +208,12 @@ async function serveCheck(): Promise<void> {
     if (state.manifest !== 'not-filled') throw new Error(`npx madarch init: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
     if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/catalog.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/catalog.yaml: ${last}`);
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
+    // Foreground cleanup on Windows stops the home's stores, so no daemon may still hold one here.
+    stopServer();
     await checkForegroundServe(facts.folder, 'not-filled');
     console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
+    const restarted = runMadarch('start', ['--home', home, '--port', String(port)]);
+    if (restarted.status !== 0 || !await waitForProduct(facts.url)) throw new Error(`${facts.folder}:1: could not restart the daemon after the fresh foreground check (exit ${restarted.status})${daemonTail()}`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
     // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
