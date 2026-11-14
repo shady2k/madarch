@@ -233,7 +233,11 @@ runDescribe('wiki reader chrome (built app and Chromium)', () => {
     expect(await page.$('footer.statusbar, [data-testid="connection-status"]')).toBeNull();
     const toolbarText = await page.$eval('.shell-toolbar', (toolbar) => toolbar.textContent ?? '');
     expect(toolbarText).not.toContain(PAGE_TITLE);
-    expect(await page.$eval('.shell-breadcrumb', (breadcrumb) => breadcrumb.textContent?.trim())).toBe(LANGUAGE === 'ru' ? 'Продукт / Продукт' : 'Product / Product');
+    // The page's trail stands in the content above the title, never in the top bar.
+    expect(await page.$('.shell-toolbar .shell-breadcrumb')).toBeNull();
+    const trail = await page.$('main [data-testid="trail"]');
+    expect(trail).not.toBeNull();
+    expect(await trail!.evaluate((one) => one.closest('.shell-toolbar') === null)).toBe(true);
 
     const productBlock = await page.$('[data-testid="product-block"]');
     expect(productBlock).not.toBeNull();

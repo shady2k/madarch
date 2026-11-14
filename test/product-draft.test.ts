@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { CONSTITUTION, createDraft, productsHome, whyNotADay } from '../src/product/draft.js';
 import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
 import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
 import { byCodePoint } from '../src/model/order.js';
 
@@ -165,10 +166,7 @@ describe('createDraft', () => {
       'madarch/plugins.lock',
       'madarch/workflows.yaml',
       'model/.gitkeep',
-      'templates/catalogue-entity.yaml',
-      'templates/entity.yaml',
-      'templates/home.yaml',
-      'templates/text.yaml',
+      ...Object.keys(CATALOG_FILES).filter((path) => path.startsWith('templates/pages/')).map((path) => `templates/${path.slice('templates/pages/'.length)}`),
       ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`)),
       'prototypes/.gitkeep',
       'skills/.gitkeep',

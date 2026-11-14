@@ -13,6 +13,7 @@ import { knowledgeRootOf } from '../src/product/store.js';
 import { startPreparedServer } from './prepared-server.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
 
 let root = '';
 let home = '';
@@ -69,7 +70,11 @@ test('a product whose templates are whole serves, and the bootstrap lists them',
   const body = (await answer.json()) as { data?: { bootstrap: { catalogueTemplate: string; templates: { name: string; body: string }[]; recordTemplates: { kind: string; template: string }[]; roles: string[] } } };
   const bootstrap = body.data!.bootstrap;
   expect(bootstrap.catalogueTemplate).toBe('catalogue-entity');
-  expect(bootstrap.templates.map((one) => one.name).sort()).toEqual(['catalogue-entity', 'entity', 'home', 'text']);
+  const starterTemplates = Object.keys(CATALOG_FILES)
+    .filter((path) => path.startsWith('templates/pages/'))
+    .map((path) => path.slice('templates/pages/'.length, -'.yaml'.length))
+    .sort();
+  expect(bootstrap.templates.map((one) => one.name).sort()).toEqual(starterTemplates);
   expect(bootstrap.templates.every((one) => one.body.length > 0)).toBe(true);
   expect(bootstrap.roles.length).toBeGreaterThan(0);
 }, 180_000);
