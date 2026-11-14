@@ -1,7 +1,7 @@
 id: nist800-34.recovery-point
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: One point in time a restore can return the data to, and how much data that loses.
+definition: A recovery point is one moment in time that a restore can return the data to, and how much data that loses.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Точка восстановления
     many: Точки восстановления
 description:
-  en: One point in time a restore can return the data to, and how much data that loses.
-  ru: Момент, к которому восстановление может вернуть данные, и сколько данных при этом теряется.
+  en: A recovery point is a moment a backup or a replica can restore the data to. The distance from the failure to that moment is the data that would be lost.
+  ru: Точка восстановления — момент, к которому резервная копия или реплика может вернуть данные. Расстояние от сбоя до этого момента и есть данные, которые будут потеряны.

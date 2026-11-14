@@ -1,7 +1,7 @@
 id: nist800-34.restore-test
 purpose: quality
 audience: [operations, platform-devops, tester]
-definition: A trial restore from a backup, with the time it took and what it proved.
+definition: A restore test is a trial restore from a backup, with the time it took and what it proved.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Проверка восстановления
     many: Проверки восстановления
 description:
-  en: A trial restore from a backup, with the time it took and what it proved.
-  ru: Пробное восстановление из резервной копии с затраченным временем и доказанным результатом.
+  en: A restore test takes a backup and restores it into a separate place to see whether the copy is complete and how long recovery takes. Without such a test, nobody knows whether the backups would work when they are needed.
+  ru: Проверка восстановления берёт резервную копию и восстанавливает её в отдельное место, чтобы увидеть, полна ли копия и сколько занимает восстановление. Без такой проверки никто не знает, сработают ли копии, когда понадобятся.

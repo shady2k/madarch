@@ -1,7 +1,7 @@
 id: nist800-34.replication
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The continuous copying of data or of a service to a second place, with its lag.
+definition: Replication is the continuous copying of data or a service to a second place, with its delay.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Репликация
     many: Репликации
 description:
-  en: The continuous copying of data or of a service to a second place, with its lag.
-  ru: Непрерывное копирование данных или сервиса во второе место с его задержкой.
+  en: Replication keeps a second copy of data or a running service up to date by copying every change as it happens. The copying lag says how far behind the second place can be, and therefore how much data a failure may lose.
+  ru: Репликация поддерживает вторую копию данных или работающего сервиса в актуальном состоянии, копируя каждое изменение по мере появления. Задержка копирования говорит, насколько второе место может отставать и сколько данных потеряется при отказе.
