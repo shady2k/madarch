@@ -100,7 +100,8 @@ async function settle(): Promise<void> {
   for (let at = 0; at < 12; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 }
 
-async function render(component: string, params: Record<string, unknown> = {}): Promise<{ container: HTMLElement; close: () => Promise<void> }> {
+async function render(component: string, params: Record<string, unknown> = {}): Promise<{ container: HTMLElement; roles: string[]; close: () => Promise<void> }> {
+  const roles: string[] = [];
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -108,11 +109,11 @@ async function render(component: string, params: Record<string, unknown> = {}): 
     root.render(createElement(PageView, {
       composition: { template: 'probe', operation: '', variables: {}, sections: [section('body', component, params)], findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables: {}, product: null, navigation: null, open: () => undefined, reload: () => undefined },
+      runtime: { base: '', language: 'ru', busy: false, variables: {}, product: null, navigation: null, open: () => undefined, reload: () => undefined, onRole: (role: string) => { roles.push(role); } },
     }));
   });
   await settle();
-  return { container, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
+  return { container, roles, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
 
 function type(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -191,6 +192,7 @@ test('the settings page offers the agent, the roles, the language and the reader
     await act(async () => { (page.container.querySelector('[data-testid="settings-reader-architect"]') as HTMLButtonElement).click(); });
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { role?: string }).role === 'architect')).toBe(true);
+    expect(page.roles).toContain('architect');
   } finally {
     await page.close();
   }

@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
-import { readProblemsCount, readProduct, useChangeStream, useCommandRead, type ProblemsCount } from './components/command.js';
+import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
@@ -80,6 +80,7 @@ export function App(): ReactElement {
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product-identity', (signal) => readProduct(base, signal));
+  const savedRole = useCommandRead<ReaderSettingsAnswer>('active-reader-role', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -136,6 +137,14 @@ export function App(): ReactElement {
     setBootstrap(null);
     void loadBootstrap();
   }, [loadBootstrap]);
+
+  // The saved role is the active role on every browser, not only in the first-visit dialog. A role changed on this page or
+  // in Settings is applied by `applyRole` and, for the top bar's menu, saved back to the same file.
+  useEffect(() => {
+    if (savedRole.data === null || typeof savedRole.data.role !== 'string') return;
+    setRole(savedRole.data.role);
+    keepRole(savedRole.data.role);
+  }, [savedRole.data]);
 
   // The document says the language the reader reads and names the product, as the browser's tab shows them.
   useEffect(() => {
@@ -217,7 +226,9 @@ export function App(): ReactElement {
   }, [ask, loaded]);
 
   const productName = identity.data?.name ?? navigation?.product ?? null;
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, open, reload };
+  const applyRole = useCallback((next: string): void => { setRole(next); keepRole(next); }, []);
+  const chooseRole = useCallback((next: string): void => { applyRole(next); void saveReaderRole(base, next).catch(() => undefined); }, [applyRole, base]);
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, open, reload, onRole: applyRole };
   const section: FramePage | null = address.frame;
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
@@ -257,7 +268,7 @@ export function App(): ReactElement {
       : null;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
-      <RoleFirstVisit base={base} onChosen={(next) => { setRole(next); keepRole(next); }} />
+      <RoleFirstVisit base={base} onChosen={applyRole} />
       <Stack layout="shell" data-testid="wiki-app">
         <ShellSidebar id="app-nav" aria-label={t('navigation.aria')}>
           <Stack layout="navigation">{navigationPanel(() => undefined)}</Stack>
@@ -276,7 +287,7 @@ export function App(): ReactElement {
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
               onLanguage={(next) => { void setWikiLanguage(next); }}
-              onRole={(next) => { setRole(next); keepRole(next); }}
+              onRole={chooseRole}
               onReload={() => { void loadBootstrap(); }}
             />
           </ShellFixed>

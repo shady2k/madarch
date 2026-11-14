@@ -23,4 +23,6 @@ export interface SectionContext {
   /** The product's name and the kinds the frame's navigation read: what a page's own words come from. */
   readonly product: string | null;
   readonly navigation: Navigation | null;
+  /** Applies a role the reader chose on this page and keeps it for the frame. */
+  readonly onRole?: (role: string) => void;
 }

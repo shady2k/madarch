@@ -39,6 +39,8 @@ export interface PageRuntime {
   /** The frame's own reading: the product's name and the kinds the sidebar lists. */
   readonly product: string | null;
   readonly navigation: Navigation | null;
+  /** Applies a role the reader chose on this page and keeps it for the frame. */
+  readonly onRole?: (role: string) => void;
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
@@ -66,6 +68,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       },
       product: runtime.product,
       navigation: runtime.navigation,
+      ...(runtime.onRole === undefined ? {} : { onRole: runtime.onRole }),
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);

@@ -163,7 +163,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
   const saveReader = (role: string): void => {
     setWorking('reader');
     setError(null);
-    saveReaderRole(base, role).then(() => { setWorking(null); reader.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+    saveReaderRole(base, role).then(() => { setWorking(null); reader.reload(); context.onRole?.(role); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
   const namedAgents = Object.entries(data?.agentNames ?? {});
   const roleOptions = [

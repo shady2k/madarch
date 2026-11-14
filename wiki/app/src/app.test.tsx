@@ -71,6 +71,7 @@ const navigation = {
 };
 
 const requests: { query: string; variables: Record<string, unknown> }[] = [];
+let readerRole = 'everything';
 
 function answerFor(query: string, variables: Record<string, unknown>): unknown {
   if (query.includes('bootstrap')) return { data: { bootstrap, navigation } };
@@ -91,16 +92,20 @@ function answerFor(query: string, variables: Record<string, unknown>): unknown {
 
 beforeEach(() => {
   requests.length = 0;
+  readerRole = 'everything';
+  try { window.localStorage.clear(); } catch { /* no storage */ }
   // The frame's «Заполнить…» button reads the product's command state, and the change stream is silent here.
   (globalThis as { EventSource?: unknown }).EventSource = undefined;
   (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
     const path = String(url);
     if (!path.endsWith('/graphql')) {
-      const command = path.includes('/api/problems')
-        ? { open: 3, closed: 0, dismissed: 0, sections: { code: 3, documents: 0, wiki: 0 } }
-        : path.includes('/api/status')
-          ? { fill: { state: 'idle' } }
-          : path.includes('/api/fill-plan') ? { order: [], kinds: [], catalogue: [], requiresAgent: false, unproduced: [] } : {};
+      const command = path.includes('/api/settings')
+        ? { role: readerRole, asked: true, roles: ['analyst', 'everything'] }
+        : path.includes('/api/problems')
+          ? { open: 3, closed: 0, dismissed: 0, sections: { code: 3, documents: 0, wiki: 0 } }
+          : path.includes('/api/status')
+            ? { fill: { state: 'idle' } }
+            : path.includes('/api/fill-plan') ? { order: [], kinds: [], catalogue: [], requiresAgent: false, unproduced: [] } : {};
       return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
@@ -171,6 +176,18 @@ test('a path that is no page says so, and asks the graph for nothing', async () 
   }
 });
 
+
+
+test('the saved role is the active role at start', async () => {
+  readerRole = 'analyst';
+  window.history.pushState({}, '', '/');
+  const page = await render();
+  try {
+    expect(page.container.querySelector('[data-testid="role-menu"]')?.textContent).toContain('Analyst');
+  } finally {
+    await page.close();
+  }
+});
 
 test('a change event refreshes the navigation and asks the current page again', async () => {
   class FakeSource {
