@@ -54,17 +54,6 @@ sections:
       columns:
         - { label: { en: Repository, ru: Репозиторий }, path: node.label }
         - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
-  - id: files
-    component: facts
-    on: root
-    title: { en: The graph, ru: Что в графе }
-    query: |
-      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
-        count
-      }
-    params:
-      rows:
-        - { label: { en: Files, ru: Файлы }, path: count, format: number }
   - id: byLanguage
     component: bars
     on: root
