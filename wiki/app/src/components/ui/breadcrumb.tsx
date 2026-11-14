@@ -58,7 +58,7 @@ export function PageBreadcrumb({ items, label, className, ...props }: Omit<Compo
         {between === '' ? null : (
           <>
             <BreadcrumbSeparator className="shrink-0">/</BreadcrumbSeparator>
-            <li className="min-w-8 flex-1 truncate">{between}</li>
+            <li className="min-w-8 flex-[0_1_auto] truncate">{between}</li>
           </>
         )}
         {items.length === 1 ? null : (
