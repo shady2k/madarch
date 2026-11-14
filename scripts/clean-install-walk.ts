@@ -209,6 +209,7 @@ async function serveCheck(): Promise<void> {
     if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/catalog.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/catalog.yaml: ${last}`);
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
     // Foreground cleanup on Windows stops the home's stores, so no daemon may still hold one here.
+    // `not-filled` is not store readiness: startup publication may still be in initdb. Stop must end preparation too.
     stopServer();
     await checkForegroundServe(facts.folder, 'not-filled');
     console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
