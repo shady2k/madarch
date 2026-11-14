@@ -36,8 +36,9 @@ sections:
         edges {
           node {
             id
-            name
+            kind
             label
+            name
             group
             subgroup
             taken
@@ -50,7 +51,7 @@ sections:
         totalCount
       }
     params:
-      path: allCatalogueEntity
+      path: .
       pageSize: 50
       columns:
         - label: { en: Kind, ru: Вид }

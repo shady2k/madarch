@@ -93,6 +93,7 @@ describe('the starter set madarch init seeds', () => {
     // The starter set is the manifest, the kinds, the plugins' files and the workflow: a page is the product's own
     // template under `templates/` (decision 0036, section 6), and the engine ships none.
     expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/catalog.yaml', ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`), 'madarch/plugins.lock', 'madarch/workflows.yaml',
+      'templates/catalogue-entity.yaml', 'templates/entity.yaml', 'templates/home.yaml', 'templates/text.yaml',
       ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`))].sort(byCodePoint));
     for (const file of STARTER_FILES) {
       if (file.bytes !== undefined) expect(readFileSync(join(draft.folder, file.path))).toEqual(Buffer.from(file.bytes));

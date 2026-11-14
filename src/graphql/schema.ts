@@ -3,7 +3,9 @@
  * one record type per edge kind, the `Entity` interface, connections with `first`/`after`, a filter and an order
  * per type, the fields of section 2 (`<field>`, `<field>Opinions`, `contested`), the edges both ways with a
  * record that keeps each repeated edge apart, the inverse of every reference, the backlinks, and the roots
- * `entity`, `all<Type>`, `search` and `bootstrap`. The schema is a function of the manifest alone: two machines
+ * `entity`, `all<Type>`, `search` and `bootstrap`. A page reads its entity's relations both ways — `backlinks` for the
+ * edges that reach it, `outgoing` for the ones it leads out with — and a catalogue entity lists the records of its kind
+ * through `instances`, so a template asks the graph without naming a kind. The schema is a function of the manifest alone: two machines
  * derive one SDL from one manifest, a name that encodes to a reserved one or two declarations that encode to one
  * name are refused naming what stands on both sides, and nothing here names a kind.
  */

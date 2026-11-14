@@ -119,6 +119,16 @@ describe('the starter templates', () => {
     expect(splitResponse(page, data)['backlinks']).toBeNull();
   });
 
+  test('a section that asks the graph nothing is drawn by the page and holds no part in the operation', () => {
+    // The home template's search and kind tabs name no query: the page's operation asks only its data sections.
+    const page = composePage(bootstrap, { home: true });
+    expect(page.findings).toEqual([]);
+    expect(page.sections.map((one) => one.id)).toContain('search');
+    expect(page.operation).not.toContain('s_search');
+    expect(page.operation).not.toContain('$id');
+    expect(validate(schema, parse(page.operation))).toEqual([]);
+  });
+
   test('a section is shown to the role its template names, and to every role without one', () => {
     const withRoles = body('entity').replace('    component: facts\n', '    component: facts\n    roles: { show: [engineer] }\n');
     const held: Bootstrap = { ...bootstrap, templates: [{ name: 'entity', body: withRoles }], roles: ['engineer', 'analyst'] };

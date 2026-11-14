@@ -4,7 +4,6 @@
  * sort through `$<sectionId>_where` and `$<sectionId>_orderBy` when the section's query declares them.
  */
 import { useState, type ReactElement, type ReactNode } from 'react';
-import { titleIn } from '../../../../src/page-contract/index.js';
 import { Table } from './ui/data.js';
 import { Button, Field, Select, TextInput } from './ui/controls.js';
 import { Inline, InlineMuted, Stack } from './ui/layout.js';
@@ -93,15 +92,15 @@ export function TableSection({ context }: { readonly context: SectionContext }):
             </Field>
           ) : null}
           {canFilter && filters.length > 1 ? (
-            <Field label="field">
-              <Select label="field" value={filterField} options={filters.map((one) => ({ value: String(one.field ?? ''), label: localized(one.label, language) ?? String(one.field ?? '') }))} onChange={setFilterField} />
+            <Field label="Field">
+              <Select label="Field" value={filterField} options={filters.map((one) => ({ value: String(one.field ?? ''), label: localized(one.label, language) ?? String(one.field ?? '') }))} onChange={setFilterField} />
             </Field>
           ) : null}
-          {canFilter ? <Button onClick={() => askFilter(filterText, filterField)}>{titleIn(section.title, language) ?? ''} ⏎</Button> : null}
+          {canFilter ? <Button onClick={() => askFilter(filterText, filterField)}>Filter</Button> : null}
           {canSort ? (
-            <Field label="sort">
+            <Field label="Sort">
               <Select
-                label="sort"
+                label="Sort"
                 value={sort}
                 options={[{ value: '', label: '—' }, ...sortable.map((column) => ({ value: String(column.sortField), label: localized(column.label, language) ?? String(column.sortField) }))]}
                 onChange={(value) => { setSort(value); askSort(value); }}

@@ -40,7 +40,9 @@ function templateFiles(folder: string): { name: string; body: string; path: stri
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) visit(path);
-      else if (entry.isFile() && statSync(path).isFile()) {
+      // Section 6: a page template is a YAML file of `templates/`. Another file beside them (a product's leftover
+      // Liquid template) is no page template, and the server neither reads it nor refuses the product for it.
+      else if (entry.isFile() && statSync(path).isFile() && /\.ya?ml$/u.test(entry.name)) {
         const name = relative(root, path).replace(/\.[^.]*$/u, '');
         out.push({ name, body: readFileSync(path, 'utf8'), path: `templates/${relative(root, path)}` });
       }

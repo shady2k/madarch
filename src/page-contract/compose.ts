@@ -60,7 +60,8 @@ export function aliasOf(sectionId: string): string {
 /** The template a page opens with (section 6): its own, else its kind's record template, else `entity`. */
 export function templateFor(bootstrap: Bootstrap, address: PageAddress): string {
   if (address.template !== undefined) return address.template;
-  if (address.home === true) return bootstrap.home?.template ?? 'entity';
+  // The home page opens the home entity's template; a product whose graph holds no home entity still opens `home`.
+  if (address.home === true) return bootstrap.home?.template ?? (bootstrap.templates.some((one) => one.name === 'home') ? 'home' : 'entity');
   const own = address.id === undefined ? undefined : bootstrap.ownTemplates.find((one) => one.id === address.id);
   if (own !== undefined) return own.template;
   if (address.kind === CATALOGUE_KIND) return bootstrap.catalogueTemplate;
@@ -161,6 +162,11 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
   for (const section of sections) {
     const alias = aliasOf(section.id);
     const query = section.query ?? '';
+    // A section that asks the graph nothing (`tabs`, `search`) is drawn by the page alone: it has no part in the operation.
+    if (query.trim() === '') {
+      composed.push({ ...section, alias });
+      continue;
+    }
     for (const used of variablesUsed(query)) {
       if (used === 'id') {
         declarations.set('id', 'ID!');

@@ -16,6 +16,7 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
+import { composePage, type Bootstrap } from '../src/page-contract/index.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
@@ -69,6 +70,8 @@ beforeAll(async () => {
   mkdirSync(join(folder, 'madarch/kinds/demo/core'), { recursive: true });
   mkdirSync(join(folder, 'templates'), { recursive: true });
   writeFileSync(join(folder, 'templates/entity.yaml'), 'template: entity\nsections: []\n');
+  // The starter's own home template: the page composes into one operation over the catalogue (decision 0036, section 6).
+  writeFileSync(join(folder, 'templates/home.yaml'), readFileSync(join(import.meta.dir, '..', 'catalog/templates/pages/home.yaml'), 'utf8'));
   // A record template and an entity's own template: the bootstrap names both, and an entity answers the one it opens.
   writeFileSync(join(folder, 'templates/record.yaml'), 'template: record\nextends: entity\nrecords: [demo.file]\nsections:\n  - id: files\n    component: table\n    after: header\n    query: |\n      id\n      label\n    params:\n      path: .\n      columns: [{ label: { en: Label }, path: label }]\n');
   writeFileSync(join(folder, 'templates/own.yaml'), 'template: own\nextends: entity\nentities: [own-entity]\nsections: []\n');
@@ -302,6 +305,24 @@ describe('the GraphQL executor', () => {
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
   });
 
+  test('the starter home template composes into one operation that reads the catalogue', async () => {
+    const bootstrap: Bootstrap = {
+      structureRevision: 'r',
+      home: null,
+      catalogueTemplate: 'entity',
+      templates: ['home', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
+      recordTemplates: [], ownTemplates: [], roles: [],
+    };
+    const page = composePage(bootstrap, { home: true });
+    expect(page.findings).toEqual([]);
+    const data = await graphql(page.operation, page.variables);
+    // A root section's data is the value of its own root field: the table's path is the section's own data.
+    const kinds = data['s_kinds'] as Record<string, any>;
+    expect(kinds.totalCount).toBe(2);
+    expect(kinds.edges.map((edge: any) => edge.node.name).sort()).toEqual(['demo.file', 'demo.repository']);
+    expect(kinds.edges[0].node.kind).toBe('catalogue');
+  });
+
   test('the bootstrap names the templates, the pages they open and the roles', async () => {
     const data = await graphql(`{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name } recordTemplates { kind template } ownTemplates { id template } roles } }`);
     const held = data['bootstrap'] as Record<string, any>;
@@ -309,7 +330,7 @@ describe('the GraphQL executor', () => {
     // This fixture holds no home kind: the home is null, and the mechanisms's other names stand.
     expect(held.home).toBeNull();
     expect(held.catalogueTemplate).toBe('entity');
-    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['entity', 'own', 'record']);
+    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['entity', 'home', 'own', 'record']);
     expect(held.recordTemplates).toEqual([{ kind: 'demo.file', template: 'record' }]);
     expect(held.ownTemplates).toEqual([{ id: 'own-entity', template: 'own' }]);
     expect(Array.isArray(held.roles)).toBe(true);

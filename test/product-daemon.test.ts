@@ -186,7 +186,7 @@ test('a doubled slash under a product mount opens the same app address', async (
   expect(normal.status).toBe(200);
   expect(doubled.status).toBe(200);
   expect(await doubled.text()).toBe(await normal.text());
-  const nested = await fetch(`${server.url}/products/sample//kit?view=sample`);
+  const nested = await fetch(`${server.url}/products/sample//p/product-settings`);
   expect(nested.status).toBe(200);
   const unknown = await fetch(`${server.url}/products/sample//missing.example/unknown`);
   expect(unknown.status).toBe(404);
@@ -195,12 +195,13 @@ test('a doubled slash under a product mount opens the same app address', async (
   expect(refusal.message).toMatch(/wiki-app\.ts:\d+:/);
 });
 
-test('the kit showcase is served as an app route under a product mount', async () => {
+test('a page-layer route under a product mount is no route, and the app answers its own addresses', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-kit-'));
   const home = join(root, 'products'); mkdirSync(home);
   product(home, 'sample', 'sample-id');
   server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
-  const response = await fetch(`${server.url}/products/sample/kit`);
+  expect((await fetch(`${server.url}/products/sample/kit`)).status).toBe(404);
+  const response = await fetch(`${server.url}/products/sample/p/product-settings`);
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toContain('text/html');
   expect(await response.text()).toContain('/products/sample/assets/');
@@ -220,7 +221,7 @@ test('products-home mode lists products and routes each wiki under its folder', 
   expect((await second.json() as { id: string }).id).toBe('beta-id');
   const appPage = await fetch(`${server.url}/products/alpha/`);
   expect(await appPage.text()).toContain('/products/alpha/assets/');
-  const nestedPage = await fetch(`${server.url}/products/alpha/docs`);
+  const nestedPage = await fetch(`${server.url}/products/alpha/p/product-settings`);
   expect(await nestedPage.text()).toContain('/products/alpha/assets/');
   expect((await fetch(`${server.url}/products/alpha/assets/app.js`)).status).toBe(200);
   // The wiki's documents are read product-relative through the graph: the app adds its mount base itself.
