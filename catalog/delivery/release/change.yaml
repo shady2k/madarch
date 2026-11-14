@@ -1,7 +1,7 @@
 id: otel.vcs-change
 purpose: history
 audience: [developer, platform-devops, operations]
-definition: A proposed or merged change to the product, from its first commit until it runs in production.
+definition: A change is a proposed or merged alteration to the product, from its first commit until it runs in production.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 - https://dora.dev/guides/dora-metrics/
@@ -24,5 +24,5 @@ labels:
     one: Изменение
     many: Изменения
 description:
-  en: A proposed or merged change to the product, from its first commit until it runs in production.
-  ru: Предложенное или слитое изменение продукта от первого коммита до работы в производстве.
+  en: 'A change follows one alteration through delivery: the commits that make it, the review it gets, the build and the deployments that carry it to users. It is the unit that answers what happened to the product and why.'
+  ru: 'Изменение прослеживает одну правку через всю доставку: коммиты, из которых оно состоит, его просмотр, сборку и развёртывания, которые доносят его до пользователей. Это единица, по которой видно, что и почему произошло с продуктом.'

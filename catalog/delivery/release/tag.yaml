@@ -1,7 +1,7 @@
 id: practice.tag
 purpose: history
 audience: [developer, platform-devops, operations]
-definition: A name fixed to one revision, which a release or a build may be taken from; it is not a release.
+definition: A tag is a name fixed to one revision, which a release or a build may be taken from.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тег
     many: Теги
 description:
-  en: A name fixed to one revision, which a release or a build may be taken from; it is not a release.
-  ru: Имя, закреплённое за одной ревизией, от которой берут выпуск или сборку; это не выпуск.
+  en: A tag is a label on one commit, such as v1.4.0, that does not move as new commits arrive. A build or a release may be taken from it, but the tag itself is only a name for a point in history.
+  ru: Тег — метка на одном коммите, например v1.4.0, которая не сдвигается с новыми коммитами. От неё могут взять сборку или выпуск, но сам тег — лишь имя для точки в истории.
