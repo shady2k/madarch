@@ -1,7 +1,7 @@
 id: istqb.performance-test
 purpose: quality
 audience: [tester, developer]
-definition: A test that measures how the product responds and how much it can carry.
+definition: A performance test measures how the product responds and how much it can carry.
 sources:
 - https://glossary.istqb.org/en_US/term/performance-testing
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тест производительности
     many: Тесты производительности
 description:
-  en: A test that measures how the product responds and how much it can carry.
-  ru: Тест, который измеряет, как отвечает продукт и сколько он может выдержать.
+  en: A performance test measures response time, throughput and resource use under a stated load. Its variants — smoke, load, stress, capacity — answer different questions about speed and limits.
+  ru: Тест производительности измеряет время ответа, пропускную способность и расход ресурсов при заданной нагрузке. Его виды — дымовой, нагрузочный, стрессовый, ёмкостный — отвечают на разные вопросы о скорости и пределах.
