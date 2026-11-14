@@ -102,9 +102,25 @@ function fillProgressOf(spans: readonly TraceSpan[]): FillProgress {
   return { spans: spans.length, planned: [...plannedByStep.values()].reduce((sum, units) => sum + units, 0), published, failed, blocked, stages: held, last: last ?? newest, pass };
 }
 
+/**
+ * The fold kept from the last read of one trace by one reader: a status poll
+ * reads the fill's progress every few seconds, and folding a store's whole
+ * trace per poll cost 4 to 11 ms on a 150 000-span trace — 67 ms on a loaded CI
+ * runner, past the poll's own bound (madarch-64o5.81). A reader appends to the
+ * array it answered before and never drops from it, so the same array length is
+ * the same spans: a trace that did not grow answers the fold it answered before.
+ */
+const heldProgress = new WeakMap<TraceSpanReader, { file: string; spans: number; progress: FillProgress }>();
+
 /** The progress of one trace file. */
 export function readFillProgress(file: string, reader?: TraceSpanReader): FillProgress {
-  return fillProgressOf(reader === undefined ? readTraceSpans(file) : reader.read(file));
+  if (reader === undefined) return fillProgressOf(readTraceSpans(file));
+  const held = heldProgress.get(reader);
+  const spans = reader.read(file);
+  if (held !== undefined && held.file === file && held.spans === spans.length) return held.progress;
+  const progress = fillProgressOf(spans);
+  heldProgress.set(reader, { file, spans: spans.length, progress });
+  return progress;
 }
 
 /** No run has written a span yet: what a reader sees before the first one is written. */
