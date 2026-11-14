@@ -31,45 +31,16 @@ sections:
           path: template
         - label: { en: Contested, ru: Спорные }
           path: contested
+  # The picture is drawn by the server (decision 0036, sections 7 and 8): the section names the entity and how far around
+  # it reads; no relation is asked here, because the renderer reads the neighbourhood through the graph read layer.
   - id: diagram
     component: diagram
     after: facts
     title: { en: Around it, ru: Вокруг }
     query: |
       id
-      kind
-      label
-      template
-      outgoing(first: 50) {
-        edges {
-          node {
-            relation
-            to {
-              id
-              kind
-              label
-              template
-            }
-          }
-        }
-        totalCount
-      }
-      backlinks(first: 50) {
-        edges {
-          node {
-            relation
-            from {
-              id
-              kind
-              label
-              template
-            }
-          }
-        }
-        totalCount
-      }
     params:
-      path: .
+      depth: 1
       aggregateAbove: 12
   - id: outgoing
     component: relations

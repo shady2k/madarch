@@ -16,6 +16,7 @@ import { runningVersion } from '../product/version.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
 import { WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { renderDiagram } from '../render/diagram-render.js';
 import type { McpToolDefinition, UnitToolAnswer } from './types.js';
 
 /** The producer a client's writes carry: `agent:<client>`, its session as the producer's version. */
@@ -53,6 +54,17 @@ const READ_TOOLS: readonly McpToolDefinition[] = [
       operationName: { type: 'string', description: 'Which operation to run when the text holds several.' },
       lang: { type: 'string', description: 'The reader language for text fields.' },
     }, ['query']),
+  },
+  {
+    name: 'render_diagram',
+    description: 'Renders one entity\'s diagram on the server, the same answer the wiki\'s page and GET /render/diagram get: the neighbourhood at a depth, an edge and its inverse drawn once, more than aggregateAbove neighbours of one kind folded into one node with the count. "likec4" answers the workspace and its laid-out model with each node\'s page; "mermaid" answers the flowchart source; "archify" answers its self-contained interactive HTML page.',
+    inputSchema: object({
+      entity: { type: 'string', description: 'The stable uid of the entity whose diagram is drawn.' },
+      format: { type: 'string', enum: ['likec4', 'mermaid', 'archify'], description: 'likec4 by default.' },
+      depth: { type: 'integer', description: 'How many levels from the entity are drawn; 1 by default.' },
+      aggregateAbove: { type: 'integer', description: 'How many neighbours of one kind stand as one node; 12 by default.' },
+      lang: { type: 'string', description: 'The reader language for the labels.' },
+    }, ['entity']),
   },
 ];
 
@@ -114,6 +126,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
       // The declared schema is the boundary: an argument no tool names is refused, and words is the agent's text.
       const allowed: Record<string, readonly string[]> = {
         graph_schema: [], graph_query: ['query', 'variables', 'operationName', 'lang'],
+        render_diagram: ['entity', 'format', 'depth', 'aggregateAbove', 'lang'],
         put_entity: ['kind', 'key', 'id', 'values', 'evidence', 'words'],
         put_edge: ['kind', 'from', 'to', 'discriminator', 'values', 'evidence', 'words'],
         retract: ['entity', 'edge', 'evidence', 'words'],
@@ -139,6 +152,22 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         });
         const body = answer.body as Record<string, unknown>;
         return { answer: body, isError: Array.isArray(body['errors']) && body['errors'].length > 0 };
+      }
+      if (name === 'render_diagram') {
+        const entity = args['entity'];
+        if (typeof entity !== 'string' || entity.trim() === '') throw new WriteRefusal('"entity" is the uid of the entity whose diagram is drawn', 'entity');
+        const format = args['format'] === undefined ? 'likec4' : args['format'];
+        if (format !== 'likec4' && format !== 'mermaid' && format !== 'archify') throw new WriteRefusal('"format" is one of likec4, mermaid and archify', 'format');
+        const depth = args['depth'];
+        if (depth !== undefined && (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1)) throw new WriteRefusal('"depth" is a whole number of levels, 1 or more', 'depth');
+        const aggregateAbove = args['aggregateAbove'];
+        if (aggregateAbove !== undefined && (typeof aggregateAbove !== 'number' || !Number.isInteger(aggregateAbove) || aggregateAbove < 1)) throw new WriteRefusal('"aggregateAbove" is a whole number of neighbours, 1 or more', 'aggregateAbove');
+        const lang = args['lang'];
+        if (lang !== undefined && typeof lang !== 'string') throw new WriteRefusal('"lang" is the reader language', 'lang');
+        const answer = await renderDiagram(product, { entity: entity.trim(), format, ...(depth === undefined ? {} : { depth: depth as number }), ...(aggregateAbove === undefined ? {} : { aggregateAbove: aggregateAbove as number }), ...(lang === undefined ? {} : { lang }) });
+        if ('error' in answer) return { answer: { error: answer.error }, isError: true };
+        if ('html' in answer) return { answer: { format: 'archify', html: answer.html }, isError: false };
+        return { answer: answer.body, isError: false };
       }
       if (name === 'put_entity') {
         const answer = await product.putEntity(source, {

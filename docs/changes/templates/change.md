@@ -23,9 +23,16 @@ kind, and the bootstrap's page names.
 
 The app routes `/`, `/e/kind/id` and `/p/template`, reads the bootstrap once, and draws a page's sections with ten
 generic components: `header`, `facts`, `text`, `relations`, `table`, `bars`, `diagram`, `source`, `tabs` and `search`. A
-table pages, filters and sorts through its connection's variables; the diagram draws the entity's relations both ways,
-one line for an edge and its inverse, one box for more than `aggregateAbove` neighbours of a kind, fitted to its frame,
-and walks to a neighbour a reader presses, with Mermaid as the text form. No kind is named anywhere in `wiki/app/src`.
+table pages, filters and sorts through its connection's variables. No kind is named anywhere in `wiki/app/src`.
+
+A diagram is rendered on the server, because the same pictures are served to clients on request and not only to the wiki:
+one route, `GET /render/diagram?entity=&depth=&format=likec4|mermaid|archify`, reads the entity's neighbourhood inside one
+snapshot through the graph read layer, draws an edge and its inverse once, folds more than `aggregateAbove` neighbours of
+a kind into one node with the count, and answers Mermaid's source, the LikeC4 workspace with its laid-out view, or
+archify's interactive page — the same bytes for the same graph revision, bounded like one GraphQL operation. The MCP tool
+`render_diagram` answers through the same function. The page's diagram component shows the three answers in tabs (LikeC4's
+own runtime over the server's view, Mermaid's renderer over the server's source, archify's page in a frame) and lays
+nothing out: a press on a node walks to that entity.
 
 ## Rationale
 The owner's words (madarch-64o5.71): one page mechanism, every page a template, components generic, the wiki knows no
@@ -39,17 +46,21 @@ without giving the server a page model: a product changes a page by editing a te
 - The Markdown export of a drawn page.
 - The command components — `fill`, `run`, `settings-form`, `problem-actions` — and every command read they would use.
 - Linking glossary terms inside a text section.
-- The LikeC4 positions and the archify renderer for the drawn diagram: the app's bundle holds neither a layout engine nor
-  the archify renderer, so the diagram is drawn by the app's own layered layout and Mermaid is offered as its text form.
-  The vendored archify, `likec4` and `mermaid` stay in `wiki/app`'s dependencies for the component that will use them.
+- A server-side SVG of Mermaid's picture: Mermaid measures its text in a DOM (`getBBox`), which the server's process does
+  not have, so the Mermaid format is its source — the form Mermaid's own renderer draws from — with each node's `click`
+  line carrying its page, and the page draws it.
+- archify's node passports as links: the renderer's passport sources need a code-host repository with a 40-hex revision,
+  which a graph entity does not carry, so a node's page is carried by the press the rendered page forwards, not by the
+  passport.
 - Aggregates (`listRoot` `Aggregate` roots), which the schema does not answer yet: `bars` groups the page of a list it read.
 
 ## Changes to requirements
 - wiki/pages: one operation per page view after one bootstrap; the app's own addresses.
 - wiki/templates: a template file's sections, inheritance, `records`/`entities`, the bootstrap's page names, the starter's
   four templates, the start refusal, Liquid gone.
-- wiki/frontend: add. The app's router and components, the table's connection variables, the diagram's depth-1 drawing,
-  search, tabs, roles and languages, and no kind in the app.
+- wiki/frontend: add. The app's router and components, the table's connection variables, the diagram's three tabs over
+  the server's answers, search, tabs, roles and languages, and no kind in the app.
+- views/diagram: add. One entity's diagram, rendered on the server, in three formats, for the wiki and for clients.
 - wiki/export: the server answers no page file; the frontend's export is not built.
 - wiki/result and wiki/quality requirements: unchanged except as the frontend states them.
 - product-wiki/pages: the app's addresses and the bootstrap's page names.
@@ -65,6 +76,7 @@ None.
 - wiki/pages: test
 - wiki/templates: test
 - wiki/frontend: test
+- views/diagram: test
 - wiki/export: test
 - wiki/result: test
 - product-wiki/pages: test
@@ -99,13 +111,20 @@ Mockup: docs/prototypes/templates-home.html
 
 1. A person opens the wiki on a filled product and reads the home page: the product's kinds as a table, with the count and the page's own search.
 2. They press a kind and read its page: what the kind is, its records as a table, and the page's next button turns the records to the next page.
-3. They press a file of the records and read its page: its title, its facts, the diagram of its directory and repository, the relations it is reached by, and its text or source.
+3. They press a file of the records and read its page: its title, its facts, its relations, and the diagram of its directory and repository in three tabs — LikeC4 (pans, zooms and opens a node's page), Mermaid (the server's source drawn with each node a link) and archify (the server's interactive page) — and a press on a node in any of them opens that entity.
 4. A product's author edits `templates/entity.yaml` in the product's repository, reloads the page, and the page changes without a release; a template that names a component the app does not draw stops `madarch serve` with the template's file and line.
 
 ## Blocking questions
 None.
 
 ## Design and decisions
+A diagram is the server's: `src/render/diagram.ts` builds the picture from what `ReadContext.diagramNeighbourhood` read
+(one snapshot, the graph read layer both ways per level), writes Mermaid's source and LikeC4's workspace, lays the
+workspace out with the pinned `likec4`, and feeds the laid-out view to the vendored archify renderer (unmodified, run as
+its own process). `src/render/diagram-render.ts` is the one function behind the route and the MCP tool: the same request
+answers the same bytes, and the answer is bounded like `/graphql`. The route stands in the retained list of decision 0036
+section 8 because the picture is served to clients on request, not only to the wiki.
+
 The contract as code is `src/page-contract/index.ts`: `schema.ts` (the template file and the components' parameters as
 JSON Schema), `template.ts` (the one reader: YAML nodes against the schemas, every finding carrying file and line, and
 inheritance resolved once), `compose.ts` (bootstrap + address + templates -> one operation, its variables and each

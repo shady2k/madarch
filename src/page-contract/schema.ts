@@ -103,7 +103,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     parameters: { path: { type: 'string' }, labelPath: { type: 'string' }, valuePath: { type: 'string' } },
     required: ['path'],
   },
-  diagram: { parameters: { path: { type: 'string' }, aggregateAbove: { type: 'integer' } }, required: ['path'] },
+  diagram: { parameters: { depth: { type: 'integer' }, aggregateAbove: { type: 'integer' } }, required: [] },
   source: { parameters: { path: { type: 'string' } }, required: ['path'] },
   tabs: { parameters: { sections: { type: 'array', minItems: 1, items: { type: 'string' } } }, required: ['sections'] },
   search: { parameters: { kinds: { type: 'array', items: { type: 'string' } } }, required: [] },

@@ -75,8 +75,10 @@ section's data and parameters: `header`, `facts`, `text`, `relations`, `table`, 
 `search`. A `table` shall page through `the section's `_first` paging variable` and `the section's `_after` paging variable`, and filter and sort through
 `the section's `_where` variable` and `the section's `_orderBy` variable` when its section's query declares them; a `diagram` shall draw the
 entity's relations both ways at depth 1, merge an edge with its inverse into one line, draw more than `aggregateAbove`
-neighbours of one kind as one box with their count, fit the picture to its frame and walk to a neighbour the reader
-presses, with the same graph written as Mermaid text beside it; `search` shall ask the `search` root for the reader's own
+neighbours of one kind as one box with their count — and the diagram itself is rendered on the server and served to
+clients, so the app lays nothing out: its three tabs show the server's LikeC4 view in LikeC4's runtime, the server's
+Mermaid source drawn by Mermaid, and the server's interactive archify page, and a press on a node in any of them opens the
+entity's page; `search` shall ask the `search` root for the reader's own
 terms; `tabs` shall draw the sections it names. A section shall be shown to the role its template names and to every role
 when it names none, and its texts shall be read in the reader's language. The app shall name no kind, hold no product
 data and import no API function other than the GraphQL client.
@@ -96,8 +98,8 @@ data and import no API function other than the GraphQL client.
 ### Scenario: diagram-both-ways
 - Given: an entity page whose entity is reached by one kind and leads to another
 - When: its diagram is drawn
-- Then: the relations stand on both sides of the entity, an edge and its inverse are one line, neighbours of one kind above the bound are one box with their count, and the graph is also readable as Mermaid text
-  Checked by wiki/app/src/page.test.tsx and test/wiki-templates-e2e.test.ts
+- Then: the relations stand on both sides of the entity, an edge and its inverse are one line, neighbours of one kind above the bound are one box with their count, and the server's three answers are the page's tabs
+  Checked by test/diagram-route.test.ts, wiki/app/src/page.test.tsx and test/wiki-templates-e2e.test.ts
 
 ### Scenario: no-kind-in-the-app
 - Given: the app's source
@@ -135,6 +137,5 @@ Decision 0036, sections 6 and 7; decisions 0018 (madarch's own app) and 0031 (on
 ## Coverage limits
 Not built by this change, and stated here so a reader knows what a person cannot do yet: the offline cache and service
 worker (a page opens only while the product is served), the Markdown export of a page, the command components (`fill`,
-`run`, `settings-form`, `problem-actions`), and the linking of glossary terms inside a text section. The diagram is drawn
-by the app's own layered layout: LikeC4's positions and the archify renderer are not available in the browser (the app's
-bundle holds neither a layout engine nor the archify renderer), and Mermaid is offered as the text form.
+`run`, `settings-form`, `problem-actions`), and the linking of glossary terms inside a text section. The diagram is the
+server's picture in three formats (capability views, `diagram`); the page only shows it.

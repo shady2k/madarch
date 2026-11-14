@@ -658,6 +658,7 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.product, handle: (request: Request) => dependencies.knowledge!.identity(request) },
         { method: 'GET', path: '/graphql/schema', handle: (request: Request) => dependencies.knowledge!.graphqlSchema(request) },
         { method: 'POST', path: '/graphql', handle: (request: Request) => dependencies.knowledge!.graphql(request) },
+        { method: 'GET', path: '/render/diagram', handle: (request: Request) => dependencies.knowledge!.diagram(request) },
         { method: 'GET', path: API.status, handle: (request: Request) => dependencies.knowledge!.status(request) },
         { method: 'POST', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },
         { method: 'PATCH', path: API.authored, handle: (request: Request) => dependencies.knowledge!.authored(request) },

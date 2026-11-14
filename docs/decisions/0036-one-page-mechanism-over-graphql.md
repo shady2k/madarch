@@ -239,8 +239,13 @@ sections:
   linked), `relations` (a relation's rows both ways), `table` (columns by path; filter, sort,
   paging through the connection's variables), `bars` (groups), `timeseries` (buckets), `treemap`,
   `diagram` (depth 1; an edge and its inverse merged; more than `aggregateAbove` entities of a kind
-  drawn as one node with the count; fitted to the frame; click to refocus), `source` (a citation
-  with its line range), `tabs` (sections as tabs). Command components: `fill` (choose and run;
+  drawn as one node with the count; rendered on the server in the three formats of capability
+  `views`, `diagram`, and shown in tabs — LikeC4's own runtime over the server's computed view,
+  Mermaid's renderer over the server's source, and archify's interactive page; a press on a node
+  walks to that entity), `source` (a citation with its line range), `tabs` (sections as tabs). A
+  diagram is drawn on the server because the same pictures are served to clients on request (HTTP
+  and MCP), not only to the wiki; the browser makes the server's answer interactive and lays
+  nothing out. Command components: `fill` (choose and run;
   the catalogue page's choose-for-fill mode), `run` (a fill run's progress), `settings-form`,
   `problem-actions`; they call the command API and read what they show from the graph or the
   retained command reads. The app names no kind.
@@ -250,7 +255,7 @@ sections:
   `text { path* }`; `relations { path*, labelPath, emptyText }`;
   `table { path* (a connection), columns*: [{ label*, path*, format, sortField }], filterFields,
   pageSize }`; `bars { path* (groups), labelPath, valuePath }`; `timeseries { path* (buckets) }`;
-  `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { path*, aggregateAbove = 12 }`;
+  `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
   `fill { mode: choose|run }`; `run { runVariable* }`; `settings-form { group* }`;
   `problem-actions { path* }`. A template naming an unknown component or parameter is refused at
@@ -274,7 +279,9 @@ sections:
   GraphQL schema), /api/problems and /api/questions/question and /api/tasks/task (problems,
   questions and tasks are entities), /e/<id>.md|.json, /kind/<kind>.md|.json, /llms.txt, and the
   MCP tools of src/mcp/records.ts and `read_entity` (replaced by `graph_schema` and `graph_query`).
-- **Retained, because they are not graph data**: /api/source (a file's text at the filled commit,
+- **Retained, because they are not graph data**: /render/diagram (an entity's diagram in one of three
+  formats, rendered on the server from the graph read layer and served to any client on request),
+  /api/source (a file's text at the filled commit,
   from git), /api/events (the event stream), /api/status and /api/products and /api/product, the
   fill commands and /api/fill-runs and /api/run (workflow state), /api/agents and /api/agent-choices
   and /api/model-role, /api/settings and /api/product-settings, /api/journal, /api/kind-usage (agent

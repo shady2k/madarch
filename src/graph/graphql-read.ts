@@ -242,6 +242,24 @@ function scheduled(work: () => Promise<void>): Promise<void> {
   });
 }
 
+/** One row of a diagram's neighbourhood: an edge's ends and the relation field it was read as. */
+export interface DiagramLink {
+  readonly from: string;
+  readonly to: string;
+  readonly relation: string;
+}
+
+/** One entity's neighbourhood at a depth: the entity, the entities it reaches, and the relations between them. */
+export interface DiagramNeighbourhood {
+  readonly entity: EntityValue;
+  readonly nodes: ReadonlyMap<string, EntityValue>;
+  readonly links: readonly DiagramLink[];
+  /** Each entity's label, as the field resolver answers it. */
+  readonly labels: ReadonlyMap<string, string>;
+  /** Whether a level was read short of every relation, so the picture is a page of the neighbourhood, not all of it. */
+  readonly truncated: boolean;
+}
+
 /** The read one operation makes: the transaction, the manifest and the batches it queues. */
 export class ReadContext {
   readonly published: PublishedManifest;
@@ -825,6 +843,54 @@ export class ReadContext {
     }
   }
 
+
+
+  /**
+   * One entity's neighbourhood at a depth, for a rendered diagram (decision 0036, sections 7 and 8): the graph read layer
+   * both ways per level, one snapshot, and every relation's field name as the schema answers it. A page folds what it shows
+   * by kind above its bound; this step answers the whole neighbourhood it read, so the same graph revision gives the same
+   * picture. A relation is read once per end and once per edge: the pair and its relation name decide the dedup.
+   */
+  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 200): Promise<DiagramNeighbourhood | undefined> {
+    const root = entityOf(await this.root('entity', { id, ...(lang === undefined ? {} : { lang }) }));
+    if (root === undefined) return undefined;
+    const nodes = new Map<string, EntityValue>([[root.uid, root]]);
+    const links: DiagramLink[] = [];
+    const seenEdges = new Set<string>();
+    const edgeKey = (from: string, to: string, relation: string): string => `${from}\u0000${to}\u0000${relation}`;
+    let truncated = false;
+    let frontier: EntityValue[] = [root];
+    for (let level = 0; level < Math.max(depth, 1); level += 1) {
+      const next: EntityValue[] = [];
+      for (const entity of frontier) {
+        for (const side of ['out', 'in'] as const) {
+          const answer = await this.links(entity, { first }, side) as { edges?: readonly { node?: { relation?: unknown; from?: unknown; to?: unknown } }[]; pageInfo?: { hasNextPage?: unknown }; totalCount?: unknown };
+          if (answer.pageInfo?.hasNextPage === true || (typeof answer.totalCount === 'number' && answer.totalCount > (answer.edges?.length ?? 0))) truncated = true;
+          for (const edge of answer.edges ?? []) {
+            const relation = typeof edge.node?.relation === 'string' ? edge.node.relation : '';
+            const other = entityOf(side === 'out' ? edge.node?.to : edge.node?.from);
+            if (other === undefined || relation === '') continue;
+            const from = side === 'out' ? entity.uid : other.uid;
+            const to = side === 'out' ? other.uid : entity.uid;
+            // The edge and its inverse are one row: the same pair and the same field, read from either end.
+            const key = edgeKey(from, to, relation);
+            if (seenEdges.has(key)) continue;
+            seenEdges.add(key);
+            links.push({ from, to, relation });
+            if (!nodes.has(other.uid)) {
+              nodes.set(other.uid, other);
+              next.push(other);
+            }
+          }
+        }
+      }
+      frontier = next;
+      if (frontier.length === 0) break;
+    }
+    const labels = new Map<string, string>();
+    for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
+    return { entity: root, nodes, links, labels, truncated };
+  }
 
   // ---- links both ways ---------------------------------------------------------------------------------------
 

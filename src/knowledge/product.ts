@@ -89,6 +89,9 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { executeGraphql, type MessageBody } from '../graph/graphql-execute.js';
+import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
+import { readProductTemplates } from '../graph/product-templates.js';
+import { structureRevisionOf } from '../graph/graphql-execute.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
 
 /**
@@ -490,6 +493,26 @@ export class KnowledgeProduct {
     await this.followStoreFill();
     // The executor reads the published manifest inside its own snapshot: the schema and the rows answer one revision.
     return await executeGraphql(owner, { folder: this.options.productFolder }, operation);
+  }
+
+  /**
+   * One entity's neighbourhood at a depth, read through the graph read layer inside one snapshot (decision 0036, sections
+   * 7 and 8): what a rendered diagram is drawn from. The manifest and the templates are read in the same snapshot, so the
+   * schema, the relations and the rows answer one revision.
+   */
+  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined): Promise<DiagramNeighbourhood | undefined> {
+    const owner = await this.open();
+    await this.followStoreFill();
+    return await owner.transaction('snapshot', async (tx) => {
+      await tx.query("SET LOCAL statement_timeout = '2000ms'");
+      const manifest = await readPublishedManifest(tx);
+      if (manifest === undefined) throw new WikiReadError(`${join(this.options.productFolder, KINDS_FILE)}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
+      const published = publishedManifestOf(manifest);
+      const templates = readProductTemplates(this.options.productFolder);
+      const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
+      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates);
+      return await context.diagramNeighbourhood(id, depth, lang);
+    });
   }
 
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */

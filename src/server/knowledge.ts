@@ -21,6 +21,7 @@ import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
+import { renderDiagram } from '../render/diagram-render.js';
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -29,6 +30,8 @@ export interface KnowledgePart {
   graphqlSchema: (request: Request) => Promise<Handled>;
   /** One GraphQL operation against the product's graph (decision 0036, section 2): the one read API a page uses. */
   graphql: (request: Request) => Promise<Handled>;
+  /** One entity's diagram rendered on the server (decision 0036, sections 7 and 8): Mermaid, LikeC4 or archify. */
+  diagram: (request: Request) => Promise<Handled>;
   /** The authored writes (section 8: creating, updating and deleting a person's entity is a command, not a read). */
   authored: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
@@ -192,6 +195,34 @@ export function createKnowledgePart(
         ...(held['operationName'] === undefined ? {} : { operationName: held['operationName'] as string | null }),
         ...(held['lang'] === undefined ? {} : { lang: held['lang'] as string }),
       });
+      return { response: json(answer.status, answer.body) };
+    }),
+    diagram: guarded('render a diagram', async (request) => {
+      const url = new URL(request.url);
+      const entity = url.searchParams.get('entity') ?? '';
+      if (entity.trim() === '') return refused(400, { field: 'entity', message: `${here()}: "entity" is the id of the entity whose diagram is drawn` });
+      const format = url.searchParams.get('format') ?? '';
+      if (format !== 'likec4' && format !== 'mermaid' && format !== 'archify') {
+        return refused(400, { field: 'format', message: `${here()}: "format" is one of "likec4", "mermaid" and "archify"; it was ${JSON.stringify(format)}` });
+      }
+      const askedDepth = url.searchParams.get('depth');
+      const depth = askedDepth === null ? undefined : Number(askedDepth);
+      if (depth !== undefined && (!Number.isInteger(depth) || depth < 1)) {
+        return refused(400, { field: 'depth', message: `${here()}: "depth" is a whole number of levels, 1 or more; it was ${JSON.stringify(askedDepth)}` });
+      }
+      const askedAbove = url.searchParams.get('aggregateAbove');
+      const aggregateAbove = askedAbove === null ? undefined : Number(askedAbove);
+      if (aggregateAbove !== undefined && (!Number.isInteger(aggregateAbove) || aggregateAbove < 1)) {
+        return refused(400, { field: 'aggregateAbove', message: `${here()}: "aggregateAbove" is a whole number of neighbours, 1 or more; it was ${JSON.stringify(askedAbove)}` });
+      }
+      const lang = url.searchParams.get('lang') ?? undefined;
+      const answer = await renderDiagram(product, { entity: entity.trim(), format, ...(depth === undefined ? {} : { depth }), ...(aggregateAbove === undefined ? {} : { aggregateAbove }), ...(lang === undefined ? {} : { lang }) });
+      if ('error' in answer) return refused(answer.status, { message: answer.error });
+      if ('html' in answer) {
+        const response = new Response(answer.html, { status: answer.status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+        response.headers.set('cache-control', 'no-store');
+        return { response };
+      }
       return { response: json(answer.status, answer.body) };
     }),
     authored: guarded('change an authored entity', async (request) => {

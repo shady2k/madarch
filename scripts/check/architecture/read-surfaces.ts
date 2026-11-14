@@ -33,6 +33,9 @@ export interface AllowedRoute {
 export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { method: '*', path: '/graphql' },
   { method: '*', path: '/graphql/schema' },
+  // A rendered diagram (decision 0036, sections 7 and 8): a picture served to clients on request, built by the
+  // renderer from the graph read layer — not a read surface of its own, and the same answer for the same revision.
+  { method: '*', path: '/render/diagram' },
   { method: '*', path: '/api/events' },
   { method: '*', path: '/api/product' },
   { method: '*', path: '/api/products' },
