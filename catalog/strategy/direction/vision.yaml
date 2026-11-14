@@ -1,7 +1,7 @@
 id: practice.vision
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: Where the product means to go and who it serves, as the product owner states it.
+definition: A vision is where the product means to go and who it serves, as the product owner states it.
 sources:
 - https://scrumguides.org/scrum-guide.html
 - https://www.omg.org/spec/BMM/
@@ -22,5 +22,5 @@ labels:
     one: Видение
     many: Видения
 description:
-  en: Where the product means to go and who it serves, as the product owner states it.
-  ru: Куда идёт продукт и кому он служит, как излагает владелец продукта.
+  en: 'A vision describes the future the product is meant to create: which people it serves, what changes for them and why this product is worth building. It is short and ambitious, and it gives every smaller goal its direction.'
+  ru: 'Видение описывает будущее, которое должен создать продукт: каким людям он служит, что у них изменится и зачем этот продукт вообще строить. Оно короткое и смелое и задаёт направление всем целям поменьше.'

@@ -124,7 +124,7 @@ export async function readPinnedGraphContract(product: string): Promise<import('
   const snapshots = createGitSnapshotSource(() => pins);
   const own = await snapshots.open(productRepositoryId(read.identity));
   const { kindsRead: kinds } = await readFillManifests(own, folder);
-  return kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT;
+  return withManifestContract(kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT);
 }
 
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
@@ -182,7 +182,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   if (metadata !== undefined && !metadata.ok) throw new Error(metadata.findings.map((one) => `${one.file}:${one.line}: ${one.message}`).join('\n'));
   if (options.prepareContract !== undefined) await options.prepareContract(withManifestContract(contract));
   await createOneGraphSchema(options.database, withManifestContract(contract));
-  if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value);
+  if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value, withManifestContract(contract));
   // Building the registry loads the stages' own modules and their parsers: one span names what that cost.
   const registry = await withSpan('fill.registry', { 'madarch.product': identity.name }, async (span) => {
     const held = createStageRegistry({

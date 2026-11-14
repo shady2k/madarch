@@ -1,8 +1,7 @@
 id: dcat.catalog-record
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A dataset's entry in a data catalog, with its description, its owner and where it can be found; the dataset itself
-  is one kind, wherever it is described.
+definition: A data-catalog entry is a dataset's record in a data catalog, with its description, its owner and where it can be found.
 sources:
 - https://www.w3.org/TR/vocab-dcat-3/
 acquisition:
@@ -24,7 +23,5 @@ labels:
     one: Запись каталога
     many: Записи каталога
 description:
-  en: A dataset's entry in a data catalog, with its description, its owner and where it can be found; the dataset itself is
-    one kind, wherever it is described.
-  ru: Запись набора данных в каталоге с описанием, владельцем и местом, где его найти; сам набор данных — один вид, где бы
-    его ни описывали.
+  en: 'A data-catalog entry describes one dataset for people looking for data: what it holds, who owns it, where it lives and how often it is updated. The dataset itself is one thing wherever it is described; the entry is one catalogue''s view of it.'
+  ru: 'Запись каталога данных описывает один набор для тех, кто ищет данные: что в нём, кто владелец, где он лежит и как часто обновляется. Сам набор остаётся одним и тем же, где бы его ни описывали, а запись — взгляд одного каталога на него.'

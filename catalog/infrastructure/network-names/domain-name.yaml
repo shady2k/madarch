@@ -1,7 +1,7 @@
 id: practice.domain-name
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A name the product answers to on the network, with the zone that holds it.
+definition: A domain name is a name the product answers to on the network, with the zone that holds it.
 sources:
 - https://www.rfc-editor.org/rfc/rfc1035.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Доменное имя
     many: Доменные имена
 description:
-  en: A name the product answers to on the network, with the zone that holds it.
-  ru: Имя, по которому продукт отвечает в сети, и зона, которая его держит.
+  en: A domain name is the address people and programs use to reach the product, such as example.com, registered for a period and kept in a DNS zone. It also carries trust, because certificates and mail rules are tied to it.
+  ru: Доменное имя — адрес, по которому люди и программы находят продукт, например example.com; его регистрируют на срок и держат в зоне DNS. С ним связаны и доверие, и почтовые правила, и сертификаты.

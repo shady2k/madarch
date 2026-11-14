@@ -1,7 +1,7 @@
 id: practice.disclosure-report
 purpose: history
 audience: [security-engineer, architect]
-definition: A vulnerability report received from outside, with its handling and its resolution.
+definition: A disclosure report is a vulnerability report received from outside, with its handling and its resolution.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/216/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сообщение об уязвимости
     many: Сообщения об уязвимости
 description:
-  en: A vulnerability report received from outside, with its handling and its resolution.
-  ru: Отчёт об уязвимости, полученный извне, с его обработкой и разрешением.
+  en: A disclosure report is a weakness reported by a researcher, a customer or a partner, kept with the discussion, the fix and the public advisory. Its record shows how quickly the report was answered and what was done.
+  ru: Сообщение об уязвимости — слабость, о которой сообщил исследователь, клиент или партнёр, вместе с обсуждением, исправлением и публичным уведомлением. Его запись показывает, как быстро ответили и что сделали.

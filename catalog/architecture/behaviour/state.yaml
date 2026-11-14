@@ -1,7 +1,7 @@
 id: uml.state
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A situation a state machine holds for a while, with the conditions that hold in it.
+definition: A state is one situation a state machine can hold for a while, with the conditions that are true in it.
 sources:
 - https://www.omg.org/spec/UML/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Состояние
     many: Состояния
 description:
-  en: A situation a state machine holds for a while, with the conditions that hold in it.
-  ru: Ситуация, в которой конечный автомат находится некоторое время, с условиями, которые в ней выполняются.
+  en: A state is one of the situations a thing can be in for a period, such as unpaid, shipped or closed, and the conditions that hold while it is there. Staying in it, leaving it and what may happen during it are defined by the machine.
+  ru: 'Состояние — одна из ситуаций, в которых вещь может находиться некоторое время: не оплачено, отправлено или закрыто, — и условия, которые в ней верны. Машина задаёт, как в него приходят, как из него выходят и что во время него может произойти.'

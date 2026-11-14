@@ -1,7 +1,7 @@
 id: practice.column
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A column of a table, with its type and the constraints it holds.
+definition: A column is a named field of a table, with its type and the constraints it holds.
 sources:
 - https://www.postgresql.org/docs/
 acquisition:
@@ -62,7 +62,7 @@ labels:
     one: Столбец
     many: Столбцы
 description:
-  en: A column of a table with its type.
-  ru: Столбец таблицы с его типом.
+  en: 'A column is one field of a database table: it has a name, a data type and rules such as not being empty or being unique. A table''s columns together say what one row of it describes.'
+  ru: 'Столбец — одно поле таблицы базы данных: у него есть имя, тип и правила, например запрет пустого значения или требование уникальности. Столбцы таблицы вместе говорят, что описывает одна её строка.'
 derives-from:
 - code.table

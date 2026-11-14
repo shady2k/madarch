@@ -1,7 +1,7 @@
 id: practice.budget
 purpose: operations
 audience: [product-lead, operations, platform-devops]
-definition: A limit on what a product or a team may spend in a period, with who is warned when it nears.
+definition: A budget is a limit on what a product or a team may spend in a period, with who is warned when it nears.
 sources:
 - https://focus.finops.org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Бюджет
     many: Бюджеты
 description:
-  en: A limit on what a product or a team may spend in a period, with who is warned when it nears.
-  ru: Предел трат продукта или команды за период и те, кого предупреждают о приближении к нему.
+  en: A budget sets the most a product or a team may spend in a period, such as a month or a quarter, and says who is warned when spending approaches it. It turns a plan into a limit someone watches.
+  ru: Бюджет задаёт, сколько продукт или команда могут потратить за период — месяц или квартал, — и говорит, кого предупреждают о приближении к пределу. Он превращает план в ограничение, за которым следят.

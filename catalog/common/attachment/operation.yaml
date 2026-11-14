@@ -1,8 +1,7 @@
 id: practice.operation
 purpose: history
 audience: [product-lead, analyst, developer]
-definition: 'The unit of sync: one intended change with a random id, its author, time and expectation, which the journal applies
-  as an increment.'
+definition: An operation is one intended change with its author, time and expectation, applied as a single step of the record.
 sources:
 - https://hal.inria.fr/inria-00555588/document
 - https://martinfowler.com/eaaDev/EventSourcing.html
@@ -26,5 +25,5 @@ labels:
     one: Операция
     many: Операции
 description:
-  en: One intended change with a random id, author, time and expectation, which the journal applies.
-  ru: Одно намеренное изменение со случайным идентификатором, автором, временем и ожиданием, которое применяет журнал.
+  en: An operation is one change someone intends to make — create an entity, change a field, add a link — with who asked for it, when and what result is expected. Applying operations in order reproduces the state they describe.
+  ru: 'Операция — одно изменение, которое кто-то намерен сделать: создать сущность, изменить поле, добавить связь, — с указанием автора, времени и ожидаемого результата. Применённые по порядку операции воспроизводят описанное ими состояние.'

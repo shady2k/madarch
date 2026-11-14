@@ -1610,5 +1610,33 @@
   "merge": [
     "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges",
     "https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md"
+  ],
+  "time-cost": [
+    "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/",
+    "https://openai.github.io/openai-agents-python/tracing/"
+  ],
+  "practice": [
+    "https://www.agilealliance.org/glossary/retrospective/",
+    "https://github.com/shady2k/madarch/blob/main/docs/vision.md"
+  ],
+  "code-convention": [
+    "https://google.github.io/styleguide/",
+    "https://github.com/shady2k/madarch/blob/main/docs/vision.md"
+  ],
+  "skill": [
+    "https://agents.md/",
+    "https://github.com/shady2k/madarch/blob/main/docs/vision.md"
+  ],
+  "constitution": [
+    "https://github.com/shady2k/madarch/blob/main/docs/vision.md",
+    "https://agents.md/"
+  ],
+  "value-set": [
+    "https://www.w3.org/TR/skos-reference/",
+    "https://github.com/shady2k/madarch/blob/main/docs/vision.md"
+  ],
+  "value-set-entry": [
+    "https://www.w3.org/TR/skos-reference/",
+    "https://github.com/shady2k/madarch/blob/main/docs/vision.md"
   ]
 }

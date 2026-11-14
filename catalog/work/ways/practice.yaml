@@ -1,0 +1,72 @@
+id: practice.working-practice
+purpose: understand
+audience: [developer, product-lead, tester, operations]
+definition: A practice is a rule of how the team works, grown from experience, that says what to do, why it matters and where it applies.
+sources:
+- https://www.agilealliance.org/glossary/retrospective/
+- https://github.com/shady2k/madarch/blob/main/docs/vision.md
+acquisition:
+- conversation
+- document
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - derivesFrom
+  - appliesTo
+  - verifies
+  in:
+  - derivesFrom
+  - appliesTo
+  - verifies
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  producers:
+  - person
+- name: rule
+  type: text
+  producers:
+  - person
+- name: why
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: applies_to
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: since_date
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+details:
+- name
+- rule
+- why
+- applies_to
+- status
+- since_date
+labels:
+  en:
+    one: Practice
+    many: Practices
+  ru:
+    one: Практика
+    many: Практики
+description:
+  en: 'A practice is a rule of how the team works, usually born from a mistake that repeated until someone wrote it down: what to do, why it matters and where it applies. A practice names the requests, review findings or failed runs it came from, and the check or test that holds it when one exists.'
+  ru: 'Практика — правило о том, как работает команда, обычно рождённое ошибкой, которая повторялась, пока кто-то не записал её: что делать, почему это важно и где применяется. Практика называет запросы, находки ревью или неудачные запуски, из которых пришла, и проверку или тест, которые её держат, если они есть.'

@@ -24,6 +24,7 @@
  * examples' products under `examples/contract/` are folders this reader
  * opens.
  */
+import { createHash } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 
@@ -485,15 +486,10 @@ export interface ProductEntity {
 }
 
 /** The shape of a kind the reader needs: its name, its key fields and where its entities come from. */
-export interface ProductHomeKind { readonly name: string; readonly key?: readonly string[]; readonly source: string }
+export interface ProductHomeKind { readonly name: string; readonly key?: readonly string[]; readonly source: string; readonly fields?: readonly { readonly name: string }[] }
 /** What the reader needs of a product's manifest: the kind its home page opens. */
 export interface KindManifestLike { readonly home?: ProductHomeKind }
 
-
-/** A word as a key: letters, digits and dashes, lower case, so two starts write one key for one product. */
-export function keyWord(value: string): string {
-  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/gu, '') || 'product';
-}
 
 /**
  * The product entity's identity, stated from the product's manifest: the home opens on the product itself, not on an
@@ -501,14 +497,19 @@ export function keyWord(value: string): string {
  * or a person; the engine reads no README or vision text into them.
  */
 export function productEntityOf(folder: string, manifest: KindManifestLike, commit: string | undefined): ProductEntity | undefined {
-  const home = (manifest as unknown as { home?: { name: string; key?: readonly string[]; source: string } }).home;
-  const kind = home;
+  const kind = manifest.home;
   if (kind === undefined || kind.source !== 'graph') return undefined;
   const read = readProduct(folder);
   const name = read.ok === true ? read.product.name : '';
   if (name === '') return undefined;
-  const keyOfKind = (title: string): Record<string, unknown> => Object.fromEntries((kind.key ?? []).map((field: string) => [field, keyWord(title)]));
-  return { kind: kind.name, key: keyOfKind(name), values: { title: name }, evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
+  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, read.ok ? read.product.id : '']));
+  const declared = new Set(kind.fields?.map((field) => field.name));
+  const pageValues = (title: string, body: string, file: string, line: number): Record<string, unknown> => Object.fromEntries(Object.entries({
+    title, body, file, body_line: line, relates: [], sources: [file], statements: [],
+    digest: createHash('sha256').update(body).digest('hex'), producer: 'start', links: [], findings: [],
+    ungrounded: body === '' ? [] : [{ text: body, line }],
+  }).filter(([field]) => declared.has(field)));
+  return { kind: kind.name, key, values: pageValues(name, '', MANIFEST_FILE, 1), evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
 }
 
 export function readProduct(productFolder: string): ProductRead {

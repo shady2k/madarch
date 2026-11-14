@@ -1,16 +1,16 @@
 /**
- * A product's page templates checked at start (decision 0036, sections 6 and 9): every file is read against the
+ * A product's page templates checked for page diagnostics (decision 0036, sections 6 and 9): every file is read against the
  * template schema, its inheritance is resolved, and the operation each bound template composes is validated against the
  * schema the product's manifest derives. A template naming an unknown component or parameter, a section placed after a
- * section the page does not hold, or a query a type of the product cannot answer is refused with the file and the line.
+ * section the page does not hold, or a query a type of the product cannot answer is reported with the file and the line.
  *
  * The bindings checked are the ones the product declares: its kinds' record templates, its catalogue and home
  * templates, and the base `entity` every unbound kind falls back to (against every kind).
  */
-import { buildSchema, parse, validate } from 'graphql';
+import { buildSchema, parse, validate, visit } from 'graphql';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
-import { homeKind, readKinds } from '../product/manifest/kinds.js';
+import { homeKind, readKinds, type KindsManifest } from '../product/manifest/kinds.js';
 import { byCodePoint } from '../model/order.js';
 import { composePage, templateFor, type Bootstrap, type PageAddress } from '../page-contract/compose.js';
 import { resolveTemplate, type TemplateFile } from '../page-contract/template.js';
@@ -34,10 +34,10 @@ function bootstrapOf(templates: ProductTemplates): Bootstrap {
 }
 
 /** Every finding of a product's templates: the files' own, their inheritance's, and each bound page against the schema. */
-export function checkProductTemplates(folder: string): TemplateFinding[] {
+export function checkProductTemplates(folder: string, manifest?: KindsManifest): TemplateFinding[] {
   const files = readTemplateFiles(folder);
   const findings: TemplateFinding[] = [...files.findings];
-  const read = readKinds(folder);
+  const read = manifest === undefined ? readKinds(folder) : { present: true as const, manifest };
   if (!read.present) return findings;
   // A product with no templates draws no page: nothing of its own is checked, and nothing is refused for it.
   if (files.files.length === 0 && files.findings.length === 0) return findings;
@@ -48,8 +48,9 @@ export function checkProductTemplates(folder: string): TemplateFinding[] {
   const bootstrap = bootstrapOf(templates);
   const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(read.manifest)));
   const lineOfSection = (template: string, alias: string): TemplateFinding => {
-    const section = byName.get(template)?.sections.find((one) => `s_${one.id}` === alias);
-    return { file: `templates/${template}.yaml`, line: section?.line ?? 1, path: `sections.${section?.id ?? alias}`, message: '' };
+    const section = resolveTemplate(template, byName).resolved?.sections.find((one) => `s_${one.id}` === alias);
+    const source = files.files.find((file) => file.sections.includes(section!));
+    return { file: source?.file ?? byName.get(template)?.file ?? `templates/${template}.yaml`, line: section?.line ?? 1, path: `sections.${section?.id ?? alias}`, message: '' };
   };
   const check = (address: PageAddress, template: string, at: string): void => {
     const composition = composePage(bootstrap, address);
@@ -63,7 +64,17 @@ export function checkProductTemplates(folder: string): TemplateFinding[] {
       return;
     }
     for (const error of validate(schema, document)) {
-      const alias = typeof error.path?.[0] === 'string' ? error.path[0] : '';
+      let alias = '';
+      const position = error.nodes?.[0]?.loc?.start;
+      visit(document, {
+        Field(node) {
+          if (node.alias !== undefined && position !== undefined && node.loc !== undefined && node.loc.start <= position && position < node.loc.end) {
+            alias = node.alias.value;
+            return false;
+          }
+          return undefined;
+        },
+      });
       const place = alias === '' ? { file: `templates/${template}.yaml`, line: 1, path: '' } : lineOfSection(template, alias);
       findings.push({ ...place, message: `${at}: ${error.message}` });
     }
@@ -94,9 +105,3 @@ export function checkProductTemplates(folder: string): TemplateFinding[] {
   });
 }
 
-/** The refusal a server states when a product's templates cannot be used, or undefined when they all can. */
-export function productTemplateRefusal(folder: string): string | undefined {
-  const findings = checkProductTemplates(folder);
-  if (findings.length === 0) return undefined;
-  return findings.map((one) => `${folder}/${one.file}:${String(one.line)}: ${one.message}`).join('\n');
-}

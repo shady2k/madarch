@@ -59,7 +59,7 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
   const edges: DiagramEdge[] = [];
   let folded = 0;
   for (const group of neighbourhood.groups) {
-    const word = relationWord(group.relation, group.side === 'in');
+    const word = group.label ?? relationWords(group.relation, entity.lang ?? 'en', group.side === 'in' && group.canonicalLabel !== true);
     if (group.total > aggregateAbove) {
       const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
       const id = `fold:${group.side}:${group.relation}:${group.kind}`;
@@ -78,11 +78,6 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
   }
   edges.sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.label, right.label));
   return { entity: root, depth, nodes: [...nodes.values()].sort((left, right) => byCodePoint(left.id, right.id)), edges, folded, truncated: neighbourhood.truncated };
-}
-
-/** The wiki's word for one relation in the direction a picture draws it. */
-function relationWord(edge: string, inverse: boolean): string {
-  return relationWords(edge, 'ru', inverse);
 }
 
 /** The Mermaid source of one picture: one flowchart, one line per edge, a click per node that has a page. */
@@ -121,8 +116,20 @@ function likec4Id(index: number): string {
   return `n${String(index)}`;
 }
 
+/** LikeC4 rejects self-relations, so their targets are another occurrence of the same entity, with its same page. */
+function likec4Occurrences(graph: DiagramGraph): DiagramGraph {
+  const selfTargets = new Set(graph.edges.filter((edge) => edge.from === edge.to).map((edge) => edge.to));
+  const occurrence = (id: string): string => `likec4-self:${id}`;
+  return {
+    ...graph,
+    nodes: [...graph.nodes, ...graph.nodes.filter((node) => selfTargets.has(node.id)).map((node) => ({ ...node, id: occurrence(node.id) }))],
+    edges: graph.edges.map((edge) => edge.from === edge.to ? { ...edge, to: occurrence(edge.to) } : edge),
+  };
+}
+
 /** The LikeC4 model, as one workspace text: the kinds, the nodes, the edges and one view of everything. */
 export function likec4Workspace(graph: DiagramGraph): string {
+  graph = likec4Occurrences(graph);
   const ids = new Map(graph.nodes.map((node, at) => [node.id, likec4Id(at)]));
   const kinds = [...new Set(graph.nodes.map((node) => node.kind))].sort(byCodePoint);
   const lines: string[] = ['specification {'];
@@ -136,7 +143,7 @@ export function likec4Workspace(graph: DiagramGraph): string {
     const label = edge.both ? `${edge.label} ⇄` : edge.label;
     lines.push(`  ${ids.get(edge.from)!} -> ${ids.get(edge.to)!} "${quote(label)}"`);
   }
-  lines.push('}', '', 'views {', '  view index {', `    title "${quote(graph.entity.label === '' ? graph.entity.id : graph.entity.label)}"`, '    include *', '  }', '', '}');
+  lines.push('}', '', 'views {', '  view index {', `    title "${quote(graph.entity.label === '' ? graph.entity.id : graph.entity.label)}"`, '    include *', '    include * -> * with { multiple true }', '  }', '', '}');
   return `${lines.join('\n')}\n`;
 }
 
@@ -161,9 +168,10 @@ export async function likec4PictureOf(graph: DiagramGraph): Promise<LikeC4Pictur
   const likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
   try {
     const model = await likec4.layoutedModel();
-    const ids = new Map(graph.nodes.map((node, at) => [node.id, likec4Id(at)]));
+    const occurrences = likec4Occurrences(graph);
+    const ids = new Map(occurrences.nodes.map((node, at) => [node.id, likec4Id(at)]));
     const links: Record<string, string> = {};
-    for (const node of graph.nodes) if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
+    for (const node of occurrences.nodes) if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
     return { format: 'likec4', workspace, view: model.$data, links };
   } finally {
     await likec4[Symbol.asyncDispose]?.();
@@ -205,12 +213,13 @@ function archifyType(index: number): string {
 export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Record<string, unknown> {
   const layout = layoutOf(liked);
   if (layout === undefined) throw new Error(`${import.meta.filename}:1: the LikeC4 layout holds no "index" view, so archify has no picture to draw`);
-  const order = new Map(graph.nodes.map((node, at) => [node.id, at]));
+  const occurrences = likec4Occurrences(graph);
+  const order = new Map(occurrences.nodes.map((node, at) => [node.id, at]));
   const componentIds = new Map<string, string>();
   const components = layout.nodes.map((node, at) => {
-    const id = `c${String(at)}`;
+    const own = occurrences.nodes.find((one) => likec4Id(order.get(one.id) ?? -1) === node.id);
+    const id = own === undefined ? `c${String(at)}` : `node_${likec4Name(own.id)}`;
     componentIds.set(node.id, id);
-    const own = graph.nodes.find((one) => likec4Id(order.get(one.id) ?? -1) === node.id);
     return {
       id,
       type: archifyType(at),
@@ -249,7 +258,7 @@ export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Reco
  * a forwarder appended: a press on a node posts its page to the frame's parent, so the wiki opens the entity the node
  * stands for. The renderer runs as its own process, and the whole call is bounded.
  */
-export async function renderArchify(document: Record<string, unknown>, graph: DiagramGraph, options: { timeoutMs?: number } = {}): Promise<string> {
+export async function renderArchify(document: Record<string, unknown>, graph: DiagramGraph, options: { timeoutMs?: number; started?: (pid: number, folder: string) => void; stopped?: () => void } = {}): Promise<string> {
   const { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -258,12 +267,14 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
   if (!existsSync(renderer)) throw new Error(`${renderer}:1: the vendored archify renderer is missing`);
   const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-'));
   const timeout = options.timeoutMs ?? 30_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const input = join(folder, 'document.json');
     const output = join(folder, 'diagram.html');
     writeFileSync(input, JSON.stringify(document));
     const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
-    const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), timeout))]);
+    options.started?.(child.pid, folder);
+    const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
     if (ended === 'timeout') {
       child.kill('SIGKILL');
       throw new Error(`${renderer}:1: the archify renderer did not finish within ${String(timeout)} ms`);
@@ -275,6 +286,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     if (!existsSync(output)) throw new Error(`${renderer}:1: the archify renderer wrote no page`);
     return forwarder(readFileSync(output, 'utf8'), graph);
   } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    options.stopped?.();
     rmSync(folder, { recursive: true, force: true });
   }
 }
@@ -284,7 +297,7 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
 /** The rendered page with the press forwarded: a click on a node's box opens the entity's page in the wiki. */
 export function forwarder(html: string, graph: DiagramGraph): string {
   const links: Record<string, string> = {};
-  for (const node of graph.nodes) if (node.href !== undefined) links[node.id] = node.href;
+  for (const node of likec4Occurrences(graph).nodes) if (node.href !== undefined) links[`node_${likec4Name(node.id)}`] = node.href;
   const script = `<script>(function(){var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);})();</script>`;
   const at = html.toLowerCase().lastIndexOf('</body>');
   return at < 0 ? `${html}${script}` : `${html.slice(0, at)}${script}${html.slice(at)}`;

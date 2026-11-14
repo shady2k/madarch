@@ -1,7 +1,7 @@
 id: pact.contract-test
 purpose: quality
 audience: [tester, developer]
-definition: A check that a provider still honours the contract its consumers expect.
+definition: A contract test checks that a provider still honours the contracts its consumers expect.
 sources:
 - https://docs.pact.io/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тест контракта
     many: Тесты контрактов
 description:
-  en: A check that a provider still honours the contract its consumers expect.
-  ru: Проверка, что поставщик всё ещё выполняет контракт, которого ждут его потребители.
+  en: A contract test runs a provider against the expectations its consumers recorded, without starting the consumers themselves. If the provider stops meeting one, the test fails before the client breaks in production.
+  ru: Тест контракта проверяет поставщика по ожиданиям, которые записали потребители, не запуская самих потребителей. Если поставщик перестаёт выполнять одно из них, тест падает раньше, чем клиент сломается в промышленной среде.

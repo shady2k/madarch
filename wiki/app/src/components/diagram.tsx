@@ -54,28 +54,29 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     return (format: Tab): string => `${context.base}/render/diagram?${query.toString()}&format=${format}`;
   }, [id, depth, aggregateAbove, context.base, context.language]);
   const ask = useCallback(async (format: Tab): Promise<void> => {
-    if (id === '' || answers[format] !== undefined) return;
+    const key = address(format);
+    if (id === '' || answers[key] !== undefined) return;
     const stop = new AbortController();
     const timer = setTimeout(() => { stop.abort(); }, 15000);
     try {
-      const answer = await fetch(address(format), { signal: stop.signal });
+      const answer = await fetch(key, { signal: stop.signal });
       if (!answer.ok) {
         const said = (await answer.json().catch(() => ({}))) as { message?: string; code?: string };
         const shown = said.code === 'TIMEOUT' ? t('knowledge.diagramTooLong') : t('knowledge.diagramFailed', { message: said.message ?? `the diagram answered ${String(answer.status)}` });
-        setAnswers((held) => ({ ...held, [format]: { failed: shown } }));
+        setAnswers((held) => ({ ...held, [key]: { failed: shown } }));
         return;
       }
       const body = (await answer.json()) as Record<string, unknown>;
-      setAnswers((held) => ({ ...held, [format]: body as unknown as LikeC4Answer | MermaidAnswer }));
+      setAnswers((held) => ({ ...held, [key]: body as unknown as LikeC4Answer | MermaidAnswer }));
     } catch (error) {
       const message = error instanceof Error && error.name === 'AbortError' ? t('knowledge.diagramTooLong') : error instanceof Error ? error.message : String(error);
-      setAnswers((held) => ({ ...held, [format]: { failed: message } }));
+      setAnswers((held) => ({ ...held, [key]: { failed: message } }));
     } finally {
       clearTimeout(timer);
     }
   }, [address, answers, id, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
-  const held = answers[tab];
+  const held = answers[address(tab)];
   return (
     <Tabs value={tab} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
       <TabsList aria-label="diagram">
@@ -92,7 +93,7 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
               <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
               <InlineGroup>
                 <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
-                  setAnswers((current) => { const next = { ...current }; delete next[tab]; return next; });
+                  setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
                   void ask(tab);
                 }}>{t('knowledge.retry')}</Button>
               </InlineGroup>

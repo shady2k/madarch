@@ -1,7 +1,7 @@
 id: practice.access-review
 purpose: quality
 audience: [security-engineer, operations, product-lead]
-definition: A periodic check that every account still needs the access it has.
+definition: An access review is a periodic check that every account still needs the access it has.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Проверка доступа
     many: Проверки доступа
 description:
-  en: A periodic check that every account still needs the access it has.
-  ru: Периодическая проверка того, что каждой учётной записи всё ещё нужен её доступ.
+  en: An access review asks the person responsible for a resource to confirm, on a schedule, that each account with access still needs it. Access found unnecessary is removed, and the review's record shows who decided what.
+  ru: Проверка доступа на определённый срок просит ответственного за ресурс подтвердить, что каждой учётной записи с доступом он всё ещё нужен. Ненужный доступ снимают, а запись проверки показывает, кто что решил.

@@ -159,3 +159,36 @@ test('a path that is no page says so, and asks the graph for nothing', async () 
     await page.close();
   }
 });
+
+for (const obsoleteError of [false, true]) {
+  test(`a superseded page ${obsoleteError ? 'error' : 'answer'} cannot replace the current page`, async () => {
+    window.history.pushState({}, '', `/e/catalogue/${ID}`);
+    const pending: ((value: Response) => void)[] = [];
+    globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
+      if (body.query.includes('bootstrap')) return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})));
+      return await new Promise<Response>((resolve) => { pending.push(resolve); });
+    }) as typeof fetch;
+    const page = await render();
+    try {
+      expect(pending).toHaveLength(1);
+      await act(async () => {
+        window.history.pushState({}, '', `/e/catalogue/00000000-0000-0000-0000-00000000beef`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await settle();
+      expect(pending).toHaveLength(2);
+      const current = { data: { s_header: { id: 'current', kind: 'catalogue', label: 'Current page' } } };
+      await act(async () => { pending[1]?.(new Response(JSON.stringify(current))); });
+      await settle();
+      expect(page.container.querySelector('h1')?.textContent).toBe('Current page');
+      const obsolete = obsoleteError ? { errors: [{ message: 'Obsolete failure' }] } : { data: { s_header: { id: 'old', kind: 'catalogue', label: 'Obsolete page' } } };
+      await act(async () => { pending[0]?.(new Response(JSON.stringify(obsolete))); });
+      await settle();
+      expect(page.container.querySelector('h1')?.textContent).toBe('Current page');
+      expect(page.container.textContent).not.toContain('Obsolete failure');
+    } finally {
+      await page.close();
+    }
+  });
+}

@@ -135,7 +135,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['path'],
   },
-  diagram: { parameters: { depth: { type: 'integer' }, aggregateAbove: { type: 'integer' } }, required: [] },
+  diagram: { parameters: { depth: { type: 'integer', enum: [1] }, aggregateAbove: { type: 'integer' } }, required: [] },
   source: { parameters: { path: { type: 'string' } }, required: ['path'] },
   tabs: {
     parameters: {

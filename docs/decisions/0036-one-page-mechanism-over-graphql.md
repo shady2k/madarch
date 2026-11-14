@@ -263,8 +263,10 @@ sections:
   `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
   `fill { mode: choose|run }`; `run { runVariable* }`; `settings-form { group* }`;
-  `problem-actions { path* }`. A template naming an unknown component or parameter is refused at
-  start with the file and line.
+  `problem-actions { path* }`. A template naming an unknown component, parameter or undeclared
+  query field produces a finding on the affected page and in Problems, with the file and line.
+  It does not refuse the product or prevent other pages from serving (owner clarification,
+  2026-11-14, madarch-64o5.71).
 - **Cache**: answers are cached normalised by `Entity.id`, keyed by product, `structure` revision,
   language, role, operation and variables, each stamped with the `data` revision it was read at,
   and persisted with the bootstrap in IndexedDB; the app shell by a service worker. The event
@@ -314,7 +316,7 @@ source of truth where it and this prose differ (the record is then corrected): t
 generator with a golden SDL for a fixture manifest covering every scalar, a reference, a repeated
 edge with attributes, an inverse, a reserved-name refusal and a collision refusal; JSON Schemas for
 a template file and for every component's parameters; and the one page-composition module used by
-both the server (validating templates at start) and the app (building the page's operation), whose
+both the server (collecting template findings) and the app (building the page's operation), whose
 tests compose every base template and validate the result against the golden schema with
 graphql-js `validate`.
 

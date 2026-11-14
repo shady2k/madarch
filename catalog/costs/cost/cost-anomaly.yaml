@@ -1,7 +1,7 @@
 id: focus.anomaly
 purpose: quality
 audience: [product-lead, operations, platform-devops]
-definition: A cost that departed from what was expected, with the resource that caused it.
+definition: A cost anomaly is a cost that departed from what was expected, with the resource that caused it.
 sources:
 - https://focus.finops.org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Аномалия затрат
     many: Аномалии затрат
 description:
-  en: A cost that departed from what was expected, with the resource that caused it.
-  ru: Затрата, отклонившаяся от ожидаемой, и ресурс, который её вызвал.
+  en: A cost anomaly is spending that is unusually high or low compared with the recent past or the plan, such as a sudden jump from one service. It names the resource behind the change, so someone can check whether it is a fault or a legitimate increase.
+  ru: 'Аномалия затрат — трата, которая резко отличается от недавней или от плана: например, внезапный рост по одному сервису. Она называет ресурс, вызвавший изменение, чтобы кто-то проверил, ошибка это или законный рост.'

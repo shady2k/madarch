@@ -1,7 +1,7 @@
 id: practice.audit-finding
 purpose: quality
 audience: [security-engineer, architect]
-definition: One conclusion of an audit, with the evidence and the requirement it rests on.
+definition: An audit finding is one conclusion of an audit, with the evidence and the requirement it rests on.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/53/a/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Находка аудита
     many: Находки аудита
 description:
-  en: One conclusion of an audit, with the evidence and the requirement it rests on.
-  ru: Один вывод аудита с доказательством и требованием, на которых он держится.
+  en: 'An audit finding states one thing an audit concluded: what was examined, what the auditor saw and which requirement or control it concerns. It may confirm compliance, note a gap or recommend a change.'
+  ru: 'Находка аудита излагает один вывод аудита: что проверяли, что увидел аудитор и какое требование или контроль затронут. Она может подтвердить соответствие, отметить пробел или предложить изменение.'

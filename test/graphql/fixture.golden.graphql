@@ -13,6 +13,7 @@ type Aggregate {
 
 type Backlink {
   relation: String!
+  label: String!
   edge: String!
   inverse: Boolean!
   from: Entity!
@@ -22,6 +23,7 @@ type BacklinkConnection {
   edges: [BacklinkEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type BacklinkEdge {
@@ -83,6 +85,7 @@ type CatalogueEntityConnection {
   edges: [CatalogueEntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CatalogueEntityEdge {
@@ -129,6 +132,7 @@ type DemoAuthorConnection {
   edges: [DemoAuthorEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoAuthorEdge {
@@ -140,6 +144,7 @@ type DemoAuthoredConnection {
   edges: [DemoAuthoredConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoAuthoredConnectionEdge {
@@ -184,6 +189,7 @@ type DemoCommitConnection {
   edges: [DemoCommitEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoCommitEdge {
@@ -195,6 +201,7 @@ type DemoContainsConnection {
   edges: [DemoContainsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoContainsConnectionEdge {
@@ -254,6 +261,7 @@ type DemoFileConnection {
   edges: [DemoFileEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoFileEdge {
@@ -300,6 +308,7 @@ type DemoRepositoryConnection {
   edges: [DemoRepositoryEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoRepositoryEdge {
@@ -311,6 +320,7 @@ type DemoTouchedConnection {
   edges: [DemoTouchedConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoTouchedConnectionEdge {
@@ -362,6 +372,7 @@ type EntityConnection {
   edges: [EntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type EntityEdge {
@@ -391,6 +402,7 @@ type MentionsConnection {
   edges: [MentionsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type MentionsConnectionEdge {
@@ -445,6 +457,7 @@ type Opinion {
 
 type Outgoing {
   relation: String!
+  label: String!
   edge: String!
   inverse: Boolean!
   to: Entity!
@@ -454,6 +467,7 @@ type OutgoingConnection {
   edges: [OutgoingEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type OutgoingEdge {
@@ -498,6 +512,13 @@ type SearchHit {
   line: String!
 }
 
+type TemplateFinding {
+  file: String!
+  line: Int!
+  path: String!
+  message: String!
+}
+
 type Query {
   entity(id: ID!, lang: String): Entity
   allDemoAuthor(where: DemoAuthorWhere, orderBy: [DemoAuthorOrder!], first: Int, after: String, lang: String): DemoAuthorConnection!
@@ -514,6 +535,7 @@ type Query {
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
   navigation(lang: String): Navigation!
+  templateFindings: [TemplateFinding!]!
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!

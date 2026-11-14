@@ -1,8 +1,7 @@
 id: practice.test-quarantine
 purpose: quality
 audience: [tester, developer]
-definition: A test temporarily excluded from the default suite, with its repair task, slow/flaky/broken reason, introducing
-  commit and latest quarantine CI result when known.
+definition: A test quarantine is a test temporarily kept out of the regular suite because it is flaky, slow or broken, with the work to repair it.
 sources:
 - https://docs.gitlab.com/development/testing_guide/quarantining_tests/
 - https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html
@@ -64,7 +63,7 @@ labels:
     one: Карантин теста
     many: Тесты в карантине
 description:
-  en: A quarantined test, its repair task, reason and introducing commit; the latest quarantine CI result when known.
-  ru: Тест в карантине, задача исправления, причина и коммит введения; последний результат CI карантина, если он известен.
+  en: 'A test quarantine marks one test as set aside from the default suite for a reason: it fails intermittently, it is too slow, or it is known to be broken. The entry names the repair task and, when known, the commit that introduced the problem.'
+  ru: 'Карантин теста отмечает один тест, временно выведенный из обычного набора по причине: он нестабилен, слишком медленный или заведомо сломан. В записи названа задача исправления и, если известно, коммит, который внёс проблему.'
 derives-from:
 - code.file

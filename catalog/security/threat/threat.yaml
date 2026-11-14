@@ -1,7 +1,7 @@
 id: stride.threat
 purpose: quality
 audience: [security-engineer, architect]
-definition: A way an attacker could harm the product, placed in one STRIDE category.
+definition: A threat is a way an attacker could harm the product, placed in one STRIDE category.
 sources:
 - https://community.owasp.org/Threat_Modeling
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Угроза
     many: Угрозы
 description:
-  en: A way an attacker could harm the product, placed in one STRIDE category.
-  ru: Способ, которым атакующий может навредить продукту, отнесённый к одной категории STRIDE.
+  en: 'A threat describes one way the product could be harmed: an identity spoofed, data tampered with, a secret disclosed, a service denied, a user repudiated or rights elevated. STRIDE gives the six categories that make such threats easier to find.'
+  ru: 'Угроза описывает один способ навредить продукту: выдать себя за другого, подменить данные, раскрыть секрет, лишить сервиса, отказаться от действия или повысить права. STRIDE даёт шесть категорий, по которым такие угрозы легче находить.'

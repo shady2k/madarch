@@ -1644,6 +1644,11 @@
       "note": "The run left notes."
     }
   },
+  "problems": {
+    "templateFindings": "Template findings",
+    "loadingTemplates": "Checking templates…",
+    "noTemplateFindings": "No template findings."
+  },
   "kit": {
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",

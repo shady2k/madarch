@@ -1,7 +1,7 @@
 id: practice.message-schema
 purpose: structure
 audience: [developer, architect, analyst, tester]
-definition: The shape of a message sent over a channel.
+definition: A message is the shape of one piece of data sent over a channel.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
@@ -27,5 +27,5 @@ labels:
     one: Событие
     many: События
 description:
-  en: A kind of message sent over a channel.
-  ru: Вид сообщения, которое передают по каналу.
+  en: 'A message describes what travels through a channel: its fields, their types and what they mean. The sending and the reading service agree on the shape, so each can read the other''s data.'
+  ru: 'Событие — описание того, что передаётся по каналу: его поля, их типы и смысл. Отправляющий и читающий сервис договариваются о форме, чтобы каждый понимал данные другого.'

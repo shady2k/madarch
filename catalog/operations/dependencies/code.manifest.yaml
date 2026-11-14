@@ -1,7 +1,7 @@
 id: practice.package-manifest
 purpose: structure
 audience: [developer, architect, platform-devops, security-engineer]
-definition: A file that declares a package and its dependencies.
+definition: A manifest is a file that declares a package and its dependencies.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/
 acquisition:
@@ -29,5 +29,5 @@ labels:
     one: Манифест
     many: Манифесты
 description:
-  en: A package.json or go.mod file that declares dependencies.
-  ru: Файл package.json или go.mod, который объявляет зависимости.
+  en: 'A manifest names a package, its version and the dependencies it needs, in the form its ecosystem uses: package.json, go.mod, pyproject.toml. It is the starting point from which the exact versions are resolved.'
+  ru: 'Манифест называет пакет, его версию и нужные зависимости в форме своей экосистемы: package.json, go.mod, pyproject.toml. С него начинают, чтобы разрешить точные версии.'

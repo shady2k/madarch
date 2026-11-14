@@ -18,6 +18,7 @@ const AREA_KINDS: Readonly<Record<string, string>> = {
   'link': 'common.attachment',
   'comment': 'common.attachment',
   'time-entry': 'common.attachment',
+  'time-cost': 'work.execution',
   'request': 'common.attachment',
   'approval': 'common.attachment',
   'approval-package': 'common.attachment',
@@ -35,6 +36,8 @@ const AREA_KINDS: Readonly<Record<string, string>> = {
   'responsibility': 'common.schema',
   'accounting': 'common.schema',
   'event': 'common.schema',
+  'value-set': 'common.values',
+  'value-set-entry': 'common.values',
   'milestone': 'work.planning',
   'epic': 'work.planning',
   'feature': 'work.planning',
@@ -48,6 +51,10 @@ const AREA_KINDS: Readonly<Record<string, string>> = {
   'review-finding': 'work.sync',
   'evidence': 'work.sync',
   'merge': 'work.sync',
+  'practice': 'work.ways',
+  'code-convention': 'work.ways',
+  'skill': 'work.ways',
+  'constitution': 'work.ways',
 };
 
 describe('the Work and Common areas of the catalog', () => {
@@ -61,6 +68,8 @@ describe('the Work and Common areas of the catalog', () => {
       ['work.sync', 'Sync', 'Синхронизация'],
       ['common.attachment', 'Attached records', 'Приложенные записи'],
       ['common.schema', 'Schema', 'Схема'],
+      ['common.values', 'Values', 'Справочники'],
+      ['work.ways', 'Ways of working', 'Способы работы'],
     ] as const) {
       const group = groups.get(name);
       expect(group).toMatchObject({ en, ru, parent: name.startsWith('work.') ? 'work' : 'common' });
@@ -70,7 +79,7 @@ describe('the Work and Common areas of the catalog', () => {
   });
 
   test('every kind of the two areas has its row, both names and relations the catalog declares', () => {
-    expect(Object.keys(AREA_KINDS)).toHaveLength(33);
+    expect(Object.keys(AREA_KINDS)).toHaveLength(40);
     for (const [name, group] of Object.entries(AREA_KINDS)) {
       const row = rows.get(name);
       expect(row, `${name} is a kind of the catalog`).toBeDefined();
@@ -82,7 +91,8 @@ describe('the Work and Common areas of the catalog', () => {
       expect(row.status).toBe(name === 'task' || name === 'question' ? 'implemented' : 'not-implemented');
       expect(row.en).toBeDefined();
       expect(row.ru).toBeDefined();
-      expect(row.policy).toBe(name === 'task' || name === 'question' ? 'page' : 'none');
+      const page = ['task', 'question', 'comment', 'link', 'time-cost', 'practice', 'code-convention', 'skill', 'constitution', 'value-set', 'value-set-entry'];
+      expect(row.policy).toBe(page.includes(name) ? 'page' : 'none');
       for (const relation of [...row.out, ...row.into]) expect(CATALOG_RELATIONS).toHaveProperty(relation);
     }
   });
@@ -117,9 +127,9 @@ describe('the Work and Common areas of the catalog', () => {
   test('a pending change is an approval package, and an approval is the decision on it', () => {
     const pack = rows.get('approval-package');
     expect(pack).toMatchObject({ group: 'common.attachment', id: 'practice.approval-package', policy: 'none' });
-    for (const word of ['created or changed', 'links', 'risks', 'one current status', 'approved']) expect(pack?.definition.includes(word)).toBe(true);
+    for (const word of ['created or altered', 'links', 'risks', 'approve']) expect(pack?.definition.includes(word)).toBe(true);
     expect(rows.get('approval')?.definition).toContain('approval package');
-    expect(rows.get('approval')?.definition).toContain('declined with a reason');
+    expect(rows.get('approval')?.definition).toContain('refused with a reason');
     expect(rows.get('approval')?.out).toContain('approves');
   });
 
@@ -128,7 +138,7 @@ describe('the Work and Common areas of the catalog', () => {
     expect(rows.get('lifecycle')?.definition).toContain('open question');
     expect(rows.get('lifecycle')?.definition).toContain('blocked');
     expect(rows.get('question')?.definition).toContain('blocked');
-    expect(rows.get('question')?.definition).toContain('not a status');
+    expect(rows.get('question')?.definition).toContain('without becoming a status');
     expect(rows.get('workflow-status')?.definition).toContain('one current status');
     // No kind is a status-like state of its own: the one status kind is the workflow's, and the question is a kind of its own.
     expect([...rows.keys()].filter((name) => name.endsWith('-status'))).toEqual(['workflow-status']);
@@ -146,6 +156,6 @@ describe('the Work and Common areas of the catalog', () => {
     expect(rows.get('accounting')?.definition).toContain('lifecycle step');
     expect(rows.get('event')?.definition).toContain('transition');
     expect(rows.get('workflow-transition')?.definition).toContain('event');
-    expect(rows.get('task')?.definition).toContain('no entity of its own');
+    expect(rows.get('task')?.definition).toContain('unit of work');
   });
 });

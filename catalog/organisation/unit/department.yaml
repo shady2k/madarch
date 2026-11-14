@@ -1,7 +1,7 @@
 id: org.organizational-unit
 purpose: history
 audience: [product-lead, product, architect]
-definition: A division of an organisation, above its teams.
+definition: A department is a division of an organisation that stands above its teams.
 sources:
 - https://www.w3.org/TR/vocab-org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Подразделение
     many: Подразделения
 description:
-  en: A division of an organisation, above its teams.
-  ru: Часть организации выше её команд.
+  en: A department groups teams and people under one part of the organisation, such as finance, engineering or customer service. It usually has its own leader, budget and responsibilities.
+  ru: 'Подразделение объединяет команды и людей в одну часть организации: финансы, разработку или обслуживание клиентов. У него обычно есть руководитель, бюджет и свои обязанности.'

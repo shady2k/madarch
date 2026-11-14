@@ -1,7 +1,7 @@
 id: practice.container-image
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A container image a deployment runs, named by its repository and its tag.
+definition: A container image is a packaged file system and start command that a deployment runs, named by its repository and tag.
 sources:
 - https://github.com/opencontainers/image-spec
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Образ
     many: Образы
 description:
-  en: A container image a deployment runs.
-  ru: Образ контейнера, который запускает развёртывание.
+  en: A container image bundles a program with the files and libraries it needs, so it runs the same wherever a container runtime starts it. Its repository and tag name it, and its digest identifies the exact build.
+  ru: Образ контейнера упаковывает программу с нужными ей файлами и библиотеками, поэтому она одинаково работает везде, где её запускает среда контейнеров. Его называют репозиторий и тег, а точную сборку указывает дайджест.

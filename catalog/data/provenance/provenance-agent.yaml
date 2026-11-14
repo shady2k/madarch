@@ -1,7 +1,7 @@
 id: prov.agent
 purpose: history
 audience: [analyst, architect, security-engineer]
-definition: A person, a program or an organisation an activity is attributed to.
+definition: A provenance agent is a person, a program or an organisation that an activity is attributed to.
 sources:
 - https://www.w3.org/TR/prov-o/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Участник происхождения
     many: Участники происхождения
 description:
-  en: A person, a program or an organisation an activity is attributed to.
-  ru: Человек, программа или организация, которым приписывают действие.
+  en: 'A provenance agent is whoever or whatever carried out an activity: a person, a service, a script or an organisation. The record says which agent acted and when, so responsibility for the data can be followed.'
+  ru: 'Участник происхождения — тот, кто выполнил действие: человек, сервис, сценарий или организация. В записи сказано, какой участник действовал и когда, поэтому можно проследить ответственность за данные.'

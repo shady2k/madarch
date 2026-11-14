@@ -1,7 +1,7 @@
 id: arc42.solution-strategy
 purpose: understand
 audience: [architect, analyst, developer]
-definition: arc42's summary of the decisions and principles that shape the solution.
+definition: A solution strategy is arc42's summary of the decisions and principles that shape the solution.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Стратегия решения
     many: Стратегии решения
 description:
-  en: arc42's summary of the decisions and principles that shape the solution.
-  ru: Краткое изложение arc42 решений и принципов, которые формируют решение.
+  en: 'A solution strategy states the few decisions and principles that explain the architecture at a glance: which technology was chosen and why, how the system is split, what quality goals drive it. arc42 puts it first, so a reader sees the idea before the detail.'
+  ru: 'Стратегия решения называет несколько решений и принципов, которые объясняют архитектуру с первого взгляда: какая технология выбрана и почему, как разделена система, какие цели качества ею движут. arc42 ставит её первой, чтобы читатель увидел замысел раньше подробностей.'

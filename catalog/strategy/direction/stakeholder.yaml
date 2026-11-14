@@ -1,7 +1,7 @@
 id: archimate.stakeholder
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A person or group with an interest in the product and a concern that shapes it.
+definition: A stakeholder is a person or a group with an interest in the product and a concern that shapes it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Заинтересованная сторона
     many: Заинтересованные стороны
 description:
-  en: A person or group with an interest in the product and a concern that shapes it.
-  ru: Человек или группа, заинтересованные в продукте и влияющие на него своим интересом.
+  en: 'A stakeholder is anyone who affects or is affected by the product: a customer, a user, a regulator, the owner, an operator, a supplier. Their concerns are what an architecture must answer and what makes a decision good or bad.'
+  ru: 'Заинтересованная сторона — тот, кто влияет на продукт или испытывает его влияние: клиент, пользователь, регулятор, владелец, оператор, поставщик. Их заботы — то, на что отвечает архитектура и чем измеряется удачность решения.'

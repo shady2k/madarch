@@ -1,7 +1,7 @@
 id: bpmn.process
 purpose: structure
 audience: [architect, developer, analyst]
-definition: 'A business process drawn as BPMN: the tasks, the events and the gateways between them.'
+definition: A process model is a business process drawn in BPMN, with its tasks, events and gateways.
 sources:
 - https://www.omg.org/spec/BPMN/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Модель процесса
     many: Модели процессов
 description:
-  en: 'A business process drawn as BPMN: the tasks, the events and the gateways between them.'
-  ru: 'Бизнес-процесс, нарисованный в BPMN: задачи, события и шлюзы между ними.'
+  en: A process model is a diagram and its definition of how a business process runs, in the notation BPMN gives for tasks, events, gateways and the sequence between them. It can be read by people and run by a process system.
+  ru: Модель процесса — схема и её описание того, как идёт бизнес-процесс, в нотации BPMN для задач, событий, шлюзов и порядка между ними. Её читают люди, и её может исполнять система процессов.

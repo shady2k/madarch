@@ -1,7 +1,7 @@
 id: istqb.failure
 purpose: quality
 audience: [tester, developer]
-definition: An event in which the product does not meet its requirements or its expected result.
+definition: A failure is an event in which the product does not meet its requirements or its expected result.
 sources:
 - https://glossary.istqb.org/en_US/term/failure
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сбой
     many: Сбои
 description:
-  en: An event in which the product does not meet its requirements or its expected result.
-  ru: Событие, в котором продукт не отвечает своим требованиям или ожидаемому результату.
+  en: 'A failure is what happens when the product behaves differently from what was required or expected: a wrong answer, a stopped service, a lost payment. A failure is the visible effect of one or more defects.'
+  ru: 'Сбой — событие, когда продукт ведёт себя не так, как требуется или ожидается: неверный ответ, остановленный сервис, потерянный платёж. Сбой — видимое следствие одного или нескольких дефектов.'

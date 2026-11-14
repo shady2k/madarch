@@ -1,7 +1,7 @@
 id: practice.iam-grant
 purpose: operations
 audience: [security-engineer, architect]
-definition: One permission given to a subject over a resource.
+definition: An IAM grant is one permission given to a subject over a resource.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Разрешение IAM
     many: Разрешения IAM
 description:
-  en: One permission given to a subject over a resource.
-  ru: Одно право, данное субъекту на ресурс.
+  en: An IAM grant states that one subject — a person, a role or a service — may perform one action on one resource, such as read a bucket or start an instance. Grants are the smallest pieces from which a policy is built.
+  ru: 'Разрешение IAM говорит, что один субъект — человек, роль или сервис — может выполнить одно действие с одним ресурсом: прочитать бакет или запустить экземпляр. Из таких разрешений строится политика.'

@@ -25,7 +25,7 @@ export interface ArmedRequest {
 }
 
 /** The bound after which a request still running is warned about, and the warning itself. */
-export const WATCHDOG_MS = 2_000;
+export const WATCHDOG_MS = 5_000;
 
 /**
  * Arms the watchdog for one request. `warn` is called once, when the bound passes while the request still runs; a request

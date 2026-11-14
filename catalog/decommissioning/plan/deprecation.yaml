@@ -1,7 +1,7 @@
 id: practice.deprecation
 purpose: operations
 audience: [operations, platform-devops, product-lead]
-definition: The announcement that a part of the product will be withdrawn, and what replaces it.
+definition: A deprecation is the announcement that a part of the product will be withdrawn, together with its replacement and the date.
 sources:
 - https://www.rfc-editor.org/rfc/rfc8594.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Прекращение поддержки
     many: Прекращения поддержки
 description:
-  en: The announcement that a part of the product will be withdrawn, and what replaces it.
-  ru: Объявление о том, что часть продукта будет отозвана, и о том, что её заменит.
+  en: A deprecation announces that a part of the product will stop being available, and says what replaces it and from when. It gives users time to move to the replacement and states what still works during the transition.
+  ru: Прекращение поддержки — объявление о том, что часть продукта перестанет работать, что придёт ей на замену и с какого времени. Оно даёт пользователям время перейти на замену и говорит, что продолжает работать в переходный период.

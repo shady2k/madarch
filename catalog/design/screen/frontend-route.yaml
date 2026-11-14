@@ -1,7 +1,7 @@
 id: practice.frontend-route
 purpose: structure
 audience: [designer, developer]
-definition: A client-side address that renders a screen and calls the operations it needs.
+definition: A frontend route is a client-side address that shows a screen and calls the operations it needs.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Маршрут интерфейса
     many: Маршруты интерфейса
 description:
-  en: A client-side address that renders a screen and calls the operations it needs.
-  ru: Клиентский адрес, который рисует экран и вызывает нужные операции.
+  en: A frontend route is a path in the browser or the app that opens one screen, such as orders/42. It decides which screen appears and which data the screen asks for.
+  ru: Маршрут интерфейса — путь в браузере или приложении, который открывает один экран, например orders/42. Он решает, какой экран появится и какие данные этот экран запросит.

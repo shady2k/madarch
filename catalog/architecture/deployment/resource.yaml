@@ -1,7 +1,7 @@
 id: backstage.resource
 purpose: operations
 audience: [architect, operations, platform-devops]
-definition: Infrastructure a component needs at runtime, such as a database, a topic or a bucket.
+definition: A resource is infrastructure a component needs at runtime, such as a database, a topic or a bucket.
 sources:
 - https://backstage.io/docs/features/software-catalog/system-model
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Ресурс
     many: Ресурсы
 description:
-  en: Infrastructure a component needs at runtime, such as a database, a topic or a bucket.
-  ru: 'Инфраструктура, нужная компоненту во время работы: база данных, топик или бакет.'
+  en: 'A resource is an outside facility a component uses while it runs: a database, a queue, a bucket, a cache or a certificate. It is provisioned and configured separately from the component, and the component depends on its availability.'
+  ru: 'Ресурс — внешнее средство, которое компонент использует во время работы: база данных, очередь, бакет, кэш или сертификат. Его создают и настраивают отдельно от компонента, и компонент зависит от его доступности.'

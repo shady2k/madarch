@@ -1,7 +1,7 @@
 id: istqb.test-objective
 purpose: quality
 audience: [tester, developer]
-definition: The purpose a test level or a test is meant to serve.
+definition: A test objective is the purpose a test level or a test is meant to serve.
 sources:
 - https://glossary.istqb.org/en_US/term/test-objective
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Цель тестирования
     many: Цели тестирования
 description:
-  en: The purpose a test level or a test is meant to serve.
-  ru: Назначение, которому должен служить уровень или вид тестирования.
+  en: 'A test objective states what testing should establish at a level: that the units work, that the parts fit, that the product meets its requirements, or that it behaves under load. The objective decides which tests are worth writing.'
+  ru: 'Цель тестирования говорит, что должны установить тесты на своём уровне: что модули работают, части стыкуются, продукт отвечает требованиям или держится под нагрузкой. От цели зависит, какие тесты стоит писать.'

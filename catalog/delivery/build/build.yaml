@@ -1,7 +1,7 @@
 id: slsa.build
 purpose: history
 audience: [developer, platform-devops, operations]
-definition: One build of an artifact from a revision, with the definition it ran and the dependencies it resolved.
+definition: A build is one run that turns a revision into artifacts, with the definition it followed and the dependencies it resolved.
 sources:
 - https://slsa.dev/spec/v1.0/provenance
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Сборка
     many: Сборки
 description:
-  en: One build of an artifact from a revision, with the definition it ran and the dependencies it resolved.
-  ru: Одна сборка артефакта из ревизии с её определением и разрешёнными зависимостями.
+  en: A build takes one revision of the code, the definition of how to assemble it and the dependencies it resolved, and produces artifacts. Its record says what went in and what came out, so the result can be repeated and checked.
+  ru: Сборка берёт одну ревизию кода, описание того, как его собрать, и разрешённые зависимости, а на выходе даёт артефакты. В её записи сказано, что вошло и что вышло, чтобы результат можно было повторить и проверить.

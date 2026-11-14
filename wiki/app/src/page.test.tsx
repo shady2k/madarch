@@ -145,11 +145,11 @@ test('facts show each row at its path, and a number is written for the reader', 
 test('a relation row names the relation and links to the entity at its other end', async () => {
   const page = await renderPage(
     [section('backlinks', 'relations', { path: 'backlinks', labelPath: 'relation', emptyText: { en: 'Nothing links to it yet.' } })],
-    { backlinks: { backlinks: { totalCount: 1, edges: [{ node: { relation: 'partOf', from: entity('1', 'src') } }] } } },
+    { backlinks: { backlinks: { totalCount: 1, edges: [{ node: { relation: 'sample.belongs', label: 'belongs to the sample', from: entity('1', 'src') } }] } } },
   );
   try {
-    // The relation's own word, as the wiki's labels give it, not the graph's field name.
-    expect(page.container.textContent).toContain('part of');
+    // The graph supplies product vocabulary; the client does not translate relation identifiers.
+    expect(page.container.textContent).toContain('belongs to the sample');
     expect(page.container.querySelector('a')?.getAttribute('href')).toBe('/e/a.b/1');
   } finally {
     await page.close();

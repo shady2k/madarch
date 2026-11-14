@@ -1,7 +1,7 @@
 id: nist800-34.geo-redundancy
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: Copies of a system or its data kept in a second region so the loss of one region is survivable.
+definition: Geo-redundancy keeps copies of a system or its data in a second region, so the loss of one region can be survived.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Геоизбыточность
     many: Геоизбыточности
 description:
-  en: Copies of a system or its data kept in a second region so the loss of one region is survivable.
-  ru: Копии системы или её данных во втором регионе, чтобы потеря одного региона была переживаема.
+  en: Geo-redundancy places copies of data and running services in more than one geographic region, far enough apart that one disaster does not reach both. It trades cost and copying delay for the ability to keep serving when a region is lost.
+  ru: Геоизбыточность размещает копии данных и работающие сервисы более чем в одном регионе, достаточно далеко, чтобы одна катастрофа не задела обе. Она обменивает стоимость и задержку копирования на возможность продолжать работать при потере региона.

@@ -1,8 +1,7 @@
 id: manifest.accounting
 purpose: structure
 audience: [architect, product-lead]
-definition: 'The shared part of an authored kind that keeps its lifecycle step records: each step''s duration, tokens, cost,
-  model and outcome.'
+definition: 'Accounting is the shared part of a kind that keeps its lifecycle step records: each step''s duration, tokens, cost, model and outcome.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
@@ -29,5 +28,5 @@ labels:
     one: Учёт
     many: Учёт
 description:
-  en: The per-step records of duration, tokens, cost, model and outcome a kind keeps.
-  ru: 'Записи по шагам: длительность, токены, стоимость, модель и результат.'
+  en: 'Accounting is the common part of a kind''s declaration that lets each of its entities keep a record of the steps taken: how long each took, which model did it, how many tokens and how much money it used, and how it ended.'
+  ru: 'Учёт — общая часть объявления вида, которая позволяет каждой его сущности хранить записи о сделанных шагах: сколько занял каждый, какая модель его выполняла, сколько токенов и денег он стоил и чем закончился.'

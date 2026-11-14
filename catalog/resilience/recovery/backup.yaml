@@ -1,7 +1,7 @@
 id: nist800-34.backup
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A copy of data or configuration kept apart from the original so it can be restored.
+definition: A backup is a copy of data or configuration kept apart from the original so it can be restored.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Резервная копия
     many: Резервные копии
 description:
-  en: A copy of data or configuration kept apart from the original so it can be restored.
-  ru: Копия данных или настроек, хранимая отдельно от оригинала для восстановления.
+  en: A backup is a copy of data, configuration or a whole system, stored where a failure of the original does not reach it. It is useful only if it can be restored within the time the business needs.
+  ru: Резервная копия — копия данных, настроек или целой системы, хранимая там, куда отказ оригинала не достаёт. Она полезна, только если её можно восстановить за время, которое нужно бизнесу.

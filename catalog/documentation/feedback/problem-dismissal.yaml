@@ -1,7 +1,7 @@
 id: practice.problem-dismissal
 purpose: quality
 audience: [product, analyst, developer, tester]
-definition: A person records why a finding is not a problem, naming its rule and stable identity.
+definition: A problem dismissal records why a person judged a finding not to be a problem, naming its rule and stable identity.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -63,5 +63,5 @@ labels:
     one: Отклонение проблемы
     many: Отклонения проблем
 description:
-  en: A person records why a finding is not a problem, naming its rule and stable identity.
-  ru: Человек объясняет, почему находка не является проблемой, указывая правило и устойчивый идентификатор.
+  en: 'A problem dismissal is a person''s decision that a reported finding does not need fixing, with the reason: a false positive, an accepted risk, a rule that does not apply here. It names the rule and the finding, so the same finding is not raised and dismissed again.'
+  ru: 'Отклонение проблемы — решение человека, что найденная проблема не требует исправления, с причиной: ложное срабатывание, принятый риск, неприменимое здесь правило. Оно называет правило и саму находку, чтобы одну и ту же не находили и не отклоняли снова.'

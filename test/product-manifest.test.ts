@@ -331,9 +331,9 @@ test('the start states the product name alone, never a README paragraph', () => 
   mkdirSync(join(folder, 'repos', 'sample'), { recursive: true });
   writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: 1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33\nname: shop\nrepos:\n  - name: sample\n    url: https://example.invalid/sample.git\n');
   writeFileSync(join(folder, 'repos', 'sample', 'README.md'), '# Shop\n\nA shop takes orders.\n');
-  const entity = productEntityOf(folder, { home: { name: 'product', key: ['slug'], source: 'graph' } }, undefined);
-  expect(entity?.values).toEqual({ title: 'shop' });
-  expect(entity?.key).toEqual({ slug: 'shop' });
-  expect(entity?.values).not.toHaveProperty('body');
-  expect(entity?.values).not.toHaveProperty('file');
+  const entity = productEntityOf(folder, { home: { name: 'product', key: ['slug'], source: 'graph', fields: [{ name: 'title' }, { name: 'body' }] } }, undefined);
+  expect(entity?.values).toEqual({ title: 'shop', body: '' });
+  expect(entity?.key).toEqual({ slug: '1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33' });
+  expect(JSON.stringify(entity?.values)).not.toContain('A shop takes orders.');
+  expect(entity?.evidence).toEqual([{ repository: folder, path: '.', lineStart: 1, lineEnd: 1 }]);
 });

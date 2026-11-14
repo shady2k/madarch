@@ -21,7 +21,9 @@
  *   extractor-mark: extractor
  *   statuses: [implemented, partial, not-implemented]
  *   template-policies: [page, member, none]
- *   relations: { c4.uses: https://c4model.com/abstractions, refines: }
+ *   relations:
+ *     c4.uses: { source: https://c4model.com/abstractions, labels: { en: { out: uses, in: used by } } }
+ *     refines:
  * kinds:
  *   code.service:
  *     id: c4.container
@@ -61,6 +63,8 @@ export interface CatalogSchema {
   readonly templatePolicies: readonly string[];
   /** The relation names the catalog knows, each with the address of the standard that defines it, or none for a plain verb. */
   readonly relations: ReadonlyMap<string, string | undefined>;
+  /** The words the product gives each relation in each reading direction and language. */
+  readonly relationLabels: ReadonlyMap<string, Readonly<Record<string, { readonly out: string; readonly in: string }>>>;
   /** The line the `catalog:` mapping stands at. */
   readonly line: number;
 }
@@ -178,15 +182,35 @@ export function readCatalogSchema(value: unknown, at: (path: (string | number)[]
   const templatePolicies = distinctStrings(body['template-policies']);
   if (templatePolicies === undefined) problem(['template-policies'], '"template-policies" is a list of the template policies a kind declares, such as "page", "member" and "none"');
   const relations = new Map<string, string | undefined>();
+  const relationLabels = new Map<string, Readonly<Record<string, { out: string; in: string }>>>();
   const rawRelations = body['relations'];
   if (rawRelations === null || typeof rawRelations !== 'object' || Array.isArray(rawRelations)) {
     problem(['relations'], '"relations" maps each relation name the catalog uses to the address of the standard that defines it, or to nothing for a plain verb');
   } else {
     for (const [name, source] of Object.entries(rawRelations as Record<string, unknown>)) {
       if (!isIdentifier(name)) { problem(['relations', name], `relation ${JSON.stringify(name)}: a relation name is a word, such as "c4.uses"`); continue; }
-      if (source === null || source === undefined || source === '') { relations.set(name, undefined); continue; }
-      if (!readableUrl(source)) { problem(['relations', name], `relation "${name}": the source is the address of the standard that defines it, such as "https://c4model.com/abstractions", or nothing for a plain verb, got ${JSON.stringify(source)}`); continue; }
-      relations.set(name, source);
+      let address = source;
+      if (source !== null && typeof source === 'object' && !Array.isArray(source)) {
+        const declaration = source as Record<string, unknown>;
+        for (const key of Object.keys(declaration)) if (key !== 'source' && key !== 'labels') problem(['relations', name, key], `relation "${name}": unknown field "${key}"; expected source or labels`);
+        address = declaration['source'];
+        const labels: Record<string, { out: string; in: string }> = {};
+        const raw = declaration['labels'];
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) problem(['relations', name, 'labels'], `relation "${name}": labels maps each language to out and in words`);
+        else for (const [language, words] of Object.entries(raw as Record<string, unknown>)) {
+          const held = words as { out?: unknown; in?: unknown } | null;
+          if (held === null || typeof held !== 'object' || typeof held.out !== 'string' || held.out.trim() === '' || typeof held.in !== 'string' || held.in.trim() === '') {
+            problem(['relations', name, 'labels', language], `relation "${name}": language "${language}" needs non-empty out and in words`);
+          } else {
+            for (const key of Object.keys(held)) if (key !== 'out' && key !== 'in') problem(['relations', name, 'labels', language, key], `relation "${name}": unknown direction "${key}"; expected out or in`);
+            labels[language] = { out: held.out, in: held.in };
+          }
+        }
+        relationLabels.set(name, labels);
+      }
+      if (address === null || address === undefined || address === '') { relations.set(name, undefined); continue; }
+      if (!readableUrl(address)) { problem(['relations', name], `relation "${name}": the source is the address of the standard that defines it, such as "https://c4model.com/abstractions", or nothing for a plain verb, got ${JSON.stringify(address)}`); continue; }
+      relations.set(name, address);
     }
   }
   if (findings.length > before) return { findings };
@@ -199,6 +223,7 @@ export function readCatalogSchema(value: unknown, at: (path: (string | number)[]
       statuses: statuses!,
       templatePolicies: templatePolicies!,
       relations,
+      relationLabels,
       line: at(['catalog']),
     },
     findings,

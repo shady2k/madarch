@@ -1,7 +1,7 @@
 id: gdpr.consent
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A person's freely given agreement to the processing of their data, which can be withdrawn.
+definition: Consent is a person's freely given agreement to the processing of their personal data, which they may withdraw.
 sources:
 - https://gdpr-info.eu/art-7-gdpr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Согласие
     many: Согласия
 description:
-  en: A person's freely given agreement to the processing of their data, which can be withdrawn.
-  ru: Добровольное согласие человека на обработку его данных, которое можно отозвать.
+  en: Consent is a clear, informed and voluntary yes from a person to one or more uses of their personal data. It must be as easy to withdraw as to give, and the processing may continue only while it stands.
+  ru: Согласие — ясное, осознанное и добровольное разрешение человека на одно или несколько использований его персональных данных. Отозвать его должно быть так же просто, как дать, и обработка возможна, только пока оно действует.

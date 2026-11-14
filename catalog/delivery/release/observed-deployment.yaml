@@ -1,8 +1,7 @@
 id: practice.observed-deployment
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: What actually runs in one environment, as the platform reports it, beside the desired state and the deployment
-  that asked for it.
+definition: An observed deployment is what actually runs in one environment, as the platform reports it.
 sources:
 - https://kubernetes.io/docs/concepts/architecture/controller/
 acquisition:
@@ -23,6 +22,5 @@ labels:
     one: Наблюдаемое развёртывание
     many: Наблюдаемые развёртывания
 description:
-  en: What actually runs in one environment, as the platform reports it, beside the desired state and the deployment that
-    asked for it.
-  ru: То, что действительно работает в среде, как сообщает платформа, рядом с желаемым состоянием и запросившим развёртыванием.
+  en: 'An observed deployment records the state the platform reports: which version is running, how many copies, on which nodes and in what health. Comparing it with the desired state shows whether the deployment took effect.'
+  ru: 'Наблюдаемое развёртывание записывает состояние, которое сообщает платформа: какая версия работает, сколько копий, на каких узлах и в каком состоянии. Сравнение с желаемым показывает, подействовало ли развёртывание.'

@@ -1,7 +1,7 @@
 id: practice.communications-secrecy
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: Information about the fact and the content of a communication, which the law protects separately.
+definition: Communications secrecy protects information about the fact of a communication and its content, which the law guards separately.
 sources:
 - https://gdpr-info.eu/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Тайна связи
     many: Тайна связи
 description:
-  en: Information about the fact and the content of a communication, which the law protects separately.
-  ru: Сведения о факте и содержании связи, которые закон защищает отдельно.
+  en: Communications secrecy is the legal protection of who communicated with whom, when, and what they said. It covers the fact of a message and its content, so even metadata such as call times is protected.
+  ru: Тайна связи — правовая защита сведений о том, кто, когда и с кем общался и что было сказано. Она охватывает и сам факт сообщения, и его содержание, поэтому защищены даже сведения о времени звонка.

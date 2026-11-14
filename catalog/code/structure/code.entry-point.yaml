@@ -1,7 +1,7 @@
 id: practice.entry-point
 purpose: structure
 audience: [developer, architect]
-definition: Where a process of the system starts running.
+definition: An entry point is where a process of the system starts running.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -28,5 +28,5 @@ labels:
     one: Точка входа
     many: Точки входа
 description:
-  en: Where a process of the system starts running.
-  ru: Место, где начинает работать процесс системы.
+  en: 'An entry point is the place execution begins: a program''s main function, a command, an HTTP handler a server calls, a scheduled job. From it, a reader can follow the code into the work the process does.'
+  ru: 'Точка входа — место, где начинается выполнение: главная функция программы, команда, обработчик HTTP, который вызывает сервер, или задача по расписанию. От неё читатель может пройти по коду в работу процесса.'

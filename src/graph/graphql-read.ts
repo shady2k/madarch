@@ -15,7 +15,7 @@
  *
  * **The catalogue is a graph too.** Every entry the product's start publishes as a `manifest.kind` vertex is a
  * catalogue entity, taken or not; its fields, the plugins that fill it, whether the product takes it and its
- * derivation relations come from those vertices and the manifest's field and dependency vertices.
+ * derivation relations come from those vertices, the manifest's field vertices and real dependency edges.
  */
 import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
@@ -25,6 +25,10 @@ import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
+import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
+import { relationWords } from '../knowledge/relation-labels.js';
+import { checkProductTemplates } from './template-check.js';
+import { join } from 'node:path';
 
 /** One open opinion of a vertex or an edge, as the read holds it. */
 export interface OpinionRow {
@@ -282,6 +286,10 @@ export interface DiagramGroup {
   /** The edge kind the rows were read through (`code.contains`), and the direction they came from. */
   readonly relation: string;
   readonly side: 'in' | 'out';
+  /** Metadata arrows keep the declaration's direction, even when the root is their target. */
+  readonly canonicalLabel?: boolean;
+  /** The product graph's words in the requested language and reading direction. */
+  readonly label?: string;
   readonly kind: string;
   /** How many neighbours the group holds, of which at most `first` were read. */
   readonly total: number;
@@ -498,6 +506,7 @@ export class ReadContext {
   }
 
   private async labelOf(entity: EntityValue): Promise<string> {
+    if (entity.catalogue !== undefined) return this.catalogueTitle(entity.catalogue, entity.lang);
     // The label is the field the manifest's `title:` names (decision 0036, section 1): a key field answers its own
     // value, any other field its agreed opinion. A kind that names no title is labelled by the first text of its key.
     const title = this.titles.get(entity.kind);
@@ -604,7 +613,7 @@ export class ReadContext {
     for (const [kind, nodes] of queue) {
       const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: OpinionRow[] }>();
       const declared = this.kindByType.get(typeNameOf(kind));
-      if (declared === undefined) continue;
+      if (declared === undefined) throw new Error(`Cannot read fields of undeclared kind: ${kind}`);
       const wanted = new Set<string>();
       for (const [id, columns] of nodes) {
         const held = cache.get(id);
@@ -652,6 +661,7 @@ export class ReadContext {
       edges: page.map((row) => ({ cursor: row.cursor, node: row })),
       pageInfo: { endCursor: page.length === 0 ? null : page[page.length - 1]!.cursor, hasNextPage: rows.length > first },
       totalCount: batch?.total ?? 0,
+      relationLabel: this.relationWord(edge.name, parent.lang, side === 'to'),
     };
   }
 
@@ -908,6 +918,7 @@ export class ReadContext {
    * nodes and the layout never sees the children. Two statements: the root, and every group with its sample.
    */
   async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
+    if (depth !== 1) throw new Error(`${import.meta.path}:1: "depth" must be 1; deeper diagram neighbourhoods are not supported`);
     const root = entityOf(await this.root('entity', { id, ...(lang === undefined ? {} : { lang }) }));
     if (root === undefined) return undefined;
     const groups = new Map<string, DiagramGroup>();
@@ -919,15 +930,17 @@ export class ReadContext {
     const catalogue = await this.catalogueData().catch(() => undefined);
     const found = await this.tx.query<Record<string, unknown>>(
       `WITH around AS (
-         SELECT 'out' AS side, en.name AS relation, e.to_node AS other
+         SELECT 'out' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
+                en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
          WHERE e.from_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
          UNION ALL
-         SELECT 'in' AS side, en.name AS relation, e.from_node AS other
+         SELECT 'in' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
+                en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.from_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
+         WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1 AND e.from_node <> e.to_node
        ), live AS (
-         SELECT around.side, around.relation, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
+         SELECT around.side, around.relation, around.metadata, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
          FROM around
          JOIN node n2 ON n2.id = around.other AND n2.context_id = 1 AND NOT n2.removed
          JOIN entity en2 ON en2.id = n2.entity_id
@@ -949,13 +962,13 @@ export class ReadContext {
     for (const [key, rows] of sample) {
       const [side, relation, kind] = key.split('\u0000') as ['in' | 'out', string, string];
       const total = Number(rows[0]?.['total'] ?? rows.length);
-      groups.set(key, { relation, side, kind, total, nodes: rows.map((row) => String(row['uid'])) });
+      groups.set(key, { relation, side, kind, total, label: this.relationWord(relation, lang, side === 'in' && rows[0]?.['metadata'] !== true), ...(rows[0]?.['metadata'] === true ? { canonicalLabel: true } : {}), nodes: rows.map((row) => String(row['uid'])) });
       const entry = catalogue?.byName.get(kind);
       if (entry !== undefined) kindPages.set(kind, `/e/catalogue/${encodeURIComponent(entry.uid)}`);
       const label = this.kindWord(kind, lang);
       kindWords.set(kind, label);
       for (const row of rows) {
-        const node = this.entityFromRow(row, lang);
+        const node = this.entityFromRow({ ...row, entity: row['kind'] }, lang);
         if (node === undefined) continue;
         nodes.set(node.uid, node);
         links.push(side === 'out' ? { from: root.uid, to: node.uid, relation } : { from: node.uid, to: root.uid, relation });
@@ -963,9 +976,16 @@ export class ReadContext {
     }
     const labels = new Map<string, string>();
     for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
-    void depth;
     const truncated = [...groups.values()].some((group) => group.total > (sample.get(`${group.side}\u0000${group.relation}\u0000${group.kind}`)?.length ?? 0));
     return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
+  }
+
+  /** Relation vocabulary belongs to the published product declaration, not the engine or the checkout. */
+  private relationWord(name: string, lang: string | undefined, inverse: boolean): string {
+    const language = lang ?? this.lang;
+    const labels = this.manifest.catalog?.schema.relationLabels?.get(name);
+    const words = labels?.[language] ?? labels?.[language.split('-')[0]!];
+    return words?.[inverse ? 'in' : 'out'] ?? relationWords(name, language, inverse);
   }
 
   // ---- links both ways ---------------------------------------------------------------------------------------
@@ -999,8 +1019,8 @@ export class ReadContext {
     const page = after.slice(0, first);
     const nodeOf = (row: { relation: string; other: EntityValue }): unknown =>
       direction === 'in'
-        ? { relation: row.relation, edge: this.edgeNameOf(row.relation), inverse: true, from: row.other }
-        : { relation: row.relation, edge: this.edgeNameOf(row.relation), inverse: false, to: row.other };
+        ? { relation: row.relation, label: this.relationWord(this.edgeNameOf(row.relation), entity.lang, true), edge: this.edgeNameOf(row.relation), inverse: true, from: row.other }
+        : { relation: row.relation, label: this.relationWord(this.edgeNameOf(row.relation), entity.lang, false), edge: this.edgeNameOf(row.relation), inverse: false, to: row.other };
     return {
       edges: page.map((row) => ({ cursor: encodeCursor({ relation: row.relation, id: row.id }), node: nodeOf(row) })),
       pageInfo: { endCursor: page.length === 0 ? null : encodeCursor({ relation: page[page.length - 1]!.relation, id: page[page.length - 1]!.id }), hasNextPage: after.length > first },
@@ -1027,9 +1047,9 @@ export class ReadContext {
       const ids = sql.param(held.ids, '::bigint[]');
       const parts: string[] = [
         held.direction === 'in'
-          ? `SELECT e.to_node AS target, en.name AS relation, e.id::text AS source_id, e.from_node AS other
+          ? `SELECT e.to_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.from_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND e.context_id = 1`
-          : `SELECT e.from_node AS target, en.name AS relation, e.id::text AS source_id, e.to_node AS other
+          : `SELECT e.from_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND e.context_id = 1`,
       ];
       for (const [inverseField, inverse] of held.direction === 'out' ? [] : (this.referenceInverseByType.get(held.entity.typeName) ?? new Map())) {
@@ -1099,6 +1119,9 @@ export class ReadContext {
    * `<field>Of` inverse of it. A reference's inverse has no edge kind and answers the name it was read by.
    */
   private edgeNameOf(relation: string): string {
+    for (const name of this.manifest.catalog?.schema.relations.keys() ?? []) {
+      if (fieldNameOf(name) === relation || `${fieldNameOf(name)}Of` === relation) return name;
+    }
     for (const edge of this.published.edges) {
       if (fieldNameOf(edge.name) === relation || `${fieldNameOf(edge.name)}Of` === relation) return edge.name;
     }
@@ -1146,6 +1169,7 @@ export class ReadContext {
     if (field === 'searchGroups') return this.searchGroups(args, lang);
     if (field === 'bootstrap') return this.bootstrap();
     if (field === 'navigation') return this.navigation(lang);
+    if (field === 'templateFindings') return checkProductTemplates(this.folder, this.manifest).map((finding) => ({ ...finding, file: join(this.folder, finding.file) }));
     return null;
   }
 
@@ -1189,9 +1213,13 @@ export class ReadContext {
   private async home(lang: string | undefined): Promise<unknown> {
     const kind = homeKind(this.manifest);
     if (kind === undefined) return null;
+    const table = this.vertexTable.get(kind.name);
+    const startupFirst = kind.source === 'graph' && table !== undefined
+      ? `EXISTS (SELECT 1 FROM "${table}" p WHERE p.node_id = n.id AND p.context_id = 1 AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'start') DESC, `
+      : '';
     const rows = await this.tx.query<Record<string, unknown>>(
       `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY n.id LIMIT 1`,
+       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY ${startupFirst}n.id LIMIT 1`,
       [kind.name],
     );
     if (rows.rows[0] === undefined) return null;
@@ -1201,7 +1229,7 @@ export class ReadContext {
 
   /** Search over labels and text fields, one union of every kind's text; the total is before the cursor. */
   /** The entities whose label or text holds the words asked: their node, their kind, the matched value and how well. */
-  private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number }[]> {
+  private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined, limit: number, grouped = false): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number; total: number }[]> {
     if (text.trim() === '') return [];
     const sql = new Sql();
     const pattern = sql.param(`%${text}%`, '::text');
@@ -1229,10 +1257,22 @@ export class ReadContext {
       }
     }
     if (parts.length === 0) return [];
+    const bound = sql.param(limit, '::int');
     const answer = await this.tx.query<Record<string, unknown>>(
-      `WITH hits AS (${parts.join(' UNION ALL ')})
-       SELECT node_id, uid, key, kind, value, rank FROM hits
-       ORDER BY rank ASC, length(value) ASC, node_id::bigint ASC`,
+      `WITH hits AS (${parts.join(' UNION ALL ')}),
+       matched AS (
+         SELECT hits.*, row_number() OVER (PARTITION BY node_id ORDER BY rank, length(value), value COLLATE "C") AS match_row
+         FROM hits
+       ), unique_hits AS (
+         SELECT node_id, uid, key, kind, value, rank FROM matched WHERE match_row = 1
+       ), counted AS (
+         SELECT unique_hits.*, count(*) OVER (${grouped ? 'PARTITION BY kind' : ''})::int AS total,
+                row_number() OVER (${grouped ? 'PARTITION BY kind' : ''} ORDER BY rank, ${grouped ? '' : 'length(value), '}node_id::bigint) AS result_row
+         FROM unique_hits
+       )
+       SELECT node_id, uid, key, kind, value, rank, total FROM counted
+       WHERE result_row <= ${bound}
+       ORDER BY rank, ${grouped ? '' : 'length(value), '}node_id::bigint`,
       sql.params,
     );
     return answer.rows.map((row) => ({
@@ -1242,21 +1282,21 @@ export class ReadContext {
       kind: String(row['kind']),
       value: String(row['value'] ?? ''),
       rank: Number(row['rank'] ?? 3),
+      total: Number(row['total'] ?? 0),
     }));
   }
 
   private async search(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
     const text = typeof args['text'] === 'string' ? args['text'] : '';
     const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
-    const hits = await this.searchHits(text, wanted, lang);
-    const seen = new Set<string>();
-    const unique = hits.filter((hit) => { if (seen.has(hit.nodeId)) return false; seen.add(hit.nodeId); return true; });
     const first = clampFirst(typeof args['first'] === 'number' ? args['first'] : null);
-    const values = unique.slice(0, first).map((hit) => this.entityFromRow({ node_id: hit.nodeId, uid: hit.uid, key: hit.key, entity: hit.kind }, lang)).filter((one): one is EntityValue => one !== undefined);
+    const hits = await this.searchHits(text, wanted, lang, Math.max(first, 1));
+    const total = hits[0]?.total ?? 0;
+    const values = hits.slice(0, first).map((hit) => this.entityFromRow({ node_id: hit.nodeId, uid: hit.uid, key: hit.key, entity: hit.kind }, lang)).filter((one): one is EntityValue => one !== undefined);
     return {
       edges: values.map((node) => ({ cursor: encodeCursor({ k: hits.find((hit) => hit.nodeId === node.nodeId)?.kind ?? '', id: node.nodeId }), node })),
-      pageInfo: { endCursor: null, hasNextPage: unique.length > first },
-      totalCount: unique.length,
+      pageInfo: { endCursor: null, hasNextPage: total > first },
+      totalCount: total,
     };
   }
 
@@ -1269,7 +1309,7 @@ export class ReadContext {
     const text = typeof args['text'] === 'string' ? args['text'] : '';
     const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
     const perKind = Math.min(Math.max(1, Math.trunc(Number(args['perKind'] ?? 5))), 20);
-    const hits = await this.searchHits(text, wanted, lang);
+    const hits = await this.searchHits(text, wanted, lang, Math.max(perKind * 4, 40), true);
     const groups = new Map<string, { rows: Map<string, { hit: (typeof hits)[number]; best: number }> }>();
     for (const hit of hits) {
       const held = groups.get(hit.kind) ?? { rows: new Map() };
@@ -1293,7 +1333,7 @@ export class ReadContext {
       named.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
       const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line }));
       if (results.length === 0) continue;
-      out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.size, best: named[0]?.best ?? 3, results });
+      out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.values().next().value?.hit.total ?? 0, best: named[0]?.best ?? 3, results });
     }
     // The catalogue's own kinds answer too: a reader who types a kind's word means the kind, not only its records.
     const catalogue = await this.catalogueSearchGroup(text, wanted, lang, perKind);
@@ -1546,6 +1586,7 @@ export class ReadContext {
       edges: page.map((node, at) => ({ cursor: cursorOf(at, node), node })),
       pageInfo: { endCursor: page.length === 0 ? null : cursorOf(page.length - 1, page[page.length - 1]!), hasNextPage: values.length > first },
       totalCount: total,
+      relationLabel: this.relationWord(edgeName, lang, inverse),
     };
   }
 
@@ -1656,7 +1697,6 @@ export class ReadContext {
     const byId = new Map<string, CatalogueValue>();
     const kindTable = generatedTableName('manifest.kind', 'vertex');
     const fieldTable = generatedTableName('manifest.field', 'vertex');
-    const dependencyTable = generatedTableName('manifest.dependency', 'vertex');
     const kinds = await this.tx.query<Record<string, unknown>>(
       `SELECT DISTINCT ON (n.id) n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name, p.declaration AS declaration
        FROM "${kindTable}" p
@@ -1670,9 +1710,12 @@ export class ReadContext {
        WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`,
     );
     const dependencies = await this.tx.query<Record<string, unknown>>(
-      `SELECT p.declaration AS declaration FROM "${dependencyTable}" p
-       JOIN node n ON n.id = p.node_id
-       WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`,
+      `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
+       FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
+       JOIN node dependent ON dependent.id = e.from_node AND dependent.context_id = 1 AND NOT dependent.removed
+       JOIN node prerequisite ON prerequisite.id = e.to_node AND prerequisite.context_id = 1 AND NOT prerequisite.removed
+       WHERE e.context_id = 1
+       ORDER BY dependent, prerequisite`,
     );
     const fieldsByKind = new Map<string, CatalogueFieldValue[]>();
     for (const row of fieldRows.rows) {
@@ -1691,13 +1734,10 @@ export class ReadContext {
     const derives = new Map<string, string[]>();
     const derivedBy = new Map<string, string[]>();
     for (const row of dependencies.rows) {
-      const declaration = row['declaration'] as Record<string, unknown> | undefined;
-      if (declaration === undefined || declaration['via'] !== 'derives-from' || declaration['workflow'] !== undefined) continue;
-      const from = String(declaration['from'] ?? '');
-      const to = String(declaration['to'] ?? '');
-      if (from === '' || to === '') continue;
-      derives.set(to, [...(derives.get(to) ?? []), from]);
-      derivedBy.set(from, [...(derivedBy.get(from) ?? []), to]);
+      const dependent = String(row['dependent']);
+      const prerequisite = String(row['prerequisite']);
+      derives.set(dependent, [...(derives.get(dependent) ?? []), prerequisite]);
+      derivedBy.set(prerequisite, [...(derivedBy.get(prerequisite) ?? []), dependent]);
     }
     for (const row of kinds.rows) {
       const name = String(row['name'] ?? '');
@@ -1727,8 +1767,8 @@ export class ReadContext {
     if (name === 'label' || name === 'title') return this.catalogueTitle(value, lang);
     if (name === 'template') return this.productTemplates.catalogue;
     if (name === 'contested') return [];
-    if (name === 'backlinks') return this.backlinks({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value }, args);
-    if (name === 'outgoing') return this.outgoing({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value }, args);
+    if (name === 'backlinks') return this.backlinks(this.catalogueEntityValue(value, lang), args);
+    if (name === 'outgoing') return this.outgoing(this.catalogueEntityValue(value, lang), args);
     if (name === 'name') return value.name;
     if (name === 'definition') return this.catalogueDefinition(value, lang);
     if (name === 'group') return String(value.entry['area'] ?? '');

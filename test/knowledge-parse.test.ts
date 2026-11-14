@@ -5,15 +5,17 @@
  * files. A refusal names the file and the line; nothing is dropped without being said.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
+import { KIND_FIELDS, homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
 import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
 import { byCodePoint } from '../src/model/order.js';
 import { createDraft } from '../src/product/draft.js';
+import { manifestWithRepo, productEntityOf } from '../src/product/manifest.js';
+import { createHash } from 'node:crypto';
 import { gitEnv } from './git-env.js';
 
 const folders: string[] = [];
@@ -63,11 +65,12 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/catalog.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [8, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
+      [8, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram", "values" and "journal"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [5, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [6, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, derives-from, agent, classes, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      // The fields are the parser's own list, so a field the manifest gains is expected here without a second edit.
+      [6, `kind "stray": "colour" is not a field of a kind: the fields are ${KIND_FIELDS.join(', ')}`],
       [7, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/catalog.yaml')).toBe(true);
@@ -86,6 +89,36 @@ describe('the kinds manifest', () => {
 });
 
 describe('the starter set madarch init seeds', () => {
+  test('the startup home is a complete page opinion with or without a README paragraph', () => {
+    const home = scratch();
+    const draft = createDraft({ home, name: 'sample', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
+    if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
+    const fields = ['title', 'body', 'body_line', 'file', 'relates', 'sources', 'statements', 'digest', 'producer', 'links', 'findings', 'ungrounded'].map((name) => ({ name }));
+    const manifest = { home: { name: 'product', key: ['slug'], source: 'graph', fields } };
+    const empty = productEntityOf(draft.folder, manifest, 'fixture-commit');
+    expect(empty).toMatchObject({ kind: 'product', key: { slug: draft.id }, values: {
+      title: 'sample', body: '', body_line: 1, file: 'workspace.yaml', relates: [], sources: ['workspace.yaml'],
+      statements: [], digest: createHash('sha256').update('').digest('hex'), producer: 'start', links: [], findings: [], ungrounded: [],
+    } });
+    const repository = join(draft.folder, 'repos', 'library');
+    mkdirSync(repository, { recursive: true });
+    writeFileSync(join(draft.folder, 'workspace.yaml'), manifestWithRepo(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8'), { name: 'library', linked: true }));
+    writeFileSync(join(repository, 'README.md'), '# Library\n\nA library for readers.\n');
+    const readme = productEntityOf(draft.folder, manifest, 'fixture-commit');
+    expect(readme).toMatchObject({ key: empty!.key, values: {
+      title: 'Library', body: 'A library for readers.', body_line: 3, file: 'repos/library/README.md',
+      sources: ['repos/library/README.md'], digest: createHash('sha256').update('A library for readers.').digest('hex'),
+      ungrounded: [{ text: 'A library for readers.', line: 3 }],
+    } });
+    for (const field of ['relates', 'statements', 'links', 'findings']) expect(readme?.values[field]).toEqual([]);
+    expect(readme?.values['producer']).toBe('start');
+    expect(productEntityOf(draft.folder, { home: { ...manifest.home, fields: [{ name: 'title' }] } }, 'fixture-commit')?.values).toEqual({ title: 'Library' });
+    writeFileSync(join(repository, 'README.md'), 'A README with no heading.\n');
+    expect(productEntityOf(draft.folder, manifest, 'fixture-commit')?.evidence).toEqual([
+      { repository: draft.folder, path: 'repos/library/README.md', lineStart: 1, lineEnd: 1, commit: 'fixture-commit' },
+    ]);
+  });
+
   test('a new product holds the manifest and the starter templates, the manifest reads without a finding and the authored starter files match their packaged content', async () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
@@ -93,7 +126,8 @@ describe('the starter set madarch init seeds', () => {
     // The starter set is the manifest, the kinds, the plugins' files and the workflow: a page is the product's own
     // template under `templates/` (decision 0036, section 6), and the engine ships none.
     expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/catalog.yaml', ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`), 'madarch/plugins.lock', 'madarch/workflows.yaml',
-      'templates/catalogue-entity.yaml', 'templates/entity.yaml', 'templates/home.yaml', 'templates/text.yaml',
+      'templates/catalogue-code-file.yaml', 'templates/catalogue-entity.yaml', 'templates/catalogue.yaml', 'templates/code-file.yaml',
+      'templates/entity.yaml', 'templates/glossary.yaml', 'templates/home.yaml', 'templates/search.yaml', 'templates/text.yaml',
       ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`))].sort(byCodePoint));
     for (const file of STARTER_FILES) {
       if (file.bytes !== undefined) expect(readFileSync(join(draft.folder, file.path))).toEqual(Buffer.from(file.bytes));

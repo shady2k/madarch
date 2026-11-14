@@ -101,3 +101,75 @@ describe('the server logs and traces its requests', () => {
     expect(lines).toContain('http.request.end');
   }, 60_000);
 });
+
+
+test('request start and end reach the configured sink without tracing; concurrent stages stay separate', async () => {
+  const { createHandler } = await import('../src/server/http.js');
+  const { requestStage } = await import('../src/server/stage.js');
+  const lines: string[] = [];
+  const warnings: string[] = [];
+  let release: (() => void) | undefined;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const handler = createHandler({
+    log: (line) => lines.push(line),
+    errorLog: (line) => warnings.push(line),
+    env: { MADARCH_WATCHDOG_MS: '15' },
+    wiki: { app: () => undefined } as never,
+    knowledge: {
+      diagram: async () => {
+        requestStage.getStore()?.stage('reading the neighbourhood');
+        await waiting;
+        return { response: Response.json({ code: 'TIMEOUT' }) };
+      },
+    } as never,
+  });
+  const pending = handler(new Request('http://test/render/diagram'));
+  expect(lines.some((line) => line.includes('http.request.start'))).toBe(true);
+  const other = await handler(new Request('http://test/not-found'));
+  expect(other.status).toBe(404);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const slow = warnings.map((line) => { try { return JSON.parse(line); } catch { return {}; } }).find((line) => line.message === 'http.request.slow');
+  expect(slow, JSON.stringify({ lines, warnings })).toMatchObject({ httpPath: '/render/diagram', stage: 'reading the neighbourhood' });
+  release!();
+  await pending;
+  const records = lines.map((line) => { try { return JSON.parse(line); } catch { return {}; } });
+  const begin = records.find((line) => line.message === 'http.request.start' && line.httpPath === '/render/diagram');
+  const end = records.find((line) => line.message === 'http.request.end' && line.requestId === begin.requestId);
+  expect(end).toMatchObject({ status: 200, httpMethod: 'GET', httpPath: '/render/diagram' });
+  expect(end.durationMs).toBeGreaterThanOrEqual(15);
+});
+
+
+test('a looping render logs start, warning and cancellation while another page answers', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const { pathToFileURL } = await import('node:url');
+  const { createHandler } = await import('../src/server/http.js');
+  const { renderDiagram } = await import('../src/render/diagram-render.js');
+  const root = mkdtempSync(join(tmpdir(), 'looping-render-'));
+  const worker = join(root, 'loop.ts');
+  writeFileSync(worker, "self.onmessage = () => { self.postMessage({ kind: 'stage', stage: 'laying out (likec4)' }); while (true) {} };\n");
+  const lines: string[] = [];
+  const warnings: string[] = [];
+  const handler = createHandler({
+    log: (line) => lines.push(line), errorLog: (line) => warnings.push(line),
+    wiki: { app: () => undefined } as never,
+    knowledge: {
+      diagram: async () => ({ response: Response.json(await renderDiagram({ readDeadlineMs: 5_800, diagramNeighbourhood: async () => undefined } as never, { entity: 'loop', format: 'likec4' }, { workerUrl: pathToFileURL(worker) })) }),
+    } as never,
+  });
+  try {
+    const pending = handler(new Request('http://test/render/diagram'));
+    expect(lines.some((line) => line.includes('http.request.start'))).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 5_200));
+    const started = performance.now();
+    expect((await handler(new Request('http://test/a-page'))).status).toBe(404);
+    expect(performance.now() - started).toBeLessThan(500);
+    const warning = warnings.map((line) => { try { return JSON.parse(line); } catch { return {}; } }).find((line) => line.message === 'http.request.slow');
+    expect(warning).toMatchObject({ httpPath: '/render/diagram', stage: 'laying out (likec4)' });
+    const answer = await pending;
+    expect(await answer.json()).toMatchObject({ code: 'TIMEOUT' });
+    const records = lines.map((line) => { try { return JSON.parse(line); } catch { return {}; } });
+    const begin = records.find((line) => line.message === 'http.request.start' && line.httpPath === '/render/diagram');
+    expect(records.find((line) => line.message === 'http.request.end' && line.requestId === begin.requestId)).toMatchObject({ status: 200 });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 15_000);

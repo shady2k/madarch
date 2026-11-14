@@ -61,7 +61,7 @@ const READ_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: object({
       entity: { type: 'string', description: 'The stable uid of the entity whose diagram is drawn.' },
       format: { type: 'string', enum: ['likec4', 'mermaid', 'archify'], description: 'likec4 by default.' },
-      depth: { type: 'integer', description: 'How many levels from the entity are drawn; 1 by default.' },
+      depth: { type: 'integer', enum: [1], description: 'One level from the entity; deeper neighbourhoods are not supported.' },
       aggregateAbove: { type: 'integer', description: 'How many neighbours of one kind stand as one node; 12 by default.' },
       lang: { type: 'string', description: 'The reader language for the labels.' },
     }, ['entity']),
@@ -159,7 +159,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         const format = args['format'] === undefined ? 'likec4' : args['format'];
         if (format !== 'likec4' && format !== 'mermaid' && format !== 'archify') throw new WriteRefusal('"format" is one of likec4, mermaid and archify', 'format');
         const depth = args['depth'];
-        if (depth !== undefined && (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1)) throw new WriteRefusal('"depth" is a whole number of levels, 1 or more', 'depth');
+        if (depth !== undefined && (typeof depth !== 'number' || !Number.isInteger(depth) || depth !== 1)) throw new WriteRefusal('"depth" must be 1; deeper diagram neighbourhoods are not supported', 'depth');
         const aggregateAbove = args['aggregateAbove'];
         if (aggregateAbove !== undefined && (typeof aggregateAbove !== 'number' || !Number.isInteger(aggregateAbove) || aggregateAbove < 1)) throw new WriteRefusal('"aggregateAbove" is a whole number of neighbours, 1 or more', 'aggregateAbove');
         const lang = args['lang'];

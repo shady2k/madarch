@@ -1,7 +1,7 @@
 id: practice.data-contract
 purpose: structure
 audience: [analyst, developer, architect, tester]
-definition: The agreed shape, meaning and quality of a dataset, which its producers and consumers hold to.
+definition: A data contract is the agreed shape, meaning and quality of a dataset, which the teams that write and read it hold to.
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Контракт данных
     many: Контракты данных
 description:
-  en: The agreed shape, meaning and quality of a dataset, which its producers and consumers hold to.
-  ru: Согласованные форма, смысл и качество набора данных, которых держатся его производители и потребители.
+  en: A data contract states what a dataset contains, what each field means, how fresh and how complete it must be, and who to ask when it breaks. The team that writes the data and the teams that read it agree on it before either side depends on it.
+  ru: Контракт данных говорит, что содержит набор, что означает каждое поле, насколько свежими и полными должны быть данные и к кому идти при поломке. Команда, которая пишет данные, и команды, которые их читают, договариваются о нём до того, как кто-то на него положится.

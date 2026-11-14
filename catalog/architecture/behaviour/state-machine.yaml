@@ -1,7 +1,7 @@
 id: uml.state-machine
 purpose: structure
 audience: [architect, developer, analyst]
-definition: The states a thing can be in and the transitions between them, as UML state machines define them.
+definition: A state machine is the set of states a thing can be in and the transitions between them, as UML defines them.
 sources:
 - https://www.omg.org/spec/UML/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Конечный автомат
     many: Конечные автоматы
 description:
-  en: The states a thing can be in and the transitions between them, as UML state machines define them.
-  ru: Состояния, в которых может находиться объект, и переходы между ними, как их определяет UML.
+  en: A state machine describes one object's life as a limited set of states and the moves between them, each move caused by an event and guarded by a condition. UML state machines are the common way to draw and specify one.
+  ru: Конечный автомат описывает жизнь объекта как ограниченный набор состояний и переходов между ними, где каждый переход вызван событием и ограничен условием. Конечные автоматы UML — обычный способ нарисовать и задать такой.

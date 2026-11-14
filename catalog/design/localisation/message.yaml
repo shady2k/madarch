@@ -1,7 +1,7 @@
 id: unicode-mf2.message
 purpose: structure
 audience: [designer, developer]
-definition: A user-facing text with its placeholders, defined once and translated per language.
+definition: A message is a user-facing text with its placeholders, defined once and translated for each language.
 sources:
 - https://messageformat.unicode.org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сообщение
     many: Сообщения
 description:
-  en: A user-facing text with its placeholders, defined once and translated per language.
-  ru: Текст для пользователя с подстановками, заданный один раз и переведённый на каждый язык.
+  en: A message is one piece of text the product shows to a person — a label, an error, a greeting — with named places for values such as a name or a count. It is written once and translated into each locale, so the same sentence does not drift.
+  ru: 'Сообщение — один текст, который продукт показывает человеку: подпись, ошибку, приветствие, — с именованными местами для значений: имени или числа. Его пишут один раз и переводят на каждую локаль, чтобы одна и та же фраза не расходилась.'
