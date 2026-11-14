@@ -35,9 +35,6 @@ import {
 import { FactChart } from './components/ui/fact-chart.js';
 import { Figure, FigureCaption } from './components/ui/figure.js';
 import { FilterBar, FilterField, FilterResults, PaginationBar, PaginationSummary } from './components/ui/filter-bar.js';
-import {
-  GraphBox, GraphCanvas, GraphEdge, GraphEdges, GraphMetadata, GraphViewport, graphLinkClass,
-} from './components/ui/graph.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
 import { KitFigureState, KitNarrow, KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
@@ -277,15 +274,6 @@ export function KitPage(): ReactElement {
         <ColourSwatch background="var(--text)" />
         <TableOfContents title={state('content')} items={CONTENTS} activeId="kit-intro" />
         <ContentsSidebar><ResponsiveContents title={state('content')} items={CONTENTS} /></ContentsSidebar>
-      </KitSection>
-
-      <KitSection title="Graph">
-        <GraphViewport>
-          <GraphCanvas width={240} height={120}>
-            <GraphEdges><GraphEdge active d="M20 20 L180 80" /></GraphEdges>
-            <GraphBox x={10} y={10} width={100} height={40} active><Text className={graphLinkClass}>{state('sample')}</Text><GraphMetadata>{state('name')}</GraphMetadata></GraphBox>
-          </GraphCanvas>
-        </GraphViewport>
       </KitSection>
 
       <KitSection title="Reading">
