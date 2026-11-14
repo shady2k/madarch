@@ -73,8 +73,9 @@ beforeAll(async () => {
   mkdirSync(join(folder, 'madarch/kinds/demo/core'), { recursive: true });
   mkdirSync(join(folder, 'templates'), { recursive: true });
   writeFileSync(join(folder, 'templates/entity.yaml'), 'template: entity\nsections: []\n');
-  // The starter's own home template: the page composes into one operation over the catalogue (decision 0036, section 6).
-  writeFileSync(join(folder, 'templates/home.yaml'), readFileSync(join(import.meta.dir, '..', 'catalog/templates/pages/home.yaml'), 'utf8'));
+  // The starter's catalogue template composes into one operation over the catalogue (decision 0036, section 6).
+  writeFileSync(join(folder, 'templates/catalogue.yaml'), readFileSync(join(import.meta.dir, '..', 'catalog/templates/pages/catalogue.yaml'), 'utf8'));
+  writeFileSync(join(folder, 'templates/home.yaml'), 'template: home\nsections: []\n');
   // A record template and an entity's own template: the bootstrap names both, and an entity answers the one it opens.
   writeFileSync(join(folder, 'templates/record.yaml'), 'template: record\nextends: entity\nrecords: [demo.file]\nsections:\n  - id: files\n    component: table\n    after: header\n    query: |\n      id\n      label\n    params:\n      path: .\n      columns: [{ label: { en: Label }, path: label }]\n');
   writeFileSync(join(folder, 'templates/own.yaml'), 'template: own\nextends: entity\nentities: [own-entity]\nsections: []\n');
@@ -227,10 +228,10 @@ describe('the GraphQL executor', () => {
     expect((all['allCatalogueEntity'] as Record<string, any>).totalCount).toBe(2);
   });
 
-  test('a query deeper than six levels is refused with LIMIT_DEPTH', async () => {
+  test('a query deeper than seven levels is refused with LIMIT_DEPTH', async () => {
     const answer = await refusal(`{ allDemoRepository { edges { node { demoContains { edges { node { demoContainsOf { edges { node { node { ... on DemoFile { path } } } } } } } } } } } }`);
     expect(answer.code).toBe('LIMIT_DEPTH');
-    expect(answer.message).toContain('the limit is 6');
+    expect(answer.message).toContain('the limit is 7');
   });
 
   test('a list of fifty entities with one edge each costs a small constant number of statements', async () => {
@@ -308,22 +309,22 @@ describe('the GraphQL executor', () => {
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
   });
 
-  test('the starter home template composes into one operation that reads the catalogue', async () => {
+  test('the starter catalogue template composes into one operation that reads the catalogue', async () => {
     const bootstrap: Bootstrap = {
       structureRevision: 'r',
       home: null,
       catalogueTemplate: 'entity',
-      templates: ['home', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
+      templates: ['catalogue', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
       recordTemplates: [], ownTemplates: [], roles: [],
     };
-    const page = composePage(bootstrap, { home: true });
+    const page = composePage(bootstrap, { template: 'catalogue' });
     expect(page.findings).toEqual([]);
     const data = await graphql(page.operation, page.variables);
     // A root section's data is the value of its own root field: the table's path is the section's own data.
     const kinds = data['s_kinds'] as Record<string, any>;
     expect(kinds.totalCount).toBe(2);
     expect(kinds.edges.map((edge: any) => edge.node.name).sort()).toEqual(['demo.file', 'demo.repository']);
-    expect(kinds.edges[0].node.kind).toBe('catalogue');
+    expect(kinds.edges[0].node.label).toBeTruthy();
   });
 
   test('the bootstrap names the templates, the pages they open and the roles', async () => {
@@ -333,7 +334,7 @@ describe('the GraphQL executor', () => {
     // This fixture holds no home kind: the home is null, and the mechanisms's other names stand.
     expect(held.home).toBeNull();
     expect(held.catalogueTemplate).toBe('entity');
-    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['entity', 'home', 'own', 'record']);
+    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['catalogue', 'entity', 'home', 'own', 'record']);
     expect(held.recordTemplates).toEqual([{ kind: 'demo.file', template: 'record' }]);
     expect(held.ownTemplates).toEqual([{ id: 'own-entity', template: 'own' }]);
     expect(Array.isArray(held.roles)).toBe(true);

@@ -65,9 +65,8 @@ test('repo add with the server running advances only the baseline before the fir
     try {
       const rows = await owner.run((tx) => tx.query<{ name: string }>("SELECT DISTINCT k.name FROM node n JOIN entity k ON k.id = n.entity_id ORDER BY k.name"));
       expect(rows.rows.length).toBeGreaterThan(0);
-      // Startup publishes the catalogue's declarations and nothing else: templates are the product's files.
-      expect(rows.rows.every((row) => row.name.startsWith('manifest.'))).toBe(true);
-      expect(rows.rows.length).toBeGreaterThan(0);
+      // Startup publishes the declarations and the product's home, but no repository facts or fill results.
+      expect(rows.rows.filter((row) => !row.name.startsWith('manifest.'))).toEqual([{ name: 'product' }]);
     } finally { await owner.close(); }
     watch.stop();
     watch = daemonUpdateWatch(home, fills, { debounceMs: 0, intervalMs: 0, enabled: () => true, log: () => undefined });

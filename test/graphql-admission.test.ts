@@ -1,5 +1,5 @@
 /**
- * The executor's admission and deadline (decision 0036, section 5): the alias and node ceilings, the two-second
+ * The executor's admission and deadline (decision 0036, section 5): the alias and node ceilings, a short explicit
  * deadline that cancels its backend and rolls its transaction back, and the statement timeout that answers TIMEOUT
  * with no partial data. The owner here is a fake that records what the executor asked of it.
  */
@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
-import { executeGraphql, DEADLINE_MS, type MessageBody } from '../src/graph/graphql-execute.js';
+import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 
 /** The fixture product the queries are admitted against, read without a store. */
 function fixtureManifest(): KindsManifest {
@@ -50,7 +50,7 @@ function fakeOwner(options: { readonly slowMs?: number; readonly statementTimeou
     query: async (sql: string, values?: readonly unknown[]) => {
       void values;
       if (sql.includes('pg_backend_pid')) return { rows: [{ pid: 4242 }] };
-      if (sql.includes('SET LOCAL')) return { rows: [] };
+      if (sql.includes("set_config('statement_timeout'")) return { rows: [] };
       state.statements.push(sql);
       if (options.statementTimeout === true) throw new Error('canceling statement due to statement timeout');
       if (options.slowMs !== undefined) {
@@ -99,13 +99,13 @@ describe('the GraphQL admission and deadline', () => {
   });
 
   test('the deadline cancels the backend query and rolls its transaction back (#4)', async () => {
-    const { owner, state } = fakeOwner({ slowMs: 900 });
-    const answer = await executeGraphql(owner, { manifest, folder }, { query: '{ allDemoFile(first: 1) { edges { node { lines demoContainsOf(first: 1) { edges { cursor } } } } } }' });
+    const { owner, state } = fakeOwner({ slowMs: 300 });
+    const answer = await executeGraphql(owner, { manifest, folder, deadlineMs: 100 }, { query: '{ allDemoFile(first: 1) { edges { node { lines demoContainsOf(first: 1) { edges { cursor } } } } } }' });
     expect((answer.body as MessageBody).errors?.[0]?.extensions?.code).toBe('TIMEOUT');
     expect((answer.body as MessageBody).data).toBeUndefined();
     expect(state.cancelledPid).toBe(4242);
     expect(state.rolledBack).toBe(true);
-  }, DEADLINE_MS + 5_000);
+  }, 5_000);
 
   test('a statement timeout answers TIMEOUT with no partial data (#18)', async () => {
     const { owner } = fakeOwner({ statementTimeout: true });

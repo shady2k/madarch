@@ -118,7 +118,7 @@ function workflowDependencies(stages: readonly string[]): readonly { from: strin
 export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests): Promise<number> {
   const written = await publishDeclarations(owner, validated);
   const home = homeKind(validated.manifest);
-  await writeProductEntity(owner, home === undefined ? undefined : productEntityOf(validated.folder, { home: { name: home.name, key: home.key, source: home.source } }, headCommitOf(validated.folder)?.commit));
+  await writeProductEntity(owner, home === undefined ? undefined : productEntityOf(validated.folder, { home }, headCommitOf(validated.folder)?.commit));
   return written;
 }
 

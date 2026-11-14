@@ -15,6 +15,8 @@ export async function authoredFixture(home: string, name = 'authored', fill = tr
   const draft = createDraft({ home, name, gitEnv: authoredEnv });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   rmSync(join(draft.folder, 'madarch', 'kinds'), { recursive: true, force: true });
+  // The authored-only product has no code kinds for the starter's file record page.
+  rmSync(join(draft.folder, 'templates', 'code-file.yaml'));
   writeFolderManifest(draft.folder, stringify({
     kinds: { note: { source: 'graph', origin: 'person', title: 'title', fields: [
       { name: 'title', type: 'text', producers: ['person'] },
