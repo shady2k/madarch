@@ -178,6 +178,8 @@ run('the fill flow on a product filled with disk and git', () => {
       const result = await textOf(page);
       expect(result).not.toContain('/work/');
       expect(result).not.toMatch(/\b[0-9a-f]{40}\b/u);
+      // The run is over: the live indicator is gone.
+      await page.waitForFunction(() => document.querySelector('[data-testid="run-indicator"]') === null, { timeout: 30_000 });
       await page.screenshot({ path: join(SHOTS, 'run-ru.png') });
       // The home after the fill: the product's own name, its repositories and what the graph holds; no first-run card,
       // no separate search section and no raw kind table.

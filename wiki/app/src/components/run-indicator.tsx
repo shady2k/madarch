@@ -13,12 +13,16 @@ export function RunIndicator({ base, open }: { readonly base: string; readonly o
   const { t } = useTranslation();
   const status = useCommandRead<FillStatusAnswer>('run-indicator-status', (signal) => readFillStatus(base, signal));
   const fill = status.data?.fill;
-  const live = fill !== undefined && (fill.state === 'running' || fill.state === 'paused');
-  const detail = useCommandRead<{ run: FillRunDetail }>(`run-indicator:${fill?.runId ?? ''}`, (signal) => readFillRun(base, fill!.runId as string, signal), live && fill?.runId !== undefined);
+  const requested = fill !== undefined && (fill.state === 'running' || fill.state === 'paused');
+  const detail = useCommandRead<{ run: FillRunDetail }>(`run-indicator:${fill?.runId ?? ''}`, (signal) => readFillRun(base, fill!.runId as string, signal), requested && fill?.runId !== undefined);
+  // The status poll can lag the run's own end; the run's state is the one that says whether it is still going.
+  const runState = detail.data?.run.state;
+  const runLive = runState === undefined || ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(runState);
+  const live = requested && runLive;
   useChangeStream(base, () => { status.reload(); detail.reload(); });
   useEffect(() => {
     if (!live) return;
-    const timer = setInterval(() => { status.reload(); detail.reload(); }, 3000);
+    const timer = setInterval(() => { status.reload(); detail.reload(); }, 1000);
     return () => { clearInterval(timer); };
   }, [live, status.reload, detail.reload]);
   if (status.data?.own === true) return null;
