@@ -370,6 +370,12 @@ function fillPlanError(manifest: KindsManifest, kind: string, configured?: strin
   return { kind, fields, ...(missing.plugin === undefined ? {} : { plugin: missing.plugin }), message: `kind "${kind}": the ${fields.length === 1 ? 'field' : 'fields'} ${said} ${fields.length === 1 ? 'has' : 'have'} no producer: ${missing.message}` };
 }
 
+/** The error one kind nothing produces makes when the product holds an agent: it is named before the run, never skipped. */
+function fillPlanUnproducibleError(unavailable: ReadonlySet<string>, kind: string, input: FillDeclarationInput): FillPlanError {
+  const skip = fillPlanSkip(unavailable, kind, input);
+  return { kind, fields: skip.fields, message: `kind "${kind}" cannot be filled: ${skip.reason}` };
+}
+
 /** Why one kind no producer fills is left out: its own fields, or the prerequisite or input that is missing. */
 function fillPlanSkip(unavailable: ReadonlySet<string>, kind: string, input: FillDeclarationInput): FillPlanSkip {
   const declaration = input.kinds.find((entry) => entry.name === kind);
@@ -494,12 +500,17 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       }
     }
   }
-  // A kind whose declaration names a plugin the manifest does not hold is the manifest's error; a kind nothing produces
-  // in a product that holds no agent is skipped, with its reason, and the run fills what it can (decision 0035, item 22).
+  // A kind whose declaration names a plugin the manifest does not hold is the manifest's error. A kind nothing produces
+  // is the plan's error too when the product holds an agent — a kind the agent cannot fill is named before the run, never
+  // skipped in silence — and is skipped, with its reason, only where the product holds no agent plugin at all: such a
+  // product fills what its plugins fill and leaves the rest (decision 0035, item 22).
   const errors = [...unavailable].sort(byCodePoint)
     .map((kind) => fillPlanError(manifest, kind, configuredMissing.get(kind)))
     .filter((error): error is FillPlanError => error !== undefined);
-  const skipped: FillPlanSkip[] = [...unavailable].filter((kind) => !errors.some((error) => error.kind === kind)).sort(byCodePoint)
+  if (hasAgent) for (const kind of [...unavailable].sort(byCodePoint)) {
+    if (!errors.some((error) => error.kind === kind)) errors.push(fillPlanUnproducibleError(unavailable, kind, input));
+  }
+  const skipped: FillPlanSkip[] = hasAgent ? [] : [...unavailable].filter((kind) => !errors.some((error) => error.kind === kind)).sort(byCodePoint)
     .map((kind) => fillPlanSkip(unavailable, kind, input));
   const plan = planFillDeclarations({
     kinds: declared,
@@ -525,7 +536,10 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       if (error !== undefined) errors.push({ ...error, fields: named });
     }
     const rest = empty.filter((field) => !named.includes(field));
-    if (rest.length > 0) skipped.push({ kind, fields: rest, reason: 'no producer in the manifest' });
+    // With an agent the plan can leave no field unproduced unannounced: it is the plan's error, named with the kind.
+    if (rest.length > 0 && hasAgent) {
+      errors.push({ kind, fields: rest, message: `kind "${kind}": the ${rest.length === 1 ? 'field' : 'fields'} ${rest.map((field) => `"${field}"`).join(', ')} ${rest.length === 1 ? 'has' : 'have'} no producer in the manifest` });
+    } else if (rest.length > 0) skipped.push({ kind, fields: rest, reason: 'no producer in the manifest' });
   }
   errors.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(left.fields.join('\u0000'), right.fields.join('\u0000')));
   skipped.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(left.fields.join('\u0000'), right.fields.join('\u0000')));

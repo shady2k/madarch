@@ -335,18 +335,23 @@ test('review 2: target selection does not count an unasked kind\'s agent fallbac
   expect(plan.order).toEqual(['pb', 'pa']);
 });
 
-test('review 3: a kind whose input has no producer is an error, and the other kinds still run', async () => {
+test('review 3: with an agent plugin, a kind whose input has no producer is an error, and the other kinds still run', async () => {
   const catalogue = [
     { name: 'Summary', fields: [{ name: 'title', type: 'text', binding: { kind: 'agent', description: 'A title.' } }] },
     { name: 'code.file', fields: [{ name: 'content', type: 'text' }] },
     { name: 'Other', fields: [{ name: 'title', type: 'text' }] },
   ];
   const manifest = manifestWithFields(catalogue, [general(['code.file']), plugin('other', [output('Other')])]);
+  // The product holds an agent plugin, so a kind that cannot be filled because its input is unproduced is the plan's
+  // error, named before the run: it is never skipped in silence. Only a product without an agent plugin skips.
   const plan = planManifestFill(manifest, '/product', ['Summary', 'Other'], true, ['Summary', 'Other']);
-  // Both are named as skipped: the input the product lacks, and the kind that reads it. Nothing throws, and Other runs.
-  expect(plan.errors).toEqual([]);
-  expect(plan.skipped.map((skip) => skip.kind).sort()).toEqual(['Summary', 'code.file']);
-  expect(plan.skipped.find((skip) => skip.kind === 'Summary')).toEqual({ kind: 'Summary', fields: [], reason: 'its input "code.file" has no producer in the manifest' });
+  expect(plan.skipped).toEqual([]);
+  expect(plan.errors.map((error) => error.kind).sort()).toEqual(['Summary', 'code.file']);
+  expect(plan.errors.find((error) => error.kind === 'Summary')).toEqual({
+    kind: 'Summary', fields: [],
+    message: 'kind "Summary" cannot be filled: its input "code.file" has no producer in the manifest',
+  });
+  expect(plan.errors.find((error) => error.kind === 'code.file')?.message).toContain('no producer');
   expect(plan.order).toEqual(['other']);
   expect(plan.outputs.get('other')?.has('Other')).toBe(true);
 });
