@@ -1,0 +1,100 @@
+# The product's home page (decision 0036, section 6): the page every product opens at `/`. It shows the product the
+# graph holds (the entity the start states from the product's own files: its name and its README's first paragraph), the
+# code repositories it spans, the main facts of the graph and what it holds of each kind. The whole catalogue is a page
+# of its own, not this one.
+template: home
+sections:
+  - id: header
+    component: header
+    on: root
+    title: { en: Product, ru: Продукт }
+    query: |
+      home(lang: $lang) {
+        id
+        kind
+        label
+      }
+    params:
+      titlePath: label
+  - id: body
+    component: text
+    on: root
+    title: { en: What it is, ru: Что это }
+    query: |
+      home(lang: $lang) {
+        id
+        ... on Product {
+          body
+        }
+      }
+    params:
+      path: body
+  - id: repositories
+    component: table
+    on: root
+    title: { en: Repositories, ru: Репозитории }
+    query: |
+      allCodeRepository(first: 20) {
+        edges {
+          node {
+            id
+            kind
+            label
+            ... on CodeRepository {
+              name
+              url
+              defaultBranch
+            }
+          }
+        }
+        totalCount
+      }
+    params:
+      path: .
+      emptyText: { en: No code repository is connected yet, ru: Ни один репозиторий кода пока не подключён }
+      columns:
+        - { label: { en: Repository, ru: Репозиторий }, path: node.label }
+        - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
+        - { label: { en: What it is, ru: Что это }, path: node.url, format: repository }
+  - id: files
+    component: facts
+    on: root
+    title: { en: The graph, ru: Что в графе }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+      }
+    params:
+      rows:
+        - { label: { en: Files, ru: Файлы }, path: count, format: number }
+  - id: byLanguage
+    component: bars
+    on: root
+    title: { en: By language, ru: По языку }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "language", limit: 10) { key count }
+      }
+    params:
+      path: groupBy
+      valuePath: count
+  - id: byRepository
+    component: bars
+    on: root
+    title: { en: Files by repository, ru: Файлы по репозиторию }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "repository", limit: 20) { key count }
+      }
+    params:
+      path: groupBy
+      valuePath: count
+  - id: kinds
+    component: kinds
+    on: root
+    title: { en: What the graph holds, ru: Что держит граф }
+    query: |
+      navigation(lang: $lang) {
+        kinds { kind one many count entryId }
+      }
+    params: {}

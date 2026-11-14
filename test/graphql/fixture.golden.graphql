@@ -4,8 +4,18 @@ scalar DateTime
 
 scalar JSON
 
+type Aggregate {
+  count: Int!
+  groupBy(field: String!, limit: Int = 20): [Group!]!
+  histogram(field: String!, bounds: [JSON!]!): [Bucket!]!
+  topN(field: String!, n: Int = 10): [Ranked!]!
+}
+
 type Backlink {
   relation: String!
+  label: String!
+  edge: String!
+  inverse: Boolean!
   from: Entity!
 }
 
@@ -13,6 +23,7 @@ type BacklinkConnection {
   edges: [BacklinkEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type BacklinkEdge {
@@ -23,13 +34,23 @@ type BacklinkEdge {
 type Bootstrap {
   structureRevision: String!
   home: BootstrapHome
+  catalogueTemplate: String!
   templates: [PageTemplate!]!
+  recordTemplates: [RecordTemplate!]!
+  ownTemplates: [OwnTemplate!]!
+  roles: [String!]!
 }
 
 type BootstrapHome {
   id: ID!
   kind: String!
   template: String!
+}
+
+type Bucket {
+  from: JSON
+  to: JSON
+  count: Int!
 }
 
 type CatalogueEntity implements Entity {
@@ -39,6 +60,7 @@ type CatalogueEntity implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String!
   title: String
   definition: String
@@ -51,6 +73,8 @@ type CatalogueEntity implements Entity {
   taken: Boolean!
   plugins: [String!]!
   fields: [CatalogueField!]!
+  instances(first: Int, after: String, lang: String): EntityConnection!
+  instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   mentions(first: Int, after: String): MentionsConnection!
@@ -61,6 +85,7 @@ type CatalogueEntityConnection {
   edges: [CatalogueEntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type CatalogueEntityEdge {
@@ -76,6 +101,11 @@ type CatalogueField {
   producers: [String!]!
 }
 
+type Cochange {
+  node: Entity!
+  count: Int!
+}
+
 type DemoAuthor implements Entity {
   id: ID!
   kind: String!
@@ -83,6 +113,7 @@ type DemoAuthor implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -101,6 +132,7 @@ type DemoAuthorConnection {
   edges: [DemoAuthorEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoAuthorEdge {
@@ -112,6 +144,7 @@ type DemoAuthoredConnection {
   edges: [DemoAuthoredConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoAuthoredConnectionEdge {
@@ -133,6 +166,7 @@ type DemoCommit implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
   hashOpinions: [Opinion!]!
   hashOpinionsCount: Int!
@@ -155,6 +189,7 @@ type DemoCommitConnection {
   edges: [DemoCommitEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoCommitEdge {
@@ -166,6 +201,7 @@ type DemoContainsConnection {
   edges: [DemoContainsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoContainsConnectionEdge {
@@ -190,6 +226,7 @@ type DemoFile implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   repository: DemoRepository
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -224,6 +261,7 @@ type DemoFileConnection {
   edges: [DemoFileEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoFileEdge {
@@ -238,6 +276,7 @@ type DemoRepository implements Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
@@ -269,6 +308,7 @@ type DemoRepositoryConnection {
   edges: [DemoRepositoryEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoRepositoryEdge {
@@ -280,6 +320,7 @@ type DemoTouchedConnection {
   edges: [DemoTouchedConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type DemoTouchedConnectionEdge {
@@ -322,6 +363,7 @@ interface Entity {
   template: String!
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
 }
@@ -330,6 +372,7 @@ type EntityConnection {
   edges: [EntityEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type EntityEdge {
@@ -350,10 +393,16 @@ type Evidence {
   words: String
 }
 
+type Group {
+  key: JSON
+  count: Int!
+}
+
 type MentionsConnection {
   edges: [MentionsConnectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  relationLabel: String
 }
 
 type MentionsConnectionEdge {
@@ -368,6 +417,35 @@ type MentionsEdge {
   node: Entity!
 }
 
+type Navigation {
+  product: String
+  groups: [NavigationGroup!]!
+  kinds: [NavigationKind!]!
+  purposes: [NavigationPurpose!]!
+}
+
+type NavigationGroup {
+  name: String!
+  labels: JSON!
+  short: JSON
+  open: Boolean!
+  parent: String
+}
+
+type NavigationKind {
+  kind: String!
+  one: String!
+  many: String!
+  group: String
+  count: Int!
+  entryId: ID
+}
+
+type NavigationPurpose {
+  id: String!
+  labels: JSON!
+}
+
 type Opinion {
   value: JSON
   producer: String!
@@ -375,6 +453,31 @@ type Opinion {
   lang: String
   statedAt: DateTime!
   evidence: [Evidence!]!
+}
+
+type Outgoing {
+  relation: String!
+  label: String!
+  edge: String!
+  inverse: Boolean!
+  to: Entity!
+}
+
+type OutgoingConnection {
+  edges: [OutgoingEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type OutgoingEdge {
+  cursor: String!
+  node: Outgoing!
+}
+
+type OwnTemplate {
+  id: ID!
+  template: String!
 }
 
 type PageInfo {
@@ -387,17 +490,56 @@ type PageTemplate {
   body: String!
 }
 
+type Ranked {
+  node: Entity!
+  value: JSON!
+}
+
+type RecordTemplate {
+  kind: String!
+  template: String!
+}
+
+type SearchGroup {
+  kind: String!
+  label: String!
+  count: Int!
+  results: [SearchHit!]!
+}
+
+type SearchHit {
+  node: Entity!
+  line: String!
+}
+
+type TemplateFinding {
+  file: String!
+  line: Int!
+  path: String!
+  message: String!
+}
+
 type Query {
   entity(id: ID!, lang: String): Entity
   allDemoAuthor(where: DemoAuthorWhere, orderBy: [DemoAuthorOrder!], first: Int, after: String, lang: String): DemoAuthorConnection!
+  allDemoAuthorAggregate(where: DemoAuthorWhere, lang: String): Aggregate!
   allDemoCommit(where: DemoCommitWhere, orderBy: [DemoCommitOrder!], first: Int, after: String, lang: String): DemoCommitConnection!
+  allDemoCommitAggregate(where: DemoCommitWhere, lang: String): Aggregate!
   allDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String, lang: String): DemoFileConnection!
+  allDemoFileAggregate(where: DemoFileWhere, lang: String): Aggregate!
   allDemoRepository(where: DemoRepositoryWhere, orderBy: [DemoRepositoryOrder!], first: Int, after: String, lang: String): DemoRepositoryConnection!
+  allDemoRepositoryAggregate(where: DemoRepositoryWhere, lang: String): Aggregate!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
+  navigation(lang: String): Navigation!
+  templateFindings: [TemplateFinding!]!
+  cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
+  contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
+  searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
+  related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }
 
 input CatalogueEntityDefinitionFilter {
@@ -934,6 +1076,12 @@ input DemoTouchedEdgeWhere {
   weight: DemoTouchedEdgeWeightFilter
   binary: DemoTouchedEdgeBinaryFilter
   meta: DemoTouchedEdgeMetaFilter
+}
+
+input RelatedOrder {
+  field: String!
+  direction: OrderDirection
+  nulls: NullsOrder
 }
 
 enum CatalogueEntityOrderField {

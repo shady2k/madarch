@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createTestDatabaseOwner } from './test-database.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
+import { prepareStore } from '../src/adapters/prepare-store.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { EMPTY_CONTRACT, generatedTableName } from '../src/graph/contract.js';
 import { validateProductManifests, publishValidatedManifests, readPublishedManifest } from '../src/graph/manifest-publication.js';
@@ -37,6 +38,12 @@ test('publishes complete metadata and declaration evidence without repository co
   const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
   try {
     await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
+    // An existing store's old constraint is relaxed without resetting its declarations.
+    await owner.run((tx) => tx.query('ALTER TABLE edge ADD CONSTRAINT edge_check CHECK (from_node <> to_node)'));
+    await owner.run((tx) => tx.query("UPDATE madarch_meta.schema_stamp SET stamp = 'before-self-relations' WHERE name = 'one-graph'"));
+    await prepareStore(owner, { contract: withManifestContract(EMPTY_CONTRACT) });
+    const constraints = await owner.run((tx) => tx.query<{ n: string }>("SELECT count(*)::text AS n FROM pg_constraint WHERE conrelid = 'edge'::regclass AND conname = 'edge_check'"));
+    expect(constraints.rows[0]!.n).toBe('0');
     const read = validateProductManifests(folder);
     expect(read.ok).toBe(true);
     if (!read.ok) throw new Error(JSON.stringify(read.findings));

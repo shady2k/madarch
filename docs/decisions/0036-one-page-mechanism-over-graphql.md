@@ -92,7 +92,12 @@ parallel; a change to it is a change to this record.
 - **Roots**: `entity(id: ID!): Entity`, one list root per type, `catalogueEntity(name: String!):
   CatalogueEntity`, `home: Entity` (the product entity), `search(text: String!, kinds: [String!],
   first: Int, after: String): EntityConnection!` (labels and text fields), `bootstrap: Bootstrap!`,
-  `revision: Revision!`. Every root takes `lang: String` (default the reader's language).
+  `revision: Revision!`, and `navigation: Navigation!` — the frame's one read, added with the portal frame's
+  return: `{ product: String  groups: [{ name  labels  short  open  parent }]  kinds: [{ kind  one  many
+  group  count  entryId }] }`, the manifest's groups and every kind it declares with its names in the reader's
+  language, the entities the graph holds of it and the id of its catalogue entry. The sidebar draws itself from
+  that answer alone, so the app still names no kind; a page is still one operation. Every root takes `lang: String`
+  (default the reader's language).
 - **Bootstrap** `{ structureRevision: String!  home: { id: ID!  kind: String!  template: String! }
   catalogueTemplate: String!  templates: [PageTemplate!]!  recordTemplates: [{ kind: String!  template:
   String! }]!  ownTemplates: [{ id: ID!  template: String! }]!  roles: [String!]! }`;
@@ -239,8 +244,13 @@ sections:
   linked), `relations` (a relation's rows both ways), `table` (columns by path; filter, sort,
   paging through the connection's variables), `bars` (groups), `timeseries` (buckets), `treemap`,
   `diagram` (depth 1; an edge and its inverse merged; more than `aggregateAbove` entities of a kind
-  drawn as one node with the count; fitted to the frame; click to refocus), `source` (a citation
-  with its line range), `tabs` (sections as tabs). Command components: `fill` (choose and run;
+  drawn as one node with the count; rendered on the server in the three formats of capability
+  `views`, `diagram`, and shown in tabs — LikeC4's own runtime over the server's computed view,
+  Mermaid's renderer over the server's source, and archify's interactive page; a press on a node
+  walks to that entity), `source` (a citation with its line range), `tabs` (sections as tabs). A
+  diagram is drawn on the server because the same pictures are served to clients on request (HTTP
+  and MCP), not only to the wiki; the browser makes the server's answer interactive and lays
+  nothing out. Command components: `fill` (choose and run;
   the catalogue page's choose-for-fill mode), `run` (a fill run's progress), `settings-form`,
   `problem-actions`; they call the command API and read what they show from the graph or the
   retained command reads. The app names no kind.
@@ -250,11 +260,13 @@ sections:
   `text { path* }`; `relations { path*, labelPath, emptyText }`;
   `table { path* (a connection), columns*: [{ label*, path*, format, sortField }], filterFields,
   pageSize }`; `bars { path* (groups), labelPath, valuePath }`; `timeseries { path* (buckets) }`;
-  `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { path*, aggregateAbove = 12 }`;
+  `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
   `fill { mode: choose|run }`; `run { runVariable* }`; `settings-form { group* }`;
-  `problem-actions { path* }`. A template naming an unknown component or parameter is refused at
-  start with the file and line.
+  `problem-actions { path* }`. A template naming an unknown component, parameter or undeclared
+  query field produces a finding on the affected page and in Problems, with the file and line.
+  It does not refuse the product or prevent other pages from serving (owner clarification,
+  2026-11-14, madarch-64o5.71).
 - **Cache**: answers are cached normalised by `Entity.id`, keyed by product, `structure` revision,
   language, role, operation and variables, each stamped with the `data` revision it was read at,
   and persisted with the bootstrap in IndexedDB; the app shell by a service worker. The event
@@ -274,7 +286,9 @@ sections:
   GraphQL schema), /api/problems and /api/questions/question and /api/tasks/task (problems,
   questions and tasks are entities), /e/<id>.md|.json, /kind/<kind>.md|.json, /llms.txt, and the
   MCP tools of src/mcp/records.ts and `read_entity` (replaced by `graph_schema` and `graph_query`).
-- **Retained, because they are not graph data**: /api/source (a file's text at the filled commit,
+- **Retained, because they are not graph data**: /render/diagram (an entity's diagram in one of three
+  formats, rendered on the server from the graph read layer and served to any client on request),
+  /api/source (a file's text at the filled commit,
   from git), /api/events (the event stream), /api/status and /api/products and /api/product, the
   fill commands and /api/fill-runs and /api/run (workflow state), /api/agents and /api/agent-choices
   and /api/model-role, /api/settings and /api/product-settings, /api/journal, /api/kind-usage (agent
@@ -302,7 +316,7 @@ source of truth where it and this prose differ (the record is then corrected): t
 generator with a golden SDL for a fixture manifest covering every scalar, a reference, a repeated
 edge with attributes, an inverse, a reserved-name refusal and a collision refusal; JSON Schemas for
 a template file and for every component's parameters; and the one page-composition module used by
-both the server (validating templates at start) and the app (building the page's operation), whose
+both the server (collecting template findings) and the app (building the page's operation), whose
 tests compose every base template and validate the result against the golden schema with
 graphql-js `validate`.
 

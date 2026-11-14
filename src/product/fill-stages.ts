@@ -124,7 +124,7 @@ export async function readPinnedGraphContract(product: string): Promise<import('
   const snapshots = createGitSnapshotSource(() => pins);
   const own = await snapshots.open(productRepositoryId(read.identity));
   const { kindsRead: kinds } = await readFillManifests(own, folder);
-  return kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT;
+  return withManifestContract(kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT);
 }
 
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {

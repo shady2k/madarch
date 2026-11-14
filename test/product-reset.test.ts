@@ -82,7 +82,7 @@ for (const running of [false, true]) test(`reset starts a filled fixture over ${
       await owner.ready;
       const kinds = await owner.run((tx) => tx.query<{ entity: string }>('SELECT DISTINCT e.name AS entity FROM node n JOIN entity e ON e.id=n.entity_id WHERE NOT n.removed ORDER BY entity'));
       expect(kinds.rows.map((row) => row.entity)).toContain('manifest.catalogue');
-      const catalogue = new Set([...MANIFEST_CONTRACT.vertex.map((kind) => kind.name), 'value-set', 'value-set-entry']);
+      const catalogue = new Set([...MANIFEST_CONTRACT.vertex.map((kind) => kind.name), 'product', 'value-set', 'value-set-entry']);
       expect(kinds.rows.every((row) => catalogue.has(row.entity))).toBe(true);
     } finally { await owner.close(); }
   } finally {

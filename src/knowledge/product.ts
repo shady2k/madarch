@@ -89,7 +89,12 @@ import { withManifestContract } from '../graph/manifest-contract.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { SchemaRefusal } from '../graphql/names.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
-import { executeGraphql, type MessageBody } from '../graph/graphql-execute.js';
+import type { MessageBody } from '../graph/graphql-execute.js';
+import { readWorker, type ReadDescriptor } from '../render/read-worker.js';
+import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgres-cluster.js';
+import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
+import { readProductTemplates } from '../graph/product-templates.js';
+import { structureRevisionOf } from '../graph/graphql-execute.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
 
 /**
@@ -122,6 +127,8 @@ const READER_IDLE_MS = 10 * 60_000;
 export type AgentFactory = (agentId: string, journal: Journal) => (UnitAgent & { close(): Promise<void> }) | { error: string };
 
 export interface KnowledgeProductOptions {
+  /** Whole GraphQL/diagram request budget, including worker startup (default 30 seconds). */
+  readDeadlineMs?: number;
   productFolder: string;
   /** The folder the product's store lives under: `<root>/<product id>/graph`. */
   storeRoot: string;
@@ -239,6 +246,20 @@ export class KnowledgeProduct {
 
   constructor(private readonly options: KnowledgeProductOptions) {
     this.invalidateInterruptedRun();
+  }
+
+  get readDeadlineMs(): number {
+    const bound = this.options.readDeadlineMs ?? Number(this.env.MADARCH_READ_DEADLINE_MS ?? 30_000);
+    if (!Number.isFinite(bound) || bound <= 0) throw new Error(`${import.meta.path}:1: readDeadlineMs / MADARCH_READ_DEADLINE_MS must be a positive number of milliseconds`);
+    return bound;
+  }
+
+  /** The API holds the server lease; isolated readers borrow only a client connection. */
+  async readDescriptor(): Promise<ReadDescriptor> {
+    await this.open();
+    await this.followStoreFill();
+    const endpoint = clusterEndpoint(clusterPaths(storeDatabasePath(this.storeFolder())).socketDir);
+    return { folder: this.folder, connection: { ...endpoint, user: CLUSTER_USER, database: 'madarch' } };
   }
 
   get folder(): string {
@@ -491,10 +512,31 @@ export class KnowledgeProduct {
    * published, the one executor the wiki and MCP share, and the schema its published manifest derives.
    */
   async graphql(operation: { readonly query: string; readonly variables?: Readonly<Record<string, unknown>>; readonly operationName?: string | null; readonly lang?: string }): Promise<{ readonly status: number; readonly body: MessageBody }> {
+    try {
+      return await readWorker(this.readDescriptor().then((descriptor): { kind: 'graphql'; descriptor: ReadDescriptor; operation: typeof operation } => ({ kind: 'graphql', descriptor, operation })), this.readDeadlineMs);
+    } catch (error) {
+      return { status: 200, body: { errors: [{ message: error instanceof Error ? error.message : String(error), extensions: { code: error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'FAILED' } }] } };
+    }
+  }
+
+  /**
+   * One entity's neighbourhood at a depth, read through the graph read layer inside one snapshot (decision 0036, sections
+   * 7 and 8): what a rendered diagram is drawn from. The manifest and the templates are read in the same snapshot, so the
+   * schema, the relations and the rows answer one revision.
+   */
+  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
     const owner = await this.open();
     await this.followStoreFill();
-    // The executor reads the published manifest inside its own snapshot: the schema and the rows answer one revision.
-    return await executeGraphql(owner, { folder: this.options.productFolder }, operation);
+    return await owner.transaction('snapshot', async (tx) => {
+      await tx.query("SET LOCAL statement_timeout = '2000ms'");
+      const manifest = await readPublishedManifest(tx);
+      if (manifest === undefined) throw new WikiReadError(`${join(this.options.productFolder, KINDS_FILE)}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
+      const published = publishedManifestOf(manifest);
+      const templates = readProductTemplates(this.options.productFolder);
+      const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
+      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates);
+      return await context.diagramNeighbourhood(id, depth, lang, first);
+    });
   }
 
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */
@@ -2412,7 +2454,7 @@ export class KnowledgeHost {
   /** The root the products' stores stand in: what the fill role of this server is told to watch (madarch-8bdc.9). */
   readonly root: string;
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'fillQueued'> = {}) {
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'snapshotMs' | 'choicesQuery' | 'fillQueued' | 'readDeadlineMs'> = {}) {
     this.root = storeRoot;
   }
 

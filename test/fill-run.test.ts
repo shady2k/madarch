@@ -67,6 +67,12 @@ describe('the one fill', () => {
     expect(fillSteps()).toEqual(['plugin-turns']);
   }, 120_000);
 
+  test('the pinned preparation contract includes the manifest metadata a fill publishes', async () => {
+    const contract = await readPinnedGraphContract(product);
+    expect(contract.vertex.map((kind) => kind.name)).toContain('manifest.kind');
+    expect(contract.edge.map((kind) => kind.name)).toContain('manifest.depends-on');
+  });
+
   test('runs every step through one function', async () => {
     if (owner === undefined) throw new Error('the store was not opened');
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
@@ -129,6 +135,12 @@ describe('the one fill', () => {
       expect(full.state).toBe('succeeded');
       const before = (await listFiles(store, { repository: 'repo', limit: 100 })).rows;
       expect(before.map((file) => file.path).sort()).toEqual(['docs/readme.md', 'src/a.ts']);
+      const metadataEdges = async () => await store.transaction('snapshot', async (tx) => (await tx.query(
+        `SELECT e.id::text, k.name FROM edge e JOIN entity k ON k.id = e.entity_id
+         WHERE k.name IN ('manifest.depends-on', 'manifest.relation-edge') ORDER BY e.id`,
+      )).rows);
+      const metadataBefore = await metadataEdges();
+      expect(metadataBefore.length).toBeGreaterThan(0);
       const docsBlob = before.find((file) => file.path === 'docs/readme.md')!.blob;
       const oldBlob = before.find((file) => file.path === 'src/a.ts')!.blob;
       // A commit inside the scope moves one file; the fill of `src/` covers that path and no other.
@@ -136,10 +148,12 @@ describe('the one fill', () => {
       inCode('add', '-A');
       inCode('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'two');
       await prepareStore(store, { contract: await readPinnedGraphContract(product) });
+      expect(await metadataEdges()).toEqual(metadataBefore);
       const scoped = await runFill({ product, database: store, steps: ['plugin-turns'], paths: ['src/'], runId: 'scoped-tree', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(store, { contract }); } });
       expect(scoped.ok).toBe(true);
       if (!scoped.ok) return;
       expect(scoped.state).toBe('succeeded');
+      expect(await metadataEdges()).toEqual(metadataBefore);
       const after = (await listFiles(store, { repository: 'repo', limit: 100 })).rows;
       // The file outside the scope stands with the blob it had: a scoped publication touches its scope only.
       expect(after.map((file) => file.path).sort()).toEqual(['docs/readme.md', 'src/a.ts']);

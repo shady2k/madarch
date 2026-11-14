@@ -1,0 +1,14 @@
+# A page whose body is stored text (decision 0036, section 6): the entity's `body` field as Markdown, with the entity's
+# facts and relations around it. A kind whose body field is named otherwise extends this template and replaces the
+# `body` section's query.
+template: text
+extends: entity
+sections:
+  - id: body
+    component: text
+    after: header
+    title: { en: Text, ru: Текст }
+    query: |
+      body
+    params:
+      path: body

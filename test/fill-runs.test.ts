@@ -216,12 +216,13 @@ test('run selection discovers declared agent producers rather than catalogue cap
   expect(pluginsFillingKind({ kinds: new Map([[kind.name, kind]]), plugins: new Map([[agent.id, agent], [unrelated.id, unrelated]]) } as unknown as KindsManifest, kind.name)).toEqual(['agent-fill']);
 });
 
-test('native app serves a named fill run on direct navigation without accepting unrelated fill paths', async () => {
+test('native app serves a fill run as a template page with its run in the address, and no page-layer path', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'fill-run-route-'));
   try {
     writeFileSync(join(folder, 'index.html'), '<!doctype html><title>fill run fixture</title>');
     const part = createWikiPart((status, body) => Response.json(body, { status }), (status, error) => ({ response: Response.json({ error }, { status }) }), { revision: () => '', subscribe: () => () => undefined }, folder);
-    const direct = part.app('/fill/runs/fill-20261112T175127529Z');
+    // A fill run is a template bound to no entity (decision 0036, section 7): `/p/run` with the run in a variable.
+    const direct = part.app('/p/run?run=fill-20261112T175127529Z');
     expect(direct?.response.status).toBe(200);
     expect(direct?.response.headers.get('content-type')).toContain('text/html');
     expect(await direct?.response.text()).toContain('fill run fixture');
