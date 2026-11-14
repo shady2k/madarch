@@ -5,7 +5,7 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && bun ../../scripts/build-wiki-archify.ts",
     "check": "tsc --noEmit && bun ../../scripts/check-ui-architecture.ts",
     "test": "bun test"
   },
