@@ -509,6 +509,14 @@
     "documentsMissing": "The documents could not be listed",
     "noDocuments": "No source matches.",
     "documentsIntro": "The documents the product is described by: its own and those of its code repositories. Every page and every statement of the wiki rests on them.",
+    "sourcesPage": {
+      "repositories": "Repositories",
+      "present": "On this machine",
+      "absent": "Not here",
+      "filled": "Read by a fill",
+      "notFilled": "Not filled",
+      "truncated": "Showing {{shown}} of {{total}}."
+    },
     "filterSources": "Filter by title or path",
     "cardOpen": "{{kind}} page",
     "cardFacts": "What the code says about it",
@@ -1499,6 +1507,11 @@
     "nav": "Product settings",
     "title": "Product settings",
     "intro": "How {{product}} is set up on this machine: who writes its pages, in which language, and the actions that start the pages or the graph over.",
+    "own": "This is madarch's own wiki: it is documentation, so it has no agent, no pages to write and no settings of a product.",
+    "reader": {
+      "title": "Reading role",
+      "intro": "The role you read this wiki as on this machine. It chooses which parts of a page are open and which groups come first."
+    },
     "missing": "The settings could not be read",
     "busy": "A fill is running. Changes wait until it ends.",
     "agent": {

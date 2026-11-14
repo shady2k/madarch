@@ -47,6 +47,10 @@ export interface KnowledgePart {
   /** The fill plan the page shows: the catalogue's kinds, what fills each field, and the order of a selection. */
   fillPlan: (request: Request) => Promise<Handled>;
   fillRuns: (request: Request) => Promise<Handled>;
+  /** The open problems the Problems page groups, and a count for the sidebar (workflow state, not a graph read). */
+  problems: (request: Request) => Promise<Handled>;
+  /** The product's Markdown documents and repositories (the frame's Sources page). */
+  sources: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
   /** A person's «Остановить»: the run ends now; the body's `confirm` is the second press that ends it. */
@@ -321,6 +325,13 @@ export function createKnowledgePart(
       const lang = url.searchParams.get('lang');
       return { response: json(200, fillPlanOf(read.manifest, product.folder, { selected, ...(lang === null || lang === '' ? {} : { lang }) })) };
     }, false),
+    problems: guarded('list the problems', async (request) => {
+      const listing = await product.problems();
+      const count = new URL(request.url).searchParams.get('count');
+      if (count === '1') return { response: json(200, { open: listing.open, closed: listing.closed, dismissed: listing.dismissed, sections: listing.sections }) };
+      return { response: json(200, listing) };
+    }),
+    sources: guarded('list the sources', async () => ({ response: json(200, await product.sources()) }), false),
     fillRuns: guarded('read fill history', async (request) => {
       const runId = new URL(request.url).searchParams.get('run');
       const runs = await product.fillRuns(runId ?? undefined);

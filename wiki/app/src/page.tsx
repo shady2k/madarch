@@ -17,6 +17,9 @@ import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
 import { FillSection } from './components/fill.js';
 import { RunSection } from './components/run.js';
+import { ProblemsSection } from './components/problems.js';
+import { SourcesSection } from './components/sources.js';
+import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
 
 export interface PageRuntime {
@@ -78,5 +81,8 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'search': return <SearchSection context={context} />;
     case 'fill': return <FillSection context={context} />;
     case 'run': return <RunSection context={context} />;
+    case 'problem-actions': return <ProblemsSection context={context} />;
+    case 'settings-form': return <SettingsSection context={context} />;
+    case 'sources': return <SourcesSection context={context} />;
   }
 }

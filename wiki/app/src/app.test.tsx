@@ -96,9 +96,11 @@ beforeEach(() => {
   (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
     const path = String(url);
     if (!path.endsWith('/graphql')) {
-      const command = path.includes('/api/status')
-        ? { fill: { state: 'idle' } }
-        : path.includes('/api/fill-plan') ? { order: [], kinds: [], catalogue: [], requiresAgent: false, unproduced: [] } : {};
+      const command = path.includes('/api/problems')
+        ? { open: 3, closed: 0, dismissed: 0, sections: { code: 3, documents: 0, wiki: 0 } }
+        : path.includes('/api/status')
+          ? { fill: { state: 'idle' } }
+          : path.includes('/api/fill-plan') ? { order: [], kinds: [], catalogue: [], requiresAgent: false, unproduced: [] } : {};
       return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
@@ -164,6 +166,17 @@ test('a path that is no page says so, and asks the graph for nothing', async () 
   try {
     expect(page.container.textContent).toContain('no page stands at /nothing/here');
     expect(requests.filter((one) => !one.query.includes('bootstrap'))).toHaveLength(0);
+  } finally {
+    await page.close();
+  }
+});
+
+
+test('the sidebar\'s «Ждёт вас» count is the problems listing\'s open total', async () => {
+  window.history.pushState({}, '', '/');
+  const page = await render();
+  try {
+    expect(page.container.querySelector('[data-testid="nav-problems-count"]')?.textContent).toBe('3');
   } finally {
     await page.close();
   }

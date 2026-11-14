@@ -107,6 +107,7 @@ export const API = {
   answer: '/api/answer',
   correction: '/api/correction',
   problems: '/api/problems',
+  sources: '/api/sources',
   problemDismiss: '/api/problem-dismiss',
   problemTask: '/api/problem-task',
   journal: '/api/journal',

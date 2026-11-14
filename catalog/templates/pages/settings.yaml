@@ -1,0 +1,15 @@
+# The product settings page (the old portal's «Настройки продукта»): the agent that writes the pages, the model and
+# reasoning it reports, the model roles, the language of the pages and the reader's own role. The command component
+# `settings-form` reads and writes the retained settings routes; the app names no model and no kind.
+template: settings
+sections:
+  - id: header
+    component: header
+    title: { en: Product settings, ru: Настройки продукта }
+    params:
+      titlePath: label
+  - id: settings
+    component: settings-form
+    after: header
+    params:
+      group: all

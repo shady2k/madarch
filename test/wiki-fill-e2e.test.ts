@@ -50,6 +50,8 @@ run('the fill flow on a product filled with disk and git', () => {
     // A little code and a note for the fill to read.
     mkdirSync(join(folder, 'src'), { recursive: true });
     writeFileSync(join(folder, 'src', 'index.ts'), 'export const answer = 42;\n');
+    // A file past the large-file rule's line bound, so the Problems page has a finding to group.
+    writeFileSync(join(folder, 'src', 'large.ts'), Array.from({ length: 700 }, (_, at) => `export const value${String(at)} = ${String(at)};`).join('\n') + '\n');
     writeFileSync(join(folder, 'README.md'), '# Portal fill\n\nA product to fill with disk and git.\n');
     commitProduct(folder, 'A product to fill');
     server = await startPreparedServer({ productFolder: folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
@@ -135,6 +137,31 @@ run('the fill flow on a product filled with disk and git', () => {
       const after = await textOf(page);
       expect(after).toContain('История заполнений');
       await page.screenshot({ path: join(SHOTS, 'fill-ru.png') });
+
+      // The other frame pages, on the same filled product.
+      await page.goto(`${server!.url}/p/problems`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="problems-page"]', { timeout: 60_000 });
+      try {
+        await page.waitForSelector('[data-testid="problem-category"]', { timeout: 60_000 });
+      } catch (error) {
+        const listing = await (await fetch(`${server!.url}/api/problems`)).json() as { open?: number; categories?: unknown; notes?: unknown };
+        process.stdout.write(`PROBLEMS ${JSON.stringify(listing).slice(0, 1500)}\n`);
+        throw error;
+      }
+      const sidebarCount = Number(await page.$eval('[data-testid="nav-problems-count"]', (element) => element.textContent ?? '').catch(() => '0'));
+      const total = await page.$eval('[data-testid="problems-total"]', (element) => element.textContent ?? '');
+      expect(sidebarCount).toBe(Number(/\d+/u.exec(total)?.[0] ?? '0'));
+      await page.screenshot({ path: join(SHOTS, 'problems-ru.png') });
+
+      await page.goto(`${server!.url}/p/sources`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="sources-page"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="sources-repositories"]', { timeout: 60_000 });
+      await page.screenshot({ path: join(SHOTS, 'sources-ru.png') });
+
+      await page.goto(`${server!.url}/p/settings`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="settings-page"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="settings-agent"]', { timeout: 60_000 });
+      await page.screenshot({ path: join(SHOTS, 'settings-ru.png') });
       expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
     } finally {
       await page.close();

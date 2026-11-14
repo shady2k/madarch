@@ -252,8 +252,8 @@ sections:
   and MCP), not only to the wiki; the browser makes the server's answer interactive and lays
   nothing out. Command components: `fill` (choose and run;
   the catalogue page's choose-for-fill mode), `run` (a fill run's progress), `settings-form`,
-  `problem-actions`; they call the command API and read what they show from the graph or the
-  retained command reads. The app names no kind.
+  `problem-actions`, `sources` (the Sources page's documents and repositories); they call the command
+  API and read what they show from the graph or the retained command reads. The app names no kind.
 - **Component parameters** (all optional unless marked; `path` is a dot path into the section's
   data; texts are `{ en, ru }`): `header { titlePath*, kindPath, provenancePath }`;
   `facts { rows*: [{ label*, path*, format: text|number|date|bytes|link }] }`;
@@ -263,7 +263,7 @@ sections:
   `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
   `fill { mode: choose|run }`; `run { runVariable* }`; `settings-form { group* }`;
-  `problem-actions { path* }`. A template naming an unknown component or parameter is refused at
+  `problem-actions { path* }`; `sources` (no parameters). A template naming an unknown component or parameter is refused at
   start with the file and line.
 - **Cache**: answers are cached normalised by `Entity.id`, keyed by product, `structure` revision,
   language, role, operation and variables, each stamped with the `data` revision it was read at,
@@ -281,15 +281,18 @@ sections:
   /api/search (a `search(text, kinds, first)` root over labels and text fields), /api/facts,
   /api/statement, /api/neighborhood, /api/view, /api/glossary, /api/documents, /api/document,
   /api/authored and /api/authored-schema (authored entities are entities; the schema is the
-  GraphQL schema), /api/problems and /api/questions/question and /api/tasks/task (problems,
-  questions and tasks are entities), /e/<id>.md|.json, /kind/<kind>.md|.json, /llms.txt, and the
+  GraphQL schema), /api/questions/question and /api/tasks/task (questions and tasks are entities),
+  /e/<id>.md|.json, /kind/<kind>.md|.json, /llms.txt, and the
   MCP tools of src/mcp/records.ts and `read_entity` (replaced by `graph_schema` and `graph_query`).
 - **Retained, because they are not graph data**: /render/diagram (an entity's diagram in one of three
   formats, rendered on the server from the graph read layer and served to any client on request),
   /api/source (a file's text at the filled commit,
   from git), /api/events (the event stream), /api/status and /api/products and /api/product, the
   fill commands and /api/fill-plan and /api/fill-runs and /api/run (workflow state and the plan a
-  fill press offers), /api/agents and /api/agent-choices
+  fill press offers), /api/problems (the computed consistency and fill findings the Problems page
+  groups, with `/api/problem-dismiss` and `/api/problem-task` as its commands) and /api/sources (the
+  Markdown documents the graph holds, read through the graph read layer for the Sources page, whose
+  per-document pages are the graph's), /api/agents and /api/agent-choices
   and /api/model-role, /api/settings and /api/product-settings, /api/journal, /api/kind-usage (agent
   metering), /api/refresh-plan, /api/reset, /api/graph-verdicts, /api/rewrite-pages,
   /api/start-fresh, the authored and problem and task writes, and GET and POST /sources, POST

@@ -43,7 +43,10 @@ export interface AgentOffer {
   readonly label: string;
   readonly installed: boolean;
   readonly login: 'signed-in' | 'not-signed-in' | 'unknown';
+  readonly loginDetail: string;
+  readonly where: string | null;
   readonly version: string | null;
+  readonly install: { readonly kind: 'npm' | 'bundled'; readonly package?: string; readonly version?: string; readonly size?: string; readonly folder?: string; readonly program?: string; readonly note?: string } | null;
 }
 
 export interface AgentsAnswer {
@@ -51,12 +54,168 @@ export interface AgentsAnswer {
   readonly chosen: { readonly id: string; readonly label: string } | null;
 }
 
+/** One option an agent reports, and the values it offers. */
+export interface AgentChoiceValue {
+  readonly value: string;
+  readonly name: string;
+  readonly description?: string;
+}
+
+export interface AgentChoice {
+  readonly configId: string | null;
+  readonly name: string;
+  readonly current: string | null;
+  readonly values: readonly AgentChoiceValue[];
+}
+
 /** What an agent reports of its own model choices (`GET /api/agent-choices`). */
 export interface AgentChoicesAnswer {
   readonly agent: { readonly id: string; readonly label: string };
-  readonly choices: {
-    readonly model: { readonly name: string; readonly current: string | null; readonly values: readonly { readonly value: string; readonly name: string }[] } | null;
+  readonly choices: { readonly model: AgentChoice | null; readonly reasoning: AgentChoice | null };
+}
+
+/** One pair a model role is assigned to. */
+export interface ModelPair {
+  readonly agent: string;
+  readonly model?: string;
+  readonly reasoning?: string;
+}
+
+/** One model role as the settings resolve it. */
+export interface ResolvedModelRole {
+  readonly role: string;
+  readonly pair: ModelPair | null;
+  readonly source: 'assigned' | 'fallback' | 'none';
+  readonly fallbackFrom?: string;
+  readonly note?: string;
+}
+
+export interface ModelRoleView {
+  readonly defaultRole: string;
+  readonly defaultPair: ModelPair | null;
+  readonly roles: readonly ResolvedModelRole[];
+}
+
+/** `GET /api/product-settings`: how this product is set on this machine. */
+export interface ProductSettingsAnswer {
+  readonly product: { readonly name: string; readonly id: string };
+  readonly folder: string;
+  readonly store: string;
+  readonly language: string;
+  readonly chosenAgent: { readonly id: string; readonly label: string; readonly model?: string; readonly reasoning?: string } | null;
+  readonly roles: ModelRoleView;
+  readonly agentNames: Readonly<Record<string, string>>;
+  readonly bounds: {
+    readonly turns: number;
+    readonly minutes: number;
+    readonly toolCalls: number;
+    readonly writeAttempts: number;
+    readonly maxDomains: number;
+    readonly editorialRequestsPerPage: number;
   };
+  readonly danger?: unknown;
+  readonly dangerError?: string;
+  readonly busy: boolean;
+  readonly own?: boolean;
+}
+
+/** `GET /api/settings`: the reader's own role on this machine. */
+export interface ReaderSettingsAnswer {
+  readonly role: string;
+  readonly asked: boolean;
+  readonly roles: readonly string[];
+}
+
+/** One place or entity a problem names. */
+export interface ProblemLink {
+  readonly label: string;
+  readonly href: string | null;
+  readonly key: string | null;
+}
+
+/** One problem the server computed from the graph and the fill. */
+export interface Problem {
+  readonly id: string;
+  readonly identity: string;
+  readonly section: string;
+  readonly rule: string;
+  readonly kind: string;
+  readonly sonar: string;
+  readonly severity: string;
+  readonly fixer: 'agent' | 'person';
+  readonly closed: boolean;
+  readonly place: ProblemLink;
+  readonly entity: ProblemLink | null;
+  readonly evidence: readonly ProblemLink[];
+  readonly scope?: unknown;
+  readonly page: string | null;
+  readonly pageTitle: string | null;
+  readonly statement: string | null;
+  readonly sentence: string | null;
+  readonly target: string | null;
+  readonly reason: string;
+  readonly textKey?: string;
+  readonly textArgs?: Readonly<Record<string, string | number>>;
+  readonly file: string;
+  readonly line: number | null;
+  readonly source?: string;
+  readonly by: { readonly name: string; readonly email: string; readonly verified: string } | null;
+  readonly at: string | null;
+}
+
+export interface ProblemCategory {
+  readonly rule: string;
+  readonly kind: string;
+  readonly section: string;
+  readonly sonar: string;
+  readonly severity: string;
+  readonly fixer: 'agent' | 'person';
+  readonly count: number;
+  readonly open: number;
+  readonly closed: number;
+  readonly label?: Readonly<Record<string, string>>;
+}
+
+/** `GET /api/problems`: the open problems, grouped by rule. */
+export interface ProblemListing {
+  readonly problems: readonly Problem[];
+  readonly categories: readonly ProblemCategory[];
+  readonly sections: Readonly<Record<string, number>>;
+  readonly open: number;
+  readonly closed: number;
+  readonly dismissed: number;
+  readonly notes: readonly { readonly message: string; readonly textKey?: string; readonly textArgs?: Record<string, string | number> }[];
+}
+
+/** The sidebar's count, from `/api/problems?count=1`. */
+export interface ProblemsCount {
+  readonly open: number;
+  readonly closed: number;
+  readonly dismissed: number;
+  readonly sections: Readonly<Record<string, number>>;
+}
+
+/** One Markdown document the graph holds. */
+export interface SourceDocument {
+  readonly repo: string | null;
+  readonly path: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly id: string | null;
+}
+
+export interface SourceRepository {
+  readonly name: string | null;
+  readonly present: boolean;
+  readonly filled: boolean;
+}
+
+/** `GET /api/sources`: the product's documents and repositories. */
+export interface SourcesAnswer {
+  readonly documents: readonly SourceDocument[];
+  readonly repositories: readonly SourceRepository[];
+  readonly truncated: readonly { readonly repo: string | null; readonly shown: number; readonly total: number }[];
+  readonly note?: string;
 }
 
 /** The product's fill state, as much as the fill page and its button read (`GET /api/status`). */
@@ -151,11 +310,51 @@ export function readFillPlan(base: string, lang: string, kinds: readonly string[
   return command<FillPlanAnswer>(base, `/api/fill-plan${query({ lang, kinds: kinds.length === 0 ? undefined : kinds.join(',') })}`, signal === undefined ? {} : { signal });
 }
 
+/** `GET /api/product`: the product's identity, read from its manifest alone. */
+export const readProduct = (base: string, signal?: AbortSignal): Promise<{ readonly id: string; readonly name: string }> => command(base, '/api/product', signal === undefined ? {} : { signal });
+
 /** The agents the reader may pick, and the one the product saved. */
 export const readAgents = (base: string, signal?: AbortSignal): Promise<AgentsAnswer> => command<AgentsAnswer>(base, '/api/agents', signal === undefined ? {} : { signal });
 
-/** The models the chosen agent reports; asking starts its adapter on this machine. */
-export const readAgentChoices = (base: string, agent: string, signal?: AbortSignal): Promise<AgentChoicesAnswer> => command<AgentChoicesAnswer>(base, `/api/agent-choices${query({ agent })}`, signal === undefined ? {} : { signal });
+/** The models the chosen agent reports; asking starts its adapter on this machine. `fresh` asks it again. */
+export const readAgentChoices = (base: string, agent: string, signal?: AbortSignal, fresh = false): Promise<AgentChoicesAnswer> =>
+  command<AgentChoicesAnswer>(base, `/api/agent-choices${query({ agent, ...(fresh ? { fresh: '1' } : {}) })}`, signal === undefined ? {} : { signal });
+
+/** Saves the agent that writes this product's pages; `install` is the yes to fetching an adapter that is not here. */
+export const chooseAgent = (base: string, agent: string | null, install = false): Promise<{ chosen: { id: string; label: string } | null }> =>
+  command(base, '/api/agent', { method: 'POST', body: JSON.stringify({ agent, install }) });
+
+/** Assigns one model role to an agent, or removes it with null. */
+export const chooseModelRole = (base: string, role: string, agent: string | null, options: { readonly model?: string | null; readonly reasoning?: string | null; readonly install?: boolean } = {}): Promise<{ roles: ModelRoleView }> =>
+  command(base, '/api/model-role', { method: 'POST', body: JSON.stringify({ role, agent, ...options }) });
+
+/** `GET /api/product-settings`: the product's settings on this machine. */
+export const readProductSettings = (base: string, signal?: AbortSignal): Promise<ProductSettingsAnswer> => command(base, '/api/product-settings', signal === undefined ? {} : { signal });
+
+/** Saves the settings the retained route takes: the pages' language, the agent's model and reasoning, the editorial bound. */
+export const saveProductSettings = (base: string, change: { readonly language?: string; readonly model?: string | null; readonly reasoning?: string | null; readonly editorialRequestsPerPage?: number }): Promise<ProductSettingsAnswer> =>
+  command(base, '/api/product-settings', { method: 'POST', body: JSON.stringify(change) });
+
+/** `GET /api/settings`: the reader's own role on this machine. */
+export const readReaderSettings = (base: string, signal?: AbortSignal): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', signal === undefined ? {} : { signal });
+
+/** Keeps the reader's role on this machine. */
+export const saveReaderRole = (base: string, role: string): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ role }) });
+
+/** `GET /api/problems`: the open problems, grouped by rule. */
+export const readProblems = (base: string, signal?: AbortSignal): Promise<ProblemListing> => command(base, '/api/problems', signal === undefined ? {} : { signal });
+
+/** The sidebar's count: the same listing's open total, without its rows. */
+export const readProblemsCount = (base: string, signal?: AbortSignal): Promise<ProblemsCount> => command(base, '/api/problems?count=1', signal === undefined ? {} : { signal });
+
+/** Records that a problem is not one, in the product's repository. */
+export const dismissProblem = (base: string, id: string, reason: string): Promise<unknown> => command(base, '/api/problem-dismiss', { method: 'POST', body: JSON.stringify({ id, reason }) });
+
+/** Opens the task a problem names. */
+export const makeProblemTask = (base: string, id: string): Promise<unknown> => command(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
+
+/** `GET /api/sources`: the product's Markdown documents and repositories. */
+export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
 
 /** The product's own fill state, for the page's lock and the top bar's button. */
 export const readFillStatus = (base: string, signal?: AbortSignal): Promise<FillStatusAnswer> => command<FillStatusAnswer>(base, '/api/status', signal === undefined ? {} : { signal });

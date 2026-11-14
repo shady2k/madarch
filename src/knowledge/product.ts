@@ -76,6 +76,7 @@ import { type ProblemListing, type TaskRow } from '../loop/views.js';
 import { collectProblems } from '../problems/index.js';
 import { defaultSettings } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
+import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
@@ -2222,6 +2223,32 @@ export class KnowledgeProduct {
 
   async problems(): Promise<ProblemListing> {
     return await this.problemListing();
+  }
+
+  /**
+   * The product's sources (the frame's Sources page): the Markdown documents the graph holds, grouped by the repository
+   * each was read from, and the repositories themselves. A document is an entity of a kind that declares `markdown`;
+   * no kind is named here.
+   */
+  async sources(): Promise<SourcesListing> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const repositories: SourceRepository[] = [
+      { name: null, present: headCommitOf(product.folder) !== undefined, filled: this.pins.size > 0 },
+      ...this.repositories().map((repository) => ({ name: repository.name, present: repository.present, filled: this.pins.has(repository.name) })),
+    ];
+    const read = await this.manifestRead(product.folder);
+    if (!read.present) {
+      return { documents: [], repositories, truncated: [], note: `the product has no ${read.file} in the graph yet: start a fill to read its documents` };
+    }
+    try {
+      const owner = await this.open();
+      const kinds = graphKindsOf(read.manifest);
+      const graph = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
+      return await sourcesListing(read.manifest, graph, repositories);
+    } catch (error) {
+      return { documents: [], repositories, truncated: [], note: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** The listing the dismissal reads: collected once per key, from the graph and the manifest. */

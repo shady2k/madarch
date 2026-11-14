@@ -1,0 +1,15 @@
+# The Problems page (decision 0036, sections 7 and 8): the open findings the server computes from the graph and the
+# fill, grouped by rule, each with its place and the two actions the retained routes offer. The command component
+# `problem-actions` reads the listing and draws the page; the template names no kind.
+template: problems
+sections:
+  - id: header
+    component: header
+    title: { en: Problems, ru: Проблемы }
+    params:
+      titlePath: label
+  - id: problems
+    component: problem-actions
+    after: header
+    params:
+      path: problems

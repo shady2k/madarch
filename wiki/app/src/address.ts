@@ -3,10 +3,9 @@
  * template bound to no entity. A query parameter binds a variable the template declares, and `lang` and `role` are the
  * reader's own: they are passed to the page's operation, never stored in it.
  *
- * The frame's own sections — the catalogue, the glossary, the loop's problems, the sources and the product's settings —
- * stand at their own addresses. Their pages are not rebuilt yet, so each opens a page that says it is being rebuilt: the
- * frame came back first, and the pages follow one by one. The fill page is a product template (`/p/fill`) and one run
- * is another (`/p/run?run=<id>`).
+ * The catalogue and the glossary are still the frame's own placeholders, so each opens a page that says it is being
+ * rebuilt. The fill, the problems, the sources and the product's settings are product templates at their own addresses
+ * (`/p/fill`, `/p/problems`, `/p/sources`, `/p/settings`), and one fill run is another (`/p/run?run=<id>`).
  */
 import type { PageAddress } from '../../../src/page-contract/index.js';
 
@@ -17,10 +16,15 @@ import type { PageAddress } from '../../../src/page-contract/index.js';
 export const FRAME_PAGES = {
   catalogue: '/p/catalogue',
   glossary: '/p/glossary',
-  problems: '/p/problems',
-  documents: '/p/documents',
-  settings: '/p/settings',
   kit: '/p/kit',
+} as const;
+
+/** Every page the frame's sidebar links to: the placeholders above and the product templates the frame draws. */
+export const PAGE_ADDRESSES = {
+  ...FRAME_PAGES,
+  problems: '/p/problems',
+  sources: '/p/sources',
+  settings: '/p/settings',
 } as const;
 
 /** The fill page, a template of the product (`/p/fill`): its command component chooses the kinds and starts a run. */

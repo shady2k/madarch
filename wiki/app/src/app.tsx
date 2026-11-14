@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useTranslation } from 'react-i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
+import { readProblemsCount, readProduct, useChangeStream, useCommandRead, type ProblemsCount } from './components/command.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
@@ -57,6 +58,9 @@ export function App(): ReactElement {
   const [role, setRole] = useState(storedRole);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [navigation, setNavigation] = useState<Navigation | null>(null);
+  const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal));
+  const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product-identity', (signal) => readProduct(base, signal));
+  useChangeStream(base, problems.reload);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -183,7 +187,7 @@ export function App(): ReactElement {
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} />
+    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={identity.data?.name ?? null} />
   );
   const [menuOpen, setMenuOpen] = useState(false);
   // The graph could not be read at all: the frame says so instead of a page.
@@ -220,9 +224,9 @@ export function App(): ReactElement {
         <ShellMain>
           <ShellFixed data-testid="shell-fixed">
             <FrameToolbar
-              product={navigation?.product ?? null}
+              product={navigation?.product ?? identity.data?.name ?? null}
               base={base}
-              task={address.home ? t('knowledge.home') : section === null ? (address.page.template === 'fill' ? t('navigation.fill') : address.page.template === 'run' ? t('knowledge.fillRun.title') : null) : frameWord(section, t)}
+              task={address.home ? t('knowledge.home') : section === null ? (address.page.template === 'fill' ? t('navigation.fill') : address.page.template === 'run' ? t('knowledge.fillRun.title') : address.page.template === 'problems' ? t('loop.problemsTitle') : address.page.template === 'sources' ? t('navigation.documents') : address.page.template === 'settings' ? t('settings.title') : null) : frameWord(section, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}

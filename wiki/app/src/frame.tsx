@@ -28,7 +28,7 @@ import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { FillButton } from './components/fill-button.js';
 import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
-import { entityAddress, FILL_PAGE, FRAME_PAGES, type FramePage } from './address.js';
+import { entityAddress, FILL_PAGE, FRAME_PAGES, PAGE_ADDRESSES, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
 
 /** The word the frame gives one of its own sections, in the language the reader reads. */
@@ -36,9 +36,6 @@ export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
     case 'catalogue': return t('navigation.catalogue');
     case 'glossary': return t('knowledge.glossary.title');
-    case 'problems': return t('loop.problemsTitle');
-    case 'documents': return t('navigation.documents');
-    case 'settings': return t('settings.nav');
     case 'kit': return t('kit.title');
   }
 }
@@ -78,13 +75,17 @@ export function groupTree(navigation: Navigation): GroupNode[] {
 }
 
 /** The product's name and the sections of the frame, under which the kinds the graph holds are listed. */
-export function FrameNavigation({ navigation, base, path, open, tasks }: {
+export function FrameNavigation({ navigation, base, path, open, tasks, problemsOpen = null, productName = null }: {
   readonly navigation: Navigation | null;
   readonly base: string;
   /** The address in front, without the base and the query. */
   readonly path: string;
   readonly open: (path: string) => void;
   readonly tasks: { readonly home: boolean; readonly frame: FramePage | null };
+  /** The open problems, for the «Ждёт вас» count; null until the listing is read. */
+  readonly problemsOpen?: number | null;
+  /** The product's own name from `/api/product`, when the graph holds no product label yet. */
+  readonly productName?: string | null;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -98,7 +99,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
   const here = (address: string): boolean => path === address;
   const link = (address: string) => ({ href: base + address, onClick: follow(address) });
   const section = (id: FramePage, icon: typeof HomeIcon): ReactElement => (
-    <NavigationLink icon={icon} active={here(FRAME_PAGES[id])} aria-current={here(FRAME_PAGES[id]) ? 'page' : undefined} data-testid={`nav-${id}`} {...link(FRAME_PAGES[id])}>
+    <NavigationLink icon={icon} active={here(PAGE_ADDRESSES[id])} aria-current={here(PAGE_ADDRESSES[id]) ? 'page' : undefined} data-testid={`nav-${id}`} {...link(PAGE_ADDRESSES[id])}>
       <NavigationLabel>{frameWord(id, t)}</NavigationLabel>
     </NavigationLink>
   );
@@ -115,7 +116,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
   return (
     <>
       <BrandLink data-testid="nav-brand" concept={t('brand.concept')} {...link('/')}><ShellBrandMark /></BrandLink>
-      <ProductCard name={navigation?.product ?? t('brand.product')} />
+      <ProductCard name={navigation?.product ?? productName ?? t('brand.product')} />
       <NavigationScroll aria-label={t('navigation.pages')} data-testid="nav-scroll">
         <NavigationLink icon={HomeIcon} active={tasks.home} aria-current={tasks.home ? 'page' : undefined} data-testid="nav-home" {...link('/')}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
@@ -127,8 +128,9 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
         </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
-          <NavigationLink icon={AlertTriangleIcon} active={tasks.frame === 'problems'} aria-current={tasks.frame === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...link(FRAME_PAGES.problems)}>
-            <NavigationLabel>{frameWord('problems', t)}</NavigationLabel>
+          <NavigationLink icon={AlertTriangleIcon} active={here(PAGE_ADDRESSES.problems)} aria-current={here(PAGE_ADDRESSES.problems) ? 'page' : undefined} data-testid="nav-problems" {...link(PAGE_ADDRESSES.problems)}>
+            <NavigationLabel>{t('loop.problemsTitle')}</NavigationLabel>
+            {problemsOpen === null || problemsOpen === 0 ? null : <NavigationCount data-testid="nav-problems-count">{problemsOpen}</NavigationCount>}
           </NavigationLink>
         </NavigationSection>
         {nodes.length === 0 ? null : <NavigationHeading>{t('knowledge.kinds')}</NavigationHeading>}
@@ -162,8 +164,12 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
         })}
       </NavigationScroll>
       <NavigationFooter data-testid="nav-foot">
-        {section('documents', FolderGit2Icon)}
-        {section('settings', SettingsIcon)}
+        <NavigationLink icon={FolderGit2Icon} active={here(PAGE_ADDRESSES.sources)} aria-current={here(PAGE_ADDRESSES.sources) ? 'page' : undefined} data-testid="nav-sources" {...link(PAGE_ADDRESSES.sources)}>
+          <NavigationLabel>{t('navigation.documents')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink icon={SettingsIcon} active={here(PAGE_ADDRESSES.settings)} aria-current={here(PAGE_ADDRESSES.settings) ? 'page' : undefined} data-testid="nav-settings" {...link(PAGE_ADDRESSES.settings)}>
+          <NavigationLabel>{t('settings.nav')}</NavigationLabel>
+        </NavigationLink>
       </NavigationFooter>
     </>
   );
