@@ -1,7 +1,7 @@
 id: practice.forecast
 purpose: operations
 audience: [product-lead, operations, platform-devops]
-definition: What the costs are expected to be, computed from the spend so far.
+definition: A cost forecast is what the costs are expected to be, made from the spending so far.
 sources:
 - https://focus.finops.org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Прогноз затрат
     many: Прогнозы затрат
 description:
-  en: What the costs are expected to be, computed from the spend so far.
-  ru: Ожидаемые затраты, вычисленные по уже понесённым.
+  en: A cost forecast estimates future spending from the bills already seen and the plan ahead, such as a run rate for the rest of the month. It warns early when the budget will be exceeded.
+  ru: Прогноз затрат оценивает будущие расходы по уже полученным счётам и предстоящему плану, например по текущему темпу до конца месяца. Он заранее предупреждает, что бюджет будет превышен.

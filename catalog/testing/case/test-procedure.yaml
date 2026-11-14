@@ -1,7 +1,7 @@
 id: istqb.test-procedure
 purpose: quality
 audience: [tester, developer]
-definition: The order in which test cases are run, and what has to be in place before them.
+definition: A test procedure is the order in which test cases are run, and what has to be in place before them.
 sources:
 - https://glossary.istqb.org/en_US/term/test-procedure
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Процедура тестирования
     many: Процедуры тестирования
 description:
-  en: The order in which test cases are run, and what has to be in place before them.
-  ru: Порядок выполнения тестовых случаев и то, что должно быть готово до них.
+  en: 'A test procedure sets the sequence of test cases and the preparation they need: which environment, which data, which steps before the first case. It makes a run repeatable by the same person or another.'
+  ru: 'Процедура тестирования задаёт порядок тестов и подготовку к ним: какая среда, какие данные, какие шаги до первого теста. Она делает запуск повторимым тем же человеком или другим.'

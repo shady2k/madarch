@@ -1,7 +1,7 @@
 id: oscal.assessment-result
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: What an assessment found for each control, with the evidence it read.
+definition: An assessment result is what an assessment found for each control, with the evidence it read.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Результат оценки
     many: Результаты оценки
 description:
-  en: What an assessment found for each control, with the evidence it read.
-  ru: То, что оценка нашла по каждому контролю, с прочитанными доказательствами.
+  en: An assessment result records, control by control, whether the system met it and what evidence showed that. A finding can be satisfied, partially satisfied or not satisfied, and each answer points to the evidence behind it.
+  ru: Результат оценки по каждому контролю говорит, выполнила ли его система и какие доказательства это показали. Ответ бывает выполненным, частично выполненным или невыполненным, и каждый указывает на доказательства за ним.

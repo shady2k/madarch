@@ -1,7 +1,7 @@
 id: backstage.user
 purpose: history
 audience: [product-lead, product, architect]
-definition: A person the product knows, with the identity they sign in by.
+definition: A user is a person the product knows, with the identity they sign in by.
 sources:
 - https://backstage.io/docs/features/software-catalog/well-known-relations
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Пользователь
     many: Пользователи
 description:
-  en: A person the product knows, with the identity they sign in by.
-  ru: Человек, которого знает продукт, с идентичностью, под которой он входит.
+  en: A user is a person who has an account or a known identity in the product and uses it, whether a customer, an employee or a partner. The product keeps the identity they sign in with, their preferences and what they are allowed to do.
+  ru: 'Пользователь — человек, которого продукт знает по учётной записи или иной идентичности и который им пользуется: клиент, сотрудник или партнёр. Продукт хранит его идентичность для входа, его настройки и то, что ему разрешено делать.'

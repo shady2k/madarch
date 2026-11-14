@@ -1,7 +1,7 @@
 id: practice.mutant
 purpose: quality
 audience: [tester, developer]
-definition: A copy of the code with one deliberate change, which a test is meant to catch.
+definition: A mutant is a copy of the code with one deliberate change, which a test is meant to catch.
 sources:
 - https://stryker-mutator.io/docs/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Мутант
     many: Мутанты
 description:
-  en: A copy of the code with one deliberate change, which a test is meant to catch.
-  ru: Копия кода с одним намеренным изменением, которое тест должен поймать.
+  en: A mutant is produced by changing one small thing in the code — a comparison, a constant, a return — and running the tests against it. If the tests still pass, they did not notice the change, and the mutant survived.
+  ru: 'Мутанта получают, изменив одну мелочь в коде: сравнение, константу или возврат, — и запустив против него тесты. Если тесты всё равно проходят, они не заметили изменение, и мутант выжил.'

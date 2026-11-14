@@ -1,7 +1,7 @@
 id: prometheus.alert-rule
 purpose: operations
 audience: [operations, platform-devops]
-definition: A condition over a metric that fires an alert when it holds for long enough.
+definition: An alert rule is a condition over a metric that fires an alert when it holds long enough.
 sources:
 - https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Правило оповещения
     many: Правила оповещений
 description:
-  en: A condition over a metric that fires an alert when it holds for long enough.
-  ru: Условие над метрикой, которое поднимает оповещение, если держится достаточно долго.
+  en: 'An alert rule states when an alert should fire: for example, error rate above one percent for five minutes. The condition and its duration decide whether the alert is worth waking someone for.'
+  ru: 'Правило оповещения говорит, когда поднимать оповещение: например, доля ошибок выше процента в течение пяти минут. Условие и его длительность решают, стоит ли будить кого-то из-за этого оповещения.'

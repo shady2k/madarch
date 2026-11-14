@@ -1,0 +1,73 @@
+id: practice.value-set
+purpose: structure
+audience: [product-lead, analyst, developer, architect]
+definition: A value set is a named, closed list of values that one field may take, such as a task status, a priority, an issue type or a label.
+sources:
+- https://www.w3.org/TR/skos-reference/
+- https://github.com/shady2k/madarch/blob/main/docs/vision.md
+acquisition:
+- conversation
+- not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - appliesTo
+  in:
+  - partOf
+  - appliesTo
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  producers:
+  - person
+- name: label_en
+  type: text
+  producers:
+  - person
+- name: label_ru
+  type: text
+  producers:
+  - person
+- name: description
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: purpose
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: order
+  type: integer
+  nullable: true
+  producers:
+  - person
+reference-set:
+  name: name
+  label-en: label_en
+  label-ru: label_ru
+  description: description
+  order: order
+key:
+- name
+origin: person
+nav: own-page
+details:
+- label_en
+- label_ru
+- description
+- purpose
+- order
+labels:
+  en:
+    one: Value set
+    many: Value sets
+  ru:
+    one: Справочник
+    many: Справочники
+description:
+  en: A value set names a closed list of values one field may take, such as task status, priority, issue type, link type or a label. Each value is an entry of the set, and an entity's field points at one entry instead of repeating its text.
+  ru: 'Справочник называет закрытый список значений, которые может принимать одно поле: статус задачи, приоритет, тип задачи, тип связи или метку. Каждое значение — запись справочника, и поле сущности указывает на запись, а не повторяет её текст.'

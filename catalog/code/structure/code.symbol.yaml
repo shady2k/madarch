@@ -1,7 +1,7 @@
 id: practice.code-symbol
 purpose: structure
 audience: [developer, architect]
-definition: A function, a class or a constant the code declares, with its callers and its callees.
+definition: A symbol is a function, a class or a constant the code declares, with its callers and its callees.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -61,5 +61,5 @@ labels:
     one: Символ
     many: Символы
 description:
-  en: A function, class or constant, with its callers and callees.
-  ru: Функция, класс или константа, кто её вызывает и что она вызывает.
+  en: 'A symbol is a named declaration in the code: a function, a class, a method or a constant. Following which symbols call it and which it calls shows how a piece of behaviour is built and what depends on changing it.'
+  ru: 'Символ — именованное объявление в коде: функция, класс, метод или константа. Проследив, кто его вызывает и что вызывает он, видно, из чего сложено поведение и от чего зависит его изменение.'

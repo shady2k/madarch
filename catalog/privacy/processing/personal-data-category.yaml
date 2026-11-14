@@ -1,7 +1,7 @@
 id: gdpr.personal-data-category
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A kind of personal data processed, such as a name, a location or a health record.
+definition: A personal-data category is a kind of personal data processed, such as a name, a location or a health record.
 sources:
 - https://gdpr-info.eu/art-30-gdpr/
 - https://w3c.github.io/dpv/2.0/dpv/
@@ -23,5 +23,5 @@ labels:
     one: Категория персональных данных
     many: Категории персональных данных
 description:
-  en: A kind of personal data processed, such as a name, a location or a health record.
-  ru: 'Вид обрабатываемых персональных данных: имя, местоположение или запись о здоровье.'
+  en: A personal-data category groups data of one kind — identity details, contact data, financial data, health data — which is often handled under the same rules. The categories show what an activity collects and how sensitive it is.
+  ru: 'Категория персональных данных объединяет данные одного рода: сведения о личности, контакты, финансовые или медицинские данные, — с которыми обычно обращаются по одним правилам. По категориям видно, что собирает действие обработки и насколько эти данные чувствительны.'

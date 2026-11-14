@@ -3,7 +3,10 @@
  * one record type per edge kind, the `Entity` interface, connections with `first`/`after`, a filter and an order
  * per type, the fields of section 2 (`<field>`, `<field>Opinions`, `contested`), the edges both ways with a
  * record that keeps each repeated edge apart, the inverse of every reference, the backlinks, and the roots
- * `entity`, `all<Type>`, `search` and `bootstrap`. The schema is a function of the manifest alone: two machines
+ * `entity`, `all<Type>`, `search`, `bootstrap`, `navigation` and `cochange`, the aggregates of section 4 over every kind
+ * and over a catalogue entry's records, and the page templates' sections. A page reads its entity's relations both ways — `backlinks` for the
+ * edges that reach it, `outgoing` for the ones it leads out with — and a catalogue entity lists the records of its kind
+ * through `instances`, so a template asks the graph without naming a kind. The schema is a function of the manifest alone: two machines
  * derive one SDL from one manifest, a name that encodes to a reserved one or two declarations that encode to one
  * name are refused naming what stands on both sides, and nothing here names a kind.
  */
@@ -69,6 +72,7 @@ function entityFields(): FieldDef[] {
     { name: 'template', type: 'String!' },
     { name: 'contested', type: '[String!]!' },
     { name: 'backlinks', type: 'BacklinkConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
+    { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
   ];
 }
 
@@ -88,6 +92,7 @@ function connectionFields(edgeType: string): FieldDef[] {
     { name: 'edges', type: `[${edgeType}!]!` },
     { name: 'pageInfo', type: 'PageInfo!' },
     { name: 'totalCount', type: 'Int!' },
+    { name: 'relationLabel', type: 'String' },
   ];
 }
 
@@ -117,10 +122,16 @@ class Builder {
   /** The types, interfaces, scalars and enums the mechanism owns; a manifest name may not take one of them. */
   private claimOwnTypes(): void {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
-      'EntityEdge', 'EntityConnection', 'CatalogueEntity', 'CatalogueField', 'CatalogueEntityEdge', 'CatalogueEntityConnection',
-      'PageTemplate', 'Bootstrap', 'BootstrapHome', 'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
+      'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
+      'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
+      'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
+      'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
+    this.type('TemplateFinding', [
+      { name: 'file', type: 'String!' }, { name: 'line', type: 'Int!' },
+      { name: 'path', type: 'String!' }, { name: 'message', type: 'String!' },
+    ]);
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
     this.type('Evidence', [
       { name: 'type', type: 'String!' },
@@ -142,17 +153,90 @@ class Builder {
       { name: 'statedAt', type: 'DateTime!' },
       { name: 'evidence', type: '[Evidence!]!' },
     ]);
-    this.type('Backlink', [{ name: 'relation', type: 'String!' }, { name: 'from', type: 'Entity!' }]);
+    this.type('Backlink', [
+      { name: 'relation', type: 'String!' },
+      { name: 'label', type: 'String!' },
+      { name: 'edge', type: 'String!' },
+      { name: 'inverse', type: 'Boolean!' },
+      { name: 'from', type: 'Entity!' },
+    ]);
     this.type('BacklinkEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'Backlink!' }]);
     this.type('BacklinkConnection', connectionFields('BacklinkEdge'));
+    this.type('Outgoing', [
+      { name: 'relation', type: 'String!' },
+      { name: 'label', type: 'String!' },
+      { name: 'edge', type: 'String!' },
+      { name: 'inverse', type: 'Boolean!' },
+      { name: 'to', type: 'Entity!' },
+    ]);
+    this.type('OutgoingEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'Outgoing!' }]);
+    this.type('OutgoingConnection', connectionFields('OutgoingEdge'));
     this.type('EntityEdge', [{ name: 'cursor', type: 'String!' }, { name: 'node', type: 'Entity!' }]);
     this.type('EntityConnection', connectionFields('EntityEdge'));
     this.type('PageTemplate', [{ name: 'name', type: 'String!' }, { name: 'body', type: 'String!' }]);
     this.type('BootstrapHome', [{ name: 'id', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
+    this.type('RecordTemplate', [{ name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
+    this.type('OwnTemplate', [{ name: 'id', type: 'ID!' }, { name: 'template', type: 'String!' }]);
     this.type('Bootstrap', [
       { name: 'structureRevision', type: 'String!' },
       { name: 'home', type: 'BootstrapHome' },
+      { name: 'catalogueTemplate', type: 'String!' },
       { name: 'templates', type: '[PageTemplate!]!' },
+      { name: 'recordTemplates', type: '[RecordTemplate!]!' },
+      { name: 'ownTemplates', type: '[OwnTemplate!]!' },
+      { name: 'roles', type: '[String!]!' },
+    ]);
+    // The frame's one read (decision 0036, sections 6 and 7): the product's groups and every kind it declares, with the
+    // number of entities the graph holds. The sidebar is drawn from this, so the app names no kind of its own.
+    this.type('NavigationKind', [
+      { name: 'kind', type: 'String!' },
+      { name: 'one', type: 'String!' },
+      { name: 'many', type: 'String!' },
+      { name: 'group', type: 'String' },
+      { name: 'count', type: 'Int!' },
+      { name: 'entryId', type: 'ID' },
+    ]);
+    this.type('NavigationGroup', [
+      { name: 'name', type: 'String!' },
+      { name: 'labels', type: 'JSON!' },
+      { name: 'short', type: 'JSON' },
+      { name: 'open', type: 'Boolean!' },
+      { name: 'parent', type: 'String' },
+    ]);
+    this.type('NavigationPurpose', [{ name: 'id', type: 'String!' }, { name: 'labels', type: 'JSON!' }]);
+    this.type('Navigation', [
+      { name: 'product', type: 'String' },
+      { name: 'groups', type: '[NavigationGroup!]!' },
+      { name: 'kinds', type: '[NavigationKind!]!' },
+      { name: 'purposes', type: '[NavigationPurpose!]!' },
+    ]);
+    // The aggregates of decision 0036, section 4: counted, grouped, bucketed and ranked in SQL over the agreed values,
+    // so a page asks what the graph holds and never counts it in the browser.
+    this.type('Group', [{ name: 'key', type: 'JSON' }, { name: 'count', type: 'Int!' }]);
+    this.type('Bucket', [{ name: 'from', type: 'JSON' }, { name: 'to', type: 'JSON' }, { name: 'count', type: 'Int!' }]);
+    this.type('Ranked', [{ name: 'node', type: 'Entity!' }, { name: 'value', type: 'JSON!' }]);
+    this.type('Aggregate', [
+      { name: 'count', type: 'Int!' },
+      { name: 'groupBy', type: '[Group!]!', args: [{ name: 'field', type: 'String!' }, { name: 'limit', type: 'Int', defaultValue: '20' }] },
+      { name: 'histogram', type: '[Bucket!]!', args: [{ name: 'field', type: 'String!' }, { name: 'bounds', type: '[JSON!]!' }] },
+      { name: 'topN', type: '[Ranked!]!', args: [{ name: 'field', type: 'String!' }, { name: 'n', type: 'Int', defaultValue: '10' }] },
+    ]);
+    this.type('Cochange', [{ name: 'node', type: 'Entity!' }, { name: 'count', type: 'Int!' }]);
+    // The search's answers as a reader meets them: each kind's word, how many it holds, and the rows with the line a
+    // result is shown by (a file's path, a commit's short hash and its message).
+    this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }]);
+    this.type('SearchGroup', [
+      { name: 'kind', type: 'String!' },
+      { name: 'label', type: 'String!' },
+      { name: 'count', type: 'Int!' },
+      { name: 'results', type: '[SearchHit!]!' },
+    ]);
+    // The rows of one relation of one entity, ordered by the other end's own fields: what a page of an entity's
+    // history, its containers or its importers asks for, without the page naming the kind at the other end.
+    this.input('RelatedOrder', [
+      { name: 'field', type: 'String!' },
+      { name: 'direction', type: 'OrderDirection' },
+      { name: 'nulls', type: 'NullsOrder' },
     ]);
     this.interfaceType('Entity', entityFields());
     this.buildCatalogue();
@@ -200,6 +284,8 @@ class Builder {
       { name: 'taken', type: 'Boolean!' },
       { name: 'plugins', type: '[String!]!' },
       { name: 'fields', type: '[CatalogueField!]!' },
+      { name: 'instances', type: 'EntityConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
+      { name: 'instancesAggregate', type: 'Aggregate!', args: [{ name: 'where', type: 'JSON' }, { name: 'lang', type: 'String' }] },
       { name: 'derivesFrom', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
       { name: 'derivedBy', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
     ], ['Entity']);
@@ -387,18 +473,39 @@ class Builder {
       const name = `all${type}`;
       this.registry.claimField('Query', name, `the list root of the kind "${kind.name}"`);
       fields.push({ name, type: `${type}Connection!`, args: [...connectionArgs(this.whereOf.get(type), this.orderOf.get(type)), { name: 'lang', type: 'String' }] });
+      const aggregateName = `${name}Aggregate`;
+      this.registry.claimField('Query', aggregateName, `the aggregate of the kind "${kind.name}"`);
+      fields.push({ name: aggregateName, type: 'Aggregate!', args: [{ name: 'where', type: this.whereOf.get(type) ?? 'JSON' }, { name: 'lang', type: 'String' }] });
     }
     const catalogueWhere = this.whereOf.get('CatalogueEntity');
     const catalogueOrder = this.orderOf.get('CatalogueEntity');
     this.registry.claimField('Query', 'catalogueEntity', 'the catalogue entity root');
     this.registry.claimField('Query', 'allCatalogueEntity', 'the catalogue list root');
     this.registry.claimField('Query', 'home', 'the home root');
+    this.registry.claimField('Query', 'navigation', 'the navigation root');
+    this.registry.claimField('Query', 'templateFindings', 'the template findings root');
+    this.registry.claimField('Query', 'cochange', 'the entities changed together through an edge');
+    this.registry.claimField('Query', 'contributors', 'the entities one more relation beyond an entity');
+    this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
+    this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
       { name: 'home', type: 'Entity', args: [{ name: 'lang', type: 'String' }] },
       { name: 'search', type: 'EntityConnection!', args: [{ name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
+      { name: 'navigation', type: 'Navigation!', args: [{ name: 'lang', type: 'String' }] },
+      { name: 'templateFindings', type: '[TemplateFinding!]!' },
+      { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
+      { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
+      { name: 'searchGroups', type: '[SearchGroup!]!', args: [
+        { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
+        { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },
+      ] },
+      { name: 'related', type: 'EntityConnection!', args: [
+        { name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'inverse', type: 'Boolean', defaultValue: 'false' },
+        { name: 'orderBy', type: '[RelatedOrder!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' },
+      ] },
     );
     this.type('Query', fields);
   }

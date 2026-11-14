@@ -1,7 +1,7 @@
 id: practice.how-to
 purpose: operations
 audience: [product, analyst, developer, operations]
-definition: The steps that solve one real problem a person has.
+definition: A how-to gives the steps that solve one real problem a person has.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Инструкция
     many: Инструкции
 description:
-  en: The steps that solve one real problem a person has.
-  ru: Шаги, которые решают одну настоящую задачу человека.
+  en: A how-to is a short set of steps for one concrete task, such as connecting a bank account or rotating a key. It assumes the reader already knows the product and needs the exact sequence that works.
+  ru: 'Инструкция — короткий набор шагов для одной конкретной задачи: подключить банковский счёт или сменить ключ. Она исходит из того, что читатель уже знает продукт и ему нужна точная работающая последовательность.'

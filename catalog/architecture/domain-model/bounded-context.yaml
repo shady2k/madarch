@@ -1,7 +1,7 @@
 id: ddd.bounded-context
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A boundary within which one model and one language hold, as domain-driven design defines it.
+definition: A bounded context is a boundary within which one model and one language hold, as domain-driven design defines it.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Ограниченный контекст
     many: Ограниченные контексты
 description:
-  en: A boundary within which one model and one language hold, as domain-driven design defines it.
-  ru: Граница, внутри которой действуют одна модель и один язык, как их определяет предметно-ориентированное проектирование.
+  en: A bounded context marks where one domain model applies and its words have one meaning, such as billing or shipping. Inside it the model is consistent; across its boundary, the same word may mean something else.
+  ru: 'Ограниченный контекст отмечает, где действует одна модель предметной области и её слова имеют одно значение: оплата или доставка. Внутри границы модель согласована, а за ней то же слово может значить другое.'

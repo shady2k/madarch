@@ -1,7 +1,7 @@
 id: practice.field
 purpose: structure
 audience: [developer, architect]
-definition: A field or a property of a type, read on the page of the type that declares it.
+definition: A field is a named value that a type or an object holds.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -31,5 +31,5 @@ labels:
     one: Поле
     many: Поля
 description:
-  en: A field or property of a class, struct or interface; it is read on the page of the type that declares it.
-  ru: Поле или свойство класса, структуры или интерфейса; о нём читают на странице объявившего его типа.
+  en: A field is one named value inside a class, a structure, an interface or an object, with its type and usually its visibility. Fields are the data a type carries, as opposed to the operations it offers.
+  ru: Поле — именованное значение внутри класса, структуры, интерфейса или объекта, с его типом и обычно видимостью. Поля — данные, которые несёт тип, в отличие от операций, которые он предлагает.

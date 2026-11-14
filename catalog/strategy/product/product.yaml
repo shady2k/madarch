@@ -1,7 +1,7 @@
 id: practice.product
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: What the product is, who it serves and how it is built, as its home page states it.
+definition: A product is the software and service an organisation offers to a group of people, together with what it does for them and how it is built.
 sources:
 - https://arc42.org/overview
 - https://backstage.io/docs/features/software-catalog/system-model
@@ -81,5 +81,5 @@ labels:
     one: Продукт
     many: Продукты
 description:
-  en: 'What the product is, for whom, and its architecture: the home page the agent writes.'
-  ru: 'Что это за продукт, для кого и как устроен: главная страница, которую пишет агент.'
+  en: A product is the software and service an organisation offers to a group of people, together with what it does for them and how it is built. It has an owner, users, a purpose and a life from the first idea to retirement.
+  ru: Продукт — программа и услуга, которые организация предлагает группе людей, вместе с тем, что она для них делает и как устроена. У продукта есть владелец, пользователи, назначение и жизнь от первой идеи до вывода.

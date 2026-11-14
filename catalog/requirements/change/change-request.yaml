@@ -1,7 +1,7 @@
 id: practice.change-request
 purpose: understand
 audience: [product, analyst, tester, architect, product-lead]
-definition: A request to change the product, with the reason and the scope it touches.
+definition: A change request asks to change the product, with the reason and the scope it touches.
 sources:
 - https://glossary.istqb.org/en_US/term/change-request
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Запрос на изменение
     many: Запросы на изменение
 description:
-  en: A request to change the product, with the reason and the scope it touches.
-  ru: Просьба изменить продукт с причиной и затронутой областью.
+  en: A change request proposes an alteration to the product and says why it is needed and what it would affect. It is a request, not yet an agreement, and it goes through impact analysis before someone accepts it.
+  ru: Запрос на изменение предлагает изменить продукт и говорит, зачем это нужно и что это затронет. Это просьба, а не договорённость, и до принятия она проходит анализ влияния.

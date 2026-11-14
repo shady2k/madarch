@@ -1,7 +1,7 @@
 id: istqb.test-oracle
 purpose: quality
 audience: [tester, developer]
-definition: The source a test takes its expected result from, such as a golden file or a specification.
+definition: A test oracle is the source a test takes its expected result from, such as a golden file or a specification.
 sources:
 - https://glossary.istqb.org/en_US/term/test-oracle
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Тестовый оракул
     many: Тестовые оракулы
 description:
-  en: The source a test takes its expected result from, such as a golden file or a specification.
-  ru: 'Источник ожидаемого результата теста: золотой файл или спецификация.'
+  en: 'A test oracle says what the right result is: a written expected value, a golden file, a property the answer must satisfy or a second implementation. Without an oracle a test can see what happened but not decide whether it was correct.'
+  ru: 'Тестовый оракул говорит, каким должен быть правильный результат: записанное ожидаемое значение, золотой файл, свойство, которому ответ обязан удовлетворять, или вторая реализация. Без оракула тест видит, что вышло, но не может решить, верно ли это.'

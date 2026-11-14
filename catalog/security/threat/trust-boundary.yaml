@@ -1,7 +1,7 @@
 id: practice.trust-boundary
 purpose: structure
 audience: [security-engineer, architect]
-definition: A line across which the level of trust changes, which data flows cross.
+definition: A trust boundary is a line across which the level of trust changes, which data flows cross.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Граница доверия
     many: Границы доверия
 description:
-  en: A line across which the level of trust changes, which data flows cross.
-  ru: Линия, через которую меняется уровень доверия и которую пересекают данные.
+  en: 'A trust boundary marks where data passes from one level of trust to another: from a browser into a server, from one service to a database, from our network to a partner''s. Every crossing is a place to check who is speaking and what they may do.'
+  ru: 'Граница доверия отмечает, где данные переходят с одного уровня доверия на другой: из браузера на сервер, из сервиса в базу данных, из нашей сети к партнёру. Каждый переход — место, где проверяют, кто говорит и что ему можно.'

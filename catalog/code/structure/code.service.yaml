@@ -1,7 +1,7 @@
 id: c4.container
 purpose: structure
 audience: [developer, architect]
-definition: A deployable part of the system, with the interfaces it offers and the parts it depends on.
+definition: A service is a deployable part of the system, with the interfaces it offers and the parts it depends on.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -56,5 +56,5 @@ labels:
     one: Сервис
     many: Сервисы
 description:
-  en: A deployable part of the system, read from its manifest.
-  ru: Развёртываемая часть системы, прочитанная из её манифеста.
+  en: A service is a part of the system that can be deployed and run on its own, such as an application, a database or a queue, and it talks to other parts through defined interfaces. Its responsibility and its interfaces are what make it separate.
+  ru: 'Сервис — часть системы, которую можно развернуть и запустить отдельно: приложение, база данных или очередь, — и которая общается с другими частями через определённые интерфейсы. Его ответственность и интерфейсы делают его отдельным.'

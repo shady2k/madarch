@@ -1,7 +1,7 @@
 id: practice.block-volume
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A block device attached to a server, which a filesystem is made on.
+definition: A block volume is a block device attached to a server, on which a file system is made.
 sources:
 - https://kubernetes.io/docs/concepts/storage/persistent-volumes/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Блочный том
     many: Блочные тома
 description:
-  en: A block device attached to a server, which a filesystem is made on.
-  ru: Блочное устройство, подключённое к серверу, на котором создают файловую систему.
+  en: A block volume is storage a server sees as a raw disk, divided into blocks it can read and write. A file system or a database is usually placed on it, and it can be detached and attached to another server.
+  ru: Блочный том — хранилище, которое сервер видит как необработанный диск из блоков для чтения и записи. Обычно на нём создают файловую систему или размещают базу данных; его можно отключить от одного сервера и подключить к другому.

@@ -1,7 +1,7 @@
 id: spdx.package
 purpose: structure
 audience: [developer, architect]
-definition: A package a repository's files import from outside it, named as its ecosystem names it.
+definition: A package is an outside library or component that a repository's files import, named as its ecosystem names it.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/Package/
 acquisition:
@@ -34,5 +34,5 @@ labels:
     one: Пакет
     many: Пакеты
 description:
-  en: A package a repository's files import from outside it, named as its ecosystem names it.
-  ru: Пакет, который импортируют файлы репозитория, названный так, как его называет экосистема.
+  en: A package is a reusable piece of software published by someone else and brought into a repository, such as a library, a framework or a command-line tool. Its ecosystem names it and versions it, and its licence and security matter to the product.
+  ru: 'Пакет — многоразовая программная часть, опубликованная кем-то другим и подключённая в репозиторий: библиотека, каркас или программа. Экосистема даёт ему имя и версии, а его лицензия и безопасность важны для продукта.'

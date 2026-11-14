@@ -11,6 +11,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // LikeC4's React runtime imports `createRequire` from `node:module` as it initialises; a browser has no such
+      // module, and the import alone breaks the picture's first paint. The shim stands, and a call names why.
+      'node:module': fileURLToPath(new URL('./src/shims/node-module.ts', import.meta.url)),
     },
   },
   plugins: [react(), tailwindcss()],

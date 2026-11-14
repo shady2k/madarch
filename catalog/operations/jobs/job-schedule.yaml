@@ -1,7 +1,7 @@
 id: practice.job-schedule
 purpose: operations
 audience: [operations, platform-devops]
-definition: When and how often a scheduled job runs, with the limits it runs under.
+definition: A job schedule says when and how often a scheduled job runs, with the limits it runs under.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Расписание задачи
     many: Расписания задачи
 description:
-  en: When and how often a scheduled job runs, with the limits it runs under.
-  ru: Когда и как часто выполняется задача по расписанию и в каких пределах.
+  en: 'A job schedule states the times a job runs, such as every night or every five minutes, and the limits around it: how late it may start, how long it may take, what happens to a run still busy at the next time.'
+  ru: 'Расписание задачи говорит, когда и как часто выполняется задача: каждую ночь или каждые пять минут, — и её пределы: насколько можно опоздать, сколько можно работать, что делать, если прошлый запуск ещё идёт.'

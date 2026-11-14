@@ -1,7 +1,7 @@
 id: nist800-34.exercise-scenario
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The disruption a drill simulates, with its extent and its duration.
+definition: An exercise scenario is the disruption a drill simulates, with its extent and its duration.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сценарий учения
     many: Сценарии учения
 description:
-  en: The disruption a drill simulates, with its extent and its duration.
-  ru: Сбой, который имитирует учение, с его масштабом и длительностью.
+  en: 'An exercise scenario describes the failure a drill acts out: what stops working, how widely and for how long. A realistic scenario makes the drill test the plan rather than a convenient version of it.'
+  ru: 'Сценарий учения описывает сбой, который разыгрывают: что перестаёт работать, насколько широко и как надолго. Правдоподобный сценарий заставляет учение проверять план, а не удобную его версию.'

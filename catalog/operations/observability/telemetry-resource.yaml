@@ -1,7 +1,7 @@
 id: otel.resource
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: The entity that emitted a piece of telemetry, described by its attributes such as service name and host.
+definition: A telemetry resource is the entity that emitted a piece of telemetry, described by attributes such as service name and host.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/resource/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Ресурс телеметрии
     many: Ресурсы телеметрии
 description:
-  en: The entity that emitted a piece of telemetry, described by its attributes such as service name and host.
-  ru: 'Объект, создавший часть телеметрии, описанный атрибутами: именем сервиса и хостом.'
+  en: 'A telemetry resource identifies who produced a metric, a log or a span: the service, its version, the host, the cluster, the environment. These attributes are what let telemetry from many machines be grouped and filtered.'
+  ru: 'Ресурс телеметрии называет, кто создал метрику, журнал или интервал: сервис, его версию, хост, кластер, среду. По этим атрибутам телеметрию с многих машин можно группировать и фильтровать.'

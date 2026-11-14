@@ -1,7 +1,7 @@
 id: practice.design-frame
 purpose: structure
 audience: [designer, product, analyst]
-definition: A frame or artboard in a design tool that specifies a screen or a component.
+definition: A design frame is a frame or an artboard in a design tool that specifies a screen or a component.
 sources:
 - https://www.nngroup.com/articles/design-systems-101/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Макет
     many: Макеты
 description:
-  en: A frame or artboard in a design tool that specifies a screen or a component.
-  ru: Фрейм или артборд в инструменте дизайна, который задаёт экран или компонент.
+  en: A design frame is one canvas in a design tool, holding the layout of a screen or a component at a given size. It is where the designer works out spacing, states and content before the interface is built.
+  ru: Макет — один холст в инструменте дизайна с расположением экрана или компонента при определённом размере. На нём дизайнер прорабатывает отступы, состояния и содержимое до того, как интерфейс построят.

@@ -1,7 +1,7 @@
 id: practice.iam-account
 purpose: structure
 audience: [security-engineer, architect]
-definition: An identity that can be authenticated and given permissions.
+definition: An IAM account is an identity that can be authenticated and given permissions.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Учётная запись IAM
     many: Учётные записи IAM
 description:
-  en: An identity that can be authenticated and given permissions.
-  ru: Идентичность, которую можно аутентифицировать и наделить правами.
+  en: 'An IAM account is one identity a system recognises: a person''s login, a service''s account or an application''s identity. Permissions are attached to the account, and its activity can be attributed to it.'
+  ru: 'Учётная запись IAM — одна идентичность, которую знает система: вход человека, учётная запись сервиса или приложения. Права привязаны к учётной записи, и её действия можно ей приписать.'

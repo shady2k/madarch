@@ -1,7 +1,7 @@
 id: practice.lockfile
 purpose: structure
 audience: [developer, architect, platform-devops, security-engineer]
-definition: A file that pins the exact versions of a package's dependencies.
+definition: A lockfile pins the exact versions of a package's dependencies, with their digests.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/
 acquisition:
@@ -27,5 +27,5 @@ labels:
     one: Файл блокировки
     many: Файлы блокировки
 description:
-  en: A file that pins the exact versions of the dependencies.
-  ru: Файл, который закрепляет точные версии зависимостей.
+  en: A lockfile records the exact version of every package that was installed, and often its digest, so the same install can be repeated. The manifest states what is wanted; the lockfile states what was actually used.
+  ru: Файл блокировки записывает точную версию каждого установленного пакета и часто его дайджест, чтобы установку можно было повторить. Манифест говорит, что нужно; файл блокировки — что было действительно взято.

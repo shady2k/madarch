@@ -1,7 +1,7 @@
 id: practice.use-case
 purpose: understand
 audience: [product, analyst, tester, developer, architect]
-definition: A way an actor reaches a goal with the system, as the documents state it.
+definition: A use case is a way an actor reaches a goal with the system, as the documents state it.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -44,6 +44,6 @@ labels:
     one: Сценарий
     many: Сценарии
 description:
-  en: A way a person uses the product (UC-1, UC-2 ...), as the documents state it.
-  ru: Способ, которым человек пользуется продуктом (UC-1, UC-2 ...), как его описывают документы.
+  en: A use case describes a sequence of interactions in which an actor — a person or another system — reaches a goal with the product, including what can go wrong. It is written from outside, so it shows the product as its users meet it.
+  ru: Сценарий описывает последовательность взаимодействий, в которых действующее лицо — человек или другая система — достигает цели с помощью продукта, включая то, что может пойти не так. Он написан снаружи, поэтому показывает продукт таким, каким его встречают пользователи.
 key: []

@@ -1,7 +1,7 @@
 id: practice.changelog
 purpose: history
 audience: [product, analyst, developer, operations]
-definition: The ordered list of what changed in the product between releases.
+definition: A changelog is the ordered list of what changed in the product between releases.
 sources:
 - https://keepachangelog.com/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Журнал изменений
     many: Журналы изменений
 description:
-  en: The ordered list of what changed in the product between releases.
-  ru: Упорядоченный список того, что изменилось в продукте между выпусками.
+  en: A changelog lists, release by release, what was added, changed, fixed or removed, in words the people who use the product understand. Its order lets a reader see what arrived when and whether an upgrade affects them.
+  ru: Журнал изменений перечисляет выпуск за выпуском, что добавили, изменили, исправили или убрали, словами, понятными пользователям продукта. По порядку видно, что и когда появилось и затронет ли обновление читателя.

@@ -1,7 +1,7 @@
 id: dtcg.token-group
 purpose: structure
 audience: [designer, developer]
-definition: A group of design tokens, which may hold further groups.
+definition: A token group is a group of design tokens, which may itself hold further groups.
 sources:
 - https://www.designtokens.org/TR/2025.10/format/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Группа токенов
     many: Группы токенов
 description:
-  en: A group of design tokens, which may hold further groups.
-  ru: Группа токенов дизайна, которая может содержать другие группы.
+  en: A token group gathers design tokens under one name, such as all colours or all spacing values, and may hold other groups inside it. The grouping gives the tokens a structure that tools and people can navigate.
+  ru: 'Группа токенов собирает токены дизайна под одним именем: например, все цвета или все отступы, — и может содержать внутри другие группы. Группировка даёт токенам устройство, по которому удобно двигаться людям и инструментам.'

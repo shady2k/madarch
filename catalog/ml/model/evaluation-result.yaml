@@ -1,7 +1,7 @@
 id: practice.evaluation-result
 purpose: quality
 audience: [developer, tester, product-lead]
-definition: What one evaluation measured, with the threshold it was compared against.
+definition: An evaluation result is what one evaluation measured, next to the threshold it was compared with.
 sources:
 - https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd
 - https://mlflow.org/docs/latest/index.html
@@ -23,5 +23,5 @@ labels:
     one: Результат оценки модели
     many: Результаты оценки модели
 description:
-  en: What one evaluation measured, with the threshold it was compared against.
-  ru: То, что измерила одна оценка модели, и порог, с которым это сравнили.
+  en: An evaluation result records the numbers one evaluation produced — accuracy, error rate or another measure — and the threshold the model had to meet. It says whether the model passed and by how much.
+  ru: 'Результат оценки модели фиксирует числа, которые дала одна оценка: точность, долю ошибок или другую меру, — и порог, который модель должна была пройти. По нему видно, прошла ли модель и с каким запасом.'

@@ -1,7 +1,7 @@
 id: terraform.module
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A reusable group of Terraform resources with its inputs and outputs.
+definition: A Terraform module is a reusable group of Terraform resources with its inputs and outputs.
 sources:
 - https://developer.hashicorp.com/terraform/language/modules
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Модуль Terraform
     many: Модули Terraform
 description:
-  en: A reusable group of Terraform resources with its inputs and outputs.
-  ru: Многоразовая группа ресурсов Terraform с её входами и выходами.
+  en: A Terraform module packages a set of infrastructure objects that are created together, with the values it accepts and the values it hands back. A module hides the details of one pattern, such as a network or a database, and can be used in several places.
+  ru: Модуль Terraform упаковывает набор объектов инфраструктуры, которые создают вместе, с принимаемыми и возвращаемыми значениями. Он скрывает подробности одного образца — сети или базы данных — и может использоваться в нескольких местах.

@@ -1,7 +1,7 @@
 id: slsa.builder
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The service that ran a build, as the provenance records it.
+definition: A build platform is the service that ran a build, as its provenance records it.
 sources:
 - https://slsa.dev/spec/v1.0/provenance
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Платформа сборки
     many: Платформы сборки
 description:
-  en: The service that ran a build, as the provenance records it.
-  ru: Сервис, на котором шла сборка, как его записывает происхождение.
+  en: A build platform is the hosted or self-run service that executed a build, such as a continuous integration service or a build cluster. Its identity, version and address are recorded so a verifier can ask how the artifact was made.
+  ru: 'Платформа сборки — размещённая или своя служба, которая выполняла сборку: служба непрерывной интеграции или кластер сборки. Её имя, версия и адрес записываются, чтобы проверяющий мог выяснить, как сделан артефакт.'

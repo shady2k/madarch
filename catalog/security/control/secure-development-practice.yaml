@@ -1,7 +1,7 @@
 id: nist800-218.practice
 purpose: quality
 audience: [security-engineer, developer, tester]
-definition: One practice of the NIST SSDF that a development process is expected to follow.
+definition: A secure development practice is one practice of the NIST SSDF that a development process is expected to follow.
 sources:
 - https://csrc.nist.gov/projects/ssdf
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Практика безопасной разработки
     many: Практики безопасной разработки
 description:
-  en: One practice of the NIST SSDF that a development process is expected to follow.
-  ru: Одна практика NIST SSDF, которой должен следовать процесс разработки.
+  en: 'A secure development practice is one of the tasks the NIST Secure Software Development Framework names: train people, protect the build, review code, test for weaknesses, respond to reports. A process is judged by which of them it actually follows.'
+  ru: 'Практика безопасной разработки — одна из задач, которые называет NIST Secure Software Development Framework: обучать людей, защищать сборку, просматривать код, проверять на слабости, отвечать на сообщения. О процессе судят по тому, какие из них он действительно выполняет.'

@@ -1,7 +1,7 @@
 id: practice.release-notes
 purpose: history
 audience: [product, analyst, developer, operations]
-definition: What one release changes for the people who use the product.
+definition: Release notes say what one release changes for the people who use the product.
 sources:
 - https://keepachangelog.com/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Заметки о выпуске
     many: Заметки о выпуске
 description:
-  en: What one release changes for the people who use the product.
-  ru: Что один выпуск меняет для людей, которые пользуются продуктом.
+  en: 'Release notes describe one release from the user''s side: new behaviour, changed behaviour, fixed problems and anything that requires action before upgrading. They are shorter and more focused than a changelog, which covers many releases.'
+  ru: 'Заметки о выпуске описывают один выпуск со стороны пользователя: что появилось, что изменилось, что исправлено и что нужно сделать до обновления. Они короче и точнее журнала изменений, который охватывает много выпусков.'

@@ -1,0 +1,62 @@
+id: practice.skill
+purpose: understand
+audience: [developer, product-lead, analyst]
+definition: 'A skill is an instruction for an agent for one kind of work: when to use it, what to do and what to check.'
+sources:
+- https://agents.md/
+- https://github.com/shady2k/madarch/blob/main/docs/vision.md
+acquisition:
+- conversation
+- document
+- not-implemented
+relation-constraints:
+  out:
+  - appliesTo
+  - constrains
+  in:
+  - appliesTo
+  - constrains
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  producers:
+  - person
+- name: when
+  type: text
+  producers:
+  - person
+- name: instructions
+  type: text
+  producers:
+  - person
+- name: checks
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+details:
+- name
+- when
+- instructions
+- checks
+- status
+labels:
+  en:
+    one: Skill
+    many: Skills
+  ru:
+    one: Навык
+    many: Навыки
+description:
+  en: 'A skill tells an agent how to do one kind of work: when the work calls for it, the steps to follow and what to check before calling the work done. A skill is written for a repeated task, so the agent does not work it out again each time.'
+  ru: 'Навык говорит агенту, как выполнять один вид работы: когда она этого требует, какие шаги пройти и что проверить, прежде чем считать её сделанной. Навык пишут для повторяющейся задачи, чтобы агент не выяснял её заново каждый раз.'

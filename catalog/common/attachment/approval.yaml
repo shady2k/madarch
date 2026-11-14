@@ -1,8 +1,7 @@
 id: practice.approval
 purpose: history
 audience: [product-lead, analyst, developer]
-definition: 'A responsible person''s decision on an approval package: approved, or declined with a reason, with who decided
-  and when.'
+definition: 'An approval is a responsible person''s decision on an approval package: accepted, or refused with a reason.'
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
@@ -25,5 +24,5 @@ labels:
     one: Согласование
     many: Согласования
 description:
-  en: 'A responsible person''s decision on an approval package: approved, or declined with a reason.'
-  ru: 'Решение ответственного человека о пакете согласования: одобрено или отклонено с указанием причины.'
+  en: 'An approval records the decision a responsible person made about a package of changes: that it may be applied, or that it is refused and why. It names who decided and when.'
+  ru: 'Согласование фиксирует решение ответственного человека о пакете изменений: применить его или отказать и почему. В нём указано, кто и когда решил.'

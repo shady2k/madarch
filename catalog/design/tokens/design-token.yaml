@@ -1,7 +1,7 @@
 id: dtcg.design-token
 purpose: structure
 audience: [designer, developer]
-definition: A named design value, such as a colour or a spacing, that the product's styles refer to instead of repeating it.
+definition: A design token is a named design value, such as a colour, a spacing or a font size, that designs and styles refer to by name.
 sources:
 - https://www.designtokens.org/TR/2025.10/format/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Токен дизайна
     many: Токены дизайна
 description:
-  en: A named design value, such as a colour or a spacing, that the product's styles refer to instead of repeating it.
-  ru: Именованное значение дизайна, например цвет или отступ, на которое ссылаются стили продукта вместо повторения.
+  en: A design token gives a name to one design value — a colour, a spacing, a type size, a border radius — so that screens and styles use the name instead of repeating the value. A change to the token then reaches every place that uses it.
+  ru: Токен дизайна даёт имя одному значению оформления — цвету, отступу, размеру шрифта, скруглению угла, — чтобы экраны и стили ссылались на имя, а не повторяли значение. Тогда изменение токена доходит до каждого места, где он используется.

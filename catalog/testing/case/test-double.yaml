@@ -1,7 +1,7 @@
 id: istqb.test-double
 purpose: quality
 audience: [tester, developer]
-definition: A stand-in for a component or an interface a test runs against.
+definition: A test double is a stand-in for a component or an interface that a test runs against.
 sources:
 - https://glossary.istqb.org/en_US/term/test-double
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Тестовый дублёр
     many: Тестовые дублёры
 description:
-  en: A stand-in for a component or an interface a test runs against.
-  ru: Замена компонента или интерфейса, против которой работает тест.
+  en: 'A test double replaces a real component in a test: a stub returns prepared answers, a mock records calls, a fake is a simple working version. It lets the test control what the other side does and check what the code sends.'
+  ru: 'Тестовый дублёр заменяет настоящий компонент в тесте: заглушка возвращает подготовленные ответы, макет записывает вызовы, подделка — простая работающая версия. Он позволяет тесту управлять другой стороной и проверять, что отправляет код.'

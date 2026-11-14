@@ -1,7 +1,7 @@
 id: sre.error-budget-policy
 purpose: operations
 audience: [operations, platform-devops]
-definition: The rule that says what the team does as the error budget is spent.
+definition: An error budget policy is the rule that says what the team does as the error budget is spent.
 sources:
 - https://sre.google/workbook/implementing-slos/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Политика бюджета ошибок
     many: Политики бюджета ошибок
 description:
-  en: The rule that says what the team does as the error budget is spent.
-  ru: Правило о том, что делает команда по мере расходования бюджета ошибок.
+  en: 'An error budget policy ties the remaining room for failure to actions: slow down releases, fix reliability first, stop a risky change. It turns a service level objective into a decision rule instead of a number nobody obeys.'
+  ru: 'Политика бюджета ошибок связывает оставшийся запас отказов с действиями: замедлить выпуски, сначала заняться надёжностью, остановить рискованное изменение. Она превращает цель уровня сервиса в правило решений, а не в число, которое никто не соблюдает.'

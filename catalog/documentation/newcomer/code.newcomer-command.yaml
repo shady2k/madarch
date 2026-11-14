@@ -1,7 +1,7 @@
 id: practice.setup-command
 purpose: operations
 audience: [developer, platform-devops]
-definition: A command the README tells a newcomer to run.
+definition: A newcomer command is a command the README tells a newcomer to run.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -26,5 +26,5 @@ labels:
     one: Команда запуска
     many: Команды запуска
 description:
-  en: A command the README tells a newcomer to run.
-  ru: Команда, которую README велит выполнить новичку.
+  en: 'A newcomer command is one line a README asks a person to run when they first open the repository: install the dependencies, start the tests, build the project. It is the first thing a new developer types, so it must work on a fresh machine.'
+  ru: 'Команда запуска — строка, которую README просит выполнить при первом знакомстве с репозиторием: установить зависимости, запустить тесты, собрать проект. Её новый разработчик набирает первой, поэтому она должна работать на чистой машине.'

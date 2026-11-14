@@ -1,7 +1,7 @@
 id: practice.protocol
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: An agreed set of rules two parties speak, such as HTTP or SMTP.
+definition: A protocol is an agreed set of rules two parties speak, such as HTTP or SMTP.
 sources:
 - https://www.rfc-editor.org/rfc/rfc791.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Протокол
     many: Протоколы
 description:
-  en: An agreed set of rules two parties speak, such as HTTP or SMTP.
-  ru: Согласованный набор правил, на котором говорят две стороны, например HTTP или SMTP.
+  en: 'A protocol defines how two programs exchange data: the shape of the messages, the order, the addresses and the errors. HTTP, SMTP, gRPC and MQTT are protocols, and both sides must speak the same one to understand each other.'
+  ru: 'Протокол задаёт, как две программы обмениваются данными: форму сообщений, порядок, адреса и ошибки. HTTP, SMTP, gRPC и MQTT — протоколы, и обе стороны должны говорить на одном, чтобы понимать друг друга.'

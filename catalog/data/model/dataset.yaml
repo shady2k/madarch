@@ -1,7 +1,7 @@
 id: openlineage.dataset
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A discrete collection of data, identified by a namespace and a name.
+definition: A dataset is a collection of data that programs read or write, identified by a namespace and a name.
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Набор данных
     many: Наборы данных
 description:
-  en: A discrete collection of data, identified by a namespace and a name.
-  ru: Дискретная коллекция данных с пространством имён и именем.
+  en: A dataset is a named collection of data that programs read or write, such as a table, a file or a stream. Its namespace and name identify it among other datasets, and its schema and version say what the data looks like.
+  ru: 'Набор данных — именованная совокупность данных, которую читают или записывают программы: таблица, файл или поток. Пространство имён и имя отличают его от других наборов, а схема и версия описывают, как устроены данные.'

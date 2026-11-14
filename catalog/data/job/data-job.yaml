@@ -1,7 +1,7 @@
 id: openlineage.job
 purpose: operations
 audience: [analyst, developer, operations]
-definition: A unit of work that consumes or produces datasets, identified by a namespace and a name.
+definition: A data job is a unit of work that reads or writes datasets, identified by a namespace and a name.
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Задача обработки данных
     many: Задачи обработки данных
 description:
-  en: A unit of work that consumes or produces datasets, identified by a namespace and a name.
-  ru: Единица работы, которая читает или создаёт наборы данных и имеет пространство имён и имя.
+  en: A data job is a step of data processing — a query, a script, a pipeline stage — that takes some datasets as input and produces others. Its namespace and name identify it, and its runs show when it worked and what it touched.
+  ru: 'Задача обработки данных — шаг обработки: запрос, сценарий, этап конвейера, — который берёт одни наборы данных и создаёт другие. Пространство имён и имя отличают её, а запуски показывают, когда она работала и что затронула.'

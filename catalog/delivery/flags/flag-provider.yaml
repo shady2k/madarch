@@ -1,7 +1,7 @@
 id: openfeature.provider
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The component that supplies flag definitions and answers evaluations.
+definition: A flag provider is the component that supplies flag definitions and answers evaluations.
 sources:
 - https://openfeature.dev/specification/glossary
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Поставщик флагов
     many: Поставщики флагов
 description:
-  en: The component that supplies flag definitions and answers evaluations.
-  ru: Компонент, который выдаёт определения флагов и отвечает на оценки.
+  en: A flag provider stores the definitions of feature flags and their rules, and answers each request with the variant to serve. It may be a hosted service or a library inside the product, and its answers must be quick and available.
+  ru: Поставщик флагов хранит определения флагов функций и их правила и на каждый запрос отвечает, какой вариант выдать. Это может быть внешняя служба или библиотека внутри продукта, и его ответы должны быть быстрыми и доступными.

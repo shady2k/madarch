@@ -1,7 +1,7 @@
 id: practice.user-role
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: The part a person plays when using the product, with the permissions and duties it carries.
+definition: A user role is the part a person plays when using the product, with the permissions and duties it carries.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Роль пользователя
     many: Роли пользователя
 description:
-  en: The part a person plays when using the product, with the permissions and duties it carries.
-  ru: Роль, которую человек играет при использовании продукта, с её правами и обязанностями.
+  en: A user role groups what a person may see and do in the product, such as administrator, editor or reader. One account may hold several roles, and the role decides both its permissions and what it is expected to do.
+  ru: 'Роль пользователя объединяет то, что человек может видеть и делать в продукте: администратор, редактор или читатель. Одна учётная запись может иметь несколько ролей, а роль задаёт и права, и ожидаемые обязанности.'

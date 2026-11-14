@@ -1,7 +1,7 @@
 id: cyclonedx.component
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
-definition: One component of a software bill of materials, of a type such as library, container or application.
+definition: An SBOM component is one component of a software bill of materials, of a type such as library, container or application.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Компонент SBOM
     many: Компоненты SBOM
 description:
-  en: One component of a software bill of materials, of a type such as library, container or application.
-  ru: Один компонент ведомости состава программы типа библиотеки, контейнера или приложения.
+  en: 'An SBOM component is one item in the list of what a product is built from: a library, a container base, an application or a framework, with its name and version. Its type says what kind of thing it is.'
+  ru: 'Компонент SBOM — один пункт в списке того, из чего собран продукт: библиотека, основа контейнера, приложение или каркас, с именем и версией. Его тип говорит, что это за вещь.'

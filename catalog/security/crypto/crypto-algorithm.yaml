@@ -1,7 +1,7 @@
 id: practice.crypto-algorithm
 purpose: structure
 audience: [security-engineer, architect, developer]
-definition: A named algorithm, such as AES-256-GCM, with its strength and its status.
+definition: A cryptographic algorithm is a named method such as AES-256-GCM, with its strength and its status.
 sources:
 - https://csrc.nist.gov/projects/cryptographic-standards-and-guidelines
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Криптографический алгоритм
     many: Криптографические алгоритмы
 description:
-  en: A named algorithm, such as AES-256-GCM, with its strength and its status.
-  ru: Именованный алгоритм, например AES-256-GCM, с его стойкостью и статусом.
+  en: A cryptographic algorithm is a defined method for encrypting, hashing, signing or exchanging keys, with a name and a set of parameters. Its status says whether it is recommended, deprecated or broken, and what should replace it.
+  ru: Криптографический алгоритм — определённый способ шифрования, хеширования, подписи или обмена ключами с именем и набором параметров. Его статус говорит, рекомендован он, устарел или сломан и чем его заменять.

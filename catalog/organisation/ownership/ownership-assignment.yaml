@@ -1,7 +1,7 @@
 id: practice.ownership-assignment
 purpose: history
 audience: [product-lead, architect, developer, operations]
-definition: A recorded statement that one element is owned by one person or group, and since when.
+definition: An ownership assignment records that one element of the product belongs to one person or group, and since when.
 sources:
 - https://backstage.io/docs/features/software-catalog/well-known-relations
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Назначение владельца
     many: Назначения владельца
 description:
-  en: A recorded statement that one element is owned by one person or group, and since when.
-  ru: Записанное утверждение, что элемент принадлежит человеку или группе, и с какого времени.
+  en: An ownership assignment states that a person or a group owns a named element, from a given date. A new assignment ends the previous one, so the product always has one answer to who is responsible.
+  ru: Назначение владельца фиксирует, что определённый элемент продукта принадлежит человеку или группе с определённой даты. Новое назначение сменяет прежнее, поэтому у элемента всегда один ответственный.

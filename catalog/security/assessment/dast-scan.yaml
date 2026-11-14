@@ -1,7 +1,7 @@
 id: practice.dast-scan
 purpose: quality
 audience: [security-engineer, tester, developer]
-definition: A tool run that attacks a running service the way an outsider could.
+definition: A DAST scan is a tool run that attacks a running service the way an outsider could.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сканирование DAST
     many: Сканирования DAST
 description:
-  en: A tool run that attacks a running service the way an outsider could.
-  ru: Запуск инструмента, который атакует работающий сервис так, как мог бы посторонний.
+  en: 'A dynamic application security test sends requests to a running service and looks for weaknesses in what comes back: injection, broken access, exposed data. It sees the service as an attacker would, without reading its code.'
+  ru: 'Сканирование DAST отправляет запросы работающему сервису и ищет слабости в ответах: внедрение, сломанный доступ, открытые данные. Оно видит сервис так, как увидел бы атакующий, не читая код.'

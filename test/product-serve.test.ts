@@ -449,10 +449,10 @@ describe('madarch serve: an existing product served', () => {
     expect(home).toContain('<!doctype html>');
     const asset = await (await fetch(`${address}/assets/app.js`)).text();
     expect(asset).toContain('export const x = 1;');
-    // The app's own routes answer through index.html; the old page route is no route any more.
-    const documentsRoute = await (await fetch(`${address}/docs`)).text();
-    expect(documentsRoute).toContain('<!doctype html>');
-    expect((await fetch(`${address}/p/docs/vision.md`)).status).toBe(404);
+    // The app's own routes answer through index.html (decision 0036, section 7); a page layer's route is no route any more.
+    const templateRoute = await (await fetch(`${address}/p/product-settings`)).text();
+    expect(templateRoute).toContain('<!doctype html>');
+    expect((await fetch(`${address}/docs`)).status).toBe(404);
     await Bun.sleep(500);
     // --no-open never reaches the opener.
     expect(existsSync(opener.replace('march-open', 'open.log'))).toBe(false);
@@ -516,6 +516,9 @@ describe('madarch serve: an existing product served', () => {
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('port 1');
     expect(run.stderr).toContain('the server could not be started');
+    // The port is answered before the startup work: the store the start would prepare is not there, so the
+    // case fails on a serve that waits for the whole preparation before it takes its address (madarch-64o5.68).
+    expect(existsSync(join(base, '.madarch', 'knowledge', 'demo-id', 'graph', 'pgdata'))).toBe(false);
   }); // root or a capable environment may listen on the port and serve: the case is not a failure there
 
   test('a second serve while the dist stands builds nothing', async () => {

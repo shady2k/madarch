@@ -1,7 +1,7 @@
 id: dcat.data-service
 purpose: structure
 audience: [analyst, architect, developer]
-definition: An interface that gives access to one or more datasets, such as an API or an endpoint.
+definition: A data service is an interface that gives access to one or more datasets, such as an API or an endpoint.
 sources:
 - https://www.w3.org/TR/vocab-dcat-3/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сервис данных
     many: Сервисы данных
 description:
-  en: An interface that gives access to one or more datasets, such as an API or an endpoint.
-  ru: 'Интерфейс, дающий доступ к одному или нескольким наборам данных: API или конечная точка.'
+  en: A data service lets other systems read or write datasets through a defined interface, such as an API, a query endpoint or a feed. It hides where the data is stored and states how it can be asked for.
+  ru: 'Сервис данных даёт другим системам читать или записывать наборы через определённый интерфейс: API, точку запросов или поток. Он скрывает, где хранятся данные, и говорит, как их можно запросить.'

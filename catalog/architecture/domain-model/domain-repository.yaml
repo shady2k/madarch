@@ -1,7 +1,7 @@
 id: ddd.repository
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A domain interface that gives access to aggregates as if they were a collection; it is not a version control repository.
+definition: A domain repository is an interface that gives the rest of the domain model access to aggregates of one type, as if they were a collection.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Репозиторий предметной области
     many: Репозитории предметной области
 description:
-  en: A domain interface that gives access to aggregates as if they were a collection; it is not a version control repository.
-  ru: Интерфейс предметной области, дающий доступ к агрегатам как к коллекции; это не репозиторий системы контроля версий.
+  en: 'A domain repository hides where aggregates of one type come from and go to, and offers them as a collection a domain expert recognises: add one, find one by identity, list some. It belongs to the domain model, unlike a version control repository, which stores source files and their history.'
+  ru: 'Репозиторий предметной области скрывает, откуда берутся и куда сохраняются агрегаты одного типа, и предоставляет их как коллекцию: добавить, найти по идентификатору, получить список. Он относится к модели предметной области, в отличие от репозитория системы контроля версий, который хранит исходные файлы и их историю.'

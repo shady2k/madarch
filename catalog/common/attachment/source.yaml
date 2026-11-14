@@ -1,7 +1,7 @@
 id: practice.source
 purpose: structure
 audience: [developer, architect]
-definition: The source text of one repository file at its recorded commit.
+definition: A source file is the text of one repository file at the commit that was recorded.
 sources:
 - https://git-scm.com/docs/git-show
 acquisition:
@@ -43,5 +43,5 @@ labels:
     one: Исходный файл
     many: Исходные файлы
 description:
-  en: The full source text of a repository file at a recorded revision.
-  ru: Полный исходный текст файла репозитория на записанной ревизии.
+  en: A source file keeps the full text of one file from a repository as it stood at a given commit, so a claim about the code can be checked later. It is the evidence behind a statement about what the code does.
+  ru: Исходный файл хранит полный текст одного файла репозитория в том виде, в каком он был на записанном коммите, чтобы утверждение о коде можно было проверить позже. Это доказательство за высказыванием о том, что делает код.

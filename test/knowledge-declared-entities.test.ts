@@ -68,6 +68,8 @@ function draftWithKinds(name: string, kinds: readonly string[]): string {
     id: 'disk', version: declaration.version, path: 'plugins/disk', closure: closureOf(pluginFolder).hash,
   }] }));
   writeFolderManifest(draft.folder, stringify(manifest));
+  // The starter's file page also reads commit kinds that this fixture deliberately omits.
+  rmSync(join(draft.folder, 'templates', 'code-file.yaml'));
   writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented

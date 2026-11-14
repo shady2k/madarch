@@ -1,7 +1,7 @@
 id: practice.table
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A table, its columns and its indexes, and the code that reads and writes it.
+definition: A table is a named set of rows with the same columns, kept in a database.
 sources:
 - https://www.postgresql.org/docs/
 acquisition:
@@ -48,7 +48,7 @@ labels:
     one: Таблица
     many: Таблицы
 description:
-  en: A table, its columns and indexes, and the code that reads and writes it.
-  ru: Таблица, её столбцы и индексы, и код, который её читает и пишет.
+  en: A table is a named collection of rows, each with the same columns, that a database stores together. Its columns give the row's fields, its keys identify rows, and its indexes help find them.
+  ru: Таблица — именованный набор строк с одинаковыми столбцами, который база данных хранит вместе. Столбцы задают поля строки, ключи отличают строки, а индексы помогают их находить.
 derives-from:
 - code.database

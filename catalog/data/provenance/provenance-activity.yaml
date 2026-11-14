@@ -1,7 +1,7 @@
 id: prov.activity
 purpose: history
 audience: [analyst, architect, security-engineer]
-definition: Something that happened and produced or changed data, as PROV-O defines an activity.
+definition: A provenance activity is something that happened and produced or changed data, as PROV-O defines an activity.
 sources:
 - https://www.w3.org/TR/prov-o/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Действие происхождения
     many: Действия происхождения
 description:
-  en: Something that happened and produced or changed data, as PROV-O defines an activity.
-  ru: То, что произошло и создало или изменило данные, как действие в PROV-O.
+  en: 'A provenance activity records an action that used some data and produced or changed other data: a query, an import, a manual correction. It links the data before and after, so a reader can trace where a value came from.'
+  ru: 'Действие происхождения фиксирует, что нечто использовало одни данные и создало или изменило другие: запрос, импорт, ручную правку. Оно связывает данные до и после, чтобы можно было проследить, откуда взялось значение.'

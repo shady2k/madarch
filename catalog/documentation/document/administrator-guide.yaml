@@ -1,7 +1,7 @@
 id: practice.admin-guide
 purpose: operations
 audience: [operations, platform-devops]
-definition: The setup and the operations of the product, written for the person who runs it.
+definition: An administrator guide describes how to set up and run the product, written for the person who operates it.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -80,5 +80,5 @@ labels:
     one: Руководство администратора
     many: Руководство администратора
 description:
-  en: Grounded setup and operations, with independent walkthrough status.
-  ru: Запуск и эксплуатация с основаниями в исходниках и независимым статусом прохождения.
+  en: An administrator guide tells the person who runs the product how to install it, configure it, keep it secure and recover it when it fails. It covers the settings and the routine operations an administrator needs, not the product's use by its end users.
+  ru: Руководство администратора рассказывает тому, кто эксплуатирует продукт, как его установить, настроить, защитить и восстановить после сбоя. В нём описаны настройки и повседневные операции администратора, а не работа конечных пользователей с продуктом.

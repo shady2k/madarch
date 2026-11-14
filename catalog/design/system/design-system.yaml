@@ -1,7 +1,7 @@
 id: practice.design-system
 purpose: understand
 audience: [designer, developer, architect]
-definition: The tokens, components and rules a product draws its interface from.
+definition: A design system is the tokens, components and rules a product draws its interface from.
 sources:
 - https://www.nngroup.com/articles/design-systems-101/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Дизайн-система
     many: Дизайн-системы
 description:
-  en: The tokens, components and rules a product draws its interface from.
-  ru: Токены, компоненты и правила, из которых продукт строит интерфейс.
+  en: 'A design system is the shared foundation of a product''s interface: its design tokens, its components, the patterns they form and the rules for using them. It keeps different screens consistent and lets new work start from what already exists.'
+  ru: 'Дизайн-система — общая основа интерфейса продукта: токены дизайна, компоненты, сложившиеся из них образцы и правила их использования. Она держит разные экраны согласованными и позволяет новой работе начинать с готового.'

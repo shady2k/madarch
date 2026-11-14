@@ -1,7 +1,7 @@
 id: practice.on-call-schedule
 purpose: operations
 audience: [operations, platform-devops]
-definition: Who is answering alerts at which time, and how they are reached.
+definition: An on-call schedule says who is answering alerts at which time, and how they are reached.
 sources:
 - https://sre.google/workbook/on-call/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: График дежурств
     many: Графики дежурств
 description:
-  en: Who is answering alerts at which time, and how they are reached.
-  ru: Кто отвечает на оповещения в какое время и как с ним связываются.
+  en: An on-call schedule assigns periods to people, so someone is always named as the first responder for a service. It rotates the duty and keeps the contact details current.
+  ru: График дежурств закрепляет периоды за людьми, чтобы у сервиса всегда был названный первый ответчик. Он чередует дежурство и держит контакты актуальными.

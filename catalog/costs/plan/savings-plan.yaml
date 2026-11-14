@@ -1,7 +1,7 @@
 id: practice.savings-plan
 purpose: operations
 audience: [product-lead, operations, platform-devops]
-definition: A planned change that lowers the cost, with the saving it is expected to make.
+definition: A savings plan is a planned change that lowers the cost, with the saving it is expected to make.
 sources:
 - https://focus.finops.org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: План экономии
     many: Планы экономии
 description:
-  en: A planned change that lowers the cost, with the saving it is expected to make.
-  ru: Запланированное изменение, снижающее затраты, и ожидаемая экономия.
+  en: A savings plan names a change that should reduce spending — a smaller instance, a reserved capacity, a removed duplicate — and estimates what it will save. Comparing the saving with the cost of the change shows whether it is worth doing.
+  ru: 'План экономии называет изменение, которое должно снизить расходы: меньший сервер, зарезервированную мощность, убранного дубля, — и оценивает, сколько оно сэкономит. Сравнив экономию с ценой изменения, видно, стоит ли его делать.'

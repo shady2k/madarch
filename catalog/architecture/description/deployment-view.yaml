@@ -1,7 +1,7 @@
 id: arc42.deployment-view
 purpose: understand
 audience: [architect, analyst, developer]
-definition: arc42's view of the infrastructure and the mapping of building blocks onto it.
+definition: A deployment view is arc42's picture of the infrastructure and where the building blocks run on it.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Представление развёртывания
     many: Представления развёртывания
 description:
-  en: arc42's view of the infrastructure and the mapping of building blocks onto it.
-  ru: Представление arc42 инфраструктуры и размещения на ней строительных блоков.
+  en: A deployment view shows the technical infrastructure — environments, nodes, networks — and which building blocks run on which node, as arc42's chapter 7 asks. It answers where the software actually executes and how the parts reach each other.
+  ru: Представление развёртывания показывает техническую инфраструктуру — среды, узлы, сети — и то, какие строительные блоки работают на каком узле, как требует глава 7 arc42. Оно отвечает, где на самом деле исполняется программа и как части достают друг друга.

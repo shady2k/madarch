@@ -1,7 +1,7 @@
 id: kubernetes.probe
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: One configured readiness, liveness or startup probe.
+definition: A probe is one configured readiness, liveness or startup check of a container.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -36,5 +36,5 @@ labels:
     one: Проба
     many: Пробы
 description:
-  en: One configured readiness, liveness or startup probe.
-  ru: Настроенная проба готовности, работоспособности или запуска.
+  en: 'A probe is a check the platform repeats against a container: readiness says whether it may receive traffic, liveness whether it must be restarted, startup whether it has finished starting. Its command, period and thresholds decide how quickly the platform reacts.'
+  ru: 'Проба — проверка, которую платформа повторяет для контейнера: готовность говорит, можно ли направлять ему трафик, работоспособность — нужно ли перезапустить, запуск — закончил ли он стартовать. Её команда, период и пороги решают, как быстро платформа отреагирует.'

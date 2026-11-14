@@ -1,7 +1,7 @@
 id: openssf.scorecard-check
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
-definition: One OpenSSF Scorecard check of a repository, with its score and the evidence it read.
+definition: A Scorecard check is one OpenSSF Scorecard check of a repository, with its score and the evidence it read.
 sources:
 - https://github.com/ossf/scorecard/blob/main/docs/checks.md
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Проверка Scorecard
     many: Проверки Scorecard
 description:
-  en: One OpenSSF Scorecard check of a repository, with its score and the evidence it read.
-  ru: Одна проверка репозитория OpenSSF Scorecard с оценкой и прочитанными доказательствами.
+  en: An OpenSSF Scorecard check examines one practice of an open-source repository, such as code review, signed releases or a security policy, and scores it from zero to ten. Its record explains what evidence it read and what would raise the score.
+  ru: 'Проверка Scorecard рассматривает одну практику открытого репозитория: просмотр кода, подписанные выпуски или политику безопасности, — и оценивает её от нуля до десяти. В её записи сказано, какие доказательства прочитали и что подняло бы оценку.'

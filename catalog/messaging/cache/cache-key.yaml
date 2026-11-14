@@ -1,7 +1,7 @@
 id: practice.cache-key
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: The name a cached value is stored under, with its namespace and its lifetime.
+definition: A cache key is the name under which a cached value is stored, with its namespace and its lifetime.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9111.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Ключ кэша
     many: Ключи кэша
 description:
-  en: The name a cached value is stored under, with its namespace and its lifetime.
-  ru: Имя, под которым хранится закэшированное значение, с пространством имён и сроком жизни.
+  en: A cache key identifies one cached value among all the values a cache holds, usually by the thing it names and the parameters that change it. The same key must lead to the same value, or different answers get mixed up.
+  ru: Ключ кэша отличает одно закэшированное значение от всех остальных, обычно по тому, что оно называет, и по параметрам, которые на него влияют. Один и тот же ключ должен вести к одному и тому же значению, иначе разные ответы перепутаются.

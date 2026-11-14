@@ -1,7 +1,7 @@
 id: oscal.profile
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A selection of controls from one or more catalogs, tailored for a purpose, as OSCAL defines it.
+definition: A profile is a selection of controls from one or more catalogs, adapted to a purpose, as OSCAL defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Профиль
     many: Профили
 description:
-  en: A selection of controls from one or more catalogs, tailored for a purpose, as OSCAL defines it.
-  ru: Выбор контролей из одного или нескольких каталогов, приспособленный для цели, как определяет OSCAL.
+  en: A profile chooses the controls a system, an organisation or a market must meet from one or more catalogs, and may tailor them by adding, removing or tightening requirements. It is what an assessment is made against.
+  ru: 'Профиль выбирает из одного или нескольких каталогов контроли, которым должна соответствовать система, организация или рынок, и может их приспособить: добавить, убрать или ужесточить требования. По нему и проводят оценку.'

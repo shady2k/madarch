@@ -1,7 +1,7 @@
 id: practice.data-entity
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A thing of the domain as it is stored, with the attributes and the identity it keeps.
+definition: A data entity is a thing of the domain as it is stored, with the attributes and the identity it keeps.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сущность данных
     many: Сущности данных
 description:
-  en: A thing of the domain as it is stored, with the attributes and the identity it keeps.
-  ru: Объект предметной области в том виде, как он хранится, с атрибутами и идентичностью.
+  en: A data entity is a concept the business stores — a customer, an order, an invoice — with its attributes and the key that identifies each instance. It is the data model's view of a domain thing, close to a table but named in business terms.
+  ru: 'Сущность данных — понятие, которое бизнес хранит: клиент, заказ, счёт, — с его атрибутами и ключом, отличающим один экземпляр от другого. Это взгляд модели данных на объект предметной области: близко к таблице, но названо словами бизнеса.'

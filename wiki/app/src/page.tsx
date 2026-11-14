@@ -1,0 +1,86 @@
+/**
+ * One page drawn from its composition (decision 0036, sections 6 and 7): every section in the order the template put it,
+ * each by the component it names, and a `tabs` section holding the sections it groups.
+ */
+import type { ReactElement } from 'react';
+import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
+import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
+import { HeaderSection } from './components/header.js';
+import { FactsSection } from './components/facts.js';
+import { TextSection } from './components/text.js';
+import { RelationsSection } from './components/relations.js';
+import { TableSection } from './components/table.js';
+import { BarsSection } from './components/bars.js';
+import { DiagramSection } from './components/diagram.js';
+import { SourceSection } from './components/source.js';
+import { TabsSection } from './components/tabs.js';
+import { SearchSection } from './components/search.js';
+import { KindsSection } from './components/kinds.js';
+import { CatalogueSection } from './components/catalogue.js';
+import type { SectionContext } from './components/types.js';
+import type { Navigation } from './client.js';
+
+export interface PageRuntime {
+  readonly base: string;
+  readonly language: string;
+  readonly busy: boolean;
+  readonly open: (path: string) => void;
+  readonly reload: (variables: Record<string, unknown>) => void;
+  /** The frame's own reading: the product's name and the kinds the sidebar lists. */
+  readonly product: string | null;
+  readonly navigation: Navigation | null;
+}
+
+/** The whole page: its sections in order, the ones a tab groups left to the tab. */
+export function PageView({ composition, data, runtime }: { readonly composition: PageComposition; readonly data: Record<string, unknown>; readonly runtime: PageRuntime }): ReactElement {
+  const tabbed = new Set<string>();
+  for (const section of composition.sections) {
+    if (section.component !== 'tabs') continue;
+    const groups = Array.isArray(section.params['groups']) ? (section.params['groups'] as { sections?: unknown }[]) : [];
+    const ids = [...(Array.isArray(section.params['sections']) ? section.params['sections'] : []), ...groups.flatMap((group) => (Array.isArray(group.sections) ? group.sections : []))];
+    for (const id of ids) if (typeof id === 'string') tabbed.add(id);
+  }
+  const render = (section: ComposedSection): ReactElement => {
+    const context: SectionContext = {
+      section,
+      data: data[section.id],
+      language: runtime.language,
+      base: runtime.base,
+      busy: runtime.busy,
+      open: runtime.open,
+      reload: runtime.reload,
+      renderSection: (id) => {
+        const held = composition.sections.find((one) => one.id === id);
+        return held === undefined ? null : render(held);
+      },
+      product: runtime.product,
+      navigation: runtime.navigation,
+    };
+    // A header draws the page's own title, so it carries no section title above it.
+    const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
+    return (
+      <PageSection key={section.id} data-section={section.id}>
+        {title === undefined || title === '' ? null : <SectionTitle>{title}</SectionTitle>}
+        {componentOf(section, context, composition.sections)}
+      </PageSection>
+    );
+  };
+  return <PageArticle data-testid="page">{composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}</PageArticle>;
+}
+
+function componentOf(section: ComposedSection, context: SectionContext, sections: readonly ComposedSection[]): ReactElement {
+  switch (section.component) {
+    case 'header': return <HeaderSection context={context} />;
+    case 'facts': return <FactsSection context={context} />;
+    case 'text': return <TextSection context={context} />;
+    case 'relations': return <RelationsSection context={context} />;
+    case 'table': return <TableSection context={context} />;
+    case 'bars': return <BarsSection context={context} />;
+    case 'diagram': return <DiagramSection context={context} />;
+    case 'source': return <SourceSection context={context} />;
+    case 'tabs': return <TabsSection context={context} sections={sections} />;
+    case 'search': return <SearchSection context={context} />;
+    case 'kinds': return <KindsSection context={context} />;
+    case 'catalogue': return <CatalogueSection context={context} />;
+  }
+}

@@ -1,7 +1,7 @@
 id: practice.business-rule
 purpose: understand
 audience: [product, analyst, tester, developer, architect]
-definition: A rule the product keeps, stated in the documents, which the code is meant to enforce.
+definition: A business rule is a rule the product keeps, stated in the documents, which the code is meant to enforce.
 sources:
 - https://cucumber.io/docs/gherkin/reference/
 acquisition:
@@ -43,6 +43,6 @@ labels:
     one: Бизнес-правило
     many: Бизнес-правила
 description:
-  en: A rule the product keeps (BR-1, BR-2 ...), with the code that implements it.
-  ru: Правило, которое соблюдает продукт (BR-1, BR-2 ...), и код, который его реализует.
+  en: A business rule states a constraint the organisation wants the product to respect, such as an order above a limit needing approval. Unlike a requirement about software behaviour, it comes from the business and should hold even when the implementation changes.
+  ru: 'Бизнес-правило формулирует ограничение, которое организация хочет соблюдать в продукте: например, заказ выше предела требует согласования. В отличие от требования к поведению программы, оно идёт от бизнеса и должно сохраняться при смене реализации.'
 key: []

@@ -1,7 +1,7 @@
 id: codeowners.owner
 purpose: history
 audience: [developer, architect]
-definition: A person or a team a CODEOWNERS pattern makes the reviewer of some paths; it is review ownership only.
+definition: A code owner is a person or a team named as the reviewer for a set of paths in a repository.
 sources:
 - https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Владелец кода
     many: Владельцы кода
 description:
-  en: A person or a team a CODEOWNERS pattern makes the reviewer of some paths; it is review ownership only.
-  ru: Человек или команда, которых шаблон CODEOWNERS делает рецензентами путей; это только ответственный за просмотр.
+  en: A code owner is a person or a team that a repository's CODEOWNERS file names as the reviewer for particular files or folders. Their review is expected before a change to those paths is merged.
+  ru: Владелец кода — человек или команда, которых файл CODEOWNERS в репозитории называет проверяющими для определённых файлов или папок. Их просмотр ожидается до того, как изменение этих путей будет слито.

@@ -1,8 +1,7 @@
 id: gdpr.processing-activity
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: One purpose for which personal data is processed, with its data, its recipients and its time limits, as GDPR article
-  30 records it.
+definition: A processing activity is one purpose for which an organisation processes personal data, together with the data, the people, the recipients and the time limits involved.
 sources:
 - https://gdpr-info.eu/art-30-gdpr/
 acquisition:
@@ -23,6 +22,5 @@ labels:
     one: Действие обработки
     many: Действия обработки
 description:
-  en: One purpose for which personal data is processed, with its data, its recipients and its time limits, as GDPR article
-    30 records it.
-  ru: Одна цель обработки персональных данных с её данными, получателями и сроками, как записывает статья 30 GDPR.
+  en: A processing activity describes one thing an organisation does with personal data, such as keeping customer records or sending a newsletter. For each activity the record names the purpose, the categories of data and people, the recipients, transfers to other countries and how long the data is kept, as data protection law requires.
+  ru: 'Действие обработки описывает одно действие организации с персональными данными: например, ведение картотеки клиентов или рассылку новостей. Для каждого действия запись называет цель, категории данных и людей, получателей, передачу в другие страны и срок хранения — так, как этого требует закон о защите данных.'

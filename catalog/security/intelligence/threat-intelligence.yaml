@@ -1,7 +1,7 @@
 id: stix.threat-intelligence
 purpose: quality
 audience: [security-engineer, architect]
-definition: What is known about the campaigns, the tools and the targets of attackers, kept so it can be acted on.
+definition: Threat intelligence is what is known about the campaigns, tools and targets of attackers, kept so it can be acted on.
 sources:
 - https://docs.oasis-open.org/cti/stix/v2.1/stix-v2.1.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Данные об угрозах
     many: Данные об угрозах
 description:
-  en: What is known about the campaigns, the tools and the targets of attackers, kept so it can be acted on.
-  ru: То, что известно о кампаниях, инструментах и целях атакующих, сохранённое для действий.
+  en: Threat intelligence gathers reports about who attacks which kinds of organisations, with which tools and methods, and turns them into what the product should watch for. It is useful only when it reaches a decision or a check.
+  ru: Данные об угрозах собирают сведения о том, кто и какими средствами и приёмами атакует какие организации, и превращают их в то, за чем продукту стоит следить. Они полезны, только когда доходят до решения или проверки.

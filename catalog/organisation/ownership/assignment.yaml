@@ -1,7 +1,7 @@
 id: practice.assignment
 purpose: history
 audience: [product-lead, product, architect]
-definition: A piece of work given to a person or a group, with the time it is expected in.
+definition: An assignment is a piece of work given to a person or a group, with the time it is expected by.
 sources:
 - https://scrumguides.org/scrum-guide.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Назначение
     many: Назначения
 description:
-  en: A piece of work given to a person or a group, with the time it is expected in.
-  ru: Работа, данная человеку или группе, со временем, к которому её ждут.
+  en: An assignment says who is to do which piece of work and by when, such as a task, a review or a shift. It turns a plan into a duty someone holds.
+  ru: 'Назначение говорит, кто должен выполнить какую работу и к какому сроку: задачу, просмотр или смену. Оно превращает план в обязанность конкретного человека или группы.'

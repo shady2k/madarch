@@ -1,7 +1,7 @@
 id: terraform.resource
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: One infrastructure object Terraform manages, of a provider's resource type.
+definition: A Terraform resource is one infrastructure object that Terraform manages, of a provider's resource type.
 sources:
 - https://developer.hashicorp.com/terraform/language/resources
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Ресурс Terraform
     many: Ресурсы Terraform
 description:
-  en: One infrastructure object Terraform manages, of a provider's resource type.
-  ru: Один объект инфраструктуры, которым управляет Terraform, типа ресурса провайдера.
+  en: A Terraform resource is one declared object in a provider's catalogue, such as a virtual network or a bucket, with the attributes the definition sets. Terraform compares the declared state with the recorded state and changes the real object to match.
+  ru: 'Ресурс Terraform — один объявленный объект из набора провайдера: виртуальная сеть или бакет, — с атрибутами, которые задаёт описание. Terraform сравнивает объявленное состояние с записанным и приводит настоящий объект к нужному.'

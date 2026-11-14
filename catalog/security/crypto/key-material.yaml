@@ -1,7 +1,7 @@
 id: practice.key-material
 purpose: structure
 audience: [security-engineer, architect, developer]
-definition: A key the product uses to sign, encrypt or authenticate, with where it is kept and when it expires.
+definition: Key material is a key the product uses to sign, encrypt or authenticate, with where it is kept and when it expires.
 sources:
 - https://www.rfc-editor.org/rfc/rfc5280.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Ключевой материал
     many: Ключевой материал
 description:
-  en: A key the product uses to sign, encrypt or authenticate, with where it is kept and when it expires.
-  ru: Ключ, которым продукт подписывает, шифрует или аутентифицирует, с местом хранения и сроком.
+  en: Key material is the actual secret the product uses in cryptography, such as a signing key or a shared secret. Its record says where it is stored, who may use it and when it must be rotated.
+  ru: 'Ключевой материал — сам секрет, которым продукт пользуется в криптографии: ключ подписи или общий секрет. В записи сказано, где он хранится, кто может им пользоваться и когда его нужно сменить.'

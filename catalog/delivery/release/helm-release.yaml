@@ -1,7 +1,7 @@
 id: helm.release
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A named, deployed instance of a Helm chart in one cluster and namespace.
+definition: A Helm release is a named, deployed instance of a Helm chart in one cluster and namespace.
 sources:
 - https://helm.sh/docs/topics/charts/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Выпуск Helm
     many: Выпуски Helm
 description:
-  en: A named, deployed instance of a Helm chart in one cluster and namespace.
-  ru: Именованный развёрнутый экземпляр чарта Helm в кластере и пространстве имён.
+  en: 'A Helm release records one installation of a chart: the chart version, the values used, the objects created and the revision history of the installation. Upgrading or rolling back changes the release, not the chart.'
+  ru: 'Выпуск Helm записывает одну установку чарта: его версию, использованные значения, созданные объекты и историю изменений установки. Обновление или откат меняют выпуск, а не сам чарт.'

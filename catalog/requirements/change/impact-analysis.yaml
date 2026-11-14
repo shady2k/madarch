@@ -1,7 +1,7 @@
 id: practice.impact-analysis
 purpose: understand
 audience: [product, analyst, tester, architect, product-lead]
-definition: What a proposed change touches and what it costs, written before the change is accepted.
+definition: An impact analysis says what a proposed change touches and what it costs, written before the change is accepted.
 sources:
 - https://glossary.istqb.org/en_US/term/impact-analysis
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Анализ влияния
     many: Анализы влияния
 description:
-  en: What a proposed change touches and what it costs, written before the change is accepted.
-  ru: Что затронет предложенное изменение и сколько оно стоит, написанное до его принятия.
+  en: 'An impact analysis examines a proposed change before it is accepted: which parts of the product it reaches, which teams and systems must move, what it costs in time and money, and which risks it brings. It gives the people who decide the facts to decide on.'
+  ru: 'Анализ влияния рассматривает предложенное изменение до принятия: каких частей продукта оно касается, какие команды и системы должны меняться, сколько это стоит времени и денег и какие несёт риски. Он даёт решающим людям факты для решения.'

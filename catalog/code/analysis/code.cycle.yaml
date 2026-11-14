@@ -1,7 +1,7 @@
 id: practice.dependency-cycle
 purpose: quality
 audience: [developer, architect]
-definition: Files or modules that import one another in a ring.
+definition: A dependency cycle is a ring of files or modules that import one another, so none can be understood or built without the others.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Цикл зависимостей
     many: Циклы зависимостей
 description:
-  en: Files or modules that import one another in a ring.
-  ru: Файлы или модули, которые импортируют друг друга по кругу.
+  en: A dependency cycle exists when file A imports B, B imports C and C imports A, directly or through more files. Such a ring makes code harder to test, to replace and to reason about, because the parts cannot be separated.
+  ru: 'Цикл зависимостей — кольцо файлов или модулей, которые импортируют друг друга: A импортирует B, B — C, а C — A, напрямую или через другие файлы. Такое кольцо мешает проверять код, заменять части и понимать его, потому что части нельзя разделить.'

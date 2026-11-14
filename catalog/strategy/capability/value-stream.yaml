@@ -1,7 +1,7 @@
 id: archimate.value-stream
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A sequence of stages that together deliver a result of value to a customer.
+definition: A value stream is a sequence of stages that together deliver a result of value to a customer.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Поток создания ценности
     many: Потоки создания ценности
 description:
-  en: A sequence of stages that together deliver a result of value to a customer.
-  ru: Последовательность этапов, которые вместе дают клиенту результат.
+  en: 'A value stream follows the work from a customer''s need to the value they receive, through the stages it passes: request, decision, delivery, support. It shows the whole path rather than the departments that own pieces of it.'
+  ru: 'Поток создания ценности проходит работу от потребности клиента до ценности, которую он получает, через все этапы: обращение, решение, доставку, поддержку. Он показывает весь путь, а не подразделения, которым принадлежат его части.'

@@ -1,7 +1,7 @@
 id: backstage.owner
 purpose: history
 audience: [product-lead, architect, developer, operations]
-definition: The person or the group that answers for an element of the product.
+definition: An owner is the person or the group that answers for an element of the product.
 sources:
 - https://backstage.io/docs/features/software-catalog/well-known-relations
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Владелец
     many: Владельцы
 description:
-  en: The person or the group that answers for an element of the product.
-  ru: Человек или группа, которые отвечают за элемент продукта.
+  en: An owner is the person or the group that answers for one element of the product, such as a service, a kind of data or a repository. The owner decides what happens to it and is the one others ask when it changes.
+  ru: 'Владелец — человек или группа, которые отвечают за один элемент продукта: сервис, вид данных или репозиторий. Владелец решает, что с ним будет, и к нему обращаются, когда элемент меняется.'

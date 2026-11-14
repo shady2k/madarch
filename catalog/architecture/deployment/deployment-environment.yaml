@@ -1,7 +1,7 @@
 id: practice.deployment-environment
 purpose: operations
 audience: [architect, operations, platform-devops]
-definition: A named place the product is deployed into, such as staging or production, with the rules that protect it.
+definition: A deployment environment is a named place the product is deployed into, such as staging or production, with the rules that protect it.
 sources:
 - https://c4model.com/diagrams/deployment
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Среда развёртывания
     many: Среды развёртывания
 description:
-  en: A named place the product is deployed into, such as staging or production, with the rules that protect it.
-  ru: Именованное место, куда разворачивают продукт, например staging или production, с правилами, которые его защищают.
+  en: 'A deployment environment is one target where a version of the product can run: development, staging, production or a customer''s own installation. It carries its own accounts, data, access rules and level of support.'
+  ru: 'Среда развёртывания — одна цель, где может работать версия продукта: разработка, стенд, промышленная среда или установка у клиента. У неё свои учётные записи, данные, правила доступа и уровень поддержки.'

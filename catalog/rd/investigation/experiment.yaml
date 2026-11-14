@@ -1,7 +1,7 @@
 id: practice.experiment
 purpose: understand
 audience: [product, analyst, architect, developer]
-definition: A controlled trial that tests a hypothesis and concludes with a finding.
+definition: An experiment is a controlled trial that tests a hypothesis and ends with a finding.
 sources:
 - https://openfeature.dev/specification/glossary
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Эксперимент
     many: Эксперименты
 description:
-  en: A controlled trial that tests a hypothesis and concludes with a finding.
-  ru: Контролируемая проба, которая проверяет гипотезу и заканчивается выводом.
+  en: 'An experiment creates a controlled situation in which a hypothesis can be confirmed or rejected: one thing changes, the rest stays the same, and the result is measured. It ends with a finding that says what the evidence supports.'
+  ru: 'Эксперимент создаёт контролируемую ситуацию, в которой гипотезу можно подтвердить или опровергнуть: меняется одно, остальное остаётся прежним, а результат измеряют. Он заканчивается выводом о том, что подтверждают доказательства.'

@@ -1,7 +1,7 @@
 id: practice.prototype
 purpose: understand
 audience: [product, designer, developer, architect]
-definition: A throwaway build that explores an option before the product is committed to it.
+definition: A prototype is a quick build that explores an option before the product commits to it.
 sources:
 - https://www.nngroup.com/articles/paper-prototyping/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Прототип
     many: Прототипы
 description:
-  en: A throwaway build that explores an option before the product is committed to it.
-  ru: Одноразовая сборка, которая исследует вариант до того, как на него решатся.
+  en: A prototype is a rough, often throwaway version of a feature or a screen, built to learn how it could work and what it would cost. It is not meant to ship; what it teaches is.
+  ru: Прототип — быстрая, часто одноразовая версия возможности или экрана, которую строят, чтобы понять, как это может работать и чего будет стоить. Его не выпускают в продукт; в продукт идут знания, которые он дал.

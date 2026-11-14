@@ -1,7 +1,7 @@
 id: istqb.defect
 purpose: quality
 audience: [tester, developer]
-definition: An imperfection in a work product that may cause a failure.
+definition: A defect is an imperfection in a work product that may cause a failure.
 sources:
 - https://glossary.istqb.org/en_US/term/defect
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Дефект
     many: Дефекты
 description:
-  en: An imperfection in a work product that may cause a failure.
-  ru: Несовершенство продукта работы, которое может вызвать сбой.
+  en: A defect is a flaw in something the team produced — code, a document, a design, a test — that can lead the product to fail. It is the cause; a failure is what a person sees when the defect is exercised.
+  ru: 'Дефект — изъян в том, что сделала команда: коде, документе, проекте или тесте, — который может привести продукт к сбою. Это причина; сбой — то, что видит человек, когда дефект проявляется.'

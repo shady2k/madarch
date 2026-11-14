@@ -1,0 +1,81 @@
+id: practice.time-cost
+purpose: operations
+audience: [developer, product-lead, operations]
+definition: A time and cost entry records one step of work, with who did it, how long it took, which model helped and what it cost in tokens and money.
+sources:
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
+- https://openai.github.io/openai-agents-python/tracing/
+acquisition:
+- conversation
+- not-implemented
+relation-constraints:
+  out:
+  - measures
+  - partOf
+  in:
+  - measures
+  - hasPart
+template-policy: page
+source: graph
+fields:
+- name: entity
+  type: json
+  producers:
+  - person
+- name: step
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: who
+  type: text
+  producers:
+  - person
+- name: executor_type
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: model
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: started_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: duration
+  type: integer
+  nullable: true
+  producers:
+  - person
+- name: tokens
+  type: integer
+  nullable: true
+  producers:
+  - person
+- name: cost
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: outcome
+  type: text
+  nullable: true
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+labels:
+  en:
+    one: Time and cost entry
+    many: Time and cost entries
+  ru:
+    one: Запись времени и затрат
+    many: Записи времени и затрат
+description:
+  en: 'A time and cost entry records one step of a piece of work: who did it, whether a person or an agent, which model helped, how long it took, how many tokens it used and what it cost. Entries add up to the time and the money the work has taken so far.'
+  ru: 'Запись времени и затрат фиксирует один шаг работы: кто его сделал — человек или агент, — какая модель помогала, сколько он занял, сколько потратил токенов и во что обошёлся. Из записей складывается время и деньги, которые работа уже забрала.'

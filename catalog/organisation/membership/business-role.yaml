@@ -1,7 +1,7 @@
 id: org.role
 purpose: history
 audience: [product-lead, product, architect]
-definition: A part a person plays in the organisation, such as product owner or developer.
+definition: A business role is a part a person plays in the organisation, such as product owner, developer or operator.
 sources:
 - https://www.w3.org/TR/vocab-org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Бизнес-роль
     many: Бизнес-роли
 description:
-  en: A part a person plays in the organisation, such as product owner or developer.
-  ru: 'Роль, которую человек играет в организации: владелец продукта или разработчик.'
+  en: 'A business role is a position or a part someone takes in the organisation, with duties and rights attached to it: product owner, developer, operator, security officer. One person can hold several roles, and one role can be held by several people.'
+  ru: 'Бизнес-роль — положение или часть, которую человек занимает в организации, со связанными с ней обязанностями и правами: владелец продукта, разработчик, оператор, специалист по безопасности. Один человек может держать несколько ролей, а одну роль — несколько людей.'

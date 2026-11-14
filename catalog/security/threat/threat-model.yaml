@@ -1,7 +1,7 @@
 id: owasp.threat-model
 purpose: quality
 audience: [security-engineer, architect, developer]
-definition: A description of a system, its assumptions and its threats, with the mitigations that answer them.
+definition: A threat model describes a system, its assumptions and its threats, with the mitigations that answer them.
 sources:
 - https://community.owasp.org/Threat_Modeling
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Модель угроз
     many: Модели угроз
 description:
-  en: A description of a system, its assumptions and its threats, with the mitigations that answer them.
-  ru: Описание системы, её допущений и угроз с отвечающими им смягчениями.
+  en: A threat model sets out what is being protected, which trust boundaries it crosses, who might attack it and in which ways, and what is done about each. It is kept with the design, so it changes when the system does.
+  ru: Модель угроз излагает, что защищают, какие границы доверия пересекает система, кто и какими способами может напасть и что с этим делают. Её хранят вместе с проектом, поэтому она меняется вместе с системой.

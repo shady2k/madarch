@@ -1,7 +1,7 @@
 id: practice.usability-finding
 purpose: quality
 audience: [designer, tester, product, analyst]
-definition: A problem a usability test found, with the session that showed it.
+definition: A usability finding is a problem that a usability test showed, with the session in which it appeared.
 sources:
 - https://www.nngroup.com/articles/usability-testing-101/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Находка юзабилити-теста
     many: Находки юзабилити-теста
 description:
-  en: A problem a usability test found, with the session that showed it.
-  ru: Проблема, найденная тестом удобства, и сессия, которая её показала.
+  en: 'A usability finding describes one difficulty that a usability test brought to light: what the person tried to do, where they got stuck and what it cost them. It points back to the session where it happened, so others can watch it themselves.'
+  ru: 'Находка юзабилити-теста описывает одну трудность, которую выявил тест: что человек пытался сделать, где он застрял и чего это ему стоило. Она указывает на сессию, где это произошло, чтобы другие могли посмотреть сами.'

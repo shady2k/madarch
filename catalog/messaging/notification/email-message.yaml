@@ -1,7 +1,7 @@
 id: practice.email-message
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: A message a service sends by e-mail, with its sender, its recipients and its template.
+definition: An email message is a message a service sends by e-mail, with its sender, its recipients and its template.
 sources:
 - https://www.rfc-editor.org/rfc/rfc5322.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Письмо
     many: Письма
 description:
-  en: A message a service sends by e-mail, with its sender, its recipients and its template.
-  ru: Сообщение, которое сервис отправляет по электронной почте, с отправителем, получателями и шаблоном.
+  en: 'An email message is a letter a service sends to one or more addresses: a receipt, a password reset, a newsletter. It has a sender, recipients, a subject and a body, which usually comes from a template with the recipient''s details put in.'
+  ru: 'Письмо — сообщение, которое сервис отправляет на один или несколько адресов: квитанцию, сброс пароля, рассылку. У него есть отправитель, получатели, тема и текст, который обычно берут из шаблона и подставляют в него данные получателя.'

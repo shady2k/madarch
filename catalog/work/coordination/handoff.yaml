@@ -1,7 +1,7 @@
 id: practice.handoff
 purpose: operations
 audience: [developer, product, analyst, product-lead]
-definition: One operation that gives a branch and its work to another responsible person.
+definition: A handoff passes a branch and the work on it from one responsible person to another, with what is finished and what remains.
 sources:
 - https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
@@ -17,6 +17,53 @@ relation-constraints:
   - assigns
   - partOf
 template-policy: none
+fields:
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Handoff
@@ -25,5 +72,5 @@ labels:
     one: Передача
     many: Передачи
 description:
-  en: One operation that gives a branch and its work to another responsible person.
-  ru: Одна операция, которая передаёт ветку и её работу другому ответственному человеку.
+  en: A handoff gives a branch and the work in it to another responsible person, together with what is finished and what still has to be done. It keeps two people from continuing the same work at once.
+  ru: Передача — переход ветки и работы в ней к другому ответственному человеку вместе со сведениями о том, что сделано и что осталось. Она нужна, чтобы одну и ту же работу не продолжали двое сразу.

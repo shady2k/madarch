@@ -1,7 +1,7 @@
 id: practice.supplier-assessment
 purpose: quality
 audience: [product-lead, operations, security-engineer]
-definition: The check of a supplier's security and its dependability, with what it found.
+definition: A supplier assessment is the check of a supplier's security and dependability, and what it found.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/161/r1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Оценка поставщика
     many: Оценки поставщиков
 description:
-  en: The check of a supplier's security and its dependability, with what it found.
-  ru: Проверка безопасности и надёжности поставщика с её находками.
+  en: 'A supplier assessment examines whether a supplier can be trusted with the product''s work: its security practices, its reliability, its finances and its own suppliers. It records what was checked, what was found and what the product decided.'
+  ru: 'Оценка поставщика выясняет, можно ли доверить поставщику работу продукта: его практики безопасности, надёжность, финансовое положение и его собственных поставщиков. В ней записано, что проверяли, что нашли и что решили.'

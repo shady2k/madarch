@@ -1,7 +1,7 @@
 id: spdx.license
 purpose: quality
 audience: [security-engineer, platform-devops, developer]
-definition: The terms a component may be used under, named by its SPDX identifier.
+definition: A licence is the terms under which a component may be used, named by its SPDX identifier.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Licensing/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Лицензия
     many: Лицензии
 description:
-  en: The terms a component may be used under, named by its SPDX identifier.
-  ru: Условия, на которых можно использовать компонент, названные его идентификатором SPDX.
+  en: 'A licence states what the copyright holder allows others to do with a component and under which conditions: use, change, redistribute, keep the notice. Its SPDX identifier names the standard terms without repeating them.'
+  ru: 'Лицензия говорит, что держатель прав разрешает делать с компонентом и на каких условиях: использовать, менять, распространять, сохранять уведомление. Её идентификатор SPDX называет стандартные условия, не повторяя их.'

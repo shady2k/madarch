@@ -1,7 +1,7 @@
 id: practice.correction
 purpose: quality
 audience: [product, analyst, developer, tester]
-definition: A person's statement that something the wiki says is wrong, with the ground it rests on.
+definition: A correction is a person's statement that something a product document says is wrong, with the ground it rests on.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -54,6 +54,6 @@ labels:
     one: Поправка
     many: Поправки
 description:
-  en: A person's note that a statement is wrong, and why; the agent takes it into account at the next refresh.
-  ru: Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.
+  en: 'A correction records a person saying that a statement in the product''s documents is wrong, and why they think so: a changed fact, a different rule, an example that contradicts it. It is kept beside the statement until someone confirms and rewrites it.'
+  ru: 'Поправка фиксирует, что человек считает утверждение в документах продукта неверным, и почему: изменился факт, правило другое, пример противоречит. Её держат рядом с утверждением, пока кто-то не подтвердит и не перепишет его.'
 key: []

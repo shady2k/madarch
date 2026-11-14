@@ -1,7 +1,7 @@
 id: practice.user-flow
 purpose: understand
 audience: [product, analyst, designer]
-definition: The steps a person takes through the product to reach one outcome.
+definition: A user flow is the sequence of steps a person takes through the product to reach one outcome.
 sources:
 - https://www.nngroup.com/articles/journey-mapping-101/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Пользовательский путь
     many: Пользовательские пути
 description:
-  en: The steps a person takes through the product to reach one outcome.
-  ru: Шаги, которые человек проходит по продукту, чтобы достичь результата.
+  en: A user flow follows one person through the product from a starting point to a single outcome, such as placing an order. It shows each step, each decision and each place the person can go next.
+  ru: Пользовательский путь — последовательность шагов, которые человек проходит по продукту от начала до одного результата, например до оформления заказа. В нём видны каждый шаг, каждое решение и каждый дальнейший вариант.

@@ -1,8 +1,7 @@
 id: manifest.workflows
 purpose: structure
 audience: [architect, product-lead]
-definition: A named sequence of stages the engine runs, with the limits and the settings it runs under; its id is its key
-  under workflows.
+definition: A workflow is a named sequence of stages with the limits and settings it runs under.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
@@ -24,5 +23,5 @@ labels:
     one: Рабочий процесс
     many: Рабочие процессы
 description:
-  en: A named set of stages the engine runs, with its limits and settings.
-  ru: Именованный набор этапов, которые выполняет движок, с его пределами и настройками.
+  en: A workflow names a sequence of stages that a piece of work goes through, such as draft, review and release, with the limits and settings that apply to it. Its stages and transitions are declared, so the allowed moves are known.
+  ru: 'Рабочий процесс — именованная последовательность этапов, которые проходит работа: черновик, проверка и выпуск, — с действующими для неё пределами и настройками. Его этапы и переходы объявлены, поэтому допустимые ходы известны.'

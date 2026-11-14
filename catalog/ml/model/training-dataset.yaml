@@ -1,7 +1,7 @@
 id: practice.training-dataset
 purpose: structure
 audience: [developer, architect, product-lead]
-definition: The data a model was trained on, with its source and its licence.
+definition: A training dataset is the data a model was trained on, with its source and its licence.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Dataset/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Обучающий набор
     many: Обучающие наборы
 description:
-  en: The data a model was trained on, with its source and its licence.
-  ru: Данные, на которых обучена модель, с их источником и лицензией.
+  en: A training dataset is the collection of examples a model learned from, with where the data came from, how it was prepared and under which licence it may be used. What the data contains decides what the model can learn and which biases it inherits.
+  ru: Обучающий набор — совокупность примеров, на которых училась модель, вместе с происхождением данных, способом их подготовки и лицензией, по которой их можно использовать. От того, что в нём есть, зависит, чему модель научится и какие предубеждения унаследует.

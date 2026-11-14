@@ -1,7 +1,7 @@
 id: practice.tracker-task
 purpose: history
 audience: [developer, product, product-lead, tester]
-definition: A tracker task that commit messages name, with the commits that name it.
+definition: A tracker task is an item in an issue tracker that commit messages name, which ties work and code together.
 sources:
 - https://scrumguides.org/scrum-guide.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Задача
     many: Задачи
 description:
-  en: A tracker task that commit messages name.
-  ru: Задача трекера, которую называют сообщения коммитов.
+  en: A tracker task is a work item in an issue tracker, such as a ticket or a bug report, that commit messages refer to by its key. The reference connects the change in the repository with the work that asked for it.
+  ru: Задача трекера — рабочий элемент в системе учёта задач, например тикет или сообщение об ошибке, на который ссылаются сообщения коммитов по его ключу. Ссылка связывает изменение в репозитории с работой, которая его потребовала.

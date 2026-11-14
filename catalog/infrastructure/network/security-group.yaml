@@ -1,7 +1,7 @@
 id: practice.security-group
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
-definition: A named set of firewall rules attached to the resources of one cloud network.
+definition: A security group is a named set of firewall rules attached to the resources of one cloud network.
 sources:
 - https://www.rfc-editor.org/rfc/rfc4949.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Группа безопасности
     many: Группы безопасности
 description:
-  en: A named set of firewall rules attached to the resources of one cloud network.
-  ru: Именованный набор правил брандмауэра, привязанный к ресурсам одной облачной сети.
+  en: A security group collects the rules that one group of cloud resources shares, such as the servers of a service, and applies them together. A resource belongs to one or more groups, and all their rules decide what reaches it.
+  ru: 'Группа безопасности собирает правила, общие для одной группы облачных ресурсов: например, серверов сервиса, — и применяет их вместе. Ресурс входит в одну или несколько групп, и все их правила решают, что до него доходит.'

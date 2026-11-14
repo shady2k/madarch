@@ -1,7 +1,7 @@
 id: kubernetes.service
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A Kubernetes Service that routes traffic to the pods it selects.
+definition: A Kubernetes Service gives one stable address to the pods it selects.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сервис Kubernetes
     many: Сервисы Kubernetes
 description:
-  en: A Kubernetes Service that routes traffic to pods.
-  ru: Сервис Kubernetes, который направляет трафик на поды.
+  en: A Kubernetes Service selects pods by their labels and gives them one address and port that other parts call, even as individual pods come and go. It balances the calls over the healthy pods behind it.
+  ru: Сервис Kubernetes выбирает поды по меткам и даёт им один адрес и порт, к которым обращаются другие части, хотя отдельные поды появляются и исчезают. Он распределяет вызовы по здоровым подам за собой.

@@ -1,0 +1,53 @@
+id: practice.constitution
+purpose: understand
+audience: [product-lead, developer, architect]
+definition: A constitution is the one document of a product that states the principles, practices and conventions in force and their order of precedence.
+sources:
+- https://github.com/shady2k/madarch/blob/main/docs/vision.md
+- https://agents.md/
+acquisition:
+- conversation
+- document
+- not-implemented
+relation-constraints:
+  out:
+  - hasPart
+  - defines
+  - constrains
+  in:
+  - partOf
+  - refines
+template-policy: page
+source: graph
+fields:
+- name: body
+  type: text
+  producers:
+  - person
+- name: precedence
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+details:
+- body
+- precedence
+- status
+labels:
+  en:
+    one: Constitution
+    many: Constitutions
+  ru:
+    one: Конституция
+    many: Конституции
+description:
+  en: A constitution is the one place where a product states the principles, practices and conventions in force, in the order that settles which wins when two disagree. The product's instructions for its agents are made from it, so a new rule is changed once and reaches every agent.
+  ru: 'Конституция — одно место, где продукт называет действующие принципы, практики и соглашения, в порядке, который решает, что важнее при расхождении. Из неё строят инструкции продукта для агентов, поэтому новое правило меняют один раз и оно доходит до каждого агента.'

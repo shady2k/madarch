@@ -1,8 +1,7 @@
 id: sre.sla
 purpose: operations
 audience: [operations, product-lead, analyst]
-definition: An agreement that states the service level and what happens when it is missed, whether with a user or with another
-  service; the SLA is the one kind a supplier agreement names.
+definition: An SLA is an agreement that states the service level and what happens when it is missed, whether with a user or with another service.
 sources:
 - https://sre.google/sre-book/service-level-objectives/
 acquisition:
@@ -23,7 +22,5 @@ labels:
     one: SLA
     many: SLA
 description:
-  en: An agreement that states the service level and what happens when it is missed, whether with a user or with another service;
-    the SLA is the one kind a supplier agreement names.
-  ru: Соглашение, которое задаёт уровень сервиса и последствия его нарушения с пользователем или другим сервисом; SLA — единственный
-    вид, который называет соглашение с поставщиком.
+  en: 'A service level agreement promises a level of service to a customer and states the consequence of missing it: a credit, a penalty, a right to leave. It is the external promise; the internal targets that support it are service level objectives.'
+  ru: 'SLA обещает клиенту определённый уровень сервиса и говорит, что будет при его нарушении: скидка, штраф, право уйти. Это внешнее обещание; внутренние цели, которые его поддерживают, — это SLO.'

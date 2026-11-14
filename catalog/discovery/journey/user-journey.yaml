@@ -1,7 +1,7 @@
 id: practice.user-journey
 purpose: understand
 audience: [product, analyst, designer]
-definition: A person's experience of reaching an outcome over time, including the moments outside the product.
+definition: A user journey is a person's experience of reaching an outcome over time, including the moments outside the product.
 sources:
 - https://www.nngroup.com/articles/journey-mapping-101/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Путь пользователя
     many: Пути пользователя
 description:
-  en: A person's experience of reaching an outcome over time, including the moments outside the product.
-  ru: Опыт человека на пути к результату во времени, включая моменты вне продукта.
+  en: A user journey describes what a person goes through while trying to reach a goal, across all the channels and moments involved, including waiting, talking to other people and using other services. It captures how the person feels at each stage, not only which screens they saw.
+  ru: 'Путь пользователя описывает, что человек переживает на пути к цели, во всех каналах и во все моменты: ожидание, разговоры с другими людьми, другие сервисы. В нём важно и то, что человек чувствует на каждом этапе, а не только какие экраны он видел.'

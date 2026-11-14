@@ -1,7 +1,7 @@
 id: opengitops.reconciliation
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The repeated act of comparing the desired state in Git with the live state and correcting the difference.
+definition: A GitOps reconciliation is the repeated comparison of the desired state in Git with the live state, and the correction of the difference.
 sources:
 - https://opengitops.dev/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Согласование GitOps
     many: Согласования GitOps
 description:
-  en: The repeated act of comparing the desired state in Git with the live state and correcting the difference.
-  ru: Повторяемое сравнение желаемого состояния в Git с живым и исправление расхождения.
+  en: A reconciliation reads the desired state from Git, compares it with what actually runs and changes the live system to match. It repeats on a schedule or on events, so manual changes do not last.
+  ru: Согласование читает желаемое состояние из Git, сравнивает его с тем, что действительно работает, и приводит живую систему к нужному. Оно повторяется по расписанию или по событиям, поэтому ручные изменения не держатся.

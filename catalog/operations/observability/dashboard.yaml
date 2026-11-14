@@ -1,7 +1,7 @@
 id: practice.dashboard
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: A screen of panels that shows the metrics and the logs of one subject over time.
+definition: A dashboard is a screen of panels that shows the metrics and logs of one subject over time.
 sources:
 - https://grafana.com/docs/grafana/latest/dashboards/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Панель
     many: Панели
 description:
-  en: A screen of panels that shows the metrics and the logs of one subject over time.
-  ru: Экран из панелей, который показывает метрики и журналы одного предмета во времени.
+  en: A dashboard arranges panels around one subject — a service, a journey, a business measure — so its state is visible at a glance. It is read during incidents and reviewed to see trends.
+  ru: Дашборд располагает панели вокруг одного предмета — сервиса, пути пользователя или бизнес-меры, — чтобы его состояние было видно с одного взгляда. На него смотрят во время инцидентов и возвращаются, чтобы увидеть тенденции.

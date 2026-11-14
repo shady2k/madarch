@@ -1,7 +1,7 @@
 id: pact.provider-verification
 purpose: quality
 audience: [tester, developer]
-definition: The run in which a provider is checked against the contracts its consumers published.
+definition: A provider verification is the run in which a provider is checked against the contracts its consumers published.
 sources:
 - https://docs.pact.io/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Проверка поставщика
     many: Проверки поставщика
 description:
-  en: The run in which a provider is checked against the contracts its consumers published.
-  ru: Запуск, в котором поставщика проверяют по контрактам, опубликованным потребителями.
+  en: A provider verification replays the expectations consumers published against the provider's current version and reports which still hold. It is the provider's half of contract testing.
+  ru: Проверка поставщика повторяет ожидания, опубликованные потребителями, на текущей версии поставщика и сообщает, какие из них ещё выполняются. Это половина проверки контрактов, которая приходится на поставщика.

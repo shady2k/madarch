@@ -1,7 +1,7 @@
 id: practice.ai-impact-assessment
 purpose: quality
 audience: [security-engineer, product-lead, analyst]
-definition: The study of how an AI system affects the people it is used on, and the measures that answer it.
+definition: An AI impact assessment studies how an AI system affects the people it is used on, and the measures that answer that.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Оценка воздействия ИИ
     many: Оценки воздействия ИИ
 description:
-  en: The study of how an AI system affects the people it is used on, and the measures that answer it.
-  ru: Исследование того, как система ИИ влияет на людей, и меры, которые на это отвечают.
+  en: 'An AI impact assessment examines who an AI system touches, how it may help or harm them, and which measures keep the harm small: human review, transparency, the option to appeal. It is done before the system is used and updated when the system changes.'
+  ru: 'Оценка воздействия ИИ рассматривает, кого затрагивает система ИИ, чем она может помочь или навредить и какие меры уменьшают вред: участие человека, прозрачность, возможность оспорить решение. Её делают до применения системы и обновляют, когда система меняется.'

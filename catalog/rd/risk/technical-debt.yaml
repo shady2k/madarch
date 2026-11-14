@@ -1,7 +1,7 @@
 id: practice.technical-debt
 purpose: quality
 audience: [developer, architect, product-lead]
-definition: A known weakness of the implementation that will cost more to fix later than now.
+definition: Technical debt is a known weakness of the implementation that will cost more to fix later than now.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Технический долг
     many: Технические долги
 description:
-  en: A known weakness of the implementation that will cost more to fix later than now.
-  ru: Известная слабость реализации, исправление которой позже будет стоить дороже, чем сейчас.
+  en: Technical debt is a compromise in the code or the design that made something faster to build but makes changes harder or riskier later. It is recorded with the work it would take to repay and the interest it charges while it stays.
+  ru: Технический долг — компромисс в коде или устройстве, который позволил сделать быстрее, но позже усложняет или делает рискованными изменения. Его записывают вместе с работой, нужной для возврата, и с той ценой, которую он берёт, пока остаётся.

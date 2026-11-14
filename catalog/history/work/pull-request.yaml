@@ -1,7 +1,7 @@
 id: otel.vcs-change-request
 purpose: history
 audience: [developer, architect, product-lead]
-definition: A proposed change to a repository, with the commits it holds and the review it got.
+definition: A pull request is a proposed change to a repository, holding its commits and the review it received.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Запрос на слияние
     many: Запросы на слияние
 description:
-  en: A proposed change to a repository, with the commits it holds and the review it got.
-  ru: Предложенное изменение репозитория с его коммитами и полученным обзором.
+  en: A pull request asks that the commits of a branch be merged into another branch and shows the difference between them. It holds the discussion and the review of the change, so people can agree on it before it lands.
+  ru: Запрос на слияние предлагает влить коммиты одной ветки в другую и показывает разницу между ними. В нём идёт обсуждение и просмотр изменения, чтобы люди договорились о нём до слияния.
