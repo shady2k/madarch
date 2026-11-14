@@ -92,6 +92,7 @@ function connectionFields(edgeType: string): FieldDef[] {
     { name: 'edges', type: `[${edgeType}!]!` },
     { name: 'pageInfo', type: 'PageInfo!' },
     { name: 'totalCount', type: 'Int!' },
+    { name: 'relationLabel', type: 'String' },
   ];
 }
 
@@ -150,6 +151,7 @@ class Builder {
     ]);
     this.type('Backlink', [
       { name: 'relation', type: 'String!' },
+      { name: 'label', type: 'String!' },
       { name: 'edge', type: 'String!' },
       { name: 'inverse', type: 'Boolean!' },
       { name: 'from', type: 'Entity!' },
@@ -158,6 +160,7 @@ class Builder {
     this.type('BacklinkConnection', connectionFields('BacklinkEdge'));
     this.type('Outgoing', [
       { name: 'relation', type: 'String!' },
+      { name: 'label', type: 'String!' },
       { name: 'edge', type: 'String!' },
       { name: 'inverse', type: 'Boolean!' },
       { name: 'to', type: 'Entity!' },

@@ -26,6 +26,7 @@ import { fieldNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
 import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
+import { relationWords } from '../knowledge/relation-labels.js';
 
 /** One open opinion of a vertex or an edge, as the read holds it. */
 export interface OpinionRow {
@@ -285,6 +286,8 @@ export interface DiagramGroup {
   readonly side: 'in' | 'out';
   /** Metadata arrows keep the declaration's direction, even when the root is their target. */
   readonly canonicalLabel?: boolean;
+  /** The product graph's words in the requested language and reading direction. */
+  readonly label?: string;
   readonly kind: string;
   /** How many neighbours the group holds, of which at most `first` were read. */
   readonly total: number;
@@ -656,6 +659,7 @@ export class ReadContext {
       edges: page.map((row) => ({ cursor: row.cursor, node: row })),
       pageInfo: { endCursor: page.length === 0 ? null : page[page.length - 1]!.cursor, hasNextPage: rows.length > first },
       totalCount: batch?.total ?? 0,
+      relationLabel: this.relationWord(edge.name, parent.lang, side === 'to'),
     };
   }
 
@@ -956,7 +960,7 @@ export class ReadContext {
     for (const [key, rows] of sample) {
       const [side, relation, kind] = key.split('\u0000') as ['in' | 'out', string, string];
       const total = Number(rows[0]?.['total'] ?? rows.length);
-      groups.set(key, { relation, side, kind, total, ...(rows[0]?.['metadata'] === true ? { canonicalLabel: true } : {}), nodes: rows.map((row) => String(row['uid'])) });
+      groups.set(key, { relation, side, kind, total, label: this.relationWord(relation, lang, side === 'in' && rows[0]?.['metadata'] !== true), ...(rows[0]?.['metadata'] === true ? { canonicalLabel: true } : {}), nodes: rows.map((row) => String(row['uid'])) });
       const entry = catalogue?.byName.get(kind);
       if (entry !== undefined) kindPages.set(kind, `/e/catalogue/${encodeURIComponent(entry.uid)}`);
       const label = this.kindWord(kind, lang);
@@ -972,6 +976,14 @@ export class ReadContext {
     for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
     const truncated = [...groups.values()].some((group) => group.total > (sample.get(`${group.side}\u0000${group.relation}\u0000${group.kind}`)?.length ?? 0));
     return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
+  }
+
+  /** Relation vocabulary belongs to the published product declaration, not the engine or the checkout. */
+  private relationWord(name: string, lang: string | undefined, inverse: boolean): string {
+    const language = lang ?? this.lang;
+    const labels = this.manifest.catalog?.schema.relationLabels?.get(name);
+    const words = labels?.[language] ?? labels?.[language.split('-')[0]!];
+    return words?.[inverse ? 'in' : 'out'] ?? relationWords(name, language, inverse);
   }
 
   // ---- links both ways ---------------------------------------------------------------------------------------
@@ -1005,8 +1017,8 @@ export class ReadContext {
     const page = after.slice(0, first);
     const nodeOf = (row: { relation: string; other: EntityValue }): unknown =>
       direction === 'in'
-        ? { relation: row.relation, edge: this.edgeNameOf(row.relation), inverse: true, from: row.other }
-        : { relation: row.relation, edge: this.edgeNameOf(row.relation), inverse: false, to: row.other };
+        ? { relation: row.relation, label: this.relationWord(this.edgeNameOf(row.relation), entity.lang, true), edge: this.edgeNameOf(row.relation), inverse: true, from: row.other }
+        : { relation: row.relation, label: this.relationWord(this.edgeNameOf(row.relation), entity.lang, false), edge: this.edgeNameOf(row.relation), inverse: false, to: row.other };
     return {
       edges: page.map((row) => ({ cursor: encodeCursor({ relation: row.relation, id: row.id }), node: nodeOf(row) })),
       pageInfo: { endCursor: page.length === 0 ? null : encodeCursor({ relation: page[page.length - 1]!.relation, id: page[page.length - 1]!.id }), hasNextPage: after.length > first },
@@ -1105,6 +1117,9 @@ export class ReadContext {
    * `<field>Of` inverse of it. A reference's inverse has no edge kind and answers the name it was read by.
    */
   private edgeNameOf(relation: string): string {
+    for (const name of this.manifest.catalog?.schema.relations.keys() ?? []) {
+      if (fieldNameOf(name) === relation || `${fieldNameOf(name)}Of` === relation) return name;
+    }
     for (const edge of this.published.edges) {
       if (fieldNameOf(edge.name) === relation || `${fieldNameOf(edge.name)}Of` === relation) return edge.name;
     }
@@ -1568,6 +1583,7 @@ export class ReadContext {
       edges: page.map((node, at) => ({ cursor: cursorOf(at, node), node })),
       pageInfo: { endCursor: page.length === 0 ? null : cursorOf(page.length - 1, page[page.length - 1]!), hasNextPage: values.length > first },
       totalCount: total,
+      relationLabel: this.relationWord(edgeName, lang, inverse),
     };
   }
 

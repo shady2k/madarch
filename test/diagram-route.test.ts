@@ -44,7 +44,7 @@ test('LikeC4 shows a self relation through another occurrence linked to the same
   const self: DiagramNeighbourhood = {
     ...neighbourhood,
     nodes: new Map([['1', repository as never]]),
-    groups: [{ relation: 'code.imports', side: 'out', kind: 'code.repository', total: 1, nodes: ['1'], canonicalLabel: true }],
+    groups: [{ relation: 'code.imports', label: 'импортирует', side: 'out', kind: 'code.repository', total: 1, nodes: ['1'], canonicalLabel: true }],
     links: [{ from: '1', to: '1', relation: 'code.imports' }],
   };
   const held = { diagramNeighbourhood: async () => self } as unknown as KnowledgeProduct;

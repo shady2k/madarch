@@ -7,7 +7,6 @@
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { titleIn } from '../../../../src/page-contract/index.js';
-import { relationWords } from '../../../../src/knowledge/relation-labels.js';
 import { useRef, useState } from 'react';
 import { Button } from './ui/button.js';
 import { PaginationBar, PaginationSummary } from './ui/filter-bar.js';
@@ -20,6 +19,7 @@ import type { SectionContext } from './types.js';
 
 interface RelationRow {
   readonly relation?: unknown;
+  readonly label?: unknown;
   readonly edge?: unknown;
   readonly inverse?: unknown;
   readonly node?: unknown;
@@ -44,10 +44,10 @@ export function RelationsSection({ context }: { readonly context: SectionContext
   const canPage = (context.section.query ?? '').includes(`$${context.section.id}_after`);
   const next = nextOf(connection);
   const groups = named === undefined
-    ? groupOf(edgesOf(connection), context.language)
+    ? groupOf(edgesOf(connection))
     : [{
         key: `${named}\u0000${context.section.params['inverse'] === true ? 'in' : 'out'}`,
-        word: relationWords(named, context.language, context.section.params['inverse'] === true),
+        word: String((connection as Record<string, unknown> | undefined)?.['relationLabel'] ?? named),
         rows: uniqueRows(edgesOf(connection)),
         total: totalOf(connection) || uniqueRows(edgesOf(connection)).length,
       }];
@@ -104,7 +104,7 @@ function uniqueRows(rows: readonly Record<string, unknown>[]): Record<string, un
 }
 
 /** The rows of one connection, grouped by the relation they were read through, the fullest group first. */
-function groupOf(rows: readonly Record<string, unknown>[], language: string): RelationGroup[] {
+function groupOf(rows: readonly Record<string, unknown>[]): RelationGroup[] {
   const groups = new Map<string, RelationGroup>();
   for (const outer of rows) {
     // A connection's row is `{node}`; the relation's own fields stand on that node, or on the row itself for a list.
@@ -113,7 +113,7 @@ function groupOf(rows: readonly Record<string, unknown>[], language: string): Re
     const edge = typeof row.edge === 'string' ? row.edge : typeof row.relation === 'string' ? String(row.relation) : '';
     const inverse = row.inverse === true;
     const key = `${edge}\u0000${inverse ? 'in' : 'out'}`;
-    const heldGroup = groups.get(key) ?? { key, word: relationWords(edge, language, inverse), rows: [] };
+    const heldGroup = groups.get(key) ?? { key, word: typeof row.label === 'string' ? row.label : edge, rows: [] };
     heldGroup.rows.push(outer);
     groups.set(key, heldGroup);
   }

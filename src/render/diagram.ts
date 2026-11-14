@@ -59,7 +59,7 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
   const edges: DiagramEdge[] = [];
   let folded = 0;
   for (const group of neighbourhood.groups) {
-    const word = relationWords(group.relation, entity.lang ?? 'en', group.side === 'in' && group.canonicalLabel !== true);
+    const word = group.label ?? relationWords(group.relation, entity.lang ?? 'en', group.side === 'in' && group.canonicalLabel !== true);
     if (group.total > aggregateAbove) {
       const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
       const id = `fold:${group.side}:${group.relation}:${group.kind}`;
