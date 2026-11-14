@@ -236,7 +236,7 @@ sections:
 
 - **Addresses**: `/` (home); `/e/<kind>/<id>` for every entity — a record, a catalogue entity, a
   document page, a glossary term, a statement, a problem, a task; `/p/<template>?<name>=<value>` for
-  a template bound to no entity (product settings, fill runs, one fill run `?run=<id>`), whose query
+  a template bound to no entity (the catalogue and its selection mode, product settings, the preparation panel, the runs history, one fill run `?run=<id>`), whose query
   parameters become the operation's variables of the same name. Search is the `search` component in
   the base templates' header; the glossary is the page of its catalogue entity.
 - **Components**, generic, taking only their section's data and parameters: `header` (title, kind
@@ -250,8 +250,9 @@ sections:
   walks to that entity), `source` (a citation with its line range), `tabs` (sections as tabs). A
   diagram is drawn on the server because the same pictures are served to clients on request (HTTP
   and MCP), not only to the wiki; the browser makes the server's answer interactive and lays
-  nothing out. Command components: `fill` (choose and run;
-  the catalogue page's choose-for-fill mode), `run` (a fill run's progress), `settings-form`,
+  nothing out. Command components: `catalogue` (the catalogue's reading and explicit selection
+  mode), `prepare` (the one preparation panel a press starts from), `runs` (the history of fills),
+  `fill-kind` (a kind page's press into that panel), `run` (a fill run's progress), `settings-form`,
   `problem-actions`, `sources` (the Sources page's documents and repositories); they call the command
   API and read what they show from the graph or the retained command reads. The app names no kind.
 - **Component parameters** (all optional unless marked; `path` is a dot path into the section's
@@ -262,8 +263,8 @@ sections:
   pageSize }`; `bars { path* (groups), labelPath, valuePath }`; `timeseries { path* (buckets) }`;
   `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
-  `fill { mode: choose|run }`; `run { runVariable* }`; `settings-form { group* }`;
-  `problem-actions { path* }`; `sources` (no parameters). A template naming an unknown component or parameter is refused at
+  `catalogue` and `prepare` and `runs` (no parameters); `fill-kind { kindPath* }`; `run { runVariable* }`;
+  `settings-form { group* }`; `problem-actions { path* }`; `sources` (no parameters). A template naming an unknown component or parameter is refused at
   start with the file and line.
 - **Cache**: answers are cached normalised by `Entity.id`, keyed by product, `structure` revision,
   language, role, operation and variables, each stamped with the `data` revision it was read at,

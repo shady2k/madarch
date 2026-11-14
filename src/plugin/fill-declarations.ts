@@ -358,7 +358,7 @@ function fillPlanError(manifest: KindsManifest, unavailable: ReadonlySet<string>
  * refused, naming the kinds and fields the agent would fill (madarch-64o5.63): those kinds never run without one, and
  * they are never called unfillable.
  */
-export function planManifestFill(manifest: KindsManifest, folder: string, selectedKinds?: readonly string[], agentSelected?: boolean, requestedKinds?: readonly string[]) {
+export function planManifestFill(manifest: KindsManifest, folder: string, selectedKinds?: readonly string[], agentSelected?: boolean, requestedKinds?: readonly string[], pluginsOnly = false) {
   for (const plugin of manifest.plugins?.values() ?? []) {
     if (plugin.declaration === undefined) {
       const file = resolve(plugin.declarationFile ?? resolve(folder, plugin.path ?? '', 'plugin.json'));
@@ -462,8 +462,23 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     selectedKinds: requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name)),
     agentSelected: true,
   });
+  if (pluginsOnly) {
+    // A plugins-only press runs every deterministic producer and leaves the agent's fields unfilled: the agent's output
+    // is not planned, so the plan needs no agent and refuses nothing. The full plan's `agentNeeds` is kept for the page,
+    // which says which fields this press will not fill.
+    const deterministicPlugins = executable.filter((plugin) => plugin.manifest.agent === undefined);
+    const deterministic = new Set(deterministicPlugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
+    const runSelected = requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name) && (deterministic.has(name) || !fielded(name)));
+    const run = planFillDeclarations({
+      kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+      plugins: deterministicPlugins,
+      selectedKinds: runSelected,
+      agentSelected: true,
+    });
+    return { ...run, errors, agentNeeds: plan.agentNeeds, fieldProducers: plan.fieldProducers, pluginsOnly: true };
+  }
   if (agentSelected === false && plan.agentNeeds.length > 0) {
     throw new ClosureRefusal('fill-declaration', `${resolve(manifest.file)}:1: ${agentNeedMessage(plan.agentNeeds)}`, resolve(manifest.file), 1);
   }
-  return { ...plan, errors };
+  return { ...plan, errors, pluginsOnly: false };
 }

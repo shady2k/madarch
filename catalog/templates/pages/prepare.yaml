@@ -1,0 +1,19 @@
+# The preparation panel for one fill press (the design change of madarch-64o5.71): the final set, what plugins and the
+# agent fill, the agent and its token cap, and one final press. A phone draws the page whole; a wide screen keeps the
+# panel in its reading column.
+template: prepare
+variables:
+  kinds:
+    type: String
+    required: true
+  pluginsOnly:
+    type: String
+sections:
+  - id: header
+    component: header
+    title: { en: Prepare the fill, ru: Настройка запуска }
+    params:
+      titlePath: label
+  - id: prepare
+    component: prepare
+    after: header

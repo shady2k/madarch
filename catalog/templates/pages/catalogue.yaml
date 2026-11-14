@@ -1,0 +1,18 @@
+# The entity catalogue (the design change of madarch-64o5.71): the kinds the product declares, read by default, with a
+# visible way into the selection mode. The command component `catalogue` reads the navigation and the server's fill plan;
+# the page names no kind of its own.
+template: catalogue
+variables:
+  select:
+    type: String
+  kinds:
+    type: String
+sections:
+  - id: header
+    component: header
+    title: { en: Entity catalogue, ru: Каталог сущностей }
+    params:
+      titlePath: label
+  - id: catalogue
+    component: catalogue
+    after: header

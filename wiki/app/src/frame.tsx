@@ -8,7 +8,7 @@ import { useState, type MouseEvent, type ReactElement, type ReactNode } from 're
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  AlertTriangleIcon, BookOpenIcon, CheckIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HomeIcon,
+  AlertTriangleIcon, BookOpenIcon, CheckIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HistoryIcon, HomeIcon,
   LayoutGridIcon, MenuIcon, RefreshCwIcon, SettingsIcon, UserRoundIcon,
 } from 'lucide-react';
 import {
@@ -25,16 +25,15 @@ import {
 } from './components/ui/dropdown-menu.js';
 import { Button } from './components/ui/button.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
-import { FillButton } from './components/fill-button.js';
+import { RunIndicator } from './components/run-indicator.js';
 import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
-import { entityAddress, FILL_PAGE, FRAME_PAGES, PAGE_ADDRESSES, type FramePage } from './address.js';
+import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
 
 /** The word the frame gives one of its own sections, in the language the reader reads. */
 export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
-    case 'catalogue': return t('navigation.catalogue');
     case 'glossary': return t('knowledge.glossary.title');
     case 'kit': return t('kit.title');
   }
@@ -103,7 +102,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
       <NavigationLabel>{frameWord(id, t)}</NavigationLabel>
     </NavigationLink>
   );
-  const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? FRAME_PAGES.catalogue : entityAddress(CATALOGUE_KIND, kind.entryId);
+  const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? PAGE_ADDRESSES.catalogue : entityAddress(CATALOGUE_KIND, kind.entryId);
   const kindLink = (kind: NavigationKind, depth: 1 | 2): ReactElement => {
     const address = kindAddress(kind);
     return (
@@ -121,10 +120,12 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
         <NavigationLink icon={HomeIcon} active={tasks.home} aria-current={tasks.home ? 'page' : undefined} data-testid="nav-home" {...link('/')}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
         </NavigationLink>
-        {section('catalogue', LayoutGridIcon)}
+        <NavigationLink icon={LayoutGridIcon} active={here(PAGE_ADDRESSES.catalogue)} aria-current={here(PAGE_ADDRESSES.catalogue) ? 'page' : undefined} data-testid="nav-catalogue" {...link(PAGE_ADDRESSES.catalogue)}>
+          <NavigationLabel>{t('navigation.catalogue')}</NavigationLabel>
+        </NavigationLink>
         {section('glossary', BookOpenIcon)}
-        <NavigationLink icon={RefreshCwIcon} active={here(FILL_PAGE)} aria-current={here(FILL_PAGE) ? 'page' : undefined} data-testid="nav-fill" {...link(FILL_PAGE)}>
-          <NavigationLabel>{t('navigation.fill')}</NavigationLabel>
+        <NavigationLink icon={HistoryIcon} active={here(RUNS_PAGE)} aria-current={here(RUNS_PAGE) ? 'page' : undefined} data-testid="nav-runs" {...link(RUNS_PAGE)}>
+          <NavigationLabel>{t('navigation.runs')}</NavigationLabel>
         </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
@@ -272,7 +273,7 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
       </ShellBreadcrumb>
       <ShellActions>
         {menu}
-        <FillButton base={base} open={open} />
+        <RunIndicator base={base} open={open} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
         </Button>

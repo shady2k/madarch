@@ -3,9 +3,10 @@
  * template bound to no entity. A query parameter binds a variable the template declares, and `lang` and `role` are the
  * reader's own: they are passed to the page's operation, never stored in it.
  *
- * The catalogue and the glossary are still the frame's own placeholders, so each opens a page that says it is being
- * rebuilt. The fill, the problems, the sources and the product's settings are product templates at their own addresses
- * (`/p/fill`, `/p/problems`, `/p/sources`, `/p/settings`), and one fill run is another (`/p/run?run=<id>`).
+ * The glossary and the kit are still the frame's own placeholders. The catalogue, the problems, the sources, the product's
+ * settings, the runs and the preparation panel are product templates at their own addresses (`/p/catalogue`,
+ * `/p/problems`, `/p/sources`, `/p/settings`, `/p/runs`, `/p/prepare`), and one fill run is another
+ * (`/p/run?run=<id>`).
  */
 import type { PageAddress } from '../../../src/page-contract/index.js';
 
@@ -14,7 +15,6 @@ import type { PageAddress } from '../../../src/page-contract/index.js';
  * so a section of the frame stands at a template address of its own name until its page is a template from the product.
  */
 export const FRAME_PAGES = {
-  catalogue: '/p/catalogue',
   glossary: '/p/glossary',
   kit: '/p/kit',
 } as const;
@@ -22,13 +22,29 @@ export const FRAME_PAGES = {
 /** Every page the frame's sidebar links to: the placeholders above and the product templates the frame draws. */
 export const PAGE_ADDRESSES = {
   ...FRAME_PAGES,
+  catalogue: '/p/catalogue',
   problems: '/p/problems',
   sources: '/p/sources',
   settings: '/p/settings',
+  runs: '/p/runs',
 } as const;
 
-/** The fill page, a template of the product (`/p/fill`): its command component chooses the kinds and starts a run. */
-export const FILL_PAGE = '/p/fill';
+/** The runs page: the history of fills, always reachable, and the way to choose a new fill. */
+export const RUNS_PAGE = '/p/runs';
+
+/** The preparation panel for a set of kinds; `pluginsOnly` leaves the agent's fields unfilled. */
+export function prepareAddress(kinds: readonly string[], pluginsOnly = false): string {
+  const query = new URLSearchParams({ kinds: [...new Set(kinds)].sort().join(',') });
+  if (pluginsOnly) query.set('pluginsOnly', '1');
+  return `/p/prepare?${query.toString()}`;
+}
+
+/** The catalogue in selection mode with these kinds checked; the server adds their prerequisites. */
+export function catalogueSelectionAddress(kinds: readonly string[] = []): string {
+  const query = new URLSearchParams({ select: '1' });
+  if (kinds.length > 0) query.set('kinds', [...new Set(kinds)].sort().join(','));
+  return `/p/catalogue?${query.toString()}`;
+}
 
 /** One fill run's page, the `run` template with the run's id as its variable. */
 export function runAddress(runId: string): string {

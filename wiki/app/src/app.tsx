@@ -226,7 +226,7 @@ export function App(): ReactElement {
             <FrameToolbar
               product={navigation?.product ?? identity.data?.name ?? null}
               base={base}
-              task={address.home ? t('knowledge.home') : section === null ? (address.page.template === 'fill' ? t('navigation.fill') : address.page.template === 'run' ? t('knowledge.fillRun.title') : address.page.template === 'problems' ? t('loop.problemsTitle') : address.page.template === 'sources' ? t('navigation.documents') : address.page.template === 'settings' ? t('settings.title') : null) : frameWord(section, t)}
+              task={address.home ? t('knowledge.home') : section === null ? (address.page.template === 'catalogue' ? t('navigation.catalogue') : address.page.template === 'prepare' ? t('prepare.title') : address.page.template === 'runs' ? t('navigation.runs') : address.page.template === 'run' ? t('knowledge.fillRun.title') : address.page.template === 'problems' ? t('loop.problemsTitle') : address.page.template === 'sources' ? t('navigation.documents') : address.page.template === 'settings' ? t('settings.title') : null) : frameWord(section, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}

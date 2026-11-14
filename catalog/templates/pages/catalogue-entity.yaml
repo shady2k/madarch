@@ -4,6 +4,13 @@
 template: catalogue-entity
 extends: entity
 sections:
+  - id: fillKind
+    component: fill-kind
+    after: header
+    query: |
+      name
+    params:
+      kindPath: name
   - id: facts
     component: facts
     replace: true

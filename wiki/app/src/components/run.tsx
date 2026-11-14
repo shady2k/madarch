@@ -20,7 +20,7 @@ import {
   pauseFillRun, readFillRun, stopFillRun, useChangeStream, useCommandRead,
   type FillRunDetail, type FillRunGroup,
 } from './command.js';
-import { FILL_PAGE } from '../address.js';
+import { RUNS_PAGE } from '../address.js';
 import type { SectionContext } from './types.js';
 
 const LIVE = ['created', 'planning', 'running', 'pausing', 'cancelling'];
@@ -196,7 +196,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         )}
       </Disclosure>
 
-      <Paragraph><TextLink href={context.base + FILL_PAGE} onClick={(event) => { event.preventDefault(); context.open(FILL_PAGE); }}>{t('knowledge.fillRun.back')}</TextLink></Paragraph>
+      <Paragraph><TextLink href={context.base + RUNS_PAGE} onClick={(event) => { event.preventDefault(); context.open(RUNS_PAGE); }}>{t('runs.back')}</TextLink></Paragraph>
 
       <Dialog open={confirming} onOpenChange={(open) => { if (!busy) setConfirming(open); }}>
         <DialogContent data-testid="stop-dialog" closeLabel={t('knowledge.fillPage.stopCancel')} closeDisabled={busy}>

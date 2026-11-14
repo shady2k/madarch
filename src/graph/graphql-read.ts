@@ -1189,6 +1189,8 @@ export class ReadContext {
         kind: kind.name,
         one: kind.labels?.[language]?.one ?? kind.labels?.[this.fallbackLang]?.one ?? kind.name,
         many: kind.labels?.[language]?.many ?? kind.labels?.[this.fallbackLang]?.many ?? kind.name,
+        definition: kind.descriptions?.[language] ?? kind.descriptions?.[this.fallbackLang] ?? null,
+        taken: catalogue.byName.has(kind.name),
         group: kind.group ?? null,
         count: counts.get(kind.name) ?? 0,
         entryId: catalogue.byName.get(kind.name)?.uid ?? null,

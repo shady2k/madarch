@@ -49,11 +49,14 @@ export interface FillPlanAnswer {
 
 export interface FillPlanView {
   readonly selectedKinds: readonly string[];
+  readonly requestedKinds: readonly string[];
+  readonly added: readonly { readonly kind: string; readonly neededBy: string }[];
   readonly order: readonly string[];
   readonly units: readonly FillPlanUnit[];
   readonly kinds: readonly FillPlanKind[];
   readonly needsAgent: readonly FillPlanNeed[];
   readonly errors: readonly FillPlanError[];
+  readonly pluginsOnly: boolean;
 }
 
 /** One agent `GET /api/agents` offers, and the one saved for this product. */
@@ -240,6 +243,8 @@ export interface SourcesAnswer {
 /** The product's fill state, as much as the fill page and its button read (`GET /api/status`). */
 export interface FillStatusAnswer {
   readonly fill: { readonly state: string; readonly runId?: string };
+  readonly product?: { readonly name: string; readonly id: string };
+  readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
   /** madarch's own wiki is documentation: it offers no fill. */
   readonly own?: boolean;
 }
@@ -325,8 +330,8 @@ const query = (params: Record<string, string | undefined>): string => {
 };
 
 /** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
-export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal): Promise<FillPlanAnswer> {
-  return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected }), ...(signal === undefined ? {} : { signal }) });
+export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal, pluginsOnly = false): Promise<FillPlanAnswer> {
+  return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });
 }
 
 /** `GET /api/product`: the product's identity, read from its manifest alone. */
@@ -385,7 +390,7 @@ export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs
 export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${query({ run: runId })}`, signal === undefined ? {} : { signal });
 
 /** Starts the fill of the kinds checked: their dependencies and order are the server's. */
-export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null }): Promise<{ runId: string; order: readonly string[] }> =>
+export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
   command(base, '/api/fill-selected', { method: 'POST', body: JSON.stringify(selection) });
 
 /** A person's «Пауза». */

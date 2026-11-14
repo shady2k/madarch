@@ -31,6 +31,10 @@ export interface FillPlanUnit {
 export interface FillPlanView {
   /** The selected kinds in the order their turns run, every dependency before its dependant. */
   readonly selectedKinds: readonly string[];
+  /** The kinds the person asked for (the dependencies are the rest of `selectedKinds`). */
+  readonly requestedKinds: readonly string[];
+  /** The prerequisites the plan added, with the kind whose request brought each one in. */
+  readonly added: readonly { readonly kind: string; readonly neededBy: string }[];
   /** The plugins that run, in plan order. */
   readonly order: readonly string[];
   readonly units: readonly FillPlanUnit[];
@@ -39,25 +43,40 @@ export interface FillPlanView {
   readonly needsAgent: readonly AgentNeed[];
   /** The kinds nothing in the manifest produces, each with the fields and the plugin the product lacks. */
   readonly errors: readonly FillPlanError[];
+  /** True when the plan runs only deterministic plugins: the agent's fields stay unfilled by this press. */
+  readonly pluginsOnly: boolean;
 }
 
 /** The plan a press of the selected kinds plans; the agent is always offered, and `needsAgent` says where it is required. */
-export function fillPlanView(manifest: KindsManifest, folder: string, selectedKinds?: readonly string[], requestedKinds?: readonly string[]): FillPlanView {
+export function fillPlanView(
+  manifest: KindsManifest,
+  folder: string,
+  selectedKinds?: readonly string[],
+  requestedKinds?: readonly string[],
+  entries: readonly { readonly kind: string; readonly reason: 'requested' | 'dependency'; readonly namedBy: string }[] = [],
+  pluginsOnly = false,
+): FillPlanView {
+  // The full plan is what the page shows: every field's producer, the agent's fields, and a missing plugin's error. A
+  // plugins-only press runs the deterministic part; the same view says which fields nobody will fill this time.
   const plan = planManifestFill(manifest, folder, selectedKinds, true, requestedKinds);
+  const run = pluginsOnly ? planManifestFill(manifest, folder, selectedKinds, false, requestedKinds, true) : plan;
   const agent = (plugin: string): boolean => manifest.plugins?.get(plugin)?.declaration?.agent !== undefined;
   const kinds = plan.selectedKinds.map((kind) => {
     const fields = [...plan.fieldProducers(kind)].map(([field, producers]) => ({ field, producers }));
     return { kind, fields, agentFields: fields.filter((entry) => entry.producers.some(agent)).map((entry) => entry.field) };
   });
-  const units = plan.order.flatMap((plugin) => plan.selectedKinds
-    .filter((kind) => plan.outputs.get(plugin)?.has(kind) === true)
+  const units = run.order.flatMap((plugin) => run.selectedKinds
+    .filter((kind) => run.outputs.get(plugin)?.has(kind) === true)
     .map((kind) => ({ plugin, kind })));
   return {
     selectedKinds: plan.selectedKinds,
-    order: plan.order,
+    requestedKinds: [...new Set(requestedKinds ?? entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind))],
+    added: entries.filter((entry) => entry.reason === 'dependency').map((entry) => ({ kind: entry.kind, neededBy: entry.namedBy })),
+    order: run.order,
     units,
     kinds,
     needsAgent: plan.agentNeeds,
     errors: plan.errors,
+    pluginsOnly,
   };
 }

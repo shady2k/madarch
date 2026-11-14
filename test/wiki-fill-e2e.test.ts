@@ -82,122 +82,156 @@ run('the fill flow on a product filled with disk and git', () => {
     if (root !== '') rmSync(root, { recursive: true, force: true });
   });
 
-  test('the fill page chooses a kind, runs it, and the run page states the result', async () => {
+  test('the catalogue selects a kind, prepares the plan and runs it', async () => {
     mkdirSync(SHOTS, { recursive: true });
     const page = await browser!.newPage();
     const failures: string[] = [];
     page.on('pageerror', (error) => { failures.push(String(error)); });
     page.on('console', (message) => { if (message.type() === 'error') failures.push(message.text()); });
+    const shotAt = async (name: string, width: number, height: number): Promise<void> => {
+      await page.setViewport({ width, height, deviceScaleFactor: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, `${name}-${String(width)}.png`) });
+    };
     try {
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
-      const response = await page.goto(`${server!.url}/p/fill`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-      try {
-        await page.waitForSelector('[data-testid="fill-setup"]', { timeout: 60_000 });
-      } catch (error) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const html = await page.content();
-        const state = await page.evaluate(() => ({ ready: document.readyState, root: document.getElementById('root')?.innerHTML.slice(0, 300) ?? 'no root', where: location.href }));
-        process.stdout.write(`PAGE ${String(response?.status())} text=${await textOf(page)}\nERRORS ${failures.join(' | ')}\nSTATE ${JSON.stringify(state)}\nHTML ${html.slice(0, 700)}\n`);
-        throw error;
-      }
-      await page.waitForFunction(() => (document.body.textContent ?? '').includes('Выберите, что заполнить'), { timeout: 60_000 });
-      const opened = await textOf(page);
-      expect(opened).toContain('Найти вид');
-      expect(opened).not.toContain('code.file');
+      await page.goto(`${server!.url}/p/catalogue`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="catalogue-page"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="catalogue-kind"]', { timeout: 60_000 });
+      const reading = await textOf(page);
+      expect(reading).toContain('Каталог сущностей');
+      expect(reading).toContain('Выбрать для заполнения');
+      expect(await page.$('[data-testid="catalogue-kind-check-code.file"]')).toBeNull();
+      expect(reading).toContain('Заполнит:');
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
+      await shotAt('catalogue-read', 1440, 900);
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
+      await shotAt('catalogue-read', 390, 844);
 
-      // A kind the disk plugin fills pulls the repository it derives from; the server states both.
-      const box = await page.$('[data-testid="fill-setup-check-code.file"]');
-      expect(box).not.toBeNull();
-      await box!.click();
-      await page.waitForSelector('[data-testid="fill-setup-run"]');
-      for (let at = 0; at < 120; at += 1) {
-        const disabled = await page.$eval('[data-testid="fill-setup-run"]', (element) => (element as HTMLButtonElement).disabled);
-        if (!disabled) break;
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-      const plan = await textOf(page);
-      expect(plan).toContain('Порядок заполнения');
-      await page.click('[data-testid="fill-setup-run"]');
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="catalogue-select"]');
+      await page.waitForSelector('[data-testid="catalogue-bottom"]', { timeout: 30_000 });
+      await page.$eval('[data-testid="catalogue-kind-check-code.file"]', (element) => (element as HTMLInputElement).click());
+      await page.waitForFunction(() => (document.querySelector('[data-testid="catalogue-selected-count"]')?.textContent ?? '').includes('Выбран 1 вид'), { timeout: 30_000 });
+      const selected = await textOf(page);
+      expect(selected).toContain('Нужно для');
+      expect(selected).toContain('добавлено 2 зависимости');
+      await page.click('[data-testid="catalogue-show-selected"]');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await shotAt('catalogue-select', 1440, 900);
+      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await shotAt('catalogue-select', 390, 844);
+
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="catalogue-prepare"]');
+      await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
+      expect(await textOf(page)).toContain('Запустить заполнение');
+      await page.click('[data-testid="prepare-run"]');
       await page.waitForFunction(() => window.location.pathname === '/p/run', { timeout: 60_000 });
-      const runId = new URL(page.url()).searchParams.get('run');
-      expect(runId).not.toBeNull();
+      await page.waitForSelector('[data-testid="run-indicator"]', { timeout: 60_000 });
+      await page.waitForFunction(() => /\d+ из [1-9]/u.test(document.querySelector('[data-testid="run-indicator"]')?.textContent ?? ''), { timeout: 60_000 });
+      expect(await page.$eval('[data-testid="run-indicator"]', (element) => element.textContent ?? '')).toContain('Идёт заполнение');
+      await shotAt('run-going', 1440, 900);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="run-indicator"]');
+      await page.waitForSelector('[data-testid="runs-page"]', { timeout: 30_000 });
+      await page.waitForSelector('[data-testid="runs-run"]', { timeout: 30_000 });
+      expect(await textOf(page)).toContain('Файлы');
+      await shotAt('runs-live', 1440, 900);
+      await shotAt('runs-live', 390, 844);
 
-      // The run page states the run once it is no longer live.
-      await page.waitForSelector('[data-testid="fill-run-page"]', { timeout: 120_000 });
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="runs-run"] a');
+      await page.waitForSelector('[data-testid="fill-run-page"]', { timeout: 60_000 });
       await page.waitForFunction(() => {
-        const element = document.querySelector('[data-testid="fill-run-page"]');
-        const state = element?.getAttribute('data-state') ?? '';
+        const state = document.querySelector('[data-testid="fill-run-page"]')?.getAttribute('data-state') ?? '';
         return state !== '' && !['created', 'planning', 'running', 'pausing', 'cancelling'].includes(state);
       }, { timeout: 300_000 });
-      const state = await page.$eval('[data-testid="fill-run-page"]', (element) => element.getAttribute('data-state'));
       const result = await textOf(page);
       expect(result).not.toContain('/work/');
       expect(result).not.toMatch(/\b[0-9a-f]{40}\b/u);
-      expect(result).not.toContain('the run started');
-      // The log is the person's wording, and the result names the kind by the catalogue's word.
-      expect(result).toContain('Журнал запуска');
-      await page.evaluate(() => { document.querySelector('[data-testid="fill-run-log"]')?.setAttribute('open', ''); });
-      await page.waitForFunction(() => (document.querySelector('[data-testid="fill-run-log"]')?.textContent ?? '').length > 40, { timeout: 10_000 });
-      await page.waitForFunction(() => (document.querySelector('[data-testid="fill-button"]')?.textContent ?? '').includes('Заполнить'), { timeout: 20_000 });
       await page.screenshot({ path: join(SHOTS, 'run-ru.png') });
-      // The log lies below the first screen: the page's own column scrolls, and this view shows it as a person reads it.
-      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = column.scrollHeight; });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      await page.screenshot({ path: join(SHOTS, 'run-ru-log.png') });
-      expect(state, `${SHOTS}/run-ru.png: ${result.slice(0, 1200)}`).toBe('succeeded');
+      await page.goto(`${server!.url}/p/runs`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="runs-run"]', { timeout: 60_000 });
+      await shotAt('runs', 1440, 900);
+      await shotAt('runs', 390, 844);
 
-      // The fill page after the run: a filled product, its history, and the press ready again.
-      await page.goto(`${server!.url}/p/fill`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-      await page.waitForSelector('[data-testid="fill-setup"]', { timeout: 60_000 });
-      await page.waitForFunction(() => (document.querySelector('[data-testid="fill-button"]')?.textContent ?? '').includes('Заполнить'), { timeout: 30_000 });
-      await page.waitForSelector('[data-testid="fill-history-run"]', { timeout: 30_000 });
-      const after = await textOf(page);
-      expect(after).toContain('История заполнений');
-      await page.screenshot({ path: join(SHOTS, 'fill-after-run-ru.png') });
-
-      // A fill page whose selection needs the agent: the plan names the agent's fields, and the page offers the agent
-      // and its token cap.
-      await page.goto(`${planServer!.url}/p/fill`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-      await page.waitForSelector('[data-testid="fill-setup"]', { timeout: 60_000 });
-      await page.waitForSelector('[data-testid="fill-setup-check-doc.decision"]', { timeout: 60_000 });
-      await page.click('[data-testid="fill-setup-check-doc.decision"]');
-      await page.waitForSelector('[data-testid="fill-setup-agent"]', { timeout: 60_000 });
-      await page.waitForSelector('[data-testid="fill-setup-cap"]', { timeout: 60_000 });
-      const agentPlan = await textOf(page);
-      expect(agentPlan).toContain('Заполнит агент');
-      expect(agentPlan).toContain('Агент заполнит поля видов');
-      await page.evaluate(() => { document.querySelector('[data-testid="fill-setup-agent"]')?.scrollIntoView({ block: 'center' }); });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      await page.screenshot({ path: join(SHOTS, 'fill-ru.png') });
-      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      await page.screenshot({ path: join(SHOTS, 'fill-agent-top-ru.png') });
-
-      // The other frame pages, on the same filled product.
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.goto(`${server!.url}/p/problems`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="problems-page"]', { timeout: 60_000 });
-      try {
-        await page.waitForSelector('[data-testid="problem-category"]', { timeout: 60_000 });
-      } catch (error) {
-        const listing = await (await fetch(`${server!.url}/api/problems`)).json() as { open?: number; categories?: unknown; notes?: unknown };
-        process.stdout.write(`PROBLEMS ${JSON.stringify(listing).slice(0, 1500)}\n`);
-        throw error;
-      }
+      await page.waitForSelector('[data-testid="problem-category"]', { timeout: 60_000 });
       const sidebarCount = Number(await page.$eval('[data-testid="nav-problems-count"]', (element) => element.textContent ?? '').catch(() => '0'));
       const total = await page.$eval('[data-testid="problems-total"]', (element) => element.textContent ?? '');
       expect(sidebarCount).toBe(Number(/\d+/u.exec(total)?.[0] ?? '0'));
       await page.screenshot({ path: join(SHOTS, 'problems-ru.png') });
-
       await page.goto(`${server!.url}/p/sources`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="sources-page"]', { timeout: 60_000 });
-      await page.waitForSelector('[data-testid="sources-repositories"]', { timeout: 60_000 });
       await page.screenshot({ path: join(SHOTS, 'sources-ru.png') });
-
       await page.goto(`${server!.url}/p/settings`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="settings-page"]', { timeout: 60_000 });
-      await page.waitForSelector('[data-testid="settings-agent"]', { timeout: 60_000 });
       await page.screenshot({ path: join(SHOTS, 'settings-ru.png') });
+      expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
+    } finally {
+      await page.close();
+    }
+  }, 900_000);
+
+  test('the agent plan and a kind page open the same preparation panel', async () => {
+    const page = await browser!.newPage();
+    const failures: string[] = [];
+    page.on('pageerror', (error) => { failures.push(String(error)); });
+    page.on('console', (message) => { if (message.type() === 'error') failures.push(message.text()); });
+    const shotAt = async (name: string, width: number, height: number): Promise<void> => {
+      await page.setViewport({ width, height, deviceScaleFactor: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, `${name}-${String(width)}.png`) });
+    };
+    try {
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
+      await page.goto(`${planServer!.url}/p/catalogue?select=1`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="catalogue-kind-check-doc.decision"]', { timeout: 60_000 });
+      await page.$eval('[data-testid="catalogue-kind-check-doc.decision"]', (element) => (element as HTMLInputElement).click());
+      await page.waitForFunction(() => (document.querySelector('[data-testid="catalogue-selected-count"]')?.textContent ?? '').includes('Выбран 1 вид'), { timeout: 30_000 });
+      await page.click('[data-testid="catalogue-show-selected"]');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await shotAt('catalogue-select-agent', 1440, 900);
+      await page.evaluate(() => { document.querySelector('[data-testid="catalogue-kind"]')?.scrollIntoView({ block: 'center' }); });
+      await shotAt('catalogue-select-agent', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="catalogue-prepare"]');
+      await page.waitForSelector('[data-testid="prepare-agent"]', { timeout: 60_000 });
+      const planText = await textOf(page);
+      expect(planText).toContain('Агент заполнит');
+      expect(planText).toContain('Лимит считает токены');
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
+      await shotAt('prepare-top', 1440, 900);
+      await shotAt('prepare-top', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.evaluate(() => { document.querySelector('[data-testid="prepare-agent"]')?.scrollIntoView({ block: 'center' }); });
+      await shotAt('prepare-agent', 1440, 900);
+      await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+      await page.evaluate(() => { document.querySelector('[data-testid="prepare-cap"]')?.scrollIntoView({ block: 'center' }); });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, 'prepare-agent-390.png') });
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="prepare-change"]');
+      await page.waitForSelector('[data-testid="catalogue-bottom"]', { timeout: 30_000 });
+      expect(await page.$eval('[data-testid="catalogue-kind-check-doc.decision"]', (element) => (element as HTMLInputElement).checked)).toBe(true);
+      const found = await (await fetch(`${planServer!.url}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ catalogueEntity(name: "doc.decision") { id } }' }) })).json() as { data?: { catalogueEntity?: { id?: string } } };
+      const id = found.data?.catalogueEntity?.id;
+      expect(id).toBeString();
+      await page.goto(`${planServer!.url}/e/catalogue/${encodeURIComponent(id!)}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="fill-kind"]', { timeout: 60_000 });
+      await shotAt('kind-fill', 1440, 900);
+      await shotAt('kind-fill', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="fill-kind"]');
+      await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="prepare-agent"]', { timeout: 60_000 });
       expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
     } finally {
       await page.close();

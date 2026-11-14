@@ -174,6 +174,8 @@ class Builder {
       { name: 'kind', type: 'String!' },
       { name: 'one', type: 'String!' },
       { name: 'many', type: 'String!' },
+      { name: 'definition', type: 'String' },
+      { name: 'taken', type: 'Boolean!' },
       { name: 'group', type: 'String' },
       { name: 'count', type: 'Int!' },
       { name: 'entryId', type: 'ID' },

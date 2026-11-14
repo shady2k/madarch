@@ -68,7 +68,7 @@ export interface StagesFillOptions {
    * dependency order, and with a vertex the one entity it rewrites. Left out, the run fills every kind the manifest binds
    * a plugin to, as a whole fill does.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean };
   /** The plugin closures this fill trusts beside the release's. */
   readonly releaseHashes?: readonly string[];
   /** The supervised ACP adapter available to this run's agent plugin turns. */
@@ -154,7 +154,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     return readFillManifests(own, folder);
   });
   if (kindsRead.present) {
-    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined, options.targets?.requested);
+    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined, options.targets?.requested, options.targets?.pluginsOnly === true);
     assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, folder));
   }
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);
