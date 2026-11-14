@@ -1,7 +1,7 @@
 id: openlineage.run
 purpose: history
 audience: [analyst, developer, operations]
-definition: One execution of a data job, with the datasets it read and wrote and the time it took.
+definition: A data-job run is one execution of a data job, with the datasets it read and wrote and the time it took.
 sources:
 - https://openlineage.io/docs/spec/object-model
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Запуск задачи данных
     many: Запуски задач данных
 description:
-  en: One execution of a data job, with the datasets it read and wrote and the time it took.
-  ru: Одно выполнение задачи обработки данных с прочитанными и записанными наборами и затраченным временем.
+  en: 'A data-job run records one execution of a job: when it started and ended, which datasets it read, which it wrote and whether it succeeded. Runs are what show whether a job is reliable and where the data came from.'
+  ru: 'Запуск задачи данных фиксирует одно выполнение задачи: когда оно началось и закончилось, какие наборы данных прочитаны, какие записаны и удачно ли всё прошло. По запускам видно, надёжна ли задача и откуда взялись данные.'
