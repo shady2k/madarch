@@ -1,7 +1,7 @@
 id: manifest.statuses
 purpose: structure
 audience: [architect, product-lead]
-definition: A workflow status is a named state an entity may be in, declared in the product's workflow.
+definition: A workflow status is a named state an entity may be in, and an entity holds one current status.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/create-edit-and-delete-statuses-in-team-managed-projects/
 - https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/

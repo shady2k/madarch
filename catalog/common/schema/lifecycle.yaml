@@ -1,7 +1,7 @@
 id: manifest.lifecycle
 purpose: structure
 audience: [architect, product-lead]
-definition: A lifecycle is the set of statuses and transitions a kind attaches, with one current status per entity.
+definition: A lifecycle is the set of statuses and transitions a kind attaches; an entity has one current status, and an open question makes it blocked rather than becoming a status.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md

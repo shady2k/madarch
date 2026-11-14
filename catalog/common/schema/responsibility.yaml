@@ -1,7 +1,7 @@
 id: manifest.responsibility
 purpose: structure
 audience: [architect, product-lead]
-definition: Responsibility is the shared part of a kind that names the person who answers for an entity and the person or agent who carries out the work.
+definition: Responsibility is the shared part of a kind that names the responsible person who answers for an entity and the executor, a person or an agent, who carries out the work.
 sources:
 - https://scrumguides.org/scrum-guide.html
 - https://support.atlassian.com/jira-software-cloud/docs/edit-the-assignee-of-an-issue-with-your-keyboard/

@@ -1,7 +1,7 @@
 id: practice.approval
 purpose: history
 audience: [product-lead, analyst, developer]
-definition: 'An approval is a responsible person''s decision on a package of changes: accepted, or refused with a reason.'
+definition: 'An approval is a responsible person''s decision on an approval package: accepted, or refused with a reason.'
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/what-are-approvals/
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews

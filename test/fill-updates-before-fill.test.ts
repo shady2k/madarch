@@ -65,8 +65,8 @@ test('repo add with the server running advances only the baseline before the fir
     try {
       const rows = await owner.run((tx) => tx.query<{ name: string }>("SELECT DISTINCT k.name FROM node n JOIN entity k ON k.id = n.entity_id ORDER BY k.name"));
       expect(rows.rows.length).toBeGreaterThan(0);
-      // Startup publishes the catalogue's declarations and nothing else: templates are the product's files.
-      expect(rows.rows.every((row) => row.name.startsWith('manifest.'))).toBe(true);
+      // Startup publishes the catalogue's declarations and the starter value sets, and nothing else: templates are the product's files.
+      expect(rows.rows.every((row) => row.name.startsWith('manifest.') || row.name === 'value-set' || row.name === 'value-set-entry')).toBe(true);
       expect(rows.rows.length).toBeGreaterThan(0);
     } finally { await owner.close(); }
     watch.stop();

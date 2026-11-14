@@ -154,8 +154,9 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
       return held === undefined || !isDeepStrictEqual(held.values, values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
     });
     let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
-    if (validated.starterValues.length > 0) {
-      written += await publishGraphDrafts(tx, graphContractOf(validated.manifest), { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+    const authored = graphContractOf(validated.manifest);
+    if (validated.starterValues.length > 0 && authored.vertex.some((kind) => kind.name === 'value-set') && authored.vertex.some((kind) => kind.name === 'value-set-entry')) {
+      written += await publishGraphDrafts(tx, authored, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
     return written;
   });

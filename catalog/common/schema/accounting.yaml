@@ -1,7 +1,7 @@
 id: manifest.accounting
 purpose: structure
 audience: [architect, product-lead]
-definition: 'Accounting is the shared part of a kind that keeps the records of its steps: duration, tokens, cost, model and outcome.'
+definition: 'Accounting is the shared part of a kind that keeps its lifecycle step records: each step''s duration, tokens, cost, model and outcome.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/

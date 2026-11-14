@@ -1,7 +1,7 @@
 id: practice.time-entry
 purpose: history
 audience: [product-lead, developer]
-definition: A time entry records time spent on something, its kind, its duration and who spent it.
+definition: A time entry records time spent on something, with its kind (work time, waiting or an agent's run), its duration and who spent it.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/log-time-on-an-issue/
 - https://support.atlassian.com/jira-service-management-cloud/docs/create-an-sla/

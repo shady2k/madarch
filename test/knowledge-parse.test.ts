@@ -63,7 +63,7 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/catalog.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [8, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"'],
+      [8, '"extra" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram", "values" and "journal"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [5, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],

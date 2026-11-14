@@ -1,7 +1,7 @@
 id: practice.question
 purpose: understand
 audience: [developer, product, analyst, product-lead]
-definition: A question is a point in the work that cannot be settled from the product itself, put to the person who can answer it.
+definition: A question is a point in the work that cannot be settled from the product itself, put to the person who can answer it; an open question makes the work it concerns blocked without becoming a status of its own.
 sources:
 - https://arc42.org/overview
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
