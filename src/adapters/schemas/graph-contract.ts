@@ -235,6 +235,15 @@ async function dropVertexKind(tx: OuterTransaction, name: string): Promise<void>
   const incident = `SELECT e.id FROM edge e WHERE e.from_node IN (${nodes}) OR e.to_node IN (${nodes})`;
   const edgeKinds = await tx.query<{ name: string }>(`SELECT DISTINCT kind.name FROM edge e JOIN entity kind ON kind.id = e.entity_id WHERE e.id IN (${incident}) ORDER BY kind.name`, [name]);
   for (const kind of edgeKinds.rows) {
+    const authored = await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM edge e
+      JOIN entity kind ON kind.id = e.entity_id
+      WHERE kind.name = $2 AND e.id IN (${incident}) AND EXISTS (
+        SELECT 1 FROM operation o,
+          jsonb_array_elements(COALESCE(o.change->'opinions', '[]'::jsonb) || COALESCE(o.change->'edges', '[]'::jsonb)) event
+        WHERE o.author LIKE 'person:%' AND event->>'entity' = kind.name AND event->>'edge' = e.id::text
+      )`, [name, kind.name]);
+    const count = Number(authored.rows[0]!.n);
+    if (count > 0) throw new Error(`${import.meta.path}: the removed kind ${JSON.stringify(name)} has ${String(count)} incident edge${count === 1 ? '' : 's'} of kind ${JSON.stringify(kind.name)} with authored history that would be lost: the change is refused`);
     await tx.query(`DELETE FROM ${quote(generatedTableName(kind.name, 'edge'), 'table')} WHERE edge_id IN (${incident})`, [name]);
   }
   await tx.query(`DELETE FROM edge WHERE id IN (${incident})`, [name]);
