@@ -5,7 +5,7 @@ import { parseDocument } from 'yaml';
 import { seedStarterSet, STARTER_FILES } from '../src/knowledge/seed.js';
 
 /** Keeps only exercised plugins; excluded bindings become passive provenance, with every field retained. */
-export function useFixturePlugins(folder: string, ids: readonly string[]): void {
+export function useFixturePlugins(folder: string, ids: readonly string[], keepKinds: readonly string[] = []): void {
   const file = join(folder, 'madarch', 'catalog.yaml');
   const manifest = parseDocument(readFolderManifestText(folder));
   const body = manifest.toJS();
@@ -30,7 +30,62 @@ export function useFixturePlugins(folder: string, ids: readonly string[]): void 
       manifest.deleteIn(['kinds', name, 'terms']);
     }
   }
-  manifest.set('plugins', plugins.filter(plugin => ids.includes(plugin.id)));
+  const kept = plugins.filter(plugin => ids.includes(plugin.id)) as { id: string; outputs?: string[]; inputs?: string[] }[];
+  manifest.set('plugins', kept);
+  // A kind whose only producers are gone leaves the manifest with them: a product declares the kinds its plugins fill,
+  // and a kind left with no producer is an abnormal state the fill reports as an error (madarch-64o5.60). A kind whose
+  // fields people author stays: the manifest names a person as its producer.
+  let filled = new Set<string>();
+  for (const plugin of kept) {
+    for (const kind of plugin.outputs ?? []) filled.add(kind);
+    const contract = join(folder, 'plugins', plugin.id, 'contract.json');
+    if (!existsSync(contract)) continue;
+    const held = JSON.parse(readFileSync(contract, 'utf8')) as { outputs?: { vertices?: { kind: string }[] } };
+    for (const vertex of held.outputs?.vertices ?? []) filled.add(vertex.kind);
+  }
+  const gone = new Set<string>();
+  const dropped = new Set<string>();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, kind] of Object.entries(kinds) as [string, { fields?: { producers?: string[] }[]; 'derives-from'?: string[] }][]) {
+      if (gone.has(name)) continue;
+      const declared = kind.fields ?? [];
+      if (declared.length === 0 || filled.has(name)) continue;
+      if (declared.every((field) => field.producers?.includes('person') === true)) continue;
+      gone.add(name);
+      changed = true;
+    }
+    // A plugin whose declared input kind left cannot run: it leaves with the kind, and its outputs leave after it.
+    for (const plugin of kept) {
+      if (dropped.has(plugin.id)) continue;
+      if (!(plugin.inputs ?? []).every((kind) => !gone.has(kind))) { dropped.add(plugin.id); changed = true; }
+    }
+    for (const id of dropped) for (const plugin of kept) if (plugin.id === id) for (const kind of plugin.outputs ?? []) if (!gone.has(kind)) { gone.add(kind); changed = true; }
+  }
+  filled.clear();
+  for (const plugin of kept) {
+    if (dropped.has(plugin.id)) continue;
+    for (const kind of plugin.outputs ?? []) filled.add(kind);
+    const contract = join(folder, 'plugins', plugin.id, 'contract.json');
+    if (!existsSync(contract)) continue;
+    const held = JSON.parse(readFileSync(contract, 'utf8')) as { outputs?: { vertices?: { kind: string }[] } };
+    for (const vertex of held.outputs?.vertices ?? []) filled.add(vertex.kind);
+  }
+  manifest.set('plugins', kept.filter((plugin) => !dropped.has(plugin.id)));
+  // Kinds the caller keeps stand even when no plugin fills them: a fixture may write their vertices itself, which is a
+  // person's authored write and no plugin's producer.
+  for (const name of keepKinds) {
+    gone.delete(name);
+    const declared = ((body.kinds ?? {}) as Record<string, { fields?: { name: string }[] }>)[name]?.fields ?? [];
+    for (const [index] of declared.entries()) {
+      manifest.deleteIn(['kinds', name, 'fields', index, 'binding']);
+      manifest.setIn(['kinds', name, 'fields', index, 'producers'], ['person']);
+    }
+  }
+  for (const name of gone) manifest.deleteIn(['kinds', name]);
+  // An edge whose end left with its kinds leaves too: a relation names kinds the manifest declares.
+  const edges = (body.edges ?? []) as { from: string[]; to: string[] }[];
+  manifest.set('edges', edges.filter((edge) => [...edge.from, ...edge.to].every((name) => name === 'any' || !gone.has(name))));
   writeFolderManifest(folder, manifest.toString());
 }
 

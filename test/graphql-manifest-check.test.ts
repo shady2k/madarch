@@ -27,7 +27,7 @@ function collidingProduct(): string {
   writeFileSync(join(folder, 'madarch/catalog.yaml'), `${cut < 0 ? metadata : metadata.slice(0, cut)}\nedges:\n  - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place }\n`);
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.page.yaml'), [
     'id: practice.page', 'purpose: structure', 'definition: A page of the demo.', 'sources: [https://example.test/standard]',
-    'acquisition: [conversation]', 'status: implemented', 'relation-constraints: { out: [], in: [] }',
+    'acquisition: [conversation]', 'relation-constraints: { out: [], in: [] }',
     'template-policy: page', ' ', 'source: graph', 'title: title',
     'labels:', '  en: { one: Page, many: Pages }', '  ru: { one: Страница, many: Страницы }',
     'description: { en: A page., ru: Страница. }',

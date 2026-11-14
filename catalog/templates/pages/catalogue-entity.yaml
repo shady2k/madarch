@@ -15,7 +15,6 @@ sections:
       group
       subgroup
       purpose
-      status
       taken
       audience
       standards
@@ -32,8 +31,6 @@ sections:
           path: subgroup
         - label: { en: Purpose, ru: Назначение }
           path: purpose
-        - label: { en: Status, ru: Состояние }
-          path: status
         - label: { en: Taken, ru: Взят }
           path: taken
         - label: { en: Audience, ru: Аудитория }

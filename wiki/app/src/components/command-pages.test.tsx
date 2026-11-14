@@ -23,33 +23,40 @@ function section(id: string, component: string, params: Record<string, unknown>)
   return { id, component, on: 'subject', replace: false, params, line: 1, alias: `s_${id}` } as Section;
 }
 
-const FILE = {
-  kind: 'demo.alpha', labels: { one: 'Файл', many: 'Файлы' }, group: { name: 'code', label: 'Код' },
-  plugins: ['disk'], fields: [{ field: 'path', plugins: ['disk'], agent: false }], agent: false,
+const NAVIGATION = {
+  product: 'Portal',
+  groups: [
+    { name: 'demo.code', labels: { en: 'Code', ru: 'Код' }, short: null, open: false, parent: null },
+    { name: 'demo.docs', labels: { en: 'Documents', ru: 'Документы' }, short: null, open: false, parent: null },
+  ],
+  kinds: [
+    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', group: 'demo.code', count: 0, entryId: null },
+    { kind: 'demo.beta', one: 'Термин', many: 'Термины', group: 'demo.docs', count: 0, entryId: null },
+    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', group: 'demo.docs', count: 0, entryId: null },
+  ],
 };
-const TERM = {
-  kind: 'demo.beta', labels: { one: 'Термин', many: 'Термины' }, group: { name: 'docs', label: 'Документы' },
-  plugins: ['agent-fill'], fields: [{ field: 'definition', plugins: ['agent-fill'], agent: true }], agent: true,
+
+const ALPHA = { kind: 'demo.alpha', fields: [{ field: 'path', producers: ['disk'] }], agentFields: [] };
+const BETA = { kind: 'demo.beta', fields: [{ field: 'definition', producers: ['agent-fill'] }], agentFields: ['definition'] };
+const GAMMA = { kind: 'demo.gamma', fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', producers: ['agent-fill'] }], agentFields: ['definition'] };
+
+const ALL_PLAN = {
+  selectedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], order: ['disk', 'agent-fill'],
+  units: [{ plugin: 'disk', kind: 'demo.alpha' }, { plugin: 'agent-fill', kind: 'demo.beta' }, { plugin: 'disk', kind: 'demo.gamma' }, { plugin: 'agent-fill', kind: 'demo.gamma' }],
+  kinds: [ALPHA, BETA, GAMMA],
+  needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }, { kind: 'demo.gamma', fields: ['definition'] }],
+  errors: [],
 };
-const USE_CASE = {
-  kind: 'demo.gamma', labels: { one: 'Сценарий', many: 'Сценарии' }, group: { name: 'docs', label: 'Документы' },
-  plugins: ['disk'], fields: [{ field: 'title', plugins: ['disk'], agent: false }], agent: false,
-};
-const CATALOGUE = [FILE, TERM, USE_CASE];
 
 function planFor(selected: readonly string[]) {
-  if (selected.length === 0) return { order: [], kinds: [], catalogue: CATALOGUE, requiresAgent: false, unproduced: [] };
+  if (selected.length === 3) return { plan: ALL_PLAN };
   if (selected.includes('demo.gamma')) {
-    return {
-      order: ['demo.beta', 'demo.gamma'], catalogue: CATALOGUE, requiresAgent: true, unproduced: [],
-      kinds: [
-        { ...TERM, reason: 'dependency', namedBy: 'demo.gamma' },
-        { ...USE_CASE, reason: 'requested', namedBy: 'demo.gamma' },
-      ],
-    };
+    return { plan: { selectedKinds: ['demo.alpha', 'demo.gamma'], order: ['disk', 'agent-fill'], units: [], kinds: [ALPHA, GAMMA], needsAgent: [{ kind: 'demo.gamma', fields: ['definition'] }], errors: [] } };
   }
-  const kind = CATALOGUE.find((one) => one.kind === selected[0])!;
-  return { order: [kind.kind], kinds: [{ ...kind, reason: 'requested', namedBy: kind.kind }], catalogue: CATALOGUE, requiresAgent: kind.agent, unproduced: [] };
+  if (selected.includes('demo.beta')) {
+    return { plan: { selectedKinds: ['demo.beta'], order: ['agent-fill'], units: [], kinds: [BETA], needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }], errors: [] } };
+  }
+  return { plan: { selectedKinds: ['demo.alpha'], order: ['disk'], units: [], kinds: [ALPHA], needsAgent: [], errors: [] } };
 }
 
 const RUN = {
@@ -82,7 +89,7 @@ beforeEach(async () => {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
-    if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor((url.searchParams.get('kinds') ?? '').split(',').filter((one) => one !== '')));
+    if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[] } | undefined)?.selected ?? [])));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', version: '1.0' }], chosen: null });
     if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' } });
@@ -107,7 +114,7 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
     root.render(createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables, open: (path: string) => { opened.push(path); }, reload: () => undefined },
+      runtime: { base: '', language: 'ru', busy: false, variables, navigation: NAVIGATION, open: (path: string) => { opened.push(path); }, reload: () => undefined },
     }));
   });
   await settle();
@@ -148,10 +155,10 @@ test('the fill page lists the catalogue in the reader\'s words, searches it, and
     // The plan adds the term the scenario needs, and the page says what asked for it.
     await tick(checkbox(page.container, 'demo.gamma'));
     await settle();
-    expect(page.container.textContent).toContain('Нужно для Сценарии');
-    expect(checkbox(page.container, 'demo.beta').checked).toBe(true);
-    expect(checkbox(page.container, 'demo.beta').disabled).toBe(true);
-    expect(requests.some((one) => one.path.includes('/api/fill-plan') && one.path.includes('kinds=demo.gamma'))).toBe(true);
+    expect(page.container.textContent).toContain('Зависимость');
+    expect(checkbox(page.container, 'demo.alpha').checked).toBe(true);
+    expect(checkbox(page.container, 'demo.alpha').disabled).toBe(true);
+    expect(requests.some((one) => one.path.endsWith('/api/fill-plan') && JSON.stringify(one.body).includes('demo.gamma'))).toBe(true);
   } finally {
     await page.close();
   }

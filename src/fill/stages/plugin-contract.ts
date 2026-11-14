@@ -90,7 +90,7 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
   const plan = planFillDeclarations({
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
     selectedKinds: [],
   });

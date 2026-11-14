@@ -18,7 +18,6 @@ import type { Handled, ReplyMaker } from './http.js';
 import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
 import { readKinds } from '../product/manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
-import { fillPlanOf } from '../knowledge/fill-plan.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
@@ -42,10 +41,10 @@ export interface KnowledgePart {
   /** The newest run's trace as the run page states it: per step its time, its memory and its names. */
   run: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
+  /** The plan of one press: which plugin fills which field, and which fields the agent fills (madarch-64o5.63). */
+  fillPlan: (request: Request) => Promise<Handled>;
   /** Starts the fill page’s selected kinds, with their dependencies in order. */
   fillSelected: (request: Request) => Promise<Handled>;
-  /** The fill plan the page shows: the catalogue's kinds, what fills each field, and the order of a selection. */
-  fillPlan: (request: Request) => Promise<Handled>;
   fillRuns: (request: Request) => Promise<Handled>;
   /** The open problems the Problems page groups, and a count for the sidebar (workflow state, not a graph read). */
   problems: (request: Request) => Promise<Handled>;
@@ -316,15 +315,6 @@ export function createKnowledgePart(
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
     }, true, true),
-    fillPlan: guarded('read the fill plan', async (request) => {
-      const url = new URL(request.url);
-      const asked = url.searchParams.get('kinds');
-      const selected = asked === null || asked.trim() === '' ? [] : asked.split(',').map((kind) => kind.trim()).filter((kind) => kind !== '');
-      const read = readKinds(product.folder);
-      if (!read.present) return refused(409, { message: `${read.file}:1: the product has no kinds manifest: the fill plan shows the kinds that file declares` });
-      const lang = url.searchParams.get('lang');
-      return { response: json(200, fillPlanOf(read.manifest, product.folder, { selected, ...(lang === null || lang === '' ? {} : { lang }) })) };
-    }, false),
     problems: guarded('list the problems', async (request) => {
       const listing = await product.problems();
       const count = new URL(request.url).searchParams.get('count');
@@ -338,6 +328,14 @@ export function createKnowledgePart(
       if (runId !== null && runs.length === 0) return refused(404, { message: `${here()}: this product holds no run ${JSON.stringify(runId)}` });
       return { response: json(200, runId === null ? { runs } : { run: runs[0] }) };
     }),
+    fillPlan: guarded('plan the fill', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
+      if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
+      const asked = await selectionBody(request);
+      if ('bad' in asked) return asked.bad;
+      const plan = product.fillPlan(asked.selection.selected);
+      return { response: json(200, { plan }) };
+    }, true),
     fillSelected: guarded('fill the selected entities', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: `${here()}: ${crossSite}` });
       if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
@@ -347,9 +345,12 @@ export function createKnowledgePart(
       if (!kinds.present) return refused(409, { message: `${kinds.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares` });
       const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
-      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), targets: { kinds: targets.targets.order, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
+      // The press answers the plan it runs, which fields the agent fills included: a press that needs an agent and chose
+      // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
+      const plan = product.fillPlan(asked.selection.selected);
+      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
       if (!started.started) return refused(409, { message: started.message });
-      return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order }) };
+      return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order, plan }) };
     }, true, true),
     pause: guarded('pause the fill', async (request) => {
       const crossSite = foreign(request);

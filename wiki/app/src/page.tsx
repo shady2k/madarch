@@ -21,6 +21,7 @@ import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
 import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
+import type { Navigation } from './client.js';
 
 export interface PageRuntime {
   readonly base: string;
@@ -28,6 +29,8 @@ export interface PageRuntime {
   readonly busy: boolean;
   /** The page's variables as the composition bound them (a `run` component reads its run from one). */
   readonly variables: Readonly<Record<string, unknown>>;
+  /** The product's navigation, so a command page names kinds and groups the catalogue's way. */
+  readonly navigation: Navigation | null;
   readonly open: (path: string) => void;
   readonly reload: (variables: Record<string, unknown>) => void;
 }
@@ -48,6 +51,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       base: runtime.base,
       busy: runtime.busy,
       variables: runtime.variables,
+      navigation: runtime.navigation,
       open: runtime.open,
       reload: runtime.reload,
       renderSection: (id) => {

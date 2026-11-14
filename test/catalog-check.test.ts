@@ -77,7 +77,6 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
     '    definition: "A kind the check is asked about."',
     '    sources: ["https://example.test/kind"]',
     `    acquisition: ${row.acquisition}`,
-    '    status: not-implemented',
     '    relation-constraints: { out: [], in: [] }',
     '    template-policy: none',
     '    labels:',
@@ -100,20 +99,20 @@ describe('the catalog check over the starter set', () => {
   }, 30_000);
 
   test('a kind that leaves a field out is refused, naming the file, the line and the kind', () => {
-    const folder = product(editField(MANIFEST, 'code.service', 'status', null));
+    const folder = product(editField(MANIFEST, 'code.service', 'definition', null));
     const done = run(folder);
     expect(done.code).toBe(1);
     const file = join(folder, 'madarch/kinds/code/structure/code.service.yaml');
     const line = 1;
-    expect(done.err).toContain(`${file}:${line}: kind "code.service": "status" is one of implemented, partial, not-implemented`);
+    expect(done.err).toContain(`${file}:${line}: kind "code.service": "definition" is one sentence saying what the kind is`);
   }, 30_000);
 
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
-    const manifest = editField(MANIFEST, 'code.service', 'status', null);
+    const manifest = editField(MANIFEST, 'code.service', 'definition', null);
     const read = parseKinds(manifest, 'madarch/catalog.yaml', product());
-    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
+    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "definition" is one sentence saying what the kind is, got undefined']);
     // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
-    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "status" is one of implemented, partial, not-implemented, got undefined']);
+    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "definition" is one sentence saying what the kind is, got undefined']);
     // The kind is left out of the catalog and of the wiki\'s kinds, and the rest of the catalog stands.
     expect(read.catalog!.kinds.has('code.service')).toBe(false);
     expect(read.kinds.has('code.service')).toBe(false);
@@ -170,7 +169,7 @@ describe('the catalog check over the starter set', () => {
   test('a kind the catalog marks with the template policy none is catalogue data only: the wiki shows no page for it', () => {
     const read = parseKinds(MANIFEST, 'madarch/catalog.yaml', product());
     expect(read.findings).toEqual([]);
-    expect(read.catalog!.kinds.get('firewall-rule')).toMatchObject({ templatePolicy: 'none', status: 'not-implemented', subgroup: 'infrastructure.network', area: 'infrastructure' });
+    expect(read.catalog!.kinds.get('firewall-rule')).toMatchObject({ templatePolicy: 'none', subgroup: 'infrastructure.network', area: 'infrastructure' });
     expect(read.kinds.has('firewall-rule')).toBe(false);
     expect(read.kinds.has('code.service')).toBe(true);
   }, 30_000);

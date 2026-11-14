@@ -50,7 +50,6 @@ type CatalogueEntity implements Entity {
   group: String!
   subgroup: String!
   purpose: String
-  status: String
   audience: [String!]!
   standards: [String!]!
   taken: Boolean!
@@ -523,20 +522,6 @@ input CatalogueEntityPurposeFilter {
   _is_null: Boolean
 }
 
-input CatalogueEntityStatusFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
 input CatalogueEntitySubgroupFilter {
   _eq: String
   _neq: String
@@ -578,7 +563,6 @@ input CatalogueEntityWhere {
   group: CatalogueEntityGroupFilter
   subgroup: CatalogueEntitySubgroupFilter
   purpose: CatalogueEntityPurposeFilter
-  status: CatalogueEntityStatusFilter
   taken: CatalogueEntityTakenFilter
 }
 
@@ -1004,7 +988,6 @@ enum CatalogueEntityOrderField {
   group
   subgroup
   purpose
-  status
   taken
 }
 

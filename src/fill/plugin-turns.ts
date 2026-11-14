@@ -63,7 +63,7 @@ export interface PluginTurnWiring {
    * dependency order, and with a vertex, the one entity of that kind's unit whose answer is published. Absent, the
    * fill takes every kind an enabled plugin declares it produces.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
   /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
@@ -123,7 +123,7 @@ function selectedVertex(wiring: PluginTurnWiring, kind: string): string | undefi
 
 /** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
 export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
-  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
+  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested);
   const units: PluginTurnUnit[] = [];
   for (const name of plan.order) {
     const plugin = wiring.manifest.plugins!.get(name)!;
@@ -313,7 +313,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   }
   const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
   let agentReport: PluginAgentReport | undefined;
-  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
+  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
   // An edge is published in the turn of the later of its ends' kinds; an edge between two kinds the plugin reads rather
@@ -351,7 +351,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   if (runId !== undefined) for (const read of reads) if (typeof read === 'string') {
     for (const field of wiring.manifest.kinds.get(read)?.fields ?? []) {
       const producer = declarationPlan.lastProducer(read, field.name);
-      if (producer !== undefined) snapshots.set(`${read}.${field.name}`, await captureSnapshot(producer, read));
+      // A unit that reads its own kind reads what stands before its turn: its own generation is not a snapshot yet.
+      if (producer !== undefined && !(producer === unit.plugin.id && read === unit.kind.name)) snapshots.set(`${read}.${field.name}`, await captureSnapshot(producer, read));
     }
   }
   const access = pluginInvocationAccess(graph ?? pluginGraphAnswerer(wiring), {
@@ -560,11 +561,14 @@ function partitionChildren(id: string, runId: string | undefined, partitions: re
 
 /** The fill stage of the plugin turns: the units are the manifest's, the work is each plugin's own. */
 export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
-  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
+  const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested);
   return {
     id: PLUGIN_TURN_STAGE_ID,
     version: 10,
     unitScheduling(id) {
+      // A kind nothing produces is planned as one unit that fails with the plan's error, so the run reports that kind
+      // and the others still run (madarch-64o5.60).
+      if (id.startsWith(MISSING_KIND_UNIT)) return { after: [], group: id, concurrency: 1 };
       const unit = unitOf(wiring, id);
       const plan = declarationPlan;
       const after = plan.unitPredecessors(unit.plugin.id, unit.kind.name).map((dependency) => pluginTurnUnitId(dependency.plugin, dependency.kind, selectedVertex(wiring, dependency.kind)));
@@ -576,13 +580,24 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
     configSchema: Type.Object({}),
     defaults: { ...DEFAULT_STAGE_DEFAULTS, enabled: true, concurrency: [...(wiring.manifest.plugins?.values() ?? [])].reduce((sum, plugin) => sum + (plugin.declaration?.concurrency ?? 1), 0) || 1, config: {} },
     async plan() {
-      const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
+      const plan = declarationPlan;
       const units = await planPluginTurns(wiring);
-      return { units: units.map((unit) => ({ id: unit.id, scope: unit.kind.name })),
-        coverage: units.length === 0 ? 'nothing-found' as const : 'planned' as const,
-        kindOutcomes: declarationPlan.unproducedKinds };
+      // A request nothing in the manifest can produce fails with the reason, never as a run that succeeded with no units
+      // (madarch-64o5.49): kinds the agent covers are never here, because a plan that leaves them to it asks for one.
+      if (units.length === 0 && plan.errors.length > 0) {
+        throw new Error(`${wiring.manifest.file}:1: nothing the fill was asked for has a producer: ${plan.errors.map((error) => error.message).join('; ')}`);
+      }
+      // A kind nothing produces is planned as one unit whose failure carries the plan's error, so that kind fails and
+      // the others run.
+      const missing = plan.errors.map((error) => ({ id: `${MISSING_KIND_UNIT}${error.kind}`, scope: error.kind }));
+      return { units: [...units.map((unit) => ({ id: unit.id, scope: unit.kind.name })), ...missing],
+        coverage: units.length === 0 && missing.length === 0 ? 'nothing-found' as const : 'planned' as const };
     },
     async execute(unit, context) {
+      if (unit.id.startsWith(MISSING_KIND_UNIT)) {
+        const kind = unit.id.slice(MISSING_KIND_UNIT.length);
+        throw new Error(declarationPlan.errors.find((error) => error.kind === kind)?.message ?? `${wiring.manifest.file}:1: kind "${kind}" has no producer`);
+      }
       const selected = unitOf(wiring, unit.id);
       const partitioned = selected.plugin.declaration?.produces.some((output) => (output.kind === selected.kind.name || output.kind === '*') && output.partition === 'key') === true;
       if (!partitioned) {
@@ -646,3 +661,6 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
 
 /** The stage's id, as a workflow may name it. */
 export const PLUGIN_TURN_STAGE_ID = 'plugin-turns';
+
+/** The id prefix of the one unit a kind nothing produces is planned as: its failure carries the plan's error. */
+const MISSING_KIND_UNIT = 'missing:';

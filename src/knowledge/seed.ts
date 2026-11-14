@@ -92,10 +92,19 @@ function workflowsManifest(): string {
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * Whether a plugin belongs to a product of these kinds: a plugin that fills the catalogue belongs to one that reads
+ * graph kinds at all, and every plugin needs the kinds it reads to be declared — a product without them cannot answer it.
+ */
+function pluginFits(plugin: BundledPlugin, names: ReadonlySet<string>, kinds: readonly CatalogKindData[]): boolean {
+  if (!pluginInputsOf(plugin).every((kind) => names.has(kind))) return false;
+  return pluginUsesCatalogue(plugin) ? kinds.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind));
+}
+
 /** Plugin declarations follow the bundled plugins' own contracts and closures. */
 function pluginManifest(kinds: readonly CatalogKindData[]): Record<string, unknown>[] {
   const names = new Set(kinds.map((kind) => kind.name));
-  return BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? kinds.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)))
+  return BUNDLED_PLUGINS.filter((plugin) => pluginFits(plugin, names, kinds))
     .map((plugin) => ({ id: plugin.id, version: Number(plugin.version.split('.')[0]), path: plugin.folder,
       inputs: pluginInputsOf(plugin), outputs: pluginOutputsOf(plugin).filter((kind) => names.has(kind)), closure: plugin.files.map((file) => `${plugin.folder}/${file.path}`) }));
 }
@@ -171,7 +180,7 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
   const kinds = template.kinds === 'all' ? undefined : starterKindNames(template);
   const chosen = kinds === undefined ? CATALOG_KINDS : CATALOG_KINDS.filter((kind) => kinds.includes(kind.name));
   const names = new Set(chosen.map((kind) => kind.name));
-  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginUsesCatalogue(plugin) ? chosen.some((kind) => kind.source === 'graph') : pluginOutputsOf(plugin).some((kind) => names.has(kind)));
+  const plugins = BUNDLED_PLUGINS.filter((plugin) => pluginFits(plugin, names, chosen));
   // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
   const workflows = chosen.some((kind) => kind.source === 'graph');
   return [

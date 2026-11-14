@@ -8,33 +8,52 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
-/** One field of a kind in the fill plan, and the plugins that fill it. */
+/** One field of a selected kind and the plugins that fill it, in plan order. */
 export interface FillPlanField {
   readonly field: string;
-  readonly plugins: readonly string[];
-  readonly agent: boolean;
+  readonly producers: readonly string[];
 }
 
-/** One kind of the fill plan, in the catalogue's words. */
+/** One selected kind's place in the plan. */
 export interface FillPlanKind {
   readonly kind: string;
-  readonly labels: { readonly one: string; readonly many: string };
-  readonly group: { readonly name: string; readonly label: string } | null;
-  readonly reason?: 'requested' | 'dependency';
-  readonly namedBy?: string;
-  readonly plugins: readonly string[];
   readonly fields: readonly FillPlanField[];
-  readonly agent: boolean;
+  /** The fields an agent fills, alone or beside a producer it refines. */
+  readonly agentFields: readonly string[];
 }
 
-/** `GET /api/fill-plan`: the catalogue, the plan of a selection and what it holds. */
+/** One unit the plan runs: an output of a plugin for a kind. */
+export interface FillPlanUnit {
+  readonly plugin: string;
+  readonly kind: string;
+}
+
+/** The kinds and fields the agent fills: such a plan runs only once an agent is chosen. */
+export interface FillPlanNeed {
+  readonly kind: string;
+  readonly fields: readonly string[];
+}
+
+/** One kind nothing in the manifest produces, with the missing plugin when the manifest names one. */
+export interface FillPlanError {
+  readonly kind: string;
+  readonly fields: readonly string[];
+  readonly plugin?: string;
+  readonly message: string;
+}
+
+/** `POST /api/fill-plan`: the plan of one press, before any unit runs. */
 export interface FillPlanAnswer {
+  readonly plan: FillPlanView;
+}
+
+export interface FillPlanView {
+  readonly selectedKinds: readonly string[];
   readonly order: readonly string[];
+  readonly units: readonly FillPlanUnit[];
   readonly kinds: readonly FillPlanKind[];
-  readonly catalogue: readonly FillPlanKind[];
-  readonly requiresAgent: boolean;
-  readonly unproduced: readonly string[];
-  readonly refusal?: string;
+  readonly needsAgent: readonly FillPlanNeed[];
+  readonly errors: readonly FillPlanError[];
 }
 
 /** One agent `GET /api/agents` offers, and the one saved for this product. */
@@ -305,9 +324,9 @@ const query = (params: Record<string, string | undefined>): string => {
   return search.size === 0 ? '' : `?${search.toString()}`;
 };
 
-/** The fill plan of the kinds checked, or the catalogue alone when none are. */
-export function readFillPlan(base: string, lang: string, kinds: readonly string[], signal?: AbortSignal): Promise<FillPlanAnswer> {
-  return command<FillPlanAnswer>(base, `/api/fill-plan${query({ lang, kinds: kinds.length === 0 ? undefined : kinds.join(',') })}`, signal === undefined ? {} : { signal });
+/** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
+export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal): Promise<FillPlanAnswer> {
+  return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected }), ...(signal === undefined ? {} : { signal }) });
 }
 
 /** `GET /api/product`: the product's identity, read from its manifest alone. */

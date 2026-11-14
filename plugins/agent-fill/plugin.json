@@ -11,7 +11,7 @@
     {
       "kind": "*",
       "fields": "*",
-      "reads": [],
+      "reads": ["code.file"],
       "coverage": "gaps"
     }
   ],

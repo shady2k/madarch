@@ -6,7 +6,6 @@ sources:
 - https://docs.docker.com/compose/
 acquisition:
 - extractor operations
-status: implemented
 relation-constraints:
   out:
   - monitors

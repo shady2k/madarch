@@ -1176,7 +1176,13 @@
       "unproduced": "Нет включённого плагина: {{kinds}}.",
       "model": "Модель: {{model}}",
       "runActive": "Заполнение идёт.",
-      "follow": "Открыть запуск"
+      "follow": "Открыть запуск",
+      "filledBy": "Заполнит: {{plugins}}",
+      "agentFills": "Заполнит агент: {{fields}}",
+      "agentNeeds": "Агент заполнит поля видов: {{kinds}}",
+      "noFields": "Нет полей для заполнения",
+      "planError": "{{kind}}: {{message}}",
+      "missingPlugin": "нет плагина {{plugin}}"
     },
     "kindDetails": {"noFieldMeaning": "Описание этого свойства не опубликовано.", "unavailable": "Объявление вида недоступно. Записи показаны ниже.", "fields": "Поля", "relations": "Связи", "noFields": "Поля не объявлены.", "noRelations": "Связи не объявлены.", "records": "Записи", "untranslatedField": "Поле без перевода", "untranslatedKind": "Вид без перевода", "noProducer": "Исполнитель не объявлен", "untranslatedDescription": "Описание вида не переведено."},
     "kindSources": {

@@ -182,7 +182,7 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, open, reload };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, navigation, open, reload };
   const section: FramePage | null = address.frame;
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };

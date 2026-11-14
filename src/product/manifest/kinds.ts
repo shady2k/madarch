@@ -605,7 +605,7 @@ const KIND_KEYS = new Set([
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
-  'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
+  'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ]);
 
 /** Whether a value is one of the shapes a kind's history page can have. */
@@ -1324,7 +1324,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     }
   }
   // The entity catalog's schema (decision 0033, items 8 to 10): the bound of a subgroup, the origin marks, the
-  // statuses, the template policies, the attributes and the relation names. It is read before the kinds, whose rows
+  // the template policies, the attributes and the relation names. It is read before the kinds, whose rows
   // it validates; a manifest without one keeps every kind it declares as the wiki read it before the catalog.
   // A manifest that declares a catalog at all is read against it; one whose `catalog:` mapping cannot be read keeps its
   // kinds and reports the schema's own findings rather than a field of the catalog on every kind.
@@ -1472,8 +1472,8 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     const decl = value as Record<string, unknown>;
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${[...KIND_KEYS].join(', ')}`);
-    // The catalog's row of the kind: its place, its meaning, its sources, its acquisition, its status, the relations
-    // it may carry and its template policy. A row with a problem leaves the kind out, like every other problem does;
+    // The catalog's row of the kind: its place, its meaning, its sources, its acquisition, the relations it may carry
+    // and its template policy. A row with a problem leaves the kind out, like every other problem does;
     // a kind the catalog declares with the policy "none" is catalogue data only and shows no page.
     if (!catalogDeclared) {
       const stray = Object.keys(decl).filter((key) => CATALOG_ONLY_FIELDS.has(key));

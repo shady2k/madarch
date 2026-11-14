@@ -209,7 +209,6 @@ class Builder {
       { name: 'group', type: 'text' },
       { name: 'subgroup', type: 'text' },
       { name: 'purpose', type: 'text', nullable: true },
-      { name: 'status', type: 'text', nullable: true },
       { name: 'taken', type: 'boolean' },
     ];
     const connection = 'CatalogueEntityConnection';
@@ -232,7 +231,6 @@ class Builder {
       { name: 'group', type: 'String!' },
       { name: 'subgroup', type: 'String!' },
       { name: 'purpose', type: 'String' },
-      { name: 'status', type: 'String' },
       { name: 'audience', type: '[String!]!' },
       { name: 'standards', type: '[String!]!' },
       { name: 'taken', type: 'Boolean!' },

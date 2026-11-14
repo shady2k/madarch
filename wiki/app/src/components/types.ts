@@ -5,6 +5,7 @@
  */
 import type { ReactNode } from 'react';
 import type { ComposedSection } from '../../../../src/page-contract/index.js';
+import type { Navigation } from '../client.js';
 
 export interface SectionContext {
   readonly section: ComposedSection;
@@ -14,6 +15,8 @@ export interface SectionContext {
   readonly busy: boolean;
   /** The page's variables as the composition bound them: a command component reads the one its parameters name. */
   readonly variables: Readonly<Record<string, unknown>>;
+  /** The product's navigation: the catalogue's kinds and groups a command page names in the reader's words. */
+  readonly navigation: Navigation | null;
   readonly open: (path: string) => void;
   /** The same page, asked again with the variables the press named (a table's page, a filter, a sort). */
   readonly reload: (variables: Record<string, unknown>) => void;

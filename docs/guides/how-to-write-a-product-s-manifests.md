@@ -254,7 +254,6 @@ then declares its own row:
 | `definition` | one sentence saying what the kind is |
 | `sources` | the addresses (`http` or `https`) of the standards or documents the kind was taken from |
 | `acquisition` | `extractor <id>`, or one of the catalog's `origin-marks` |
-| `status` | one of the catalog's `statuses` |
 | `relation-constraints` | `{ out: [relation], in: [relation] }`, both lists, of the catalog's relations |
 | `template-policy` | one of the catalog's `template-policies`: `page`, `member` or `none` |
 
@@ -264,7 +263,6 @@ catalog:
   attributes: [version]
   origin-marks: [document, conversation]
   extractor-mark: extractor
-  statuses: [implemented, not-implemented]
   template-policies: [page, member, none]
   relations: { contains: }
 kinds:
@@ -274,7 +272,6 @@ kinds:
     definition: A deployable part of the system.
     sources: [https://example.org/standard]
     acquisition: [extractor code]
-    status: implemented
     relation-constraints: { out: [contains], in: [contains] }
     template-policy: page
 ```

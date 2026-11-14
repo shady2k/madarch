@@ -93,7 +93,6 @@ kinds:
     definition: A summary of the fixture documents.
     sources: ["https://example.test/probe-summary"]
     acquisition: [agent-from-graph]
-    status: implemented
     relation-constraints: { out: [], in: [] }
     template-policy: page
     labels:

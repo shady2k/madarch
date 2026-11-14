@@ -17,8 +17,8 @@ import { Progress } from './ui/progress.js';
 import { Skeleton } from './ui/skeleton.js';
 import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import {
-  pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
-  type FillPlanAnswer, type FillRunDetail, type FillRunGroup,
+  pauseFillRun, readFillRun, stopFillRun, useChangeStream, useCommandRead,
+  type FillRunDetail, type FillRunGroup,
 } from './command.js';
 import { FILL_PAGE } from '../address.js';
 import type { SectionContext } from './types.js';
@@ -88,8 +88,6 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const runId = typeof bound === 'string' ? bound : '';
   const read = useCommandRead<{ run: FillRunDetail }>(`fill-run:${runId}`, (signal) => readFillRun(context.base, runId, signal), runId !== '');
   const run = read.data?.run ?? null;
-  const orderKey = (run?.order ?? run?.selected ?? []).join(',');
-  const plan = useCommandRead<FillPlanAnswer>(`run-plan:${language}:${orderKey}`, (signal) => readFillPlan(context.base, language, run?.order ?? run?.selected ?? [], signal), run !== null);
   useChangeStream(context.base, () => { read.reload(); });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
@@ -102,8 +100,15 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
     return () => clearInterval(timer);
   }, [live]);
 
-  const labelOf = (kind: string): string | undefined => plan.data?.catalogue.find((one) => one.kind === kind)?.labels.many;
-  const groupLabelOf = (kind: string): string | undefined => plan.data?.catalogue.find((one) => one.kind === kind)?.group?.label;
+  const catalogue = context.navigation?.kinds ?? [];
+  const groups = context.navigation?.groups ?? [];
+  const labelOf = (kind: string): string | undefined => catalogue.find((one) => one.kind === kind)?.many;
+  const groupLabelOf = (kind: string): string | undefined => {
+    const held = catalogue.find((one) => one.kind === kind);
+    if (held?.group === null || held?.group === undefined) return undefined;
+    const group = groups.find((one) => one.name === held.group);
+    return group?.labels[language] ?? group?.labels['en'] ?? held.group;
+  };
   const names = (run?.order ?? run?.selected ?? []).map((kind) => labelOf(kind)).filter((label): label is string => label !== undefined);
   const lines = run === null ? [] : logLines(run, run.groups, labelOf, t, language);
 

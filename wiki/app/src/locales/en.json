@@ -1176,7 +1176,13 @@
       "unproduced": "No enabled plugin fills: {{kinds}}.",
       "model": "Model: {{model}}",
       "runActive": "A fill is running.",
-      "follow": "Open the run"
+      "follow": "Open the run",
+      "filledBy": "Filled by: {{plugins}}",
+      "agentFills": "The agent fills: {{fields}}",
+      "agentNeeds": "The agent fills fields of: {{kinds}}",
+      "noFields": "No fields to fill",
+      "planError": "{{kind}}: {{message}}",
+      "missingPlugin": "the plugin {{plugin}} is missing"
     },
     "kindDetails": {"noFieldMeaning": "No meaning is published for this property.", "unavailable": "The kind declaration is unavailable. Records are shown below.", "fields": "Fields", "relations": "Relations", "noFields": "No fields are declared.", "noRelations": "No relations are declared.", "records": "Records", "untranslatedField": "Untranslated field", "untranslatedKind": "Untranslated kind", "noProducer": "No producer is declared", "untranslatedDescription": "The kind description is not translated."},
     "kindSources": {

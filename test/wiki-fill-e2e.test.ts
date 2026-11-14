@@ -7,10 +7,11 @@
  * `wiki/app`, as an ordinary user, with MADARCH_PLUGIN_SANDBOX=off.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
+import { parse, stringify } from 'yaml';
 import { resolveBrowserExecutable } from '../scripts/chromium.js';
 import type { StartedServer } from '../src/server/http.js';
 import { createDraft } from '../src/product/draft.js';
@@ -30,6 +31,7 @@ let root = '';
 let home = '';
 let folder = '';
 let server: StartedServer | undefined;
+let planServer: StartedServer | undefined;
 let browser: Browser | undefined;
 
 /** The page's text, as a person reads it. */
@@ -47,6 +49,15 @@ run('the fill flow on a product filled with disk and git', () => {
     folder = draft.folder;
     // The owner's shape: the disk and git plugins only, no agent and no model.
     useFixturePlugins(folder, ['disk', 'git']);
+    // The fixture keeps only the disk and git plugins, so a field no enabled plugin fills is dropped rather than left
+    // unfillable: the planner's rule is that a fillable kind has a producer for every field or the agent for it.
+    const fileKindFile = join(folder, 'madarch', 'kinds', 'code', 'structure', 'code.file.yaml');
+    const fileKind = parse(readFileSync(fileKindFile, 'utf8')) as { fields: { name: string; producers?: string[]; binding?: { plugin?: string } | string }[] };
+    const deterministic = (field: { producers?: string[]; binding?: { plugin?: string } | string }): boolean => (field.producers ?? []).some((producer) => producer === 'disk' || producer === 'git')
+      || (typeof field.binding === 'string' && (field.binding.startsWith('disk') || field.binding.startsWith('git')))
+      || (typeof field.binding === 'object' && field.binding !== null && (field.binding.plugin === 'disk' || field.binding.plugin === 'git'));
+    fileKind.fields = fileKind.fields.filter(deterministic);
+    writeFileSync(fileKindFile, stringify(fileKind));
     // A little code and a note for the fill to read.
     mkdirSync(join(folder, 'src'), { recursive: true });
     writeFileSync(join(folder, 'src', 'index.ts'), 'export const answer = 42;\n');
@@ -55,11 +66,18 @@ run('the fill flow on a product filled with disk and git', () => {
     writeFileSync(join(folder, 'README.md'), '# Portal fill\n\nA product to fill with disk and git.\n');
     commitProduct(folder, 'A product to fill');
     server = await startPreparedServer({ productFolder: folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
+    // A second product keeps the starter's agent plugin: its fill page is the one that shows a plan needing the agent.
+    const planHome = join(root, 'agent-products');
+    const planDraft = createDraft({ home: planHome, name: 'agent-plan', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+    if (planDraft.outcome !== 'created') throw new Error(JSON.stringify(planDraft));
+    commitProduct(planDraft.folder, 'A product whose plan needs the agent');
+    planServer = await startPreparedServer({ productFolder: planDraft.folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   }, 300_000);
 
   afterAll(async () => {
     await browser?.close();
+    await planServer?.stop();
     await server?.stop();
     if (root !== '') rmSync(root, { recursive: true, force: true });
   });
@@ -136,7 +154,25 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.waitForSelector('[data-testid="fill-history-run"]', { timeout: 30_000 });
       const after = await textOf(page);
       expect(after).toContain('История заполнений');
+      await page.screenshot({ path: join(SHOTS, 'fill-after-run-ru.png') });
+
+      // A fill page whose selection needs the agent: the plan names the agent's fields, and the page offers the agent
+      // and its token cap.
+      await page.goto(`${planServer!.url}/p/fill`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="fill-setup"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="fill-setup-check-doc.decision"]', { timeout: 60_000 });
+      await page.click('[data-testid="fill-setup-check-doc.decision"]');
+      await page.waitForSelector('[data-testid="fill-setup-agent"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="fill-setup-cap"]', { timeout: 60_000 });
+      const agentPlan = await textOf(page);
+      expect(agentPlan).toContain('Заполнит агент');
+      expect(agentPlan).toContain('Агент заполнит поля видов');
+      await page.evaluate(() => { document.querySelector('[data-testid="fill-setup-agent"]')?.scrollIntoView({ block: 'center' }); });
+      await new Promise((resolve) => setTimeout(resolve, 250));
       await page.screenshot({ path: join(SHOTS, 'fill-ru.png') });
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, 'fill-agent-top-ru.png') });
 
       // The other frame pages, on the same filled product.
       await page.goto(`${server!.url}/p/problems`, { waitUntil: 'domcontentloaded', timeout: 60_000 });

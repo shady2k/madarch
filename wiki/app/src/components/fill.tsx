@@ -1,13 +1,13 @@
 
 /**
- * The fill page (decision 0036, sections 7 and 8): the catalogue's areas and kinds to choose, the dependency order and
- * the fields of a plan, the agent and its token cap when the plan holds the agent, and the press that starts the run.
- * Everything it shows is the server's plan (`/api/fill-plan`) and its agents (`/api/agents`); the page computes no plan.
+ * The fill page (decision 0036, sections 7 and 8): the catalogue's areas and kinds to choose, the server's plan for the
+ * selection — which plugin fills which field, which fields the agent fills, the dependency order and an abnormal
+ * missing-plugin error — the agent and its token cap when the plan holds the agent, and the press that starts the run.
+ * The catalogue's words come from the graph's navigation; the plan comes from `POST /api/fill-plan`.
  */
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
-import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card.js';
 import { Checkbox } from './ui/checkbox.js';
@@ -17,33 +17,46 @@ import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
 import {
   readAgentChoices, readAgents, readFillPlan, readFillRuns, readFillStatus, startFillSelection, useChangeStream, useCommandRead,
-  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanAnswer, type FillPlanKind, type FillRunDetail, type FillStatusAnswer,
+  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanKind, type FillPlanView, type FillStatusAnswer, type FillRunDetail,
 } from './command.js';
+import type { Navigation, NavigationKind } from '../client.js';
 import { runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
-/** The area one kind stands in, for the page's sections. */
 interface Area {
   readonly id: string;
   readonly label: string;
-  readonly kinds: readonly FillPlanKind[];
-}
-
-/** The areas of a plan in the order the plan lists their first kind. */
-function areasOf(catalogue: readonly FillPlanKind[], keep: (kind: FillPlanKind) => boolean): Area[] {
-  const areas: { id: string; label: string; kinds: FillPlanKind[] }[] = [];
-  for (const kind of catalogue) {
-    if (!keep(kind)) continue;
-    const id = kind.group?.name ?? '';
-    const label = kind.group?.label ?? '';
-    let area = areas.find((one) => one.id === id);
-    if (area === undefined) { area = { id, label, kinds: [] }; areas.push(area); }
-    area.kinds.push(kind);
-  }
-  return areas;
+  readonly kinds: readonly NavigationKind[];
 }
 
 const lower = (text: string, language: string): string => text.toLocaleLowerCase(language);
+
+/** The catalogue's areas in the manifest's own group order, then the kinds of no group. */
+function areasOf(navigation: Navigation | null, keep: (kind: NavigationKind) => boolean, language: string, other: string): Area[] {
+  const kinds = (navigation?.kinds ?? []).filter(keep);
+  const groups = navigation?.groups ?? [];
+  const known = new Set(groups.map((group) => group.name));
+  const areas: { id: string; label: string; kinds: NavigationKind[] }[] = [];
+  for (const group of groups) {
+    const held = kinds.filter((kind) => kind.group === group.name);
+    if (held.length > 0) areas.push({ id: group.name, label: group.labels[language] ?? group.labels['en'] ?? group.name, kinds: held });
+  }
+  const loose = kinds.filter((kind) => kind.group === null || !known.has(kind.group));
+  if (loose.length > 0) areas.push({ id: '', label: other, kinds: loose });
+  return areas;
+}
+
+/** What the plan says one kind's fields are filled by: the deterministic plugins, and the fields the agent fills. */
+function filledBy(kind: FillPlanKind | undefined): { plugins: string[]; agent: string[] } {
+  if (kind === undefined) return { plugins: [], agent: [] };
+  const agentFields = new Set(kind.agentFields);
+  const plugins: string[] = [];
+  for (const field of kind.fields) {
+    if (agentFields.has(field.field)) continue;
+    for (const producer of field.producers) if (!plugins.includes(producer)) plugins.push(producer);
+  }
+  return { plugins, agent: [...kind.agentFields] };
+}
 
 /** The page's selection and the plan the server answers for it. */
 export function FillSection({ context }: { readonly context: SectionContext }): ReactElement {
@@ -51,6 +64,8 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
   const language = context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const mode = context.section.params['mode'] === 'choose' ? 'choose' : 'run';
   const base = context.base;
+  const navigation = context.navigation;
+  const catalogue = navigation?.kinds ?? [];
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState('');
   const [agent, setAgent] = useState<string | null>(null);
@@ -60,7 +75,10 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
   const chosenSet = useRef(false);
   const selected = [...checked].sort();
   const selectedKey = selected.join(',');
-  const plan = useCommandRead<FillPlanAnswer>(`fill-plan:${language}:${selectedKey}`, (signal) => readFillPlan(base, language, selected, signal));
+  const allKinds = catalogue.map((kind) => kind.kind).sort();
+  const allKey = allKinds.join(',');
+  const allRead = useCommandRead<{ plan: FillPlanView }>(`fill-plan-all:${allKey}`, (signal) => readFillPlan(base, allKinds, signal), allKinds.length > 0);
+  const planRead = useCommandRead<{ plan: FillPlanView }>(`fill-plan:${selectedKey}`, (signal) => readFillPlan(base, selected, signal), selected.length > 0);
   const agents = useCommandRead<AgentsAnswer>('fill-agents', (signal) => readAgents(base, signal));
   const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
   const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => readFillRuns(base, signal));
@@ -73,34 +91,36 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
     if (agents.data.chosen !== null) setAgent(agents.data.chosen.id);
   }, [agents.data]);
 
-  const fromPlan = plan.data;
-  const catalogue = fromPlan?.catalogue ?? [];
+  const allPlan = allRead.data?.plan;
+  const selection = selected.length === 0 ? undefined : planRead.data?.plan;
+  const planByKind = new Map((allPlan?.kinds ?? []).map((kind) => [kind.kind, kind]));
   const dependencies = new Map<string, string>();
-  for (const kind of fromPlan?.kinds ?? []) if (kind.reason === 'dependency' && kind.namedBy !== undefined) dependencies.set(kind.kind, kind.namedBy);
+  for (const kind of selection?.selectedKinds ?? []) if (!checked.has(kind)) dependencies.set(kind, '');
   const active = new Set([...checked, ...dependencies.keys()]);
-  const requiresAgent = fromPlan?.requiresAgent === true;
-  const unproduced = fromPlan?.unproduced ?? [];
-  const refusal = fromPlan?.refusal ?? null;
+  const needsAgent = selection?.needsAgent ?? [];
+  const errors = selection?.errors ?? [];
+  const requiresAgent = needsAgent.length > 0;
   const settled = status.data?.fill.state;
   const live = settled === 'running' || settled === 'paused';
   const liveRunId = status.data?.fill.runId;
-  const locked = live || busy || plan.busy || mode === 'choose';
+  const planBusy = allRead.busy || planRead.busy;
+  const locked = live || busy || planBusy || mode === 'choose';
   const validCap = cap.trim() === '' || (Number.isSafeInteger(Number(cap)) && Number(cap) > 0);
   const missingAgent = requiresAgent && agent === null;
   const choices = useCommandRead<AgentChoicesAnswer>(`fill-agent-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), requiresAgent && agent !== null);
-  // Every known kind's label, so a dependency and a past run name their kinds the catalogue's way and never by id.
-  const labelOf = (kind: string): string | undefined => catalogue.find((one) => one.kind === kind)?.labels.many;
+  const kindOf = (kind: string): NavigationKind | undefined => catalogue.find((one) => one.kind === kind);
+  const labelOf = (kind: string): string | undefined => kindOf(kind)?.many;
 
   const toggle = (ids: readonly string[], add: boolean): void => {
-    setChecked((held) => {
-      const next = new Set(held);
+    setChecked((current) => {
+      const next = new Set(current);
       for (const id of ids) { if (add) next.add(id); else next.delete(id); }
       return next;
     });
     setFailure(null);
   };
   const run = (): void => {
-    if (locked || plan.busy || checked.size === 0 || !validCap || missingAgent || refusal !== null || unproduced.length > 0) return;
+    if (locked || planBusy || checked.size === 0 || !validCap || missingAgent || errors.length > 0) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, { selected, agent: requiresAgent ? agent : null, tokenCap: requiresAgent && cap.trim() !== '' ? Number(cap) : null }).then(
@@ -110,8 +130,8 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
   };
 
   const needle = search.trim();
-  const matches = (kind: FillPlanKind): boolean => needle === '' || lower(`${kind.labels.one} ${kind.labels.many}`, language).includes(lower(needle, language));
-  const areas = areasOf(catalogue, matches);
+  const matches = (kind: NavigationKind): boolean => needle === '' || lower(`${kind.one} ${kind.many}`, language).includes(lower(needle, language));
+  const areas = areasOf(navigation, matches, language, t('knowledge.fillSetup.other'));
 
   return (
     <Stack className="grid gap-6" data-testid="fill-setup">
@@ -121,9 +141,9 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
           <CardDescription>{t('knowledge.fillSetup.intro')}</CardDescription>
         </CardHeader>
         <CardContent>
-          {plan.error !== null ? <Alert variant="problem"><AlertDescription>{plan.error}</AlertDescription></Alert> : null}
-          {plan.data === null && plan.error === null ? <Skeleton className="h-8 w-72" /> : null}
-          {fromPlan === null ? null : (
+          {allRead.error === null ? null : <Alert variant="problem"><AlertDescription>{allRead.error}</AlertDescription></Alert>}
+          {allPlan === undefined && allRead.error === null ? <Skeleton className="h-8 w-72" /> : null}
+          {allPlan === undefined ? null : (
             <Stack className="grid gap-4">
               <Stack className="flex flex-wrap items-end gap-3">
                 <FieldLabel className="grid min-w-64 flex-1 gap-1 text-small">
@@ -140,39 +160,44 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
                   <Stack key={area.id === '' ? '\u0000other' : area.id} className="grid gap-2" data-testid="fill-setup-section">
                     <SmallTitle className="flex items-center gap-2 text-small">
                       <Checkbox
-                        aria-label={t('knowledge.fillSetup.section', { section: area.label === '' ? t('knowledge.fillSetup.other') : area.label })}
+                        aria-label={t('knowledge.fillSetup.section', { section: area.label })}
                         checked={all}
                         ref={(input) => { if (input !== null) input.indeterminate = activeInArea > 0 && !all; }}
                         disabled={locked}
                         onChange={() => toggle(area.kinds.filter((kind) => !dependencies.has(kind.kind)).map((kind) => kind.kind), !all)}
                       />
-                      {area.label === '' ? t('knowledge.fillSetup.other') : area.label}
+                      {area.label}
                     </SmallTitle>
                     {area.kinds.map((kind) => {
-                      const needed = dependencies.get(kind.kind);
-                      const neededLabel = needed === undefined ? undefined : labelOf(needed);
+                      const needed = dependencies.has(kind.kind);
+                      const planKind = planByKind.get(kind.kind);
+                      const filled = filledBy(planKind);
+                      const abnormal = errors.find((error) => error.kind === kind.kind);
                       return (
                         <Stack key={kind.kind} className="grid gap-1 text-small">
                           <FieldLabel className="flex items-start gap-2">
                             <Checkbox
                               data-testid={`fill-setup-check-${kind.kind}`}
                               checked={active.has(kind.kind)}
-                              disabled={locked || needed !== undefined}
+                              disabled={locked || needed}
                               onChange={() => toggle([kind.kind], !checked.has(kind.kind))}
                             />
                             <Text>
-                              {kind.labels.many}
-                              {kind.agent ? <> <Badge variant="outline">{t('knowledge.fillSetup.agent')}</Badge></> : null}
-                              {neededLabel === undefined ? null : <Text className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.neededBy', { kind: neededLabel })}</Text>}
+                              {kind.many}
+                              {needed ? <Text className="block text-muted" data-testid="fill-setup-needed">{t('knowledge.fillSetup.dependency')}</Text> : null}
                             </Text>
                           </FieldLabel>
-                          <Paragraph className="m-0 text-small text-muted" data-testid="fill-setup-plugins">
-                            {kind.plugins.join(', ') || t('knowledge.catalogueNoPlugin')}
-                          </Paragraph>
-                          {kind.fields.some((field) => field.plugins.length > 0 || field.agent) ? (
-                            <Paragraph className="m-0 text-small text-muted" data-testid="fill-setup-fields">
-                              {t('knowledge.fillSetup.fields')}: {kind.fields.filter((field) => field.plugins.length > 0 || field.agent).map((field) => `${field.field} — ${field.agent ? t('knowledge.fillSetup.fieldsAgent') : field.plugins.join(', ')}`).join(' · ')}
-                            </Paragraph>
+                          {abnormal === undefined && filled.plugins.length > 0 ? (
+                            <Paragraph className="m-0 ml-6 text-small text-muted" data-testid="fill-setup-plugins">{t('knowledge.fillSetup.filledBy', { plugins: filled.plugins.join(', ') })}</Paragraph>
+                          ) : null}
+                          {abnormal === undefined && filled.agent.length > 0 ? (
+                            <Paragraph className="m-0 ml-6 text-small text-muted" data-testid="fill-setup-agent-fields">{t('knowledge.fillSetup.agentFills', { fields: filled.agent.join(', ') })}</Paragraph>
+                          ) : null}
+                          {abnormal !== undefined && active.has(kind.kind) ? (
+                            <Paragraph className="m-0 ml-6 text-small" data-testid="fill-setup-kind-error">{t('knowledge.fillSetup.planError', { kind: kind.many, message: abnormal.plugin === undefined ? abnormal.message : t('knowledge.fillSetup.missingPlugin', { plugin: abnormal.plugin }) })}</Paragraph>
+                          ) : null}
+                          {abnormal === undefined && filled.plugins.length === 0 && filled.agent.length === 0 ? (
+                            <Paragraph className="m-0 ml-6 text-small text-muted" data-testid="fill-setup-no-fields">{t('knowledge.fillSetup.noFields')}</Paragraph>
                           ) : null}
                         </Stack>
                       );
@@ -185,17 +210,24 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
         </CardContent>
       </Card>
 
-      {checked.size === 0 || fromPlan === null ? null : (
+      {selection === undefined ? null : (
         <Card data-testid="fill-setup-order-card">
           <CardHeader><CardTitle>{t('knowledge.fillSetup.order')}</CardTitle></CardHeader>
           <CardContent>
             <PlainList data-testid="fill-setup-order">
-              {fromPlan.kinds.map((kind, at) => (
-                <ListItem key={kind.kind} className="mb-1 text-small">
-                  {at + 1}. {kind.labels.many} · {kind.plugins.join(', ') || t('knowledge.catalogueNoPlugin')}
-                  {kind.reason === 'dependency' ? <Text className="text-muted"> · {t('knowledge.fillSetup.dependency')}</Text> : null}
-                </ListItem>
-              ))}
+              {selection.selectedKinds.map((kind, at) => {
+                const label = labelOf(kind);
+                if (label === undefined) return null;
+                const filled = filledBy(planByKind.get(kind));
+                return (
+                  <ListItem key={kind} className="mb-1 text-small">
+                    {at + 1}. {label}
+                    {filled.plugins.length > 0 ? ` · ${filled.plugins.join(', ')}` : ''}
+                    {filled.agent.length > 0 ? ` · ${t('knowledge.fillSetup.fieldsAgent')}` : ''}
+                    {checked.has(kind) ? null : <Text className="text-muted"> · {t('knowledge.fillSetup.dependency')}</Text>}
+                  </ListItem>
+                );
+              })}
             </PlainList>
           </CardContent>
         </Card>
@@ -232,7 +264,7 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
             ) : null}
             <Paragraph className="m-0 text-small" data-testid="fill-setup-count">{t('knowledge.fillSetup.count', { selected: checked.size, dependencies: dependencies.size })}</Paragraph>
             {mode === 'run' ? (
-              <Button variant="default" size="default" data-testid="fill-setup-run" disabled={locked || plan.busy || checked.size === 0 || !validCap || missingAgent || refusal !== null || unproduced.length > 0} onClick={run}>
+              <Button variant="default" size="default" data-testid="fill-setup-run" disabled={locked || planBusy || checked.size === 0 || !validCap || missingAgent || errors.length > 0} onClick={run}>
                 {t(busy ? 'knowledge.fillSetup.starting' : 'knowledge.fillSetup.run')}
               </Button>
             ) : null}
@@ -240,10 +272,19 @@ export function FillSection({ context }: { readonly context: SectionContext }): 
           {requiresAgent && choices.data?.choices.model?.current !== null && choices.data?.choices.model?.current !== undefined ? (
             <Paragraph className="mt-2 text-small text-muted" data-testid="fill-setup-model">{t('knowledge.fillSetup.model', { model: choices.data.choices.model.current })}</Paragraph>
           ) : null}
+          {requiresAgent && needsAgent.length > 0 ? (
+            <Paragraph className="mt-2 text-small text-muted" data-testid="fill-setup-agent-needs">
+              {t('knowledge.fillSetup.agentNeeds', { kinds: needsAgent.map((need) => labelOf(need.kind) ?? kindOf(need.kind)?.one ?? '').filter((label) => label !== '').join(', ') })}
+            </Paragraph>
+          ) : null}
           {missingAgent ? <Paragraph className="mt-2 text-small" data-testid="fill-setup-agent-required">{t('knowledge.fillSetup.chooseAgent')}</Paragraph> : null}
           {!validCap ? <Paragraph role="alert" className="mt-2 text-small">{t('knowledge.fillSetup.invalidCap')}</Paragraph> : null}
-          {unproduced.length === 0 ? null : <Paragraph className="mt-2 text-small" data-testid="fill-setup-unproduced">{t('knowledge.fillSetup.unproduced', { kinds: unproduced.map((kind) => labelOf(kind) ?? t('knowledge.fillRun.selectionUnknown')).join(', ') })}</Paragraph>}
-          {refusal === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{refusal}</AlertDescription></Alert>}
+          {errors.map((error) => (
+            <Alert key={error.kind} variant="problem" className="mt-3" data-testid="fill-setup-plan-error">
+              <AlertDescription>{t('knowledge.fillSetup.planError', { kind: labelOf(error.kind) ?? error.kind, message: error.plugin === undefined ? error.message : t('knowledge.fillSetup.missingPlugin', { plugin: error.plugin }) })}</AlertDescription>
+            </Alert>
+          ))}
+          {planRead.error === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{planRead.error}</AlertDescription></Alert>}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
         </CardContent>
       </Card>
