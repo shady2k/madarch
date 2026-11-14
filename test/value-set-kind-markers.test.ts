@@ -23,7 +23,6 @@ catalog:
   attributes: [version]
   origin-marks: [conversation, document, not-implemented]
   extractor-mark: extractor
-  statuses: [implemented, partial, not-implemented]
   template-policies: [page, member, none]
   relations: {}
 groups:
@@ -43,7 +42,6 @@ kinds:
     definition: A named list of values a field may take.
     sources: ["https://example.test/dictionary"]
     acquisition: [conversation]
-    status: not-implemented
     relation-constraints: { out: [], in: [] }
     template-policy: page
     fields:
@@ -63,7 +61,6 @@ kinds:
     definition: One value of a named list.
     sources: ["https://example.test/dictionary"]
     acquisition: [conversation]
-    status: not-implemented
     relation-constraints: { out: [], in: [] }
     template-policy: page
     fields:

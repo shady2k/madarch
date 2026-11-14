@@ -5,7 +5,7 @@ import { relationWords } from '../src/knowledge/relation-labels.js';
 test('a product declares arbitrary relation words independently of the starter set', () => {
   const result = readCatalogSchema({
     'subgroup-kind-bound': 12, attributes: ['version'], 'origin-marks': ['document'],
-    'extractor-mark': 'extractor', statuses: ['implemented'], 'template-policies': ['none'],
+    'extractor-mark': 'extractor', 'template-policies': ['none'],
     relations: { 'sample.powers': { source: 'https://example.test/powers', labels: {
       en: { out: 'powers', in: 'powered by' }, ru: { out: 'питает', in: 'питается от' },
     } } },
