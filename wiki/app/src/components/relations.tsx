@@ -8,11 +8,14 @@ import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { titleIn } from '../../../../src/page-contract/index.js';
 import { relationWords } from '../../../../src/knowledge/relation-labels.js';
+import { useRef, useState } from 'react';
+import { Button } from './ui/button.js';
+import { PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Metadata, Paragraph, SectionTitle, TextLink } from './ui/typography.js';
 import { at, localized } from './format.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
-import { entityHref, edgesOf } from './connection.js';
+import { entityHref, edgesOf, nextOf, totalOf } from './connection.js';
 import type { SectionContext } from './types.js';
 
 interface RelationRow {
@@ -32,17 +35,21 @@ interface RelationGroup {
 
 export function RelationsSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t } = useTranslation();
+  const [page, setPage] = useState(0);
+  const cursors = useRef<(string | undefined)[]>([undefined]);
   const connection = at(context.data, context.section.params['path']);
   const labelPath = typeof context.section.params['labelPath'] === 'string' ? context.section.params['labelPath'] : 'relation';
   // A section that asks one relation of its own (`related`) names the edge it read; a backlinks section reads them all.
   const named = typeof context.section.params['edge'] === 'string' ? String(context.section.params['edge']) : undefined;
+  const canPage = (context.section.query ?? '').includes(`$${context.section.id}_after`);
+  const next = nextOf(connection);
   const groups = named === undefined
     ? groupOf(edgesOf(connection), context.language)
     : [{
         key: `${named}\u0000${context.section.params['inverse'] === true ? 'in' : 'out'}`,
         word: relationWords(named, context.language, context.section.params['inverse'] === true),
         rows: uniqueRows(edgesOf(connection)),
-        total: uniqueRows(edgesOf(connection)).length,
+        total: totalOf(connection) || uniqueRows(edgesOf(connection)).length,
       }];
   if (groups.length === 0) {
     return <Paragraph data-testid="relations-empty">{localized(context.section.params['emptyText'], context.language) ?? titleIn(context.section.title, context.language) ?? t('knowledge.linksHere')}</Paragraph>;
@@ -64,6 +71,21 @@ export function RelationsSection({ context }: { readonly context: SectionContext
           </Table>
         </section>
       ))}
+      {canPage ? (
+        <PaginationBar>
+          <PaginationSummary>{`${String(page + 1)} · ${new Intl.NumberFormat(context.language).format(totalOf(connection))}`}</PaginationSummary>
+          <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => {
+            const previous = cursors.current[page - 1];
+            context.reload({ [`${context.section.id}_after`]: previous ?? null });
+            setPage(page - 1);
+          }}>←</Button>
+          <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => {
+            cursors.current = [...cursors.current.slice(0, page + 1), next.cursor];
+            context.reload({ [`${context.section.id}_after`]: next.cursor ?? null });
+            setPage(page + 1);
+          }}>→</Button>
+        </PaginationBar>
+      ) : null}
     </>
   );
 }
@@ -84,14 +106,15 @@ function uniqueRows(rows: readonly Record<string, unknown>[]): Record<string, un
 /** The rows of one connection, grouped by the relation they were read through, the fullest group first. */
 function groupOf(rows: readonly Record<string, unknown>[], language: string): RelationGroup[] {
   const groups = new Map<string, RelationGroup>();
-  for (const held of rows) {
-    const row = held as RelationRow;
-    const node = (row.node ?? {}) as Record<string, unknown>;
-    const edge = typeof row.edge === 'string' ? row.edge : typeof node['relation'] === 'string' ? node['relation'] : '';
+  for (const outer of rows) {
+    // A connection's row is `{node}`; the relation's own fields stand on that node, or on the row itself for a list.
+    const held = (outer['node'] ?? outer) as RelationRow;
+    const row = held;
+    const edge = typeof row.edge === 'string' ? row.edge : typeof row.relation === 'string' ? String(row.relation) : '';
     const inverse = row.inverse === true;
     const key = `${edge}\u0000${inverse ? 'in' : 'out'}`;
     const heldGroup = groups.get(key) ?? { key, word: relationWords(edge, language, inverse), rows: [] };
-    heldGroup.rows.push(row);
+    heldGroup.rows.push(outer);
     groups.set(key, heldGroup);
   }
   return [...groups.values()].sort((left, right) => right.rows.length - left.rows.length || (left.word < right.word ? -1 : 1));

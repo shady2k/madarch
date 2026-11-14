@@ -46,11 +46,23 @@ sections:
       }
     params:
       rows:
-        - { label: { en: Files, ru: Файлы }, path: count, format: number }
+        - { label: { en: In the repositories now, ru: Сейчас в репозиториях }, path: count, format: number }
+  - id: historyCount
+    component: facts
+    on: root
+    after: count
+    title: { en: Over the whole history, ru: Всего за историю }
+    query: |
+      allCodeFileAggregate {
+        count
+      }
+    params:
+      rows:
+        - { label: { en: Over the whole history, ru: Всего за историю }, path: count, format: number }
   - id: byLanguage
     component: bars
     on: root
-    after: count
+    after: historyCount
     title: { en: By language, ru: По языку }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {

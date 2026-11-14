@@ -113,6 +113,18 @@ interface EdgeBatch {
   readonly opinions: Map<string, OpinionRow[]>;
 }
 
+/** Text fields that hold a whole file or document: searching them would scan the tree for every word. */
+const HEAVY_TEXT_FIELDS = new Set(['content', 'body', 'blob']);
+
+/** The line a search row is shown by: the label, and the matched text beside it when the label is a hash. */
+export function searchLine(label: string, value: string): string {
+  const short = /^[0-9a-f]{7,64}$/u.test(label) ? label.slice(0, 7) : label;
+  if (value === '' || value === label) return short;
+  const first = value.split('\n')[0]!.trim();
+  const cut = first.length > 90 ? `${first.slice(0, 90).replace(/\s+\S*$/u, '')}…` : first;
+  return `${short} — ${cut}`;
+}
+
 /** A parameterised statement under construction. */
 class Sql {
   readonly parts: string[] = [];
@@ -1078,6 +1090,7 @@ export class ReadContext {
       return this.aggregateOfKind(held, args['where'] as Readonly<Record<string, unknown>> | undefined, lang);
     }
     if (field === 'cochange') return this.cochange(args, lang);
+    if (field === 'contributors') return this.contributors(args, lang);
     if (field === 'related') return this.related(args, lang);
     if (field === 'catalogueEntity') {
       const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
@@ -1086,6 +1099,7 @@ export class ReadContext {
     if (field === 'allCatalogueEntity') return this.allCatalogue(args as ConnectionArgs, lang);
     if (field === 'home') return this.home(lang);
     if (field === 'search') return this.search(args, lang);
+    if (field === 'searchGroups') return this.searchGroups(args, lang);
     if (field === 'bootstrap') return this.bootstrap();
     if (field === 'navigation') return this.navigation(lang);
     return null;
@@ -1142,55 +1156,136 @@ export class ReadContext {
   }
 
   /** Search over labels and text fields, one union of every kind's text; the total is before the cursor. */
-  private async search(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
-    const text = typeof args['text'] === 'string' ? args['text'] : '';
-    const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
+  /** The entities whose label or text holds the words asked: their node, their kind, the matched value and how well. */
+  private async searchHits(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined): Promise<{ nodeId: string; uid: string; key: Readonly<Record<string, unknown>>; kind: string; value: string; rank: number }[]> {
+    if (text.trim() === '') return [];
     const sql = new Sql();
     const pattern = sql.param(`%${text}%`, '::text');
-    // The store's own columns: a field a kind declares and whose opinion table does not hold (a producer that failed
-    // before its table was made) is not searched, so one broken kind does not refuse every other kind's answers.
+    const prefix = sql.param(`${text}%`, '::text');
+    // The store's own columns: a field a kind declares and whose opinion table does not hold is not searched.
     const columns = await this.vertexColumns();
     const parts: string[] = [];
     for (const kind of this.published.kinds) {
       if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(typeNameOf(kind.name))) continue;
       const held = columns.get(this.vertexTable.get(kind.name) ?? '') ?? new Set<string>();
-      const searched = kind.fields.filter((field) => field.type === 'text' && (kind.key.includes(field.name) || held.has(field.name)));
-      // A kind with nothing to search is left out whole: a parameter bound for it would stand in no expression.
+      // The whole text of a file or a document is not a search index: a path, a name or a definition is; a field
+      // holding the whole source would make every word scan the tree.
+      const searched = kind.fields.filter((field) => field.type === 'text' && !HEAVY_TEXT_FIELDS.has(field.name) && (kind.key.includes(field.name) || held.has(field.name)));
       if (searched.length === 0) continue;
       const kindParam = sql.param(kind.name, '::text');
+      const title = this.manifest.kinds.get(kind.name)?.title;
       for (const field of searched) {
         const expr = this.fieldExpr(kind, field, 'n', sql, lang);
-        parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity, (${expr})::text AS value
+        // A label match ranks above a text match: the entity whose own name holds the words is what a reader means.
+        const rank = field.name === title ? `CASE WHEN (${expr}) ILIKE ${prefix} THEN 0 ELSE 1 END` : '3';
+        parts.push(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity, ${kindParam} AS kind,
+            (${expr})::text AS value, ${rank} AS rank
           FROM node n JOIN entity en ON en.id = n.entity_id
           WHERE en.name = ${kindParam} AND n.context_id = 1 AND NOT n.removed AND (${expr})::text ILIKE ${pattern}`);
       }
     }
-    if (parts.length === 0) return { edges: [], pageInfo: { endCursor: null, hasNextPage: false }, totalCount: 0 };
-    const first = clampFirst(typeof args['first'] === 'number' ? args['first'] : null);
-    const cursor = decodeCursor(typeof args['after'] === 'string' ? args['after'] : null) as { k?: string; id?: string } | undefined;
-    const after = cursor?.k === undefined ? '' : `WHERE entity > ${sql.param(cursor.k, '::text')} OR (entity = ${sql.param(cursor.k, '::text')} AND node_id::bigint > ${sql.param(cursor.id ?? '0', '::bigint')})`;
+    if (parts.length === 0) return [];
     const answer = await this.tx.query<Record<string, unknown>>(
-      `WITH hits AS (${parts.join(' UNION ALL ')}), dedup AS (
-         SELECT DISTINCT node_id, uid, key, entity FROM hits
-       ), rows AS (
-         SELECT * FROM dedup${after === '' ? '' : ` ${after}`}
-       ), ranked AS (
-         SELECT rows.*, row_number() OVER (ORDER BY entity, node_id::bigint) AS rn,
-                (SELECT count(*) FROM dedup) AS total
-         FROM rows
-       )
-       SELECT * FROM ranked WHERE rn <= ${sql.param(first + 1, '::int')} ORDER BY rn`,
+      `WITH hits AS (${parts.join(' UNION ALL ')})
+       SELECT node_id, uid, key, kind, value, rank FROM hits
+       ORDER BY rank ASC, length(value) ASC, node_id::bigint ASC`,
       sql.params,
     );
-    const values = answer.rows.map((row) => this.entityFromRow(row, lang)).filter((one): one is EntityValue => one !== undefined);
-    const total = answer.rows.length === 0 ? 0 : Number(answer.rows[0]!['total']);
-    const page = values.slice(0, first);
-    const cursorOf = (at: number, node: EntityValue): string => encodeCursor({ k: answer.rows[at]!['entity'], id: node.nodeId });
+    return answer.rows.map((row) => ({
+      nodeId: String(row['node_id']),
+      uid: String(row['uid']),
+      key: (row['key'] ?? {}) as Readonly<Record<string, unknown>>,
+      kind: String(row['kind']),
+      value: String(row['value'] ?? ''),
+      rank: Number(row['rank'] ?? 3),
+    }));
+  }
+
+  private async search(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
+    const text = typeof args['text'] === 'string' ? args['text'] : '';
+    const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
+    const hits = await this.searchHits(text, wanted, lang);
+    const seen = new Set<string>();
+    const unique = hits.filter((hit) => { if (seen.has(hit.nodeId)) return false; seen.add(hit.nodeId); return true; });
+    const first = clampFirst(typeof args['first'] === 'number' ? args['first'] : null);
+    const values = unique.slice(0, first).map((hit) => this.entityFromRow({ node_id: hit.nodeId, uid: hit.uid, key: hit.key, entity: hit.kind }, lang)).filter((one): one is EntityValue => one !== undefined);
     return {
-      edges: page.map((node, at) => ({ cursor: cursorOf(at, node), node })),
-      pageInfo: { endCursor: page.length === 0 ? null : cursorOf(page.length - 1, page[page.length - 1]!), hasNextPage: values.length > first },
-      totalCount: total,
+      edges: values.map((node) => ({ cursor: encodeCursor({ k: hits.find((hit) => hit.nodeId === node.nodeId)?.kind ?? '', id: node.nodeId }), node })),
+      pageInfo: { endCursor: null, hasNextPage: unique.length > first },
+      totalCount: unique.length,
     };
+  }
+
+  /**
+   * The search's answers grouped by kind, as a reader meets them (decision 0036, section 7): each kind's word, how many
+   * answers it holds and its best `perKind` rows — the row's line being the entity's label, and for an entity named by a
+   * hash the matched text beside it (a commit's short hash and the first line of its message).
+   */
+  private async searchGroups(args: Record<string, unknown>, lang: string | undefined): Promise<unknown[]> {
+    const text = typeof args['text'] === 'string' ? args['text'] : '';
+    const wanted = Array.isArray(args['kinds']) ? new Set((args['kinds'] as unknown[]).filter((one): one is string => typeof one === 'string')) : undefined;
+    const perKind = Math.min(Math.max(1, Math.trunc(Number(args['perKind'] ?? 5))), 20);
+    const hits = await this.searchHits(text, wanted, lang);
+    const groups = new Map<string, { rows: Map<string, { hit: (typeof hits)[number]; best: number }> }>();
+    for (const hit of hits) {
+      const held = groups.get(hit.kind) ?? { rows: new Map() };
+      const row = held.rows.get(hit.nodeId) ?? { hit, best: 3 };
+      if (hit.rank < row.best) { row.hit = hit; row.best = hit.rank; }
+      held.rows.set(hit.nodeId, row);
+      groups.set(hit.kind, held);
+    }
+    const out: { kind: string; label: string; count: number; best: number; results: unknown[] }[] = [];
+    for (const [kind, group] of groups) {
+      // The rows a reader meets first: the label matches, and among them the shorter label (a path's own file before a
+      // folder that holds it), then the answer's own order. Labels are read for the candidates, not for the whole kind.
+      const candidates = [...group.rows.values()].sort((left, right) => left.best - right.best || Number(left.hit.nodeId) - Number(right.hit.nodeId)).slice(0, Math.max(perKind * 4, 40));
+      const named: { node: EntityValue; label: string; line: string; best: number }[] = [];
+      for (const row of candidates) {
+        const node = this.entityFromRow({ node_id: row.hit.nodeId, uid: row.hit.uid, key: row.hit.key, entity: row.hit.kind }, lang);
+        if (node === undefined) continue;
+        const label = await this.labelOf(node);
+        named.push({ node, label, line: searchLine(label, row.hit.value), best: row.best });
+      }
+      named.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
+      const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line }));
+      if (results.length === 0) continue;
+      out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.size, best: named[0]?.best ?? 3, results });
+    }
+    // The catalogue's own kinds answer too: a reader who types a kind's word means the kind, not only its records.
+    const catalogue = await this.catalogueSearchGroup(text, wanted, lang, perKind);
+    if (catalogue !== undefined) out.push(catalogue);
+    // The kind whose best answer ranks highest leads; the fuller kind leads among equals.
+    return out
+      .sort((left, right) => left.best - right.best || right.count - left.count || byCodePoint(left.label, right.label))
+      .map(({ kind, label, count, results }) => ({ kind, label, count, results }));
+  }
+
+  /** The catalogue entries whose own word or definition holds the words asked: the kinds a reader may mean. */
+  private async catalogueSearchGroup(text: string, wanted: ReadonlySet<string> | undefined, lang: string | undefined, perKind: number): Promise<{ kind: string; label: string; count: number; best: number; results: unknown[] } | undefined> {
+    if (wanted !== undefined && !wanted.has('catalogue')) return undefined;
+    const needle = text.trim().toLowerCase();
+    if (needle === '') return undefined;
+    const data = await this.catalogueData();
+    const rows: { best: number; label: string; line: string; value: EntityValue }[] = [];
+    for (const entry of data.byName.values()) {
+      const words = this.catalogueTitle(entry, lang);
+      const definition = this.catalogueDefinition(entry, lang) ?? '';
+      const lower = words.toLowerCase();
+      const best = lower === needle ? 0 : lower.startsWith(needle) ? 1 : lower.includes(needle) ? 2 : definition.toLowerCase().includes(needle) ? 3 : 9;
+      if (best === 9) continue;
+      const node = this.catalogueEntityValue(entry, lang);
+      rows.push({ best, label: words, line: `${words}${definition === '' ? '' : ` — ${definition.length > 90 ? `${definition.slice(0, 90).replace(/\s+\S*$/u, '')}…` : definition}`}`, value: node });
+    }
+    if (rows.length === 0) return undefined;
+    rows.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
+    return { kind: 'catalogue', label: 'catalogue', count: rows.length, best: rows[0]!.best, results: rows.slice(0, perKind).map((row) => ({ node: row.value, line: row.line })) };
+  }
+
+  /** The catalogue's word for a kind in the reader's language, else its English word, else the kind's name. */
+  private kindWord(kind: string, lang: string | undefined): string {
+    const decl = this.manifest.kinds.get(kind);
+    const language = lang ?? this.lang;
+    return decl?.labels?.[language]?.many ?? decl?.labels?.[this.fallbackLang]?.many ?? kind;
   }
 
   private async bootstrap(): Promise<unknown> {
@@ -1248,17 +1343,26 @@ export class ReadContext {
     return { product: home === undefined ? null : await this.labelOf(home), groups, kinds, purposes };
   }
 
-  /** The entities the graph holds of each kind the product takes, in one statement. */
+  /**
+   * The entities the graph holds of each kind the product takes, in one statement. A kind that records when an entity
+   * left the product (a removal timestamp) counts the entities still here: a path that left the tree is history, not a
+   * file, and the sidebar and the pages say the same number.
+   */
   private async vertexCounts(): Promise<Map<string, number>> {
     const names = [...this.manifest.kinds.keys()];
     if (names.length === 0) return new Map();
-    const found = await this.tx.query<Record<string, unknown>>(
-      `SELECT en.name AS kind, count(*)::int AS n
-       FROM node n JOIN entity en ON en.id = n.entity_id
-       WHERE n.context_id = 1 AND NOT n.removed AND en.name = ANY($1::text[])
-       GROUP BY en.name`,
-      [names],
-    );
+    const sql = new Sql();
+    const parts = this.published.kinds.map((kind) => {
+      const kindParam = sql.param(kind.name, '::text');
+      const removal = kind.fields.find((field) => field.name === 'removed_at' || field.name === 'removedAt');
+      const table = this.vertexTable.get(kind.name);
+      const stillHere = removal === undefined || table === undefined ? ''
+        : ` AND NOT EXISTS (SELECT 1 FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1 AND o."${removal.name}" IS NOT NULL)`;
+      return `SELECT ${kindParam} AS kind, count(*)::int AS n
+        FROM node n JOIN entity en ON en.id = n.entity_id
+        WHERE n.context_id = 1 AND NOT n.removed AND en.name = ${kindParam}${stillHere}`;
+    });
+    const found = await this.tx.query<Record<string, unknown>>(parts.join(' UNION ALL '), sql.params);
     return new Map(found.rows.map((row) => [String(row['kind']), Number(row['n'])]));
   }
 
@@ -1417,6 +1521,40 @@ export class ReadContext {
     }
     this.columnCache = out;
     return out;
+  }
+
+  /**
+   * The entities at the far end of one more relation: the authors of the commits that touched a file, the files of the
+   * commits of an author — read as one statement and counted, the fullest first.
+   */
+  private async contributors(args: Record<string, unknown>, lang: string | undefined): Promise<unknown> {
+    const uid = typeof args['id'] === 'string' ? args['id'] : '';
+    const through = typeof args['through'] === 'string' ? args['through'] : '';
+    const edge = typeof args['edge'] === 'string' ? args['edge'] : '';
+    const first = Math.min(Math.max(1, Math.trunc(Number(args['first'] ?? 20))), 50);
+    if (uid === '' || through === '' || edge === '') return [];
+    const rows = await this.tx.query<Record<string, unknown>>(
+      `WITH me AS (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed),
+       near AS (
+         SELECT e.from_node AS mid FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $2
+           WHERE e.to_node = (SELECT id FROM me) AND e.context_id = 1
+       ),
+       far AS (
+         SELECT e.from_node AS node FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = $3
+           WHERE e.to_node IN (SELECT mid FROM near) AND e.context_id = 1
+       ),
+       counted AS (SELECT node, count(*)::int AS n FROM far GROUP BY node)
+       SELECT node, n FROM counted ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`,
+      [uid, through, edge],
+    );
+    const ids = rows.rows.map((row) => String(row['node']));
+    if (ids.length === 0) return [];
+    const nodes = (await this.tx.query<Record<string, unknown>>(
+      `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`,
+      [ids],
+    )).rows;
+    const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
+    return rows.rows.map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) })).filter((one) => one.node !== undefined);
   }
 
   /**

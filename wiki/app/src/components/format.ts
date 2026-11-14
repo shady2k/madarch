@@ -41,6 +41,16 @@ export function shortHash(value: unknown): string | undefined {
   return /^[0-9a-f]{7,64}$/u.test(trimmed) ? trimmed.slice(0, 7) : undefined;
 }
 
+/** The name a link is shown by: the address's host, or the address itself when it has none. */
+export function hostOf(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.host === '' ? value : url.host;
+  } catch {
+    return value;
+  }
+}
+
 /** The label a text states in the reader's language, else English, else the value itself. */
 export function localized(value: unknown, language: string): string | undefined {
   if (typeof value !== 'object' || value === null) return undefined;

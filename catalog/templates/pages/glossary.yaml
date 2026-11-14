@@ -1,0 +1,36 @@
+# The glossary (decision 0031): the terms the document kinds read, each with its definition and where it is used.
+# A product whose documents hold no term yet says so.
+template: glossary
+sections:
+  - id: header
+    component: header
+    on: root
+    title: { en: Glossary, ru: Глоссарий }
+    query: |
+      home(lang: $lang) {
+        id
+        kind
+        label
+      }
+    params:
+      titlePath: label
+  - id: terms
+    component: table
+    on: root
+    title: { en: Terms, ru: Термины }
+    query: |
+      allDocTerm(first: 200) {
+        edges {
+          node {
+            id
+            kind
+            label
+          }
+        }
+        totalCount
+      }
+    params:
+      path: .
+      emptyText: { en: No fill stage has written a glossary term yet, ru: Ни один этап заполнения пока не написал термин }
+      columns:
+        - { label: { en: Term, ru: Термин }, path: node.label }

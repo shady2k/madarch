@@ -16,6 +16,7 @@ import { SourceSection } from './components/source.js';
 import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
 import { KindsSection } from './components/kinds.js';
+import { CatalogueSection } from './components/catalogue.js';
 import type { SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
 
@@ -80,5 +81,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'tabs': return <TabsSection context={context} sections={sections} />;
     case 'search': return <SearchSection context={context} />;
     case 'kinds': return <KindsSection context={context} />;
+    case 'catalogue': return <CatalogueSection context={context} />;
   }
 }

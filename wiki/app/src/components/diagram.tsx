@@ -9,8 +9,10 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import { useTranslation } from 'react-i18next';
 import { valueAt } from '../../../../src/page-contract/index.js';
 import { Alert, AlertDescription } from './ui/alert.js';
+import { Button } from './ui/button.js';
+import { InlineGroup } from './ui/typography.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.js';
-import { Paragraph } from './ui/typography.js';
+import { Paragraph, Stack } from './ui/typography.js';
 import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
 import { ArchifyPane } from './diagram-panes/archify-pane.js';
@@ -53,8 +55,10 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   }, [id, depth, aggregateAbove, context.base]);
   const ask = useCallback(async (format: Tab): Promise<void> => {
     if (id === '' || answers[format] !== undefined) return;
+    const stop = new AbortController();
+    const timer = setTimeout(() => { stop.abort(); }, 15000);
     try {
-      const answer = await fetch(address(format));
+      const answer = await fetch(address(format), { signal: stop.signal });
       if (!answer.ok) {
         const said = (await answer.json().catch(() => ({}))) as { message?: string };
         setAnswers((held) => ({ ...held, [format]: { failed: said.message ?? `the diagram answered ${String(answer.status)}` } }));
@@ -63,9 +67,12 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
       const body = (await answer.json()) as Record<string, unknown>;
       setAnswers((held) => ({ ...held, [format]: body as unknown as LikeC4Answer | MermaidAnswer }));
     } catch (error) {
-      setAnswers((held) => ({ ...held, [format]: { failed: error instanceof Error ? error.message : String(error) } }));
+      const message = error instanceof Error && error.name === 'AbortError' ? t('knowledge.diagramTooLong') : error instanceof Error ? error.message : String(error);
+      setAnswers((held) => ({ ...held, [format]: { failed: message } }));
+    } finally {
+      clearTimeout(timer);
     }
-  }, [address, answers, id]);
+  }, [address, answers, id, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
   const held = answers[tab];
   return (
@@ -80,7 +87,15 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
           ) : held === undefined ? (
             <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
           ) : 'failed' in held ? (
-            <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+            <Stack>
+              <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+              <InlineGroup>
+                <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
+                  setAnswers((current) => { const next = { ...current }; delete next[tab]; return next; });
+                  void ask(tab);
+                }}>{t('knowledge.retry')}</Button>
+              </InlineGroup>
+            </Stack>
           ) : tab === 'likec4' ? (
             <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
           ) : (

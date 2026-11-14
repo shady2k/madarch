@@ -14,8 +14,6 @@ import type { PageAddress } from '../../../src/page-contract/index.js';
  * so a section of the frame stands at a template address of its own name until its page is a template from the product.
  */
 export const FRAME_PAGES = {
-  catalogue: '/p/catalogue',
-  glossary: '/p/glossary',
   fill: '/p/fill',
   problems: '/p/problems',
   documents: '/p/documents',
@@ -25,6 +23,10 @@ export const FRAME_PAGES = {
 
 /** One of the frame's own sections. */
 export type FramePage = keyof typeof FRAME_PAGES;
+
+/** The addresses of the whole catalogue and the glossary: product templates, named as the frame's rows name them. */
+export const CATALOGUE_PAGE = '/p/catalogue';
+export const GLOSSARY_PAGE = '/p/glossary';
 
 /** One address of the app, as the page is composed from it. */
 export interface AppAddress {

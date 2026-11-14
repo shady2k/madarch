@@ -510,7 +510,6 @@ function summaryOf(markdown: string): { title?: string; body?: string; line: num
     if (line.startsWith('#') || line.startsWith('>') || line.startsWith('```') || line.startsWith('|')) continue;
     if (held.length === 0) start = at + 1;
     held.push(line);
-    if (paragraphs.length === 0 && held.join(' ').length > 240) { paragraphs.push({ text: held.join(' '), line: start }); held = []; break; }
   }
   if (held.length > 0 && paragraphs.length === 0) paragraphs.push({ text: held.join(' '), line: start });
   return { ...(heading === undefined ? {} : { title: heading }), ...(paragraphs[0] === undefined ? {} : { body: paragraphs[0].text }), line: paragraphs[0]?.line ?? headingLine ?? 1 };

@@ -19,11 +19,11 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds', 'catalogue',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
-const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class'] as const;
+const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
 const OPERATORS = ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'] as const;
 
 /**
@@ -83,6 +83,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       /** A section that asks one relation of its own names the edge and the direction it was read in. */
       edge: { type: 'string' },
       inverse: { type: 'boolean' },
+      /** How many rows a relation shows on one page, when its query pages through `$<section>_first`. */
+      pageSize: { type: 'integer' },
     },
     required: ['path'],
   },
@@ -157,7 +159,9 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   },
   search: { parameters: { kinds: { type: 'array', items: { type: 'string' } } }, required: [] },
   /** What the graph holds of each kind, the fullest first, each row opening the kind's catalogue page. */
-  kinds: { parameters: {}, required: [] },
+  kinds: { parameters: {} , required: [] },
+  /** The product's catalogue: every kind by area and subgroup, with its word, its definition, its count and its taking. */
+  catalogue: { parameters: { path: { type: 'string' } }, required: [] },
 };
 
 /** The parameters of one section, as a schema: the object the `params` node of a section is judged by. */

@@ -13,7 +13,7 @@ import { Input } from './ui/input.js';
 import { Select } from './ui/select.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
-import { at, dateOf, formatValue, localized } from './format.js';
+import { at, dateOf, formatValue, hostOf, localized } from './format.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import { edgesOf, entityHref, nextOf, totalOf } from './connection.js';
 import { follow } from './relations.js';
@@ -90,6 +90,10 @@ export function TableSection({ context }: { readonly context: SectionContext }):
       const format = typeof column.format === 'string' ? column.format : 'text';
       if (format === 'commit' && isCommit(value)) {
         return <CommitLine commit={value as CommitNode} base={context.base} open={context.open} language={language} withDate={false} withAuthor={false} />;
+      }
+      if (format === 'repository') {
+        const url = typeof value === 'string' ? value : '';
+        return url === '' ? t('knowledge.productRepository') : hostOf(url);
       }
       const written = format === 'date'
         ? (dateOf(value, language) ?? '')

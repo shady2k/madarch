@@ -29,8 +29,8 @@ test('a template bound to no entity is its own address, and its query parameters
 });
 
 test('a section of the frame answers at its own template address', () => {
-  const section = parseAddress('/p/glossary', '', '');
-  expect(section.frame).toBe('glossary');
+  const section = parseAddress('/p/fill', '', '');
+  expect(section.frame).toBe('fill');
   expect(section.page.template).toBeUndefined();
   expect(section.unknown).toBe(false);
 });

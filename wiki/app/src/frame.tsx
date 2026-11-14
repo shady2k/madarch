@@ -26,18 +26,16 @@ import {
 import { Button } from './components/ui/button.js';
 import { Input } from './components/ui/input.js';
 import { SearchContainer } from './components/ui/search-results.js';
-import { askSearch, ResultsOf, type SearchAnswer } from './components/search.js';
+import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
-import { entityAddress, FRAME_PAGES, type FramePage } from './address.js';
+import { CATALOGUE_PAGE, entityAddress, FRAME_PAGES, GLOSSARY_PAGE, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
 
 /** The word the frame gives one of its own sections, in the language the reader reads. */
 export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
-    case 'catalogue': return t('navigation.catalogue');
-    case 'glossary': return t('knowledge.glossary.title');
     case 'fill': return t('navigation.fill');
     case 'problems': return t('loop.problemsTitle');
     case 'documents': return t('navigation.documents');
@@ -100,12 +98,13 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
   };
   const here = (address: string): boolean => path === address;
   const link = (address: string) => ({ href: base + address, onClick: follow(address) });
-  const section = (id: FramePage, icon: typeof HomeIcon): ReactElement => (
-    <NavigationLink icon={icon} active={here(FRAME_PAGES[id])} aria-current={here(FRAME_PAGES[id]) ? 'page' : undefined} data-testid={`nav-${id}`} {...link(FRAME_PAGES[id])}>
-      <NavigationLabel>{frameWord(id, t)}</NavigationLabel>
+  const row = (id: string, icon: typeof HomeIcon, address: string, word: string): ReactElement => (
+    <NavigationLink icon={icon} active={here(address)} aria-current={here(address) ? 'page' : undefined} data-testid={`nav-${id}`} {...link(address)}>
+      <NavigationLabel>{word}</NavigationLabel>
     </NavigationLink>
   );
-  const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? FRAME_PAGES.catalogue : entityAddress(CATALOGUE_KIND, kind.entryId);
+  const section = (id: FramePage, icon: typeof HomeIcon): ReactElement => row(id, icon, FRAME_PAGES[id], frameWord(id, t));
+  const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? CATALOGUE_PAGE : entityAddress(CATALOGUE_KIND, kind.entryId);
   const kindLink = (kind: NavigationKind, depth: 1 | 2): ReactElement => {
     const address = kindAddress(kind);
     return (
@@ -123,8 +122,8 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
         <NavigationLink icon={HomeIcon} active={tasks.home} aria-current={tasks.home ? 'page' : undefined} data-testid="nav-home" {...link('/')}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
         </NavigationLink>
-        {section('catalogue', LayoutGridIcon)}
-        {section('glossary', BookOpenIcon)}
+        {row('catalogue', LayoutGridIcon, CATALOGUE_PAGE, t('navigation.catalogue'))}
+        {row('glossary', BookOpenIcon, GLOSSARY_PAGE, t('knowledge.glossary.title'))}
         {section('fill', RefreshCwIcon)}
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
@@ -242,13 +241,17 @@ function LanguageMenu({ language, onLanguage }: { readonly language: 'en' | 'ru'
 }
 
 
-/** The search in the top bar (the old portal's field): as the reader types, the graph's `search` root answers, grouped by
- * kind in the reader's language; Enter opens the results page, and Escape closes the answers. */
-function SearchBox({ base, open, kindWord }: { readonly base: string; readonly open: (path: string) => void; readonly kindWord: (kind: unknown) => string }): ReactElement {
-  const { t } = useTranslation();
+/**
+ * The search in the top bar (the old portal's field): as the reader types, the graph's `searchGroups` root answers,
+ * grouped by kind in the reader's language with each kind's count; Enter opens the results page, Escape closes them, and
+ * the last row of the answers opens the whole answer.
+ */
+function SearchBox({ base, open }: { readonly base: string; readonly open: (path: string) => void }): ReactElement {
+  const { t, i18n } = useTranslation();
   const [text, setText] = useState('');
-  const [answer, setAnswer] = useState<SearchAnswer | undefined>(undefined);
+  const [groups, setGroups] = useState<readonly SearchGroup[] | undefined>(undefined);
   const [shown, setShown] = useState(false);
+  const [active, setActive] = useState(-1);
   const [failed, setFailed] = useState<string | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(true);
@@ -256,11 +259,12 @@ function SearchBox({ base, open, kindWord }: { readonly base: string; readonly o
   const ask = (value: string): void => {
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      void askSearch(base, value, undefined, 8).then((result) => {
+      void askSearch(base, value, undefined, 3, (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en').then((result) => {
         if (!alive.current) return;
-        if (result.failure !== undefined) { setFailed(result.failure); setAnswer(undefined); setShown(true); return; }
+        if (result.failure !== undefined) { setFailed(result.failure); setGroups(undefined); setShown(true); return; }
         setFailed(undefined);
-        setAnswer(result.answer);
+        setGroups(result.groups);
+        setActive(-1);
         setShown(true);
       });
     }, 180);
@@ -279,25 +283,31 @@ function SearchBox({ base, open, kindWord }: { readonly base: string; readonly o
         placeholder={t('knowledge.searchPlaceholder')}
         data-testid="search-field"
         onChange={(event) => { setText(event.target.value); ask(event.target.value); }}
-        onFocus={() => { if (answer !== undefined) setShown(true); }}
+        onFocus={() => { if (groups !== undefined) setShown(true); }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') { event.preventDefault(); goResults(); }
-          if (event.key === 'Escape') setShown(false);
+          const rows = shown && groups !== undefined ? rowsOf(groups, base) : [];
+          if (event.key === 'ArrowDown') { event.preventDefault(); if (rows.length > 0) { setActive((held) => (held + 1) % rows.length); setShown(true); } return; }
+          if (event.key === 'ArrowUp') { event.preventDefault(); if (rows.length > 0) { setActive((held) => (held <= 0 ? rows.length - 1 : held - 1)); setShown(true); } return; }
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            const chosen = active >= 0 ? rows[active] : undefined;
+            if (chosen === undefined) { goResults(); return; }
+            setShown(false);
+            open(chosen.href);
+            return;
+          }
+          if (event.key === 'Escape') { setShown(false); setActive(-1); }
         }}
       />
-      {shown ? (
-        failed !== undefined
-          ? <ResultsOf answer={{ edges: [], totalCount: 0 }} base={base} open={open} kindWord={kindWord} testId="search-failed" />
-          : answer === undefined || answer.edges.length === 0
-            ? null
-            : <ResultsOf answer={answer} base={base} open={(path) => { setShown(false); open(path); }} kindWord={kindWord} testId="search-results" />
-      ) : null}
+      {shown && failed === undefined && groups !== undefined && groups.length > 0
+        ? <GroupsOf groups={groups} base={base} active={active} open={(path) => { setShown(false); open(path); }} resultsHref={text.trim() === '' ? undefined : `/p/search?text=${encodeURIComponent(text.trim())}`} />
+        : null}
     </SearchContainer>
   );
 }
 
 /** The top bar: where the reader stands, the search, the way to the fill, the role and the language. */
-export function FrameToolbar({ product, base, task, language, role, roles, navigation, busy, menu, open, onLanguage, onRole, onReload }: {
+export function FrameToolbar({ product, base, task, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
   readonly product: string | null;
   readonly base: string;
   /** The section in front, or nothing when the page is an entity's own. */
@@ -305,7 +315,7 @@ export function FrameToolbar({ product, base, task, language, role, roles, navig
   readonly language: 'en' | 'ru';
   readonly role: string;
   readonly roles: readonly string[];
-  readonly navigation: Navigation | null;
+  readonly navigation?: Navigation | null;
   readonly busy: boolean;
   /** The navigation at a phone's width. */
   readonly menu: ReactNode;
@@ -315,10 +325,6 @@ export function FrameToolbar({ product, base, task, language, role, roles, navig
   readonly onReload: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const kindWord = (kind: unknown): string => {
-    const name = typeof kind === 'string' ? kind : '';
-    return navigation?.kinds.find((one) => one.kind === name)?.many ?? name;
-  };
   return (
     <ShellToolbar>
       <ShellBreadcrumb>
@@ -327,7 +333,7 @@ export function FrameToolbar({ product, base, task, language, role, roles, navig
       </ShellBreadcrumb>
       <ShellActions>
         {menu}
-        <SearchBox base={base} open={open} kindWord={kindWord} />
+        <SearchBox base={base} open={open} />
         <Button variant="default" size="default" data-testid="fill-button" onClick={() => { open(FRAME_PAGES.fill); }}>{t('knowledge.fillRun.open')}</Button>
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />

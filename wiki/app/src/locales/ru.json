@@ -387,7 +387,7 @@
     },
     "more": "Показать ещё",
     "sourceMissing": "Исходный код показать нельзя",
-    "productRepository": "репозиторий продукта",
+    "productRepository": "репозиторий самого продукта",
     "lines_one": "Строк: {{count}}",
     "lines_few": "Строк: {{count}}",
     "lines_many": "Строк: {{count}}",
@@ -1176,7 +1176,20 @@
       "documentation": "документация",
       "dependency": "зависимость",
       "generated": "сгенерировано"
-    }
+    },
+    "searchAll": "Все результаты ({{count}})",
+    "countNow": "Сейчас в репозиториях",
+    "countHistory": "Всего за историю",
+    "authors": "Авторы",
+    "retry": "Повторить",
+    "diagramTooLong": "Изображение не успело нарисоваться: попробуйте глубину 1 или страницу поуже",
+    "catalogueFilter": "Фильтр по видам",
+    "catalogueKinds": "Видов",
+    "catalogueKind": "Вид",
+    "catalogueWhat": "Что это",
+    "catalogueCount": "Сущностей",
+    "catalogueTaken": "В продукте",
+    "catalogueMore": "Показать ещё виды"
   },
   "loop": {
     "questionsTitle": "Вопросы",

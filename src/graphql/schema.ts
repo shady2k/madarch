@@ -123,7 +123,7 @@ class Builder {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
-      'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange',
+      'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
@@ -215,6 +215,15 @@ class Builder {
       { name: 'topN', type: '[Ranked!]!', args: [{ name: 'field', type: 'String!' }, { name: 'n', type: 'Int', defaultValue: '10' }] },
     ]);
     this.type('Cochange', [{ name: 'node', type: 'Entity!' }, { name: 'count', type: 'Int!' }]);
+    // The search's answers as a reader meets them: each kind's word, how many it holds, and the rows with the line a
+    // result is shown by (a file's path, a commit's short hash and its message).
+    this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }]);
+    this.type('SearchGroup', [
+      { name: 'kind', type: 'String!' },
+      { name: 'label', type: 'String!' },
+      { name: 'count', type: 'Int!' },
+      { name: 'results', type: '[SearchHit!]!' },
+    ]);
     // The rows of one relation of one entity, ordered by the other end's own fields: what a page of an entity's
     // history, its containers or its importers asks for, without the page naming the kind at the other end.
     this.input('RelatedOrder', [
@@ -470,7 +479,9 @@ class Builder {
     this.registry.claimField('Query', 'home', 'the home root');
     this.registry.claimField('Query', 'navigation', 'the navigation root');
     this.registry.claimField('Query', 'cochange', 'the entities changed together through an edge');
+    this.registry.claimField('Query', 'contributors', 'the entities one more relation beyond an entity');
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
+    this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
@@ -479,6 +490,11 @@ class Builder {
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
       { name: 'navigation', type: 'Navigation!', args: [{ name: 'lang', type: 'String' }] },
       { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
+      { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
+      { name: 'searchGroups', type: '[SearchGroup!]!', args: [
+        { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
+        { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },
+      ] },
       { name: 'related', type: 'EntityConnection!', args: [
         { name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'inverse', type: 'Boolean', defaultValue: 'false' },
         { name: 'orderBy', type: '[RelatedOrder!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' },

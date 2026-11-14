@@ -387,7 +387,7 @@
     },
     "more": "Show more",
     "sourceMissing": "The source cannot be shown",
-    "productRepository": "product repository",
+    "productRepository": "the product’s own repository",
     "lines_one": "{{count}} line",
     "lines_few": "{{count}} lines",
     "lines_many": "{{count}} lines",
@@ -1176,7 +1176,20 @@
       "documentation": "documentation",
       "dependency": "dependency",
       "generated": "generated"
-    }
+    },
+    "searchAll": "All results ({{count}})",
+    "countNow": "In the repositories now",
+    "countHistory": "Over the whole history",
+    "authors": "Authors",
+    "retry": "Try again",
+    "diagramTooLong": "The picture took too long: try depth 1, or a narrower entity",
+    "catalogueFilter": "Filter the kinds",
+    "catalogueKinds": "Kinds",
+    "catalogueKind": "Kind",
+    "catalogueWhat": "What it is",
+    "catalogueCount": "Entities",
+    "catalogueTaken": "In the product",
+    "catalogueMore": "Show more kinds"
   },
   "loop": {
     "questionsTitle": "Questions",

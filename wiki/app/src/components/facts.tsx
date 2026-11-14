@@ -5,7 +5,7 @@ import { titleIn, valueAt } from '../../../../src/page-contract/index.js';
 import { Badge } from './ui/badge.js';
 import { InlineGroup } from './ui/typography.js';
 import { DefinitionList, DefinitionTerm, DefinitionValue, TextLink } from './ui/typography.js';
-import { formatValue, localized, shortHash } from './format.js';
+import { formatValue, hostOf, localized, shortHash } from './format.js';
 import { InlineCode } from './ui/inline-content.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import type { SectionContext } from './types.js';
@@ -114,12 +114,4 @@ function roleWord(role: string, t: (key: string, options?: Record<string, unknow
   return t(`knowledge.roles.names.${role}`, { defaultValue: role });
 }
 
-/** The name a link is shown by: the address's host, or the address itself when it has none. */
-function hostOf(value: string): string {
-  try {
-    const url = new URL(value);
-    return url.host === '' ? value : url.host;
-  } catch {
-    return value;
-  }
-}
+

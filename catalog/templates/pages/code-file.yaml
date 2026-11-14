@@ -88,6 +88,22 @@ sections:
     params:
       rows:
         - { label: { en: Latest commit, ru: Последний коммит }, path: edges.0.node, format: commit }
+  - id: authors
+    component: table
+    on: root
+    after: latest
+    title: { en: Authors, ru: Авторы }
+    query: |
+      contributors(id: $id, through: "code.touched", edge: "code.authored", first: 20) {
+        count
+        node { id kind label }
+      }
+    params:
+      path: .
+      emptyText: { en: No commit of this file names an author, ru: Ни один коммит этого файла не называет автора }
+      columns:
+        - { label: { en: Author, ru: Автор }, path: node.label }
+        - { label: { en: Commits, ru: Коммитов }, path: count, format: number }
   - id: history
     component: table
     on: root
@@ -168,7 +184,7 @@ sections:
     on: root
     title: { en: Changed by, ru: Изменён коммитами }
     query: |
-      related(id: $id, edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 10) {
+      related(id: $id, edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: $backlinks_first, after: $backlinks_after) {
         edges {
           node {
             id
@@ -190,6 +206,7 @@ sections:
       path: .
       edge: code.touched
       inverse: true
+      pageSize: 10
   - id: imported
     after: contained
     component: relations

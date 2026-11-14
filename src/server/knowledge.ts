@@ -217,7 +217,11 @@ export function createKnowledgePart(
       }
       const lang = url.searchParams.get('lang') ?? undefined;
       const answer = await renderDiagram(product, { entity: entity.trim(), format, ...(depth === undefined ? {} : { depth }), ...(aggregateAbove === undefined ? {} : { aggregateAbove }), ...(lang === undefined ? {} : { lang }) });
-      if ('error' in answer) return refused(answer.status, { message: answer.error });
+      if ('error' in answer) {
+        // A picture that could not be drawn answers its own words and the depth a reader may try, not a server wait.
+        const held = answer as { status: number; error: string; code?: string };
+        return refused(held.status === 200 ? 200 : held.status, { message: held.error, ...(held.code === undefined ? {} : { code: held.code }) });
+      }
       if ('html' in answer) {
         const response = new Response(answer.html, { status: answer.status, headers: { 'content-type': 'text/html; charset=utf-8' } });
         response.headers.set('cache-control', 'no-store');
