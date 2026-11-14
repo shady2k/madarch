@@ -39,6 +39,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       titlePath: { type: 'string' },
       kindPath: { type: 'string' },
       provenancePath: { type: 'string' },
+      /** The home page takes the product's own name from the frame, not the home entity's page title. */
+      productTitle: { type: 'boolean' },
       /** The way up: the field holding the repository and the field holding the path, whose folders the trail names. */
       trail: {
         type: 'object',

@@ -1,8 +1,8 @@
 
 /**
  * The top bar's search (decision 0029's frame, kept on every page): a field on a wide screen and a search sheet on a
- * phone. A press opens the home page's search section with the query bound to its address, so the search is one page read
- * of its own and the field never takes the place of a page's own data.
+ * phone. A press opens the search page with the text bound to its address, so the search is one page read of its own and
+ * the field never takes the place of a page's own data.
  */
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +13,7 @@ import { Sheet, SheetContent } from './ui/sheet.js';
 import { Stack } from './ui/typography.js';
 
 function searchAddress(text: string): string {
-  return `/?q=${encodeURIComponent(text.trim())}`;
+  return `/p/search?text=${encodeURIComponent(text.trim())}`;
 }
 
 export function GlobalSearch({ open }: { readonly open: (path: string) => void }): ReactElement {

@@ -111,7 +111,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
   return (
     <>
       <BrandLink data-testid="nav-brand" concept={t('brand.concept')} {...link('/')}><ShellBrandMark /></BrandLink>
-      <ProductCard name={navigation?.product ?? productName ?? t('brand.product')} />
+      <ProductCard name={productName ?? navigation?.product ?? t('brand.product')} />
       <NavigationScroll aria-label={t('navigation.pages')} data-testid="nav-scroll">
         <NavigationLink icon={HomeIcon} active={tasks.home} aria-current={tasks.home ? 'page' : undefined} data-testid="nav-home" {...link('/')}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>

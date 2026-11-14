@@ -246,6 +246,8 @@ export interface FillStatusAnswer {
   readonly fill: { readonly state: string; readonly runId?: string };
   readonly product?: { readonly name: string; readonly id: string };
   readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
+  /** Whether a fill ever succeeded on this product. */
+  readonly filled?: boolean;
   /** madarch's own wiki is documentation: it offers no fill. */
   readonly own?: boolean;
 }

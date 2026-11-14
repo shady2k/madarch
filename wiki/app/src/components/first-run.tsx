@@ -17,7 +17,9 @@ export function FirstRunSection({ context }: { readonly context: SectionContext 
   const { t } = useTranslation();
   const status = useCommandRead<FillStatusAnswer>('first-run-status', (signal) => readFillStatus(context.base, signal));
   const kinds = context.navigation?.kinds ?? [];
-  const empty = kinds.length > 0 && kinds.every((kind) => kind.count === 0);
+  // A fresh product has had no successful fill. Its starter catalogue and value sets already hold entities, so a kind's
+  // count is not what says it is fresh; the fill status does.
+  const empty = status.data?.filled === false;
   const idle = status.data !== undefined && status.data !== null && status.data.fill.state === 'idle';
   if (!empty || !idle || status.data?.own === true) return null;
   const recommended = kinds.filter((kind) => kind.taken).map((kind) => kind.kind);

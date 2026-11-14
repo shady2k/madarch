@@ -21,7 +21,9 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   const titlePath = typeof params['titlePath'] === 'string' ? params['titlePath'] : 'label';
   const kindPath = typeof params['kindPath'] === 'string' ? params['kindPath'] : undefined;
   const provenancePath = typeof params['provenancePath'] === 'string' ? params['provenancePath'] : undefined;
-  const title = textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
+  // The home page names the product itself: its files' name, which the top bar shows, not the home entity's page title.
+  const productTitle = params['productTitle'] === true ? context.product ?? context.navigation?.product ?? undefined : undefined;
+  const title = productTitle ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
   const kind = kindPath === undefined ? undefined : textOf(valueAt(context.data, kindPath));
   const provenance = provenancePath === undefined ? undefined : textOf(valueAt(context.data, provenancePath));
   return (

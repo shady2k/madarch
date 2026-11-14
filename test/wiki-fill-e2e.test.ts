@@ -179,6 +179,16 @@ run('the fill flow on a product filled with disk and git', () => {
       expect(result).not.toContain('/work/');
       expect(result).not.toMatch(/\b[0-9a-f]{40}\b/u);
       await page.screenshot({ path: join(SHOTS, 'run-ru.png') });
+      // The home after the fill: the product's own name, its repositories and what the graph holds; no first-run card,
+      // no separate search section and no raw kind table.
+      await page.goto(`${server!.url}/`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="page-title"]', { timeout: 60_000 });
+      await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
+      expect(await page.$('[data-testid="first-run"]')).toBeNull();
+      expect(await page.$('[data-testid="page-search"]')).toBeNull();
+      await shotAt('home-filled', 1440, 900);
+      await shotAt('home-filled', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.goto(`${server!.url}/p/runs`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="runs-run"]', { timeout: 60_000 });
       await shotAt('runs', 1440, 900);
@@ -198,14 +208,17 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.goto(`${server!.url}/p/settings`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="settings-page"]', { timeout: 60_000 });
       await page.screenshot({ path: join(SHOTS, 'settings-ru.png') });
-      // The top bar's search stays on a page: it opens the home page's search with the query in its address.
+      // The top bar's search stays on a page and opens the search page with the text in its address; the home keeps no
+      // second search section of its own.
       await page.goto(`${server!.url}/p/catalogue`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="top-search"]', { timeout: 60_000 });
       await page.click('[data-testid="top-search"]');
       await page.keyboard.type('index');
       await page.keyboard.press('Enter');
-      await page.waitForFunction(() => window.location.pathname === '/', { timeout: 30_000 });
-      await page.waitForFunction(() => (document.body.textContent ?? '').includes('Найдено'), { timeout: 30_000 });
+      await page.waitForFunction(() => window.location.pathname === '/p/search', { timeout: 30_000 });
+      await page.waitForSelector('[data-testid="search-page-results"]', { timeout: 30_000 });
+      expect(new URL(page.url()).searchParams.get('text')).toBe('index');
+      expect(await page.$('[data-testid="page-search"]')).toBeNull();
       expect(await page.$('[data-testid="top-search"]')).not.toBeNull();
       expect(await page.$('[data-testid="fill-entry"]')).not.toBeNull();
       expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
@@ -230,6 +243,9 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.goto(`${planServer!.url}/`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await settleRole(page);
       await page.waitForSelector('[data-testid="first-run"]', { timeout: 60_000 });
+      expect(await page.$eval('[data-testid="page-title"]', (element) => element.textContent?.trim() ?? '')).toBe('agent-plan');
+      expect(await page.$('[data-testid="page-search"]')).toBeNull();
+      expect(await textOf(page)).not.toContain('Aggregate');
       await shotAt('first-run', 1440, 900);
       await shotAt('first-run', 390, 844);
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });

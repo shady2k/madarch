@@ -213,12 +213,13 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: navigation?.product ?? null, navigation, open, reload };
+  const productName = identity.data?.name ?? navigation?.product ?? null;
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, open, reload };
   const section: FramePage | null = address.frame;
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={identity.data?.name ?? null} />
+    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} />
   );
   const [menuOpen, setMenuOpen] = useState(false);
   // The graph could not be read at all: the frame says so instead of a page.
@@ -261,7 +262,7 @@ export function App(): ReactElement {
         <ShellMain>
           <ShellFixed data-testid="shell-fixed">
             <FrameToolbar
-              product={navigation?.product ?? identity.data?.name ?? null}
+              product={productName}
               base={base}
               task={address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t)}
               language={language}
