@@ -1642,7 +1642,10 @@
     "intro": "Every fill of this product, newest first. Open a run to see its progress, its result and its log.",
     "back": "All runs",
     "newFill": "Choose what to fill",
-    "none": "No fills yet."
+    "none": "No fills yet.",
+    "took": "Took {{duration}}",
+    "failedUnits": "{{count}} units failed",
+    "kinds": "The kinds this run asked for ({{count}})"
   },
   "fillKind": {
     "button": "Fill this kind"

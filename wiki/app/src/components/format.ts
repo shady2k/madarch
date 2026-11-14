@@ -63,3 +63,16 @@ export function localized(value: unknown, language: string): string | undefined 
 export function at(data: unknown, path: unknown): unknown {
   return valueAt(data, typeof path === 'string' ? path : '');
 }
+
+/** A span of work as a person reads it: "3 min 34 sec", "1 hr 02 min", "12 sec" (madarch-64o5.83). */
+export function durationWords(ms: number, language: string): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const unit = (value: number, name: 'hour' | 'minute' | 'second', digits = 1): string =>
+    new Intl.NumberFormat(language, { style: 'unit', unit: name, unitDisplay: 'short', minimumIntegerDigits: digits }).format(value);
+  if (hours > 0) return `${unit(hours, 'hour')} ${unit(minutes, 'minute', 2)}`;
+  if (minutes > 0) return `${unit(minutes, 'minute')} ${unit(seconds, 'second')}`;
+  return unit(seconds, 'second');
+}
