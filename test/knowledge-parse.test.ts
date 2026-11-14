@@ -95,7 +95,7 @@ describe('the starter set madarch init seeds', () => {
     const fields = ['title', 'body', 'body_line', 'file', 'relates', 'sources', 'statements', 'digest', 'producer', 'links', 'findings', 'ungrounded'].map((name) => ({ name }));
     const manifest = { home: { name: 'product', key: ['slug'], source: 'graph', fields } };
     const empty = productEntityOf(draft.folder, manifest, 'fixture-commit');
-    expect(empty).toMatchObject({ kind: 'product', key: { slug: 'sample' }, values: {
+    expect(empty).toMatchObject({ kind: 'product', key: { slug: draft.id }, values: {
       title: 'sample', body: '', body_line: 1, file: 'workspace.yaml', relates: [], sources: ['workspace.yaml'],
       statements: [], digest: createHash('sha256').update('').digest('hex'), producer: 'start', links: [], findings: [], ungrounded: [],
     } });
@@ -104,7 +104,7 @@ describe('the starter set madarch init seeds', () => {
     writeFileSync(join(draft.folder, 'workspace.yaml'), manifestWithRepo(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8'), { name: 'library', linked: true }));
     writeFileSync(join(repository, 'README.md'), '# Library\n\nA library for readers.\n');
     const readme = productEntityOf(draft.folder, manifest, 'fixture-commit');
-    expect(readme).toMatchObject({ key: { slug: 'library' }, values: {
+    expect(readme).toMatchObject({ key: empty!.key, values: {
       title: 'Library', body: 'A library for readers.', body_line: 3, file: 'repos/library/README.md',
       sources: ['repos/library/README.md'], digest: createHash('sha256').update('A library for readers.').digest('hex'),
       ungrounded: [{ text: 'A library for readers.', line: 3 }],

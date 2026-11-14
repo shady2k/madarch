@@ -516,11 +516,6 @@ function summaryOf(markdown: string): { title?: string; body?: string; line: num
   return { ...(heading === undefined ? {} : { title: heading }), ...(paragraphs[0] === undefined ? {} : { body: paragraphs[0].text }), line: paragraphs[0]?.line ?? headingLine ?? 1 };
 }
 
-/** A word as a key: letters, digits and dashes, lower case, so two starts write one key for one product. */
-export function keyWord(value: string): string {
-  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/gu, '') || 'product';
-}
-
 /** The product entity's own values, read from the product's files: its name and its README's first paragraph. */
 export function productEntityOf(folder: string, manifest: KindManifestLike, commit: string | undefined): ProductEntity | undefined {
   const kind = manifest.home;
@@ -528,7 +523,7 @@ export function productEntityOf(folder: string, manifest: KindManifestLike, comm
   const read = readProduct(folder);
   const name = read.ok === true ? read.product.name : '';
   const repos = read.ok === true ? read.product.repos : [];
-  const keyOfKind = (title: string): Record<string, unknown> => Object.fromEntries((kind.key ?? []).map((field: string) => [field, keyWord(title)]));
+  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, read.ok ? read.product.id : '']));
   const declared = new Set(kind.fields?.map((field) => field.name));
   const pageValues = (title: string, body: string, file: string, line: number): Record<string, unknown> => Object.fromEntries(Object.entries({
     title, body, file, body_line: line, relates: [], sources: [file], statements: [],
@@ -541,10 +536,10 @@ export function productEntityOf(folder: string, manifest: KindManifestLike, comm
     const summary = summaryOf(readFileSync(path, 'utf8'));
     const title = summary.title ?? name;
     const values = pageValues(title, summary.body ?? '', `repos/${repo.name}/README.md`, summary.line || 1);
-    return { kind: kind.name, key: keyOfKind(title), values, evidence: [{ repository: folder, path: `repos/${repo.name}/README.md`, lineStart: summary.line || 1, lineEnd: summary.line || 1, ...(commit === undefined ? {} : { commit }) }] };
+    return { kind: kind.name, key, values, evidence: [{ repository: folder, path: `repos/${repo.name}/README.md`, lineStart: summary.line || 1, lineEnd: summary.line || 1, ...(commit === undefined ? {} : { commit }) }] };
   }
   if (name === '') return undefined;
-  return { kind: kind.name, key: keyOfKind(name), values: pageValues(name, '', MANIFEST_FILE, 1), evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
+  return { kind: kind.name, key, values: pageValues(name, '', MANIFEST_FILE, 1), evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
 }
 
 export function readProduct(productFolder: string): ProductRead {

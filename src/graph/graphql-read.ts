@@ -1195,9 +1195,13 @@ export class ReadContext {
   private async home(lang: string | undefined): Promise<unknown> {
     const kind = homeKind(this.manifest);
     if (kind === undefined) return null;
+    const table = this.vertexTable.get(kind.name);
+    const startupFirst = kind.source === 'graph' && table !== undefined
+      ? `EXISTS (SELECT 1 FROM "${table}" p WHERE p.node_id = n.id AND p.context_id = 1 AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'start') DESC, `
+      : '';
     const rows = await this.tx.query<Record<string, unknown>>(
       `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity
-       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY n.id LIMIT 1`,
+       FROM node n JOIN entity en ON en.id = n.entity_id WHERE en.name = $1 AND n.context_id = 1 AND NOT n.removed ORDER BY ${startupFirst}n.id LIMIT 1`,
       [kind.name],
     );
     if (rows.rows[0] === undefined) return null;
