@@ -7,12 +7,18 @@ import { knowledgeRootOf } from './store.js';
 
 export interface WindowsProcess { pid: number; parent: number; name: string; }
 
-/** Capture the application tree, but never terminate PostgreSQL: it receives a fast pg_ctl stop. */
+/** Running PostgreSQL receives pg_ctl stop; initdb's bootstrap children are part of preparation, not a store server. */
 export function applicationProcessTree(pid: number, processes: readonly WindowsProcess[]): number[] {
   const tree = [pid];
+  const bootstrap = new Set<number>();
+  if (processes.find((row) => row.pid === pid)?.name.toLowerCase() === 'initdb.exe') bootstrap.add(pid);
   for (let index = 0; index < tree.length; index++) {
     for (const child of processes) {
-      if (child.parent === tree[index] && !tree.includes(child.pid) && child.name.toLowerCase() !== 'postgres.exe') tree.push(child.pid);
+      if (child.parent !== tree[index] || tree.includes(child.pid)) continue;
+      const preparing = bootstrap.has(child.parent) || child.name.toLowerCase() === 'initdb.exe';
+      if (child.name.toLowerCase() === 'postgres.exe' && !preparing) continue;
+      tree.push(child.pid);
+      if (preparing) bootstrap.add(child.pid);
     }
   }
   return tree;
@@ -70,10 +76,20 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   const stores = folders.map(capture);
   const deadline = Date.now() + 5_000; // The existing daemon TERM + KILL budget, shared by process checks.
   for (const pid of tree) {
-    try { if (reads.kill) reads.kill(pid); else process.kill(pid, 'SIGKILL'); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false; }
+    if (!exists(pid)) continue;
+    try {
+      if (reads.kill) reads.kill(pid);
+      else {
+        // No /T: the captured targets exclude running store servers, which need pg_ctl's fast shutdown.
+        const result = spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8' });
+        if (result.error || result.status !== 0) throw new Error(`taskkill exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
+      }
+    } catch (error) {
+      // Windows can refuse a PID that exited since the snapshot. Still attempt the remaining captured children.
+      if (exists(pid)) console.error(`Windows stop could not terminate pid ${pid} (${snapshot.find((row) => row.pid === pid)?.name ?? 'unknown'}): ${String(error)}`);
+    }
   }
-  if (!waitGone(tree, Math.max(0, deadline - Date.now()), exists)) return false;
+  const applicationsGone = waitGone(tree, Math.max(0, deadline - Date.now()), exists);
   // A store may have finished opening between the first capture and termination.
   try {
     for (const name of readdirSync(root)) {
@@ -83,7 +99,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false; }
   for (const store of stores) store.pid ??= capture(store.folder).pid;
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
-  let stopped = true;
+  let stopped = applicationsGone;
   for (const store of stores) {
     const pidFile = join(store.folder, 'postmaster.pid');
     if (!existsSync(pidFile) && (store.pid === undefined || !exists(store.pid))) continue;
