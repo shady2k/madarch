@@ -5,11 +5,11 @@
  * renderers are what is checked, and the walk on a filled product checks the read.
  */
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DiagramNeighbourhood } from '../src/graph/graphql-read.js';
-import type { KnowledgeProduct } from '../src/knowledge/product.js';
+import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { renderDiagram } from '../src/render/diagram-render.js';
 import { callProductTool } from '../src/mcp/authored.js';
 import type { WriteSource } from '../src/graph/graph-writes.js';
@@ -133,4 +133,50 @@ test('an unknown format, a depth below one and a missing entity are refused by t
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
+});
+
+
+test('a CPU-looping renderer is killed by its own deadline while another diagram remains responsive', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-render-loop-'));
+  const looping = join(folder, 'loop.ts');
+  const marker = join(folder, 'started');
+  writeFileSync(looping, `import { writeFileSync } from 'node:fs'; self.onmessage = () => { writeFileSync(${JSON.stringify(marker)}, 'started'); while (true) {} };`);
+  try {
+    const started = performance.now();
+    const stuck = renderDiagram(product, { entity: '1', format: 'mermaid' }, { deadlineMs: 700, workerUrl: new URL(`file://${looping}`) });
+    const other = await renderDiagram(product, { entity: '1', format: 'mermaid' });
+    expect('body' in other).toBe(true);
+    expect(performance.now() - started).toBeLessThan(650);
+    const stopped = await stuck;
+    expect(stopped).toMatchObject({ code: 'TIMEOUT' });
+    expect(performance.now() - started).toBeLessThan(1500);
+    expect(await Bun.file(marker).text()).toBe('started');
+    // A timed-out worker must not kill or consume a subsequent request's answer.
+    expect('body' in await renderDiagram(product, { entity: '1', format: 'mermaid' })).toBe(true);
+  } finally { rmSync(folder, { recursive: true, force: true }); }
+}, 10_000);
+
+test('the render deadline includes the neighbourhood read', async () => {
+  const unread = { diagramNeighbourhood: async () => await new Promise(() => undefined) } as unknown as KnowledgeProduct;
+  expect(await renderDiagram(unread, { entity: '1', format: 'mermaid' }, { deadlineMs: 30 })).toMatchObject({ code: 'TIMEOUT' });
+});
+
+
+test('a cached picture is reused only for the exact freshly read graph', async () => {
+  let label = 'before';
+  const changing = { diagramNeighbourhood: async () => ({ ...neighbourhood, labels: new Map(neighbourhood.labels).set('1', label) }) } as unknown as KnowledgeProduct;
+  const before = await renderDiagram(changing, { entity: '1', format: 'mermaid' });
+  label = 'after';
+  const after = await renderDiagram(changing, { entity: '1', format: 'mermaid' });
+  expect(after).not.toEqual(before);
+  expect(await renderDiagram(changing, { entity: '1', format: 'mermaid' })).toEqual(after);
+});
+
+
+test('read budgets default to thirty seconds and accept server or environment settings', () => {
+  const getter = Object.getOwnPropertyDescriptor(KnowledgeProduct.prototype, 'readDeadlineMs')!.get!;
+  expect(getter.call({ options: {}, env: {} })).toBe(30_000);
+  expect(getter.call({ options: { readDeadlineMs: 450 }, env: {} })).toBe(450);
+  expect(getter.call({ options: {}, env: { MADARCH_READ_DEADLINE_MS: '650' } })).toBe(650);
+  expect(() => getter.call({ options: { readDeadlineMs: -1 }, env: {} })).toThrow('positive');
 });

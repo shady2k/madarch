@@ -16,6 +16,9 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
+import { ReadContext } from '../src/graph/graphql-read.js';
+import { publishedManifestOf } from '../src/graphql/manifest.js';
+import { readProductTemplates } from '../src/graph/product-templates.js';
 import { composePage, type Bootstrap } from '../src/page-contract/index.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -488,4 +491,60 @@ describe('the GraphQL executor', () => {
       expect(connection.totalCount).toBe(3);
     }
   });
+
+  test('an undeclared storage kind stops its field batch instead of requeuing forever', async () => {
+    const counted = countingOwner();
+    const label = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', readProductTemplates(folder));
+      return await read.resolve(
+        { nodeId: '1', uid: 'missing', kind: 'undeclared', key: { name: 'Fallback' }, typeName: 'Undeclared' },
+        {}, read, { parentType: { name: 'Undeclared' }, fieldName: 'label' } as never,
+      );
+    });
+    expect(label).toBe('Fallback');
+    expect(counted.statements()).toBe(0);
+  });
+
+  test('catalogue diagram labels use the translated catalogue title', async () => {
+    const data = await graphql(`{ catalogueEntity(name: "demo.file") { id } }`);
+    const id = (data['catalogueEntity'] as { id: string }).id;
+    const counted = countingOwner();
+    const hood = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', readProductTemplates(folder));
+      return await read.diagramNeighbourhood(id, 1, 'ru');
+    });
+    expect(hood).toBeDefined();
+    expect(hood!.labels.get(id)).toBe('Файл');
+    expect(counted.statements()).toBeLessThan(10);
+  });
+
+  test('a diagram counts 1 324 children but reads only the bounded sample', async () => {
+    const repository = { kind: 'demo.repository', key: { name: 'diagram-budget' } };
+    await owner.transaction('write', async (tx) => {
+      const files = Array.from({ length: 1324 }, (_, at) => ({ kind: 'demo.file', key: { repository, path: `budget-${String(at)}.ts` } }));
+      await publishGraphDrafts(tx, contract, {
+        vertices: [{ ...repository, values: {}, producer: 'budget', producerVersion: '1' }, ...files.map((file) => ({ ...file, values: {}, producer: 'budget', producerVersion: '1' }))],
+        edges: files.map((file) => ({ kind: 'demo.contains', from: repository, to: file, values: {}, producer: 'budget', producerVersion: '1' })),
+        removals: [],
+      }, 1, { author: 'budget@1' });
+    });
+    const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "diagram-budget" } }) { edges { node { id } } } }`);
+    const id = (data['allDemoRepository'] as { edges: { node: { id: string } }[] }).edges[0]!.node.id;
+    const counted = countingOwner();
+    const started = performance.now();
+    const hood = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', readProductTemplates(folder));
+      return await read.diagramNeighbourhood(id, 1, 'en');
+    });
+    const elapsed = performance.now() - started;
+    expect(hood).toBeDefined();
+    expect(hood!.groups).toMatchObject([{ relation: 'demo.contains', side: 'out', kind: 'demo.file', total: 1324 }]);
+    expect(hood!.groups[0]!.nodes).toHaveLength(12);
+    expect(hood!.nodes.size).toBe(13);
+    expect(hood!.labels.size).toBe(13);
+    expect(hood!.truncated).toBe(true);
+    expect(counted.statements()).toBeLessThan(10);
+    console.log(`diagram read budget: ${elapsed.toFixed(1)} ms, ${String(counted.statements())} statements, ${String(hood!.nodes.size)} nodes`);
+    expect(elapsed).toBeLessThan(2000);
+  }, 60_000);
 });

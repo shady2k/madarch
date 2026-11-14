@@ -1,13 +1,7 @@
-/**
- * The stage the request being handled stands in, for a route that can name it (the diagram names reading, folding and
- * laying out): the watchdog's warning names it, so a slow request says where it was.
- */
-export const stages: { current: { stage: (value: string) => void } | undefined } = { current: undefined };
-
-/** The watchdog's bound: two seconds, or the bound `MADARCH_WATCHDOG_MS` names for a test. */
-export function watchdogBound(env: NodeJS.ProcessEnv): number {
+/** The bound after which a request still running is reported. */
+export function watchdogBound(env: Readonly<Record<string, string | undefined>>): number {
   const named = Number(env.MADARCH_WATCHDOG_MS ?? '');
-  return Number.isFinite(named) && named > 0 ? named : 2_000;
+  return Number.isFinite(named) && named > 0 ? named : 5_000;
 }
 
 /**
@@ -39,6 +33,7 @@ import { requestHistoryPreparation, requestHistoryRename } from '../product/stor
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
 import { watchRequest } from './watchdog.js';
+import { requestStage } from './stage.js';
 import { log as logEvent } from '../obs/log.js';
 import { traceKeepOf } from '../knowledge/settings.js';
 import { setPriority } from 'node:os';
@@ -91,6 +86,8 @@ const DEPTH_ACCEPTED = 'a whole number from 1';
 const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
+  /** Each render or GraphQL request's own budget in milliseconds; 30 seconds by default. */
+  readDeadlineMs?: number;
   /** The machine-local state folder for the per-source histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
   dataFolder?: string;
   /** Shared owner of the server's graph-query database. Required with `dataFolder`; the caller opens it — a store's own server, or a server a connection string names. `startServer` owns and closes it. */
@@ -342,7 +339,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    * watched a home nothing served).
    */
   const serveHome = options.productHome ?? (options.productFolder === undefined ? productsHome(env as Record<string, string | undefined>) : dirname(options.productFolder));
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(options.readDeadlineMs === undefined ? {} : { readDeadlineMs: options.readDeadlineMs }), ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (product === undefined ? [] : [{ name: product.name, folder: basename(product.folder) }]);
@@ -1227,47 +1224,51 @@ export function createHandler(dependencies: {
     const pathname = new URL(request.url).pathname;
     const requestId = crypto.randomUUID();
     const started = performance.now();
+    const record = (message: string, fields: Record<string, unknown>, warning = false): void => {
+      (warning ? errorLog : log)(JSON.stringify({ message, ...fields }));
+      if (warning) logEvent.warn(message, fields);
+      else logEvent.info(message, fields);
+    };
     const stage = watchRequest(
       { requestId, httpMethod: request.method, httpPath: pathname },
-      (report) => logEvent.warn('http.request.slow', { ...report }),
-      { afterMs: watchdogBound(process.env) },
+      (report) => record('http.request.slow', { ...report }, true),
+      { afterMs: watchdogBound(dependencies.env ?? process.env) },
     );
-    stages.current = stage;
-    const begin = (): void => { logEvent.info('http.request.start', { requestId, httpMethod: request.method, httpPath: pathname }); };
+    const begin = (): void => { record('http.request.start', { requestId, httpMethod: request.method, httpPath: pathname }); };
     const finish = (answered: Response): Response => {
       stage.done();
-      stages.current = undefined;
-      logEvent.info('http.request.end', { requestId, httpMethod: request.method, httpPath: pathname, status: answered.status, durationMs: Math.round(performance.now() - started) });
+      record('http.request.end', { requestId, httpMethod: request.method, httpPath: pathname, status: answered.status, durationMs: Math.round(performance.now() - started) });
       return answered;
     };
-    try {
-      if (dependencies.trace === undefined) {
-        begin();
-        return finish(await handleUnspanned(request));
+    return await requestStage.run(stage, async () => {
+      try {
+        if (dependencies.trace === undefined) {
+          begin();
+          return finish(await handleUnspanned(request));
+        }
+        return await runInTrace(dependencies.trace, async () => {
+          begin();
+          return finish(await withSpan('http.request', {
+            'http.request.method': request.method,
+            'http.request_id': requestId,
+            'http.route': routeNameOf(pathname),
+            'url.path': pathname,
+            'http.method': request.method,
+            'http.path': pathname,
+          }, async (span) => {
+            const answered = await handleUnspanned(request);
+            span.setAttribute('http.response.status_code', answered.status);
+            span.setAttribute('http.status', answered.status);
+            return answered;
+          }));
+        });
+      } catch (error) {
+        stage.done();
+        record('http.request.end', { requestId, httpMethod: request.method, httpPath: pathname, status: 500, durationMs: Math.round(performance.now() - started) });
+        logEvent.error('http.request.failed', { requestId, httpMethod: request.method, httpPath: pathname }, error);
+        throw error;
       }
-      // The request's lines and spans belong to the server's run: begin inside it, so the log carries its trace id.
-      return await runInTrace(dependencies.trace, async () => {
-        begin();
-        return finish(await withSpan('http.request', {
-          'http.request.method': request.method,
-          'http.request_id': requestId,
-          'http.route': routeNameOf(pathname),
-          'url.path': pathname,
-          'http.method': request.method,
-          'http.path': pathname,
-        }, async (span) => {
-          const answered = await handleUnspanned(request);
-          span.setAttribute('http.response.status_code', answered.status);
-          span.setAttribute('http.status', answered.status);
-          return answered;
-        }));
-      });
-    } catch (error) {
-      stage.done();
-      stages.current = undefined;
-      logEvent.error('http.request.failed', { requestId, httpMethod: request.method, httpPath: pathname, durationMs: Math.round(performance.now() - started) }, error);
-      throw error;
-    }
+    });
   };
   /** The name a path is traced under: the registered route's own path, else the page family it belongs to. */
   const routeNameOf = (pathname: string): string => {

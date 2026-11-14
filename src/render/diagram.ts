@@ -249,7 +249,7 @@ export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Reco
  * a forwarder appended: a press on a node posts its page to the frame's parent, so the wiki opens the entity the node
  * stands for. The renderer runs as its own process, and the whole call is bounded.
  */
-export async function renderArchify(document: Record<string, unknown>, graph: DiagramGraph, options: { timeoutMs?: number } = {}): Promise<string> {
+export async function renderArchify(document: Record<string, unknown>, graph: DiagramGraph, options: { timeoutMs?: number; started?: (pid: number, folder: string) => void; stopped?: () => void } = {}): Promise<string> {
   const { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -258,12 +258,14 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
   if (!existsSync(renderer)) throw new Error(`${renderer}:1: the vendored archify renderer is missing`);
   const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-'));
   const timeout = options.timeoutMs ?? 30_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const input = join(folder, 'document.json');
     const output = join(folder, 'diagram.html');
     writeFileSync(input, JSON.stringify(document));
     const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
-    const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), timeout))]);
+    options.started?.(child.pid, folder);
+    const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
     if (ended === 'timeout') {
       child.kill('SIGKILL');
       throw new Error(`${renderer}:1: the archify renderer did not finish within ${String(timeout)} ms`);
@@ -275,6 +277,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     if (!existsSync(output)) throw new Error(`${renderer}:1: the archify renderer wrote no page`);
     return forwarder(readFileSync(output, 'utf8'), graph);
   } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    options.stopped?.();
     rmSync(folder, { recursive: true, force: true });
   }
 }

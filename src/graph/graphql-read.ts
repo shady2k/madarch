@@ -498,6 +498,7 @@ export class ReadContext {
   }
 
   private async labelOf(entity: EntityValue): Promise<string> {
+    if (entity.catalogue !== undefined) return this.catalogueTitle(entity.catalogue, entity.lang);
     // The label is the field the manifest's `title:` names (decision 0036, section 1): a key field answers its own
     // value, any other field its agreed opinion. A kind that names no title is labelled by the first text of its key.
     const title = this.titles.get(entity.kind);
@@ -604,7 +605,7 @@ export class ReadContext {
     for (const [kind, nodes] of queue) {
       const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: OpinionRow[] }>();
       const declared = this.kindByType.get(typeNameOf(kind));
-      if (declared === undefined) continue;
+      if (declared === undefined) throw new Error(`Cannot read fields of undeclared kind: ${kind}`);
       const wanted = new Set<string>();
       for (const [id, columns] of nodes) {
         const held = cache.get(id);
@@ -955,7 +956,7 @@ export class ReadContext {
       const label = this.kindWord(kind, lang);
       kindWords.set(kind, label);
       for (const row of rows) {
-        const node = this.entityFromRow(row, lang);
+        const node = this.entityFromRow({ ...row, entity: row['kind'] }, lang);
         if (node === undefined) continue;
         nodes.set(node.uid, node);
         links.push(side === 'out' ? { from: root.uid, to: node.uid, relation } : { from: node.uid, to: root.uid, relation });
