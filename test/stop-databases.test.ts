@@ -133,7 +133,7 @@ test('madarch stop stops the product PostgreSQL server', async () => {
   runCli(fix, ['stop']);
   await noServers(fix.home);
   const after = runCli(fix, ['status']);
-  if (!after.includes('databases: 0')) throw new Error(`status listed a database after the stop: ${after}`);
+  if (!after.includes('not running') || after.includes('databases:')) throw new Error(`status listed a database after the stop: ${after}`);
 }, 120_000);
 
 test('SIGTERM of a standalone serve stops the product PostgreSQL server', async () => {

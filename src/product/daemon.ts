@@ -538,7 +538,6 @@ export function stopDaemon(options: { home?: string }): number {
       // A daemon that is gone may still have left the home's PostgreSQL servers running.
       stopDatabasesUnderSync(knowledgeRootOf(home));
       console.log('not running');
-      console.log('databases: 0');
       return 0;
     }
     if (process.platform === 'win32') {
@@ -583,7 +582,6 @@ export function daemonStatus(options: { home?: string }): number {
     // A record that cannot be read at all is not one to keep.
     if (existsSync(statePath(home))) clearState(home);
     console.log('not running');
-    console.log('databases: 0');
     return 0;
   }
   if (!daemonIsAlive(state)) {
@@ -597,7 +595,6 @@ export function daemonStatus(options: { home?: string }): number {
     // `stop` or the next `start` replaces a record that is really stale.
     if (!processExists(state.pid)) clearState(home);
     console.log('not running');
-    console.log('databases: 0');
     return 0;
   }
   const listed = listProducts({ home });
@@ -606,9 +603,13 @@ export function daemonStatus(options: { home?: string }): number {
   console.log(`pid: ${state.pid}`);
   console.log(`uptime: ${Math.max(0, Math.floor((Date.now() - state.startedAt) / 1000))}s`);
   console.log(`products: ${names.join(', ') || '(none)'}`);
+  // A server's first line and exit code are read by tools: `not running` is the whole answer when nothing runs, and
+  // database lines stand only when databases do.
   const databases = runningServersUnder(knowledgeRootOf(home));
-  console.log(`databases: ${String(databases.length)}`);
-  for (const database of databases) console.log(`database: ${database.dataDir} (pid ${String(database.pid)})`);
+  if (databases.length > 0) {
+    console.log(`databases: ${String(databases.length)}`);
+    for (const database of databases) console.log(`database: ${database.dataDir} (pid ${String(database.pid)})`);
+  }
   return 0;
 }
 

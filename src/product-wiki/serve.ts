@@ -225,8 +225,13 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
     process.exit(code);
   };
   const signal = (): void => { void shutdown(143); };
-  process.once('SIGTERM', signal);
-  process.once('SIGINT', signal);
+  // The api role of `serve` is a child of the command's own process: the parent forwards SIGTERM to it, and a graceful
+  // shutdown there holds the store's users lock while the fill role waits for the same store. The parent's stop and the
+  // fill role's own stop end the servers; a direct `--role api` run has no such parent and keeps the handlers.
+  if (process.env['MADARCH_ROLE'] !== 'api') {
+    process.once('SIGTERM', signal);
+    process.once('SIGINT', signal);
+  }
   return {
     outcome: 'serving',
     server: { ...server, stop: async () => { process.off('SIGTERM', signal); process.off('SIGINT', signal); await originalStop(); } },
