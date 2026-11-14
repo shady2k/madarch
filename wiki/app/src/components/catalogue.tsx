@@ -260,14 +260,14 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
           {areas.length === 0 ? <Paragraph className="text-small text-muted" data-testid="catalogue-nomatch">{t('catalogue.noMatch')}</Paragraph> : null}
           {areas.map((top) => (
             <Stack key={top.id === '' ? '\u0000other' : top.id} className="grid gap-3" data-testid="catalogue-area">
-              <Stack className="flex w-full flex-wrap items-center justify-between gap-3">
+              <Stack className="flex w-full flex-wrap items-baseline justify-between gap-3">
                 <SectionTitle className="m-0 min-w-0">{top.id === '' ? t('knowledge.groupOther') : top.label}</SectionTitle>
                 {groupBox([...top.direct, ...top.subgroups.flatMap((subgroup) => subgroup.kinds)])}
               </Stack>
               {top.direct.length === 0 ? null : <PlainList className="m-0 list-none p-0">{top.direct.map(row)}</PlainList>}
               {top.subgroups.map((subgroup) => (
                 <Disclosure key={subgroup.id} open className="rounded-lg border border-line p-3" data-testid="catalogue-subgroup">
-                  <DisclosureSummary className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
+                  <DisclosureSummary className="flex w-full cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1">
                     <SmallTitle className="m-0 text-small font-medium">{subgroup.label}</SmallTitle>
                     {selecting ? null : <Badge variant="outline" data-testid="catalogue-subgroup-count">{subgroup.kinds.length}</Badge>}
                     {groupBox(subgroup.kinds)}
