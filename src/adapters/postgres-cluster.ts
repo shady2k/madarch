@@ -46,7 +46,7 @@
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
@@ -631,61 +631,34 @@ function realPathOf(path: string): string {
   try { return realpathSync(path); } catch { return resolve(path); }
 }
 
-/** The program name of a command line: the file name of its first word, with Windows' `.exe` removed. */
-function programName(program: string): string {
-  return basename(program).replace(/\.exe$/iu, '').toLowerCase();
-}
-
-/** A command line's words, for a macOS `ps` text: quotes and backslashes are honoured, as `ps` prints them. */
-function commandWords(command: string): string[] {
-  const words: string[] = [];
-  let word = '';
-  let quote: string | undefined;
-  let escaped = false;
-  for (const character of command.trim()) {
-    if (escaped) { word += character; escaped = false; continue; }
-    if (character === '\\') { escaped = true; continue; }
-    if (quote !== undefined) { if (character === quote) quote = undefined; else word += character; continue; }
-    if (character === '"' || character === "'") { quote = character; continue; }
-    if (/\s/u.test(character)) { if (word !== '') { words.push(word); word = ''; } continue; }
-    word += character;
-  }
-  if (word !== '') words.push(word);
-  return words;
-}
-
-/** The argv of a live process, or undefined when it cannot be read. */
-function argvOf(pid: number, platform: NodeJS.Platform): string[] | undefined {
-  if (platform === 'linux') {
-    try { return readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').split('\0').filter((word) => word !== ''); }
-    catch { return undefined; }
-  }
-  if (platform === 'darwin') {
-    const seen = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5_000 });
-    return seen.status === 0 ? commandWords(seen.stdout ?? '') : undefined;
-  }
-  return undefined;
-}
-
 /**
- * Whether a pid really is the postmaster of this data folder: the program must be postgres/postmaster, and the value of
- * its `-D` argument, resolved, must be exactly this data folder. Windows has no verification here; its stop runs through
- * `pg_ctl`, which reads `postmaster.pid` itself, and no fallback signal is sent there.
+ * Whether the pid in `postmaster.pid` is the postmaster of exactly this data folder: the server is asked over its own
+ * socket (or loopback TCP on Windows) for `SHOW data_directory`; it is ours only when it answers, the answer's real path is
+ * this data folder's real path, and `postmaster.pid` still names the same pid after the answer. A process that does not
+ * answer as this cluster is never signaled and `pg_ctl` is never run for it.
  */
 export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
-  if (platform === 'win32') return false;
-  const argv = argvOf(pid, platform);
-  if (argv === undefined || argv.length === 0) return false;
-  const program = programName(argv[0]!);
-  if (program !== 'postgres' && program !== 'postmaster') return false;
-  let declared: string | undefined;
-  for (let index = 1; index < argv.length; index += 1) {
-    const word = argv[index]!;
-    if (word === '-D') { declared = argv[index + 1]; break; }
-    if (word.startsWith('-D') && word.length > 2) { declared = word.slice(2); break; }
+  if (holderOf(dataDir) !== pid) return false;
+  const bin = join(postgresInstallFolder(process.env), 'bin');
+  const psql = join(bin, postgresProgram('psql', platform));
+  if (!existsSync(psql)) return false;
+  const pidFile = join(dataDir, 'postmaster.pid');
+  let port = CLUSTER_PORT;
+  let host = clusterPaths(dirname(dataDir)).socketDir;
+  let password: string | undefined;
+  if (platform === 'win32') {
+    try { port = Number(readFileSync(pidFile, 'utf8').split('\n')[3]?.trim()); } catch { return false; }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    host = '127.0.0.1';
+    try { password = readFileSync(join(dataDir, '..', 'postgres.password'), 'utf8').trim(); } catch { return false; }
   }
-  if (declared === undefined) return false;
-  return realPathOf(declared) === realPathOf(dataDir);
+  const answer = spawnSync(psql, ['-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
+    encoding: 'utf8', timeout: 5_000,
+    env: { ...process.env, LC_ALL: 'C', ...(password === undefined ? {} : { PGPASSWORD: password }) },
+  });
+  if (answer.status !== 0) return false;
+  if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
+  return holderOf(dataDir) === pid;
 }
 
 /** The decision a failed `pg_ctl` leaves: the fallback signals only where the platform can verify the pid. */
@@ -726,11 +699,17 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
         const pid = holderOf(dataDir);
         if (pid === null) continue;
         if (!alive(pid)) { rmSync(pidFile, { force: true }); continue; }
+        // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
+        // must not be touched by it either.
+        if (!postmasterOfDataDir(dataDir, pid)) {
+          console.error(`${pidFile}:1: the pid ${String(pid)} is not this data folder's postmaster; pg_ctl and the fallback signals do not touch it, and its record stays`);
+          continue;
+        }
         const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
         if (stopped.status !== 0) {
           if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
-          if (!syncStopSignalPlan(process.platform, postmasterOfDataDir(dataDir, pid)).signal) {
-            console.error(`${pidFile}:1: pg_ctl could not stop the PostgreSQL server and pid ${String(pid)} is not verified as this data folder's postmaster; its record stays`);
+          if (!syncStopSignalPlan(process.platform, true).signal) {
+            console.error(`${pidFile}:1: pg_ctl could not stop the PostgreSQL server pid ${String(pid)}; its record stays`);
             continue;
           }
           try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }

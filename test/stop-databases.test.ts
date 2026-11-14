@@ -214,6 +214,7 @@ test('the synchronous sweep signals no pid it cannot verify is the data folder\'
   const base = mkdtempSync(join(root, 'orphan-'));
   const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
   mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
   const unrelated = Bun.spawn(['sleep', '30'], { stdout: 'ignore', stderr: 'ignore' });
   children.push(unrelated);
   writeFileSync(join(dataDir, 'postmaster.pid'), `${String(unrelated.pid)}\n${dataDir}\n`);
@@ -228,6 +229,8 @@ test('a stale pid of a postgres serving a sibling data folder is not its postmas
   const other = `${dataDir}-old`;
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(other, { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+  writeFileSync(join(other, 'PG_VERSION'), '18\n');
   const script = join(base, 'postgres');
   writeFileSync(script, '#!/bin/sh\nsleep 30\n');
   execFileSync('chmod', ['755', script]);
@@ -245,6 +248,7 @@ test('a non-postgres process whose arguments name the data folder is not its pos
   const base = mkdtempSync(join(root, 'decoy-args-'));
   const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
   mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
   const decoy = Bun.spawn(['bun', '-e', 'setTimeout(() => {}, 30000)', dataDir], { stdout: 'ignore', stderr: 'ignore' });
   children.push(decoy);
   writeFileSync(join(dataDir, 'postmaster.pid'), `${String(decoy.pid)}\n`);
