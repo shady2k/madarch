@@ -222,10 +222,11 @@ show the manifest's description.
 
 **Question.** Everyone: *where is the thing I am looking for?*
 
-**Now. Nothing.** `q=fill` and `q=madarch` both answer "Nothing matches this
-search", while the graph holds 3,934 files, 2,491 commits and paths that
-contain both words. Whatever the search indexes, it does not index what the
-plugins filled, and it does not say what it searches.
+**Now.** The graph's search finds the words — `?text=fill` answers 346 files —
+but the page was walked with a `?q=` address, the spelling everyone shares, and
+it answered "Nothing matches this search" with no hint that it had searched
+nothing at all. The search does not index whole file contents (a path, a name,
+a definition), and the page never says so.
 
 **How the leaders do it.** Sourcegraph answers with grouped results per
 repository and file, filters by type and path, and a symbol sidebar
@@ -329,8 +330,8 @@ choice in its first line instead of defining what an agent is.
 
 1. **The commit pages render a database error** (`operator does not exist:
    text -> unknown`) — the Commits kind page and every commit entity page.
-2. **Search finds nothing** for words that thousands of records contain; at
-   minimum search entity labels and paths, and say what is searched.
+2. **A search link in `?q=` spelling searches nothing** and says nothing about
+   it; accept both spellings and let the empty answer name what was searched.
 3. **Runs dump 74 kind names per run**; show numbers, duration and failures,
    and the kinds behind a disclosure.
 4. Timestamps are `11/15/2026, 2:09:29 AM` in every language; use the reader's
