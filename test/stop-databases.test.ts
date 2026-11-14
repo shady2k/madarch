@@ -14,7 +14,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
-import { postmasterOfDataDir, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
+import { busyConnectionAnswer, postmasterBusyIdentity, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
@@ -118,8 +118,8 @@ async function daemon(fix: Fixture): Promise<{ base: string; pid: number }> {
   return { base: started.url, pid: state.pid };
 }
 
-function runCli(fix: Fixture, args: string[]): string {
-  const result = Bun.spawnSync(['bun', CLI, ...args], { cwd: root, env: fix.env, stdout: 'pipe', stderr: 'pipe' });
+function runCli(fix: Fixture, args: string[], overrides: Record<string, string> = {}): string {
+  const result = Bun.spawnSync(['bun', CLI, ...args], { cwd: root, env: { ...fix.env, ...overrides }, stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) throw new Error(`madarch ${args.join(' ')} exited ${String(result.exitCode)}: ${result.stderr.toString()}`);
   return result.stdout.toString();
 }
@@ -265,3 +265,47 @@ test('the fallback signal is decided by the platform, never by an unverified pid
   expect(syncStopSignalPlan('linux', true)).toEqual({ signal: true });
   expect(syncStopSignalPlan('linux', false)).toEqual({ signal: false });
 });
+test('a reader\'s .psqlrc does not prevent the stop', async () => {
+  const fix = fixture();
+  const { base } = await daemon(fix);
+  await openStore(fix, `${base}/products/${fix.name}`);
+  const homeWithPsqlrc = mkdtempSync(join(root, 'psqlrc-'));
+  writeFileSync(join(homeWithPsqlrc, '.psqlrc'), '\\timing on\n');
+  runCli(fix, ['stop'], { HOME: homeWithPsqlrc });
+  await noServers(fix.home);
+}, 120_000);
+
+test('a busy server is identified through its own files, and a non-answer is not busy', async () => {
+  const base = mkdtempSync(join(root, 'busy-'));
+  const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+  const holder = Bun.spawn(['sleep', '30'], { cwd: dataDir, stdout: 'ignore', stderr: 'ignore' });
+  children.push(holder);
+  writeFileSync(join(dataDir, 'postmaster.pid'), `${String(holder.pid)}\n`);
+  expect(postmasterBusyIdentity(dataDir, holder.pid)).toBe(true);
+  expect(busyConnectionAnswer('FATAL: sorry, too many clients already')).toBe(true);
+  expect(busyConnectionAnswer('SQLSTATE 53300')).toBe(true);
+  expect(busyConnectionAnswer('FATAL: the database system is shutting down')).toBe(true);
+  expect(busyConnectionAnswer('psql: error: connection refused')).toBe(false);
+  holder.kill('SIGKILL');
+}, 30_000);
+
+test('the escalation follows the verified pid and its start time, not a second socket answer', async () => {
+  const base = mkdtempSync(join(root, 'still-'));
+  const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(dataDir, { recursive: true });
+  const holder = Bun.spawn(['sleep', '30'], { stdout: 'ignore', stderr: 'ignore' });
+  children.push(holder);
+  const pidFile = join(dataDir, 'postmaster.pid');
+  writeFileSync(pidFile, `${String(holder.pid)}\n`);
+  const start = processStartTime(holder.pid);
+  expect(postmasterStill(dataDir, holder.pid, start)).toBe(true);
+  writeFileSync(pidFile, `${String(process.pid)}\n`);
+  expect(postmasterStill(dataDir, holder.pid, start)).toBe(false);
+  writeFileSync(pidFile, `${String(holder.pid)}\n`);
+  expect(postmasterStill(dataDir, holder.pid, start)).toBe(true);
+  holder.kill('SIGKILL');
+  await holder.exited;
+  expect(postmasterStill(dataDir, holder.pid, start)).toBe(false);
+}, 30_000);

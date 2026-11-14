@@ -43,7 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readlinkSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -631,11 +631,57 @@ function realPathOf(path: string): string {
   try { return realpathSync(path); } catch { return resolve(path); }
 }
 
+/** The answer a server gives when it cannot take a connection because it is full or shutting down. */
+export function busyConnectionAnswer(text: string): boolean {
+  return /too many clients|remaining connection slots|53300|the database system is shutting down|57P03/iu.test(text);
+}
+
+/** The kernel's start time of a process (Linux `/proc/<pid>/stat` field 22), or undefined where it is not read. */
+export function processStartTime(pid: number, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (platform !== 'linux') return undefined;
+  try {
+    const stat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+    // The second field is the command in parentheses; the fields after it are space separated.
+    const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return after[19] ?? undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * The identity check for a server that answers only that it is busy: the postmaster's own files, never its arguments.
+ * On Linux the process's working directory is the data folder; on macOS `lsof` shows its open `postmaster.pid`.
+ */
+export function postmasterBusyIdentity(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform === 'linux') {
+    try { return realPathOf(readlinkSync(`/proc/${String(pid)}/cwd`)) === realPathOf(dataDir); }
+    catch { return false; }
+  }
+  if (platform === 'darwin') {
+    const seen = spawnSync('lsof', ['-p', String(pid), '-Fn'], { encoding: 'utf8', timeout: 5_000 });
+    if (seen.status !== 0) return false;
+    const wanted = realPathOf(join(dataDir, 'postmaster.pid'));
+    return (seen.stdout ?? '').split('\n').some((line) => line.startsWith('n') && realPathOf(line.slice(1)) === wanted);
+  }
+  return false;
+}
+
+/**
+ * Whether a pid is still the same process the verification saw: the pid file still names it, it is alive, and on Linux its
+ * kernel start time is unchanged. This is what the fallback escalation follows; it does not ask the server again, because a
+ * server shutting down refuses connections.
+ */
+export function postmasterStill(dataDir: string, pid: number, startTime: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  if (holderOf(dataDir) !== pid || !alive(pid)) return false;
+  if (platform === 'linux' && startTime !== undefined) return processStartTime(pid, platform) === startTime;
+  return true;
+}
+
 /**
  * Whether the pid in `postmaster.pid` is the postmaster of exactly this data folder: the server is asked over its own
  * socket (or loopback TCP on Windows) for `SHOW data_directory`; it is ours only when it answers, the answer's real path is
- * this data folder's real path, and `postmaster.pid` still names the same pid after the answer. A process that does not
- * answer as this cluster is never signaled and `pg_ctl` is never run for it.
+ * this data folder's real path, and `postmaster.pid` still names the same pid after the answer. A server that answers only
+ * that it is busy or shutting down is checked through its own files (`postmasterBusyIdentity`). A process that is not
+ * confirmed is never signaled and `pg_ctl` is never run for it.
  */
 export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
   if (holderOf(dataDir) !== pid) return false;
@@ -652,11 +698,15 @@ export function postmasterOfDataDir(dataDir: string, pid: number, platform: Node
     host = '127.0.0.1';
     try { password = readFileSync(join(dataDir, '..', 'postgres.password'), 'utf8').trim(); } catch { return false; }
   }
-  const answer = spawnSync(psql, ['-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
+  // `-X` keeps a reader's ~/.psqlrc out of the answer; a fixed environment keeps PGOPTIONS and a locale's words out.
+  const answer = spawnSync(psql, ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
     encoding: 'utf8', timeout: 5_000,
-    env: { ...process.env, LC_ALL: 'C', ...(password === undefined ? {} : { PGPASSWORD: password }) },
+    env: { ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) },
   });
-  if (answer.status !== 0) return false;
+  if (answer.status !== 0) {
+    if (busyConnectionAnswer(`${answer.stdout ?? ''}\n${answer.stderr ?? ''}`)) return postmasterBusyIdentity(dataDir, pid, platform);
+    return false;
+  }
   if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
   return holderOf(dataDir) === pid;
 }
@@ -705,6 +755,7 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
           console.error(`${pidFile}:1: the pid ${String(pid)} is not this data folder's postmaster; pg_ctl and the fallback signals do not touch it, and its record stays`);
           continue;
         }
+        const verifiedStart = processStartTime(pid);
         const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
         if (stopped.status !== 0) {
           if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
@@ -714,7 +765,9 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
           }
           try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
           waitGoneSync(pid, 10_000);
-          if (alive(pid) && postmasterOfDataDir(dataDir, pid)) {
+          // The escalation follows the verified process itself, never a second socket answer: a server shutting down
+          // refuses connections, and asking again would block the SIGKILL a hung shutdown needs.
+          if (postmasterStill(dataDir, pid, verifiedStart)) {
             try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
           }
         }
