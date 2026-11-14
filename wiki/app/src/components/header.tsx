@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { CATALOGUE_KIND, titleIn, valueAt } from '../../../../src/page-contract/index.js';
 import { Badge } from './ui/badge.js';
 import { PageBreadcrumb, type TrailCrumb } from './ui/breadcrumb.js';
-import { InlineGroup, Metadata, PageHeader, PageTitle } from './ui/typography.js';
+import { InlineGroup, Metadata, PageHeader, PageHeading, PageTitle } from './ui/typography.js';
 import { follow } from './relations.js';
 import { CATALOGUE_PAGE, entityAddress } from '../address.js';
 import type { SectionContext } from './types.js';
@@ -29,13 +29,18 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   const titlePath = typeof params['titlePath'] === 'string' ? params['titlePath'] : 'label';
   const kindPath = typeof params['kindPath'] === 'string' ? params['kindPath'] : undefined;
   const provenancePath = typeof params['provenancePath'] === 'string' ? params['provenancePath'] : undefined;
-  const title = textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
   const kind = kindPath === undefined ? undefined : textOf(valueAt(context.data, kindPath));
   const provenance = provenancePath === undefined ? undefined : textOf(valueAt(context.data, provenancePath));
+  const trail = trailOf(params['trail'], context);
+  // A code page is its file: the label is the whole path, so the title is the name and the path stands muted under it.
+  const path = trail === null ? '' : trail.path;
+  const name = lastSegment(path);
+  const title = name ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
+  const heading = <PageTitle data-testid="page-title">{title}</PageTitle>;
   return (
     <PageHeader data-testid="page-header">
-      <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind)} />
-      <PageTitle data-testid="page-title">{title}</PageTitle>
+      <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind, trail)} />
+      {path === '' ? heading : <PageHeading path={path}>{heading}</PageHeading>}
       {kind === undefined || kind === CATALOGUE_KIND ? null : <InlineGroup><Badge data-testid="page-kind">{kindWord(kind, context)}</Badge></InlineGroup>}
       {provenance === undefined ? null : <Metadata>{provenance}</Metadata>}
     </PageHeader>
@@ -59,16 +64,28 @@ function linkTo(context: SectionContext, address: string, label: string): TrailC
  * kind's catalogue page is «Catalogue / kind»; every other entity is its kind's plural, linked to the kind's page, then
  * the repository and folders it lies in, then its own name.
  */
-function crumbsOf(context: SectionContext, catalogue: string, title: string, kind: string | undefined): TrailCrumb[] {
+function crumbsOf(context: SectionContext, catalogue: string, title: string, kind: string | undefined, trail: Trail | null): TrailCrumb[] {
   if (context.pageName !== null) return [{ label: context.pageName }];
   if (kind === CATALOGUE_KIND) return [linkTo(context, CATALOGUE_PAGE, catalogue), { label: title }];
-  const trail = trailOf(context.section.params['trail'], context);
-  const path = trail === null ? '' : [trail.repository, ...foldersOf(trail.path)].join(' / ');
-  if (kind === undefined) return path === '' ? [{ label: title }] : [{ label: path }, { label: title }];
+  if (kind === undefined) return trail === null ? [{ label: title }] : trailCrumbs(trail);
   const held = context.navigation?.kinds.find((one) => one.kind === kind);
   const address = held === undefined || held.entryId === null ? CATALOGUE_PAGE : entityAddress(CATALOGUE_KIND, held.entryId);
   const head = linkTo(context, address, held?.many ?? kindWord(kind, context));
-  return path === '' ? [head, { label: title }] : [head, { label: path }, { label: title }];
+  return trail === null ? [head, { label: title }] : trailCrumbs(trail, head);
+}
+
+/**
+ * The repository and the folders a code entity lies in, the last folder as the page's own tail: the trail ends where the
+ * entity stands, never at the entity's name, which the title already states.
+ */
+function trailCrumbs(trail: Trail, head?: TrailCrumb): TrailCrumb[] {
+  const folders = foldersOf(trail.path);
+  const parent = folders.at(-1);
+  const middle = [trail.repository, ...folders.slice(0, -1)].join(' / ');
+  const body: TrailCrumb[] = parent === undefined
+    ? [{ label: trail.repository }]
+    : middle === '' ? [{ label: parent }] : [{ label: middle }, { label: parent }];
+  return head === undefined ? body : [head, ...body];
 }
 
 /** The repository and the folders a code entity lies in: the trail the template named, less the page's own path. */
@@ -83,6 +100,11 @@ function trailOf(trail: unknown, context: SectionContext): Trail | null {
 
 function foldersOf(path: string): string[] {
   return path.split('/').filter((one) => one !== '').slice(0, -1);
+}
+
+/** The file a path names: its last segment, or nothing where the path is empty. */
+function lastSegment(path: string): string | undefined {
+  return path.split('/').filter((one) => one !== '').at(-1);
 }
 
 function textOf(value: unknown): string | undefined {

@@ -72,8 +72,28 @@ test('the header trails the kind, linked to its page, then the path and the titl
     expect(kind?.textContent).toBe('As');
     expect(kind?.getAttribute('href')).toBe(`/e/catalogue/${ID}`);
     const trail = page.container.querySelector('[data-testid="trail"]')?.textContent ?? '';
+    expect(trail).toContain('madarch');
+    expect(trail.endsWith('src')).toBe(true);
+    expect(page.container.querySelector('h1')?.textContent).toBe('x.ts');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a code page titles the file and trails the folders that hold it', async () => {
+  const page = await renderPage(
+    [section('header', 'header', { titlePath: 'label', kindPath: 'kind', trail: { repository: 'repository', path: 'path' } })],
+    { header: { label: 'src/graph/write.ts', kind: 'a.b', repository: 'madarch', path: 'src/graph/write.ts' } },
+    { navigation },
+  );
+  try {
+    expect(page.container.querySelector('h1')?.textContent).toBe('write.ts');
+    expect(page.container.querySelector('[data-testid="page-path"]')?.textContent).toBe('src/graph/write.ts');
+    const trail = page.container.querySelector('[data-testid="trail"]')?.textContent ?? '';
+    expect(trail.startsWith('As')).toBe(true);
     expect(trail).toContain('madarch / src');
-    expect(trail.endsWith('src/x.ts')).toBe(true);
+    expect(trail.endsWith('graph')).toBe(true);
+    expect(trail).not.toContain('write.ts');
   } finally {
     await page.close();
   }

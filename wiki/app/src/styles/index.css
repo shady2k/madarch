@@ -159,6 +159,20 @@
   margin-block: 0;
 }
 
+/* A code page's title is the file name; its path stands muted under it, and the block keeps the title's own gap below. */
+.page-heading {
+  margin-block-end: 0.75em;
+}
+
+.page-heading h1 {
+  margin-block-end: 0;
+}
+
+.page-heading .page-path {
+  display: block;
+  margin-block-start: 0.1em;
+}
+
 @media (max-width: 900px) {
   .shell-document {
     padding-inline: 32px;
