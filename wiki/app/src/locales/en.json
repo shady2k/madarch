@@ -1185,7 +1185,7 @@
     "countHistory": "Over the whole history",
     "authors": "Authors",
     "retry": "Try again",
-    "diagramTooLong": "The diagram could not be built: the server did not answer within 2 seconds.",
+    "diagramTooLong": "The diagram could not be built: the server did not answer in time.",
     "catalogueFilter": "Filter the kinds",
     "catalogueKinds": "Kinds",
     "catalogueKind": "Kind",
@@ -1193,7 +1193,9 @@
     "catalogueCount": "Entities",
     "catalogueTaken": "In the product",
     "catalogueMore": "Show more kinds",
-    "diagramFailed": "The diagram could not be built: {{message}}"
+    "diagramFailed": "The diagram could not be built.",
+    "diagramTooLarge": "The diagram is too large to show.",
+    "diagramBadRequest": "The server refused the diagram request."
   },
   "loop": {
     "questionsTitle": "Questions",

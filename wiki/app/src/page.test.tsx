@@ -305,6 +305,22 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   }
 });
 
+test('a failed picture speaks the reader\'s language, never the server\'s', async () => {
+  const real = globalThis.fetch;
+  (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ code: 'FAILED', message: 'the picture did not draw within 2 s' }), { status: 500 })) as unknown as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
+  const page = await renderPage([section('diagram', 'diagram', { depth: 1 })], { diagram: { id: 'uid' } });
+  try {
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const words = page.container.textContent ?? '';
+    expect(words).toContain('The diagram could not be built.');
+    expect(words).not.toContain('did not draw');
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = real;
+    await page.close();
+  }
+});
+
 test('a pressed node opens the page the server named for it', () => {
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'n1' })).toBe('/e/a.b/1');
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'other', modelRef: 'n1' })).toBe('/e/a.b/1');

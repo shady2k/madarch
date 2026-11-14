@@ -1185,7 +1185,7 @@
     "countHistory": "Всего за историю",
     "authors": "Авторы",
     "retry": "Повторить",
-    "diagramTooLong": "Не удалось построить диаграмму: сервер не ответил за 2 секунды.",
+    "diagramTooLong": "Не удалось построить диаграмму: сервер не ответил вовремя.",
     "catalogueFilter": "Фильтр по видам",
     "catalogueKinds": "Видов",
     "catalogueKind": "Вид",
@@ -1193,7 +1193,9 @@
     "catalogueCount": "Сущностей",
     "catalogueTaken": "В продукте",
     "catalogueMore": "Показать ещё виды",
-    "diagramFailed": "Не удалось построить диаграмму: {{message}}"
+    "diagramFailed": "Не удалось построить диаграмму.",
+    "diagramTooLarge": "Диаграмма слишком велика, чтобы её показать.",
+    "diagramBadRequest": "Сервер отклонил запрос диаграммы."
   },
   "loop": {
     "questionsTitle": "Вопросы",
