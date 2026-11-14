@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { stopWindowsDaemon } from '../src/product/windows-daemon-stop.js';
+import { prepareStoreAcceptanceFixture } from './clean-install-fixture.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 
 interface Options { binary: string; os: string; arch: string }
@@ -133,6 +134,43 @@ async function serveCheck(): Promise<void> {
       catch (error) { return `\n${path}:1: cannot read log: ${String(error)}`; }
     }).join('\n');
   };
+  const checkForegroundServe = async (product: string, manifest: 'not-filled' | 'ok'): Promise<void> => {
+    const server = spawn(npx, shellParameters([...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open']), { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
+    // Capture close before signaling: taskkill's exit is not proof that inherited handles or PostgreSQL are gone.
+    const closed = new Promise<void>((done, reject) => { server.once('close', () => done()); server.once('error', reject); });
+    let finishing: Promise<void> | undefined;
+    const finish = (): Promise<void> => finishing ??= (async () => {
+      if (server.pid !== undefined) {
+        if (process.platform === 'win32') {
+          // This foreground serve is the walk's child, not the daemon named in the home's state file.
+          // Sweep its stores too: force-killing the npm shell alone leaves PostgreSQL holding scratch files.
+          if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
+        } else { try { process.kill(-server.pid, 'SIGTERM'); } catch { /* already stopped */ } }
+      }
+      await closed;
+    })();
+    let serveOut = '';
+    let serveErr = '';
+    server.stdout.setEncoding('utf8').on('data', (part: string) => { serveOut += part; });
+    server.stderr.setEncoding('utf8').on('data', (part: string) => { serveErr += part; });
+    const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 90_000);
+    try {
+      // The address is the one the command prints once it stands.
+      let address: string | undefined;
+      const until = Date.now() + 60_000;
+      while (Date.now() < until) {
+        address = serveOut.match(/^(?:The wiki is running at|Wiki:) (\S+)/m)?.[1];
+        if (address !== undefined || server.exitCode !== null) break;
+        await new Promise((done) => setTimeout(done, 150));
+      }
+      if (address === undefined) throw new Error(`npx madarch serve printed no address for the product it serves. stdout: ${serveOut}; stderr: ${serveErr}`);
+      const base = address.startsWith('http') && address.endsWith('/') ? address : `${address.replace(/\/$/, '')}/`;
+      if (!await waitForProduct(base)) throw new Error(`npx madarch serve did not reopen the graph-backed product at ${base}. stdout: ${serveOut}; stderr: ${serveErr}`);
+      const response = await fetch(`${base}api/status`);
+      const state = await response.json() as { manifest?: string };
+      if (!response.ok || state.manifest !== manifest) throw new Error(`${product}/madarch/catalog.yaml:1: foreground serve read ${String(state.manifest)} instead of ${manifest} (HTTP ${response.status})`);
+    } finally { clearTimeout(serveTimeout); await finish(); }
+  };
   const port = await freePort();
   let failure: Error | undefined;
   let product = '';
@@ -170,15 +208,14 @@ async function serveCheck(): Promise<void> {
     if (state.manifest !== 'not-filled') throw new Error(`npx madarch init: the draft's status answered HTTP ${String(answered)} and read "${String(state.manifest)}"; a product whose manifest stands is not filled yet reads "not-filled": ${last}${daemonTail()}`);
     if (!String(state.manifestFile ?? '').replaceAll('\\', '/').endsWith('madarch/catalog.yaml')) throw new Error(`npx madarch init: the draft's status names no madarch/catalog.yaml: ${last}`);
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
+    await checkForegroundServe(facts.folder, 'not-filled');
+    console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
     // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
-    rmSync(join(facts.folder, 'madarch/kinds'), { recursive: true });
-    mkdirSync(join(facts.folder, 'madarch/kinds/code/files'), { recursive: true });
-    writeFileSync(manifest, 'groups:\n  code: { en: Code, ru: Код }\n  files: { en: Files, ru: Файлы, parent: code }\n');
-    writeFileSync(join(facts.folder, 'madarch/kinds/code/files/code.file.yaml'), 'source: graph\n');
-    console.log(`${manifest}:1: store acceptance fixture: code.file only, no plugins (Windows has no plugin sandbox)`);
-    for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
+    prepareStoreAcceptanceFixture(facts.folder);
+    console.log(`${manifest}:1: store acceptance fixture: acceptance.record only, no plugins (Windows has no plugin sandbox)`);
+    for (const parameters of [['add', 'madarch', 'templates'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if (run('git', parameters, facts.folder, env) !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
     // This is the first write and MUST open the installed store, even when the unfilled status is folder-only.
@@ -216,39 +253,7 @@ async function serveCheck(): Promise<void> {
   }
   if (failure !== undefined) throw failure;
   if (product === '') throw new Error('the walk read no product folder from the facts madarch init printed');
-  // `serve` is still the foreground command: it serves until it is ended.
-  const server = spawn(npx, shellParameters([...npxArgs, 'serve', '--product', product, '--port', '0', '--no-open']), { cwd: install, env, stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', detached: process.platform !== 'win32' });
-  // Capture close before signaling: taskkill's exit is not proof that inherited handles or PostgreSQL are gone.
-  const closed = new Promise<void>((done, reject) => { server.once('close', () => done()); server.once('error', reject); });
-  let finishing: Promise<void> | undefined;
-  const finish = (): Promise<void> => finishing ??= (async () => {
-    if (server.pid !== undefined) {
-      if (process.platform === 'win32') {
-        // This foreground serve is the walk's child, not the daemon named in the home's state file.
-        // Sweep its stores too: force-killing the npm shell alone leaves PostgreSQL holding scratch files.
-        if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
-      } else { try { process.kill(-server.pid, 'SIGTERM'); } catch { /* already stopped */ } }
-    }
-    await closed;
-  })();
-  let serveOut = '';
-  let serveErr = '';
-  server.stdout.setEncoding('utf8').on('data', (part: string) => { serveOut += part; });
-  server.stderr.setEncoding('utf8').on('data', (part: string) => { serveErr += part; });
-  const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 90_000);
-  try {
-    // The address is the one the command prints once it stands.
-    let address: string | undefined;
-    const until = Date.now() + 60_000;
-    while (Date.now() < until) {
-      address = serveOut.match(/^(?:The wiki is running at|Wiki:) (\S+)/m)?.[1];
-      if (address !== undefined || server.exitCode !== null) break;
-      await new Promise((done) => setTimeout(done, 150));
-    }
-    if (address === undefined) throw new Error(`npx madarch serve printed no address for the product it serves. stdout: ${serveOut}; stderr: ${serveErr}`);
-    const base = address.startsWith('http') && address.endsWith('/') ? address : `${address.replace(/\/$/, '')}/`;
-    if (!await waitForProduct(base)) throw new Error(`npx madarch serve did not reopen the graph-backed product at ${base}. stdout: ${serveOut}; stderr: ${serveErr}`);
-  } finally { clearTimeout(serveTimeout); await finish(); }
+  await checkForegroundServe(product, 'ok');
   console.log(`$ npx madarch serve --product ${product} --port 0 --no-open  (the foreground serve names its own free port)`);
   console.log(`walk passed (plugin-free store fixture, Fill completed): npx madarch init --home ${home} served ${product} on the port the walk named, npx madarch stop ended that server, and npx madarch serve --product ${product} served the same product again`);
   await removeWork();

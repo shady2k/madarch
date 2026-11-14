@@ -1,7 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { seedStarterSet } from '../src/knowledge/seed.js';
+import { checkProductTemplates } from '../src/graph/template-check.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
+import { prepareStoreAcceptanceFixture } from '../scripts/clean-install-fixture.js';
 import { spawnSync } from 'node:child_process';
 
 const scratch = mkdtempSync(join(tmpdir(), 'madarch-clean-install-test-'));
@@ -12,6 +16,21 @@ function run(command: string, args: string[], env: Record<string, string | undef
 }
 
 describe('clean install platform contracts', () => {
+  test('the plugin-free store fixture retains templates its declared schema can answer', () => {
+    const product = join(scratch, 'store-fixture');
+    mkdirSync(product);
+    seedStarterSet(product, 'everything');
+    expect(checkProductTemplates(product)).toEqual([]);
+    prepareStoreAcceptanceFixture(product);
+    const read = readKinds(product);
+    expect(read.present).toBe(true);
+    if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: no fixture manifest`);
+    expect(read.manifest.findings).toEqual([]);
+    expect(checkProductTemplates(product)).toEqual([]);
+    expect([...read.manifest.kinds.keys()]).toEqual(['acceptance.record']);
+    expect(read.manifest.plugins?.size ?? 0).toBe(0);
+  });
+
   test('Linux installer has no system OpenSSL prerequisite', () => {
     const installer = readFileSync('scripts/install.sh', 'utf8');
     expect(installer).not.toContain('OpenSSL 3');
