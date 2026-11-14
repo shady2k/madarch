@@ -1,8 +1,7 @@
 id: manifest.link-behaviours
 purpose: structure
 audience: [architect, product-lead]
-definition: 'What a link type does when its entities change: its cardinality, its backlink, whether it is required and how
-  it is copied or removed; its id is its key under link-behaviours.'
+definition: 'A link behaviour says what a link type does when its entities change: cardinality, backlink, whether it is required and how it is copied or removed.'
 sources:
 - https://doc.anytype.io/anytype/organize/properties
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md
@@ -27,5 +26,5 @@ labels:
     one: Поведение связи
     many: Поведения связей
 description:
-  en: The cardinality, backlink and requiredness a link type keeps when its entities change.
-  ru: Кардинальность, обратная ссылка и обязательность, которые тип связи хранит при изменении сущностей.
+  en: 'A link behaviour states the rules of one link type: how many links an end may have, whether a backlink appears on the other side, whether a link is required, and what happens to it when an entity is copied or deleted.'
+  ru: 'Поведение связи задаёт правила одного типа связи: сколько связей может быть у конца, появляется ли обратная ссылка на другой стороне, обязательна ли связь и что с ней происходит, когда сущность копируют или удаляют.'

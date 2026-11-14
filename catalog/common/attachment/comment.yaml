@@ -1,7 +1,7 @@
 id: practice.comment
 purpose: history
 audience: [product-lead, analyst, developer]
-definition: A person's or an agent's remark attached to any entity, kept with its author and time.
+definition: A comment is a remark a person or an agent attaches to something, kept with its author and time.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/watch-share-and-comment-on-a-work-item/
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
@@ -24,5 +24,5 @@ labels:
     one: Комментарий
     many: Комментарии
 description:
-  en: A remark attached to any entity, with its author and time.
-  ru: Замечание, приложенное к любой сущности, с его автором и временем.
+  en: 'A comment is a short remark someone attaches to an entity: a question, a warning, an explanation or a note for later. It keeps the author and the time, so a reader knows who said it and when.'
+  ru: 'Комментарий — короткое замечание, которое человек или агент прикрепляет к сущности: вопрос, предупреждение, пояснение или заметку на будущее. В нём остаются автор и время, чтобы читатель знал, кто и когда это сказал.'
