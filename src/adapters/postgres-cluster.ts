@@ -43,7 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -607,6 +607,174 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
     dataDir, socketDir, port: clusterEndpoint(socketDir).port, user: CLUSTER_USER, bin,
     stop: async () => await stopCluster({ dataDir, socketDir, bin, users }),
   };
+}
+
+/** The store folders of one knowledge root: `<root>/<id>/graph`, each holding a cluster's `pgdata`. */
+export function databaseFoldersUnder(knowledgeRoot: string): string[] {
+  let ids: string[] = [];
+  try { ids = readdirSync(knowledgeRoot); } catch { return []; }
+  return ids.map((id) => join(knowledgeRoot, id, 'graph')).filter((folder) => existsSync(join(folder, 'pgdata')) && readdirSync(folder).includes('pgdata'));
+}
+
+/** The PostgreSQL servers a knowledge root still records: each data folder whose `postmaster.pid` names a live process. */
+export function runningServersUnder(knowledgeRoot: string): { readonly dataDir: string; readonly pid: number }[] {
+  const found: { dataDir: string; pid: number }[] = [];
+  for (const folder of databaseFoldersUnder(knowledgeRoot)) {
+    const pid = holderOf(join(folder, 'pgdata'));
+    if (pid !== null && alive(pid) && postmasterOfDataDir(join(folder, 'pgdata'), pid)) found.push({ dataDir: join(folder, 'pgdata'), pid });
+  }
+  return found;
+}
+
+/** The real path of a folder, with a path that does not exist yet read as written. */
+function realPathOf(path: string): string {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+/** The kernel's start time of a process (Linux `/proc/<pid>/stat` field 22), or undefined where it is not read. */
+export function processStartTime(pid: number, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (platform !== 'linux') return undefined;
+  try {
+    const stat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+    // The second field is the command in parentheses; the fields after it are space separated.
+    const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return after[19] ?? undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * Whether a pid is still the exact process verification saw, for the fallback escalation: the pid file still names it, it
+ * is alive, and on Linux its captured kernel start time still matches. On macOS and Windows, and when the start time was
+ * not captured, no stable identity exists, so the escalation never runs.
+ */
+export function postmasterStill(dataDir: string, pid: number, startTime: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'linux' || startTime === undefined) return false;
+  if (holderOf(dataDir) !== pid || !alive(pid)) return false;
+  return processStartTime(pid, platform) === startTime;
+}
+
+/**
+ * Whether the pid in `postmaster.pid` is the postmaster of exactly this data folder: the server is asked over its own
+ * socket (or loopback TCP on Windows) for `SHOW data_directory`; it is ours only when it answers, the answer's real path is
+ * this data folder's real path, and `postmaster.pid` still names the same pid after the answer. A server that answers only
+ * that it is busy or shutting down is checked through its own files (`postmasterBusyIdentity`). A process that is not
+ * confirmed is never signaled and `pg_ctl` is never run for it.
+ */
+export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
+  if (holderOf(dataDir) !== pid) return false;
+  const bin = join(postgresInstallFolder(process.env), 'bin');
+  const psql = join(bin, postgresProgram('psql', platform));
+  if (!existsSync(psql)) return false;
+  const pidFile = join(dataDir, 'postmaster.pid');
+  let port = CLUSTER_PORT;
+  let host = clusterPaths(dirname(dataDir)).socketDir;
+  let password: string | undefined;
+  if (platform === 'win32') {
+    try { port = Number(readFileSync(pidFile, 'utf8').split('\n')[3]?.trim()); } catch { return false; }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    host = '127.0.0.1';
+    try { password = readFileSync(join(dataDir, '..', 'postgres.password'), 'utf8').trim(); } catch { return false; }
+  }
+  // `-X` keeps a reader's ~/.psqlrc out of the answer; a fixed environment keeps PGOPTIONS and a locale's words out.
+  const answer = spawnSync(psql, ['-X', '-h', host, '-p', String(port), '-U', CLUSTER_USER, '-d', CLUSTER_ADMIN_DATABASE, '-A', '-t', '-q', '-c', 'SHOW data_directory'], {
+    encoding: 'utf8', timeout: 5_000,
+    env: { ...process.env, LC_ALL: 'C', PGOPTIONS: '', ...(password === undefined ? {} : { PGPASSWORD: password }) },
+  });
+  if (answer.status !== 0) return false;
+  if (realPathOf((answer.stdout ?? '').trim()) !== realPathOf(dataDir)) return false;
+  return holderOf(dataDir) === pid;
+}
+
+/** The decision a failed `pg_ctl` leaves: the fallback signals only where the platform can verify the pid. */
+export function syncStopSignalPlan(platform: NodeJS.Platform, verified: boolean): { readonly signal: boolean } {
+  return { signal: platform !== 'win32' && verified };
+}
+
+/** Whether the fallback may signal now: the platform allows it and the verified process is still exactly that process. */
+export function fallbackSignalAllowed(dataDir: string, pid: number, startTime: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  return syncStopSignalPlan(platform, true).signal && postmasterStill(dataDir, pid, startTime, platform);
+}
+
+/** Waits synchronously for one pid to end, without blocking the kernel's own timers forever. */
+function waitGoneSync(pid: number, timeoutMs: number): boolean {
+  for (let waited = 0; waited < timeoutMs && alive(pid); waited += 20) Bun.sleepSync(20);
+  return !alive(pid);
+}
+
+/**
+ * Stops every recorded server of a knowledge root without awaiting: `madarch stop`, whose call is a command's answer.
+ * A server another live process of the binary holds (a standalone serve, an independent fill) is left alone by the same
+ * users lock the asynchronous stop follows. `pg_ctl` runs on every platform, because it reads `postmaster.pid` itself;
+ * only the fallback signal is limited to a pid verified to be this data folder's postmaster, and the pid file is removed
+ * only once the server is confirmed gone, under the cluster's start lock.
+ */
+export function stopDatabasesUnderSync(knowledgeRoot: string): void {
+  const bin = join(postgresInstallFolder(process.env), 'bin');
+  if (!existsSync(join(bin, postgresProgram('pg_ctl')))) return;
+  for (const folder of databaseFoldersUnder(knowledgeRoot)) {
+    const dataDir = join(folder, 'pgdata');
+    const key = resolve(dataDir);
+    mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
+    const users = openLock(usersLockPath(key));
+    try {
+      if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
+        // A live process still uses this server: its own stop is the one that may end it.
+        continue;
+      }
+      const start = openLock(startLockPath(key));
+      try {
+        if (flock(start, LOCK_EX | LOCK_NB) !== 0) continue;
+        const pidFile = join(dataDir, 'postmaster.pid');
+        const pid = holderOf(dataDir);
+        if (pid === null) continue;
+        if (!alive(pid)) { rmSync(pidFile, { force: true }); continue; }
+        // Verified before anything signals: pg_ctl itself signals the pid `postmaster.pid` names, and a reused pid
+        // must not be touched by it either.
+        if (!postmasterOfDataDir(dataDir, pid)) {
+          console.error(`${dataDir}:1: the database (pid ${String(pid)}) could not be verified and is left running; its record stays`);
+          continue;
+        }
+        const verifiedStart = processStartTime(pid);
+        const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
+        if (stopped.status !== 0) {
+          if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
+          if (!fallbackSignalAllowed(dataDir, pid, verifiedStart)) {
+            console.error(`${dataDir}:1: the PostgreSQL server pid ${String(pid)} is no longer the verified process, or the platform cannot verify it; no signal is sent and its record stays`);
+            continue;
+          }
+          try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
+          waitGoneSync(pid, 10_000);
+          // The escalation follows the verified process itself, never a second socket answer: a server shutting down
+          // refuses connections, and asking again would block the SIGKILL a hung shutdown needs.
+          if (postmasterStill(dataDir, pid, verifiedStart)) {
+            try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+          }
+        }
+        if (!waitGoneSync(pid, 10_000)) {
+          console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
+          continue;
+        }
+        if (existsSync(pidFile)) {
+          if (alive(pid)) { console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`); continue; }
+          rmSync(pidFile, { force: true });
+        }
+        removeSocketFiles(clusterPaths(folder).socketDir);
+      } finally {
+        releaseLock(start);
+      }
+    } finally {
+      releaseLock(users);
+    }
+  }
+}
+
+/**
+ * Stops every PostgreSQL server a knowledge root records, for a madarch process that is ending or a home that is
+ * starting: a server another process still uses is left alone by the users lock. A start calls this before it serves, so
+ * a server a crash left is stopped before a new one is started for its store.
+ */
+export async function stopDatabasesUnder(knowledgeRoot: string, options: { readonly force?: boolean } = {}): Promise<void> {
+  for (const folder of databaseFoldersUnder(knowledgeRoot)) await stopStoreForExit(folder, { force: options.force === true });
 }
 
 /**
