@@ -912,6 +912,7 @@ export class ReadContext {
    * nodes and the layout never sees the children. Two statements: the root, and every group with its sample.
    */
   async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
+    if (depth !== 1) throw new Error(`${import.meta.path}:1: "depth" must be 1; deeper diagram neighbourhoods are not supported`);
     const root = entityOf(await this.root('entity', { id, ...(lang === undefined ? {} : { lang }) }));
     if (root === undefined) return undefined;
     const groups = new Map<string, DiagramGroup>();
@@ -969,7 +970,6 @@ export class ReadContext {
     }
     const labels = new Map<string, string>();
     for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
-    void depth;
     const truncated = [...groups.values()].some((group) => group.total > (sample.get(`${group.side}\u0000${group.relation}\u0000${group.kind}`)?.length ?? 0));
     return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
   }

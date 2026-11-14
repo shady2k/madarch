@@ -199,3 +199,16 @@ test('read budgets default to thirty seconds and accept server or environment se
   expect(getter.call({ options: {}, env: { MADARCH_READ_DEADLINE_MS: '650' } })).toBe(650);
   expect(() => getter.call({ options: { readDeadlineMs: -1 }, env: {} })).toThrow('positive');
 });
+
+ test('unsupported diagram depth is BAD_INPUT before reading, through the route and MCP', async () => {
+  let reads = 0;
+  const held = { folder: '/tmp/no-manifest', diagramNeighbourhood: async () => { reads += 1; return neighbourhood; } } as unknown as KnowledgeProduct;
+  expect(await renderDiagram(held, { entity: '1', format: 'mermaid', depth: 2 })).toMatchObject({ status: 400, code: 'BAD_INPUT' });
+  const { createKnowledgePart } = await import('../src/server/knowledge.js');
+  const part = createKnowledgePart({ json: (status: number, body: unknown) => Response.json(body, { status }), refused: (status: number, error: unknown) => ({ response: Response.json({ error }, { status }) }), errorLog: () => undefined }, held, () => [], {});
+  const route = await part.diagram(new Request('http://localhost/render/diagram?entity=1&format=mermaid&depth=2'));
+  expect(route.response.status).toBe(400);
+  const mcp = await callProductTool(held, {} as WriteSource, 'render_diagram', { entity: '1', format: 'mermaid', depth: 2 });
+  expect(mcp.isError).toBe(true);
+  expect(reads).toBe(0);
+});

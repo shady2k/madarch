@@ -157,6 +157,11 @@ beforeAll(async () => {
   }
 }, 120_000);
 
+test('diagram neighbourhood refuses a deeper traversal of the real graph', async () => {
+  const templates = readProductTemplates(folder);
+  await expect(owner.transaction('snapshot', (tx) => new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'test', templates).diagramNeighbourhood(repositoryId, 2, 'en'))).rejects.toThrow('deeper diagram neighbourhoods are not supported');
+});
+
 afterAll(async () => {
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });

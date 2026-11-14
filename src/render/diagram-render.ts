@@ -26,7 +26,7 @@ export interface DiagramRequest {
 export type DiagramAnswer =
   | { readonly status: number; readonly body: Record<string, unknown> }
   | { readonly status: number; readonly html: string }
-  | { readonly status: number; readonly error: string; readonly code?: 'TIMEOUT' | 'TOO_LARGE' | 'FAILED' };
+  | { readonly status: number; readonly error: string; readonly code?: 'TIMEOUT' | 'TOO_LARGE' | 'FAILED' | 'BAD_INPUT' };
 
 /** The depth a request without one asks for, and the bound of the relations one entity is read with per level. */
 export const DIAGRAM_DEPTH = 1;
@@ -37,6 +37,7 @@ export const DIAGRAM_MAX_BYTES = 2_000_000;
 export const DIAGRAM_DEADLINE_MS = 30_000;
 
 export async function renderDiagram(product: KnowledgeProduct, request: DiagramRequest, options: { deadlineMs?: number; workerUrl?: URL } = {}): Promise<DiagramAnswer> {
+  if (request.depth !== undefined && request.depth !== DIAGRAM_DEPTH) return { status: 400, code: 'BAD_INPUT', error: `${import.meta.path}:1: "depth" must be 1; deeper diagram neighbourhoods are not supported` };
   const deadlineMs = options.deadlineMs ?? product.readDeadlineMs ?? DIAGRAM_DEADLINE_MS;
   return await withSpan('diagram.render', { 'diagram.format': request.format }, async () => {
     try {
