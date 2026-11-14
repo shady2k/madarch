@@ -1,7 +1,7 @@
 id: practice.security-advisory
 purpose: quality
 audience: [security-engineer, architect]
-definition: A published notice of a vulnerability in the product, with the versions affected and the fix.
+definition: A security advisory is a published notice of a vulnerability in the product, with the versions affected and the fix.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9116.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Уведомление о безопасности
     many: Уведомления о безопасности
 description:
-  en: A published notice of a vulnerability in the product, with the versions affected and the fix.
-  ru: Опубликованное извещение об уязвимости в продукте с затронутыми версиями и исправлением.
+  en: 'A security advisory tells users that a weakness affects some versions of the product, which versions are affected and what to do: update, apply a workaround or nothing if unaffected. It gives enough detail to act without handing an attacker a recipe.'
+  ru: 'Уведомление о безопасности сообщает пользователям, что слабость затрагивает некоторые версии продукта, какие именно и что делать: обновиться, применить обход или ничего, если не затронуты. В нём достаточно подробностей для действия, но не готовый рецепт для атакующего.'

@@ -1,7 +1,7 @@
 id: practice.trust-zone
 purpose: structure
 audience: [security-engineer, architect]
-definition: An area of the system within which one level of trust holds.
+definition: A trust zone is an area of the system within which one level of trust holds.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Зона доверия
     many: Зоны доверия
 description:
-  en: An area of the system within which one level of trust holds.
-  ru: Область системы, внутри которой действует один уровень доверия.
+  en: A trust zone groups components that trust each other to the same degree, such as a private network, a public edge or a management network. Crossing from one zone to another needs a control.
+  ru: 'Зона доверия объединяет компоненты, которые доверяют друг другу в одинаковой степени: частная сеть, публичный край или сеть управления. Переход из одной зоны в другую требует контроля.'
