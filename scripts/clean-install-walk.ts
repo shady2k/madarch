@@ -218,8 +218,8 @@ async function serveCheck(): Promise<void> {
     // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
     const manifest = join(facts.folder, 'madarch', 'catalog.yaml');
     prepareStoreAcceptanceFixture(facts.folder);
-    console.log(`${manifest}:1: store acceptance fixture: acceptance.record only, no plugins (Windows has no plugin sandbox)`);
-    for (const parameters of [['add', 'madarch', 'templates'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
+    console.log(`${manifest}:1: store acceptance fixture: code.file only, no plugins (Windows has no plugin sandbox)`);
+    for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if (run('git', parameters, facts.folder, env) !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
     // This is the first write and MUST open the installed store, even when the unfilled status is folder-only.

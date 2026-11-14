@@ -1,13 +1,10 @@
-/** A plugin-free store walk keeps only the generic templates its neutral kind can answer. */
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+/** The plugin-free store walk keeps the starter templates beside a reduced code manifest. */
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export function prepareStoreAcceptanceFixture(folder: string): void {
   rmSync(join(folder, 'madarch/kinds'), { recursive: true });
-  mkdirSync(join(folder, 'madarch/kinds/acceptance/records'), { recursive: true });
-  writeFileSync(join(folder, 'madarch/catalog.yaml'), 'groups:\n  acceptance: { en: Acceptance }\n  records: { en: Records, parent: acceptance }\n');
-  writeFileSync(join(folder, 'madarch/kinds/acceptance/records/acceptance.record.yaml'), 'source: graph\n');
-  for (const name of readdirSync(join(folder, 'templates'))) {
-    if (name !== 'entity.yaml' && name !== 'catalogue-entity.yaml') rmSync(join(folder, 'templates', name), { recursive: true });
-  }
+  mkdirSync(join(folder, 'madarch/kinds/code/files'), { recursive: true });
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), 'groups:\n  code: { en: Code, ru: Код }\n  files: { en: Files, ru: Файлы, parent: code }\n');
+  writeFileSync(join(folder, 'madarch/kinds/code/files/code.file.yaml'), 'source: graph\n');
 }

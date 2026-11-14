@@ -16,7 +16,7 @@ function run(command: string, args: string[], env: Record<string, string | undef
 }
 
 describe('clean install platform contracts', () => {
-  test('the plugin-free store fixture retains templates its declared schema can answer', () => {
+  test('the plugin-free store fixture preserves starter template findings against its reduced schema', () => {
     const product = join(scratch, 'store-fixture');
     mkdirSync(product);
     seedStarterSet(product, 'everything');
@@ -26,8 +26,12 @@ describe('clean install platform contracts', () => {
     expect(read.present).toBe(true);
     if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: no fixture manifest`);
     expect(read.manifest.findings).toEqual([]);
-    expect(checkProductTemplates(product)).toEqual([]);
-    expect([...read.manifest.kinds.keys()]).toEqual(['acceptance.record']);
+    const findings = checkProductTemplates(product);
+    for (const field of ['repository', 'path', 'language']) {
+      expect(findings.some((finding) => finding.file === 'templates/code-file.yaml' && finding.message.includes(field))).toBe(true);
+    }
+    expect(readFileSync(join(product, 'templates/code-file.yaml'), 'utf8')).toContain('repository');
+    expect([...read.manifest.kinds.keys()]).toEqual(['code.file']);
     expect(read.manifest.plugins?.size ?? 0).toBe(0);
   });
 
