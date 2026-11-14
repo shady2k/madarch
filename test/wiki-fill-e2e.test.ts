@@ -178,9 +178,8 @@ run('the fill flow on a product filled with disk and git', () => {
       const result = await textOf(page);
       expect(result).not.toContain('/work/');
       expect(result).not.toMatch(/\b[0-9a-f]{40}\b/u);
-      // The run is over: the live indicator is gone.
+      // The run is over: the live indicator is gone, and the frame's navigation has the kinds the run published.
       await page.waitForFunction(() => document.querySelector('[data-testid="run-indicator"]') === null, { timeout: 30_000 });
-      // The frame's navigation carries the kinds the run published, without a reload.
       await page.waitForFunction(() => {
         const labels = [...document.querySelectorAll('[data-testid="nav-kind"]')].map((one) => one.textContent ?? '');
         return labels.some((one) => one.includes('Файлы')) && labels.some((one) => one.includes('Папки'));
@@ -278,6 +277,8 @@ run('the fill flow on a product filled with disk and git', () => {
       const planText = await textOf(page);
       expect(planText).toContain('Агент заполнит');
       expect(planText).toContain('Только плагины');
+      expect(planText).toContain('Машины состояний');
+      expect(planText).not.toContain('state_machines');
       expect(await page.$('[data-testid="prepare-unfilled"]')).not.toBeNull();
       expect((await page.$eval('[data-testid="prepare-run"]', (element) => (element as HTMLButtonElement).disabled))).toBe(false);
       await page.evaluate(() => { const column = document.querySelector('[data-testid="shell-content"]'); if (column !== null) column.scrollTop = 0; });
@@ -365,6 +366,8 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.waitForSelector('[data-testid="prepare-plugins-only"]', { timeout: 60_000 });
       await page.waitForFunction(() => (document.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked, { timeout: 60_000 });
       expect(await textOf(page)).toContain('Только плагины');
+      expect(await textOf(page)).toContain('Машины состояний');
+      expect(await textOf(page)).not.toContain('state_machines');
       expect(await page.$('[data-testid="prepare-unfilled"]')).not.toBeNull();
       await shotAt('empty-prepare', 1440, 900);
       await shotAt('empty-prepare', 390, 844);

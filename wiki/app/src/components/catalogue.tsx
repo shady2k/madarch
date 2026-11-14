@@ -19,7 +19,7 @@ import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
 import { readFillPlan, useCommandRead, type FillPlanError, type FillPlanView } from './command.js';
-import { filledBy, planKindOf } from './plan-words.js';
+import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation, NavigationKind } from '../client.js';
 import { CATALOGUE_KIND } from '../../../../src/page-contract/index.js';
@@ -222,7 +222,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             {kind.definition === null || kind.definition === '' ? null : <Paragraph className="m-0 text-small text-secondary" data-testid="catalogue-definition">{kind.definition}</Paragraph>}
             {error !== undefined ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
             {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
-            {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.join(', ') })}</Paragraph> : null}
+            {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph> : null}
             {error === undefined && filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-no-fields">{t('catalogue.noFields')}</Paragraph> : null}
             {neededLabel === undefined ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-needed">{t('catalogue.neededFor', { kind: neededLabel })}</Paragraph>}
           </Stack>

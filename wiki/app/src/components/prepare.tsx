@@ -21,7 +21,7 @@ import {
   readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer,
 } from './command.js';
-import { filledBy, planKindOf } from './plan-words.js';
+import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation } from '../client.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
@@ -29,8 +29,8 @@ import type { SectionContext } from './types.js';
 
 const labelOf = (navigation: Navigation | null, kind: string): string => navigation?.kinds.find((one) => one.kind === kind)?.many ?? kind;
 /** One kind and the fields the agent leaves unfilled when only plugins run. */
-function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | null): string {
-  return needs.map((need) => `${labelOf(navigation, need.kind)}${need.fields.length === 0 ? '' : ` (${need.fields.join(', ')})`}`).join(' · ');
+function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | null, plan: FillPlanView | undefined, language: string): string {
+  return needs.map((need) => `${labelOf(navigation, need.kind)}${need.fields.length === 0 ? '' : ` (${need.fields.map((field) => fieldLabel(plan, need.kind, field, language)).join(', ')})`}`).join(' · ');
 }
 
 export function PrepareSection({ context }: { readonly context: SectionContext }): ReactElement {
@@ -158,7 +158,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                     {needed === undefined ? null : <Text className="text-small text-muted">· {t('prepare.neededFor', { kind: labelOf(navigation, needed) })}</Text>}
                   </Stack>
                   {filled.plugins.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-plugins">{t('prepare.pluginsLine')} <PluginNames names={filled.plugins} plan={plan} language={language} /></Paragraph>}
-                  {filled.agent.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-agent-fields">{t('prepare.agentLine', { fields: filled.agent.join(', ') })}</Paragraph>}
+                  {filled.agent.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="prepare-agent-fields">{t('prepare.agentLine', { fields: filled.agent.map((field) => fieldLabel(plan, kind, field, language)).join(', ') })}</Paragraph>}
                   {filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('prepare.noFields')}</Paragraph> : null}
                 </ListItem>
               );
@@ -175,7 +175,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
             <Text><Text className="block font-medium">{t('prepare.pluginsOnly')}</Text><Text className="block text-muted">{t('prepare.pluginsOnlyNote')}</Text></Text>
           </FieldLabel>
           {pluginsOnly ? (
-            <Alert className="mb-3" data-testid="prepare-unfilled"><AlertDescription>{t('prepare.unfilled', { what: unfilledWords(needsAgent, navigation) || t('prepare.nothing') })}</AlertDescription></Alert>
+            <Alert className="mb-3" data-testid="prepare-unfilled"><AlertDescription>{t('prepare.unfilled', { what: unfilledWords(needsAgent, navigation, plan, language) || t('prepare.nothing') })}</AlertDescription></Alert>
           ) : null}
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">

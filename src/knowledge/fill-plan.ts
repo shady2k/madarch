@@ -11,6 +11,8 @@ import { planManifestFill, type AgentNeed, type FillPlanError, type FillPlanSkip
 /** One field of a selected kind and the plugins that fill it, in the order the kind's turns run. */
 export interface FillPlanField {
   readonly field: string;
+  /** The field's reader-facing name from its declaration, when it declares one. */
+  readonly labels?: Readonly<Record<string, string>>;
   readonly producers: readonly string[];
 }
 
@@ -67,7 +69,11 @@ export function fillPlanView(
   const run = pluginsOnly ? planManifestFill(manifest, folder, selectedKinds, false, requestedKinds, true) : plan;
   const agent = (plugin: string): boolean => manifest.plugins?.get(plugin)?.declaration?.agent !== undefined;
   const kinds = plan.selectedKinds.map((kind) => {
-    const fields = [...plan.fieldProducers(kind)].map(([field, producers]) => ({ field, producers }));
+    const declared = manifest.kinds.get(kind)?.fields ?? [];
+    const fields = [...plan.fieldProducers(kind)].map(([field, producers]) => {
+      const labels = declared.find((one) => one.name === field)?.labels;
+      return { field, producers, ...(labels === undefined ? {} : { labels: { ...labels } }) };
+    });
     return { kind, fields, agentFields: fields.filter((entry) => entry.producers.some(agent)).map((entry) => entry.field) };
   });
   const units = run.order.flatMap((plugin) => run.selectedKinds

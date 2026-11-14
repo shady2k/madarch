@@ -119,6 +119,8 @@ export interface FieldDecl {
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   readonly nullable?: boolean;
+  /** The field's reader-facing label per interface language; a page never shows the field's key in its place. */
+  readonly labels?: Readonly<Record<string, string>>;
   /** An agent must ground a stated value in a file and line range. */
   readonly evidence?: boolean;
   /** The producers the manifest names for the field; a field with no binding names at least one. */
@@ -1726,8 +1728,13 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         // Nothing is authoritative and nothing is claimed: the word "role" left the manifest's field language, and a
         // manifest that still says it is refused where it says it.
         if (body['role'] !== undefined) { problem([field, index, 'role'], '"role" is gone: no field is authoritative and none is claimed — every value a producer states is an opinion'); return; }
-        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding' && key !== 'evidence');
-        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, evidence, producers, reference and binding`); return; }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding' && key !== 'evidence' && key !== 'labels');
+        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, evidence, labels, producers, reference and binding`); return; }
+        const fieldLabels = body['labels'];
+        if (fieldLabels !== undefined && (fieldLabels === null || typeof fieldLabels !== 'object' || Array.isArray(fieldLabels)
+          || Object.keys(fieldLabels).length === 0 || Object.values(fieldLabels).some((label) => typeof label !== 'string' || label.trim() === ''))) {
+          problem([field, index, 'labels'], '"labels" maps an interface language to the field\'s reader-facing name'); return;
+        }
         if (body['evidence'] !== undefined && typeof body['evidence'] !== 'boolean') { problem([field, index, 'evidence'], '"evidence" is true or false'); return; }
         const producers = body['producers'];
         if (producers !== undefined && (!Array.isArray(producers) || producers.length === 0 || producers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) {
@@ -1742,6 +1749,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
           type: body['type'] as FieldDecl['type'],
           ...(body['nullable'] === true ? { nullable: true } : {}),
           ...(typeof body['evidence'] === 'boolean' ? { evidence: body['evidence'] } : {}),
+          ...(fieldLabels === undefined ? {} : { labels: fieldLabels as Record<string, string> }),
           ...(producers === undefined ? {} : { producers: producers as string[] }),
           ...(reference === undefined ? {} : { reference }),
           ...(binding === undefined ? {} : { binding }),

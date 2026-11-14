@@ -11,6 +11,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /** One field of a selected kind and the plugins that fill it, in plan order. */
 export interface FillPlanField {
   readonly field: string;
+  /** The field's reader-facing name from its declaration, when it declares one. */
+  readonly labels?: Readonly<Record<string, string>>;
   readonly producers: readonly string[];
 }
 
