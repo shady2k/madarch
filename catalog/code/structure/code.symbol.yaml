@@ -6,7 +6,6 @@ sources:
 - https://c4model.com/abstractions
 acquisition:
 - extractor code
-status: implemented
 relation-constraints:
   out:
   - contains

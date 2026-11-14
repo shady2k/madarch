@@ -4,7 +4,6 @@ purpose: structure
 definition: A repository of the demo.
 sources: [https://example.test/standard]
 acquisition: [document]
-status: implemented
 relation-constraints: { out: [contains], in: [] }
 template-policy: page
 

@@ -7,7 +7,6 @@ sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
 - extractor contracts
-status: implemented
 relation-constraints:
   out:
   - contains

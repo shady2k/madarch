@@ -25,6 +25,8 @@ import { gitEnv } from './git-env.js';
 import { GIT_IDENTITY, GIT_ENV } from './repo-fixture.js';
 import { homeOfCommand, noStrayDrafts, ISOLATED_HOME, sealedHome } from './scratch-home.js';
 import { stopDaemon } from '../src/product/daemon.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
+import { commitProduct } from './knowledge-fixture.js';
 
 // The library paths here create drafts in-process as well: MADARCH_HOME at
 // the guard's scratch from this module's load, so a mutated home resolution
@@ -1314,7 +1316,10 @@ describe('madarch repo add', () => {
     const products = join(home, 'products');
     mkdirSync(products, { recursive: true });
     const draft = madeDraft(products);
-    // This path-resolution case runs the declared producers through plugin-turns, without agent stages.
+    // This path-resolution case runs the declared producers through plugin-turns, without agent stages: the repository
+    // producers alone fill the kinds the product keeps.
+    useFixturePlugins(draft.folder, ['disk', 'git']);
+    commitProduct(draft.folder, 'Only the repository producers');
     writeFileSync(join(draft.folder, 'madarch', 'workflows.yaml'), `workflows:
   first-fill:
     status: implemented

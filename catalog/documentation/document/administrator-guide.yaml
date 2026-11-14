@@ -6,7 +6,6 @@ sources:
 - https://diataxis.fr/
 acquisition:
 - agent-from-graph
-status: implemented
 relation-constraints:
   out:
   - documents

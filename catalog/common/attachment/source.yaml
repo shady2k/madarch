@@ -6,7 +6,6 @@ sources:
 - https://git-scm.com/docs/git-show
 acquisition:
 - document
-status: implemented
 relation-constraints:
   out: []
   in: []

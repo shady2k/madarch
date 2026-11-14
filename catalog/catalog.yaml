@@ -49,9 +49,9 @@
 # `catalog` declares the schema of the entity catalog (decision 0033, items 8 to 10) and every kind below declares
 # its row: its concept `id` (one concept has one kind), its subgroup (`group`), its `definition`, the `sources` it was
 # taken from as addresses a person can read, the ways it is `acquisition` (an extractor's mark, or document,
-# conversation, agent-from-graph, live-system, not-implemented), its implementation `status`, the
-# `relation-constraints` it may carry (out and in, from `catalog.relations`), and its `template-policy` (page, member
-# or none). A kind whose policy is `none` is catalogue data only: it shows no page yet.
+# conversation, agent-from-graph, live-system, not-implemented), the `relation-constraints` it may carry (out and in,
+# from `catalog.relations`), and its `template-policy` (page, member or none). A kind whose policy is `none` is
+# catalogue data only: it shows no page yet.
 purposes:
   understand: { labels: { en: "Understand the product", ru: "Понять продукт" }, order: 10 }
   structure: { labels: { en: "How it works", ru: "Как устроено" }, order: 20 }
@@ -482,7 +482,6 @@ catalog:
   attributes: [version, coverage, rto, rpo, token-count, translation-state, severity, level, type, status, count, size, duration, score, sunset-date, error-budget]
   origin-marks: [document, conversation, agent-from-graph, live-system, not-implemented]
   extractor-mark: extractor
-  statuses: [implemented, partial, not-implemented]
   template-policies: [page, member, none]
   relations:
     affects: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "affects", "in": "affects"}, "ru": {"out": "влияет на", "in": "affects"}}}

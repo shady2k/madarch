@@ -7,7 +7,6 @@ sources:
 acquisition:
 - extractor files
 - extractor history
-status: implemented
 relation-constraints:
   out:
   - contains

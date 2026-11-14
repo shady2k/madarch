@@ -60,14 +60,15 @@ test('pending and failed status retain the full unfilled shape without opening t
 
 test('pending publication does not bypass the declared plugin agent requirement', async () => {
   const { product, open, queued } = fixture();
-  expect(await product.startFill()).toMatchObject({ started: false, message: expect.stringContaining('requested an agent but none is selected') });
+  expect(await product.startFill()).toMatchObject({ started: false, message: expect.stringContaining('to an agent, and none is chosen') });
   expect(open).not.toHaveBeenCalled();
   expect(queued).not.toHaveBeenCalled();
 });
 
 test('one accepted fill waits for publication and dispatches through the existing queue once', async () => {
   const { folder, product, open, queued, launched } = fixture();
-  expect(await product.startFill({ agent: 'claude-code' })).toMatchObject({ started: true, fill: { state: 'running' } });
+  // A plan that runs the agent units carries the person's cap (madarch-64o5.63).
+  expect(await product.startFill({ agent: 'claude-code', tokenCap: 1000 })).toMatchObject({ started: true, fill: { state: 'running' } });
   expect(await product.startFill()).toMatchObject({ started: false, message: 'a fill of this product is already running' });
   expect(open).not.toHaveBeenCalled();
   expect(queued).not.toHaveBeenCalled();
@@ -79,7 +80,7 @@ test('one accepted fill waits for publication and dispatches through the existin
 
 test('publication failure ends the waiting fill with diagnostics and never queues it', async () => {
   const { folder, product, open, queued } = fixture();
-  expect(await product.startFill({ agent: 'claude-code' })).toMatchObject({ started: true });
+  expect(await product.startFill({ agent: 'claude-code', tokenCap: 1000 })).toMatchObject({ started: true });
   setManifestPublicationState(folder, { status: 'failed', message: 'schema rejected' });
   await product.settled();
   expect(await product.status()).toMatchObject({ publication: 'failed', publicationMessage: 'schema rejected', fill: { state: 'failed', code: 'store', message: expect.stringContaining('schema rejected') } });
@@ -89,7 +90,7 @@ test('publication failure ends the waiting fill with diagnostics and never queue
 
 test('close cancels a waiting fill without waiting for daemon publication', async () => {
   const { product, queued } = fixture();
-  expect(await product.startFill({ agent: 'claude-code' })).toMatchObject({ started: true });
+  expect(await product.startFill({ agent: 'claude-code', tokenCap: 1000 })).toMatchObject({ started: true });
   await product.close();
   await product.settled();
   expect(queued).not.toHaveBeenCalled();

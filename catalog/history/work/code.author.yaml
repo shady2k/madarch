@@ -6,7 +6,6 @@ sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
 - extractor history
-status: implemented
 relation-constraints:
   out:
   - assigns

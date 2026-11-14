@@ -19,6 +19,8 @@ import { manifestWithRepo } from '../src/product/manifest.js';
 import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { gitEnv } from './git-env.js';
 import { prepareTestProduct } from './prepared-server.js';
+import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
+import { parse, stringify } from 'yaml';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };
@@ -95,6 +97,12 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     if (draft.outcome !== 'created') throw new Error(`the draft product was not made: ${JSON.stringify(draft)}`);
     folder = draft.folder;
     useExtractedGlossary(folder);
+    // This fixture fills with deterministic producers only: the catalogue's one agent field of code.file is dropped, so a
+    // fill of that kind is covered by disk and git. The agent's own turn is proved in test/agent-fill-e2e.test.ts.
+    const fileKind = join(folder, 'madarch/kinds', CATALOG_KIND_FILES['code.file']!);
+    const fileBody = parse(readFileSync(fileKind, 'utf8')) as { fields: { name: string }[] };
+    fileBody.fields = fileBody.fields.filter((field) => field.name !== 'state_machines');
+    writeFileSync(fileKind, stringify(fileBody));
     const code = join(folder, 'repos', 'app');
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, 'README.md'), '# App\n');
@@ -164,17 +172,23 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     expect(read['Claim']).toBe('one producer\'s statement about a field, kept beside every other producer\'s.');
   }, 600_000);
 
-  test('a whole fill takes every kind, as it always did', async () => {
+  test('a whole fill asks for the agent the kinds it selects need, before any unit runs', async () => {
+    // A whole fill selects every kind, and most kinds' fields are no deterministic producer's: the command names them and
+    // stops, rather than planning fewer kinds than it was asked for (madarch-64o5.63).
     const answer = await fillCommand();
-    expect(answer.code).toBe(0);
-    expect(answer.stdout).not.toContain('Also filling');
-    // The vertex fill published its one entity in a unit of its own, so the kind's whole turn still runs here and the
-    // term the vertex fill left alone takes the document's new words.
-    expect(await runUnits(answer.stdout)).toContain('plugin-turns/glossary:doc.term');
-    const read = await terms();
-    expect(read['Fill']).toBe('the one run that fills a product\'s graph.');
-    expect(read['Claim']).toBe('a producer\'s statement the graph keeps beside the others.');
+    expect(answer.code).not.toBe(0);
+    expect(answer.stderr).toContain('to an agent, and none is chosen');
+    expect(answer.stderr).toContain('--agent <id>');
+    expect(answer.stderr).toContain('doc.decision');
   }, 600_000);
+
+  test('a fill that names an agent and no token cap is refused, naming the cap', async () => {
+    // doc.decision's fields are the agent's: the command must name the cap it would run under, and start nothing.
+    const answer = await fillCommand('--entity', 'doc.decision', '--agent', 'codex');
+    expect(answer.code).not.toBe(0);
+    expect(answer.stderr).toContain('--token-cap');
+    expect(answer.stderr).toContain('token cap');
+  });
 
   test('an entity the manifest does not declare is refused by name, with the kinds it declares', async () => {
     const answer = await fillCommand('--entity', 'doc.term2');

@@ -7,7 +7,6 @@ sources:
 - https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html
 acquisition:
 - extractor test-quarantine
-status: implemented
 relation-constraints:
   out:
   - quarantines

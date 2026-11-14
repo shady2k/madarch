@@ -91,6 +91,7 @@ export const API = {
   run: '/api/run',
   products: '/api/products',
   fill: '/api/fill',
+  fillPlan: '/api/fill-plan',
   fillSelected: '/api/fill-selected',
   fillRuns: '/api/fill-runs',
   pause: '/api/pause',

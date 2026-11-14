@@ -7,7 +7,6 @@ sources:
 acquisition:
 - document
 - conversation
-status: implemented
 relation-constraints:
   out:
   - constrains

@@ -1774,7 +1774,6 @@ export class ReadContext {
     if (name === 'group') return String(value.entry['area'] ?? '');
     if (name === 'subgroup') return String(value.entry['subgroup'] ?? '');
     if (name === 'purpose') return typeof value.entry['purpose'] === 'string' ? value.entry['purpose'] : null;
-    if (name === 'status') return typeof value.entry['status'] === 'string' ? value.entry['status'] : null;
     if (name === 'audience') return Array.isArray(value.entry['audience']) ? value.entry['audience'] : [];
     if (name === 'standards') return Array.isArray(value.entry['sources']) ? value.entry['sources'] : [];
     if (name === 'taken') return value.taken;
@@ -2004,7 +2003,6 @@ function describeCatalogue(value: CatalogueValue, field: string): unknown {
     case 'group': return typeof value.entry['area'] === 'string' ? value.entry['area'] : null;
     case 'subgroup': return typeof value.entry['subgroup'] === 'string' ? value.entry['subgroup'] : null;
     case 'purpose': return typeof value.entry['purpose'] === 'string' ? value.entry['purpose'] : null;
-    case 'status': return typeof value.entry['status'] === 'string' ? value.entry['status'] : null;
     case 'taken': return value.taken;
     default: return null;
   }

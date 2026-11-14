@@ -18,13 +18,13 @@ test('a selected fill forwards agent and cap to the run without starting an adap
   const parsed = readKinds(folder);
   if (parsed.present) expect(parsed.manifest.findings).toEqual([]);
   const presses: unknown[] = [];
-  const product = { folder, startFill: async (press: unknown) => { presses.push(press); return { started: true, fill: { state: 'running' } }; } } as unknown as KnowledgeProduct;
+  const product = { folder, fillPlan: () => ({ selectedKinds: ['probe.summary'], order: [], units: [], kinds: [], needsAgent: [], errors: [] }), startFill: async (press: unknown) => { presses.push(press); return { started: true, fill: { state: 'running' } }; } } as unknown as KnowledgeProduct;
   const part = createKnowledgePart({ json: (status, body) => Response.json(body, { status }), refused: (status, error) => ({ response: Response.json({ error }, { status }) }), errorLog: () => undefined }, product, () => []);
   const response = await part.fillSelected(new Request('http://wiki.test/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['probe.summary'], agent: 'scripted', tokenCap: 200 }) }));
   const body = await response.response.json();
   expect(body).not.toHaveProperty('error');
   expect(response.response.status).toBe(202);
-  expect(presses).toEqual([{ selected: ['probe.summary'], agent: 'scripted', tokenCap: 200, targets: { kinds: ['probe.summary'] } }]);
+  expect(presses).toEqual([{ selected: ['probe.summary'], agent: 'scripted', tokenCap: 200, targets: { kinds: ['probe.summary'], requested: ['probe.summary'] } }]);
 });
 
 test('the product refuses a disabled producer stage before queue acceptance', async () => {

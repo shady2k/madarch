@@ -52,10 +52,18 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const write = await ask('fs/write_text_file', { sessionId, path: '/repo/docs/a.md', content: 'changed' });
     const ok = a.result?.content === 'Alpha\\n' && b.result?.content === 'Beta\\n' && outside.error && write.error;
     const contract = JSON.parse(m.params.prompt[0].text.split('Output contract: ')[1]);
-    const kind = contract.vertices[0].kind;
-    const vertex = { kind, key: { id: kind }, values: { title: kind }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 1 } };
-    const edges = contract.edges.map((edge) => ({ kind: edge.kind, from: { kind: edge.from, key: { id: edge.from } }, to: { kind: edge.to, key: { id: edge.to } }, evidence: vertex.evidence }));
-    const result = ok ? { vertices: [vertex], edges, end: { state: 'complete' } } : { end: { state: 'partial', cause: JSON.stringify({ a, b, outside, write }) } };
+    const declared = contract.vertices[0];
+    const kind = declared.kind;
+    // The key and the field the task names are the contract's, not the fixture's: the agent states what it is asked for.
+    const stated = (name, kindName) => name === 'repository' ? 'repo' : name === 'id' ? kindName : name;
+    // The unit's own kind carries its contract's key; the other end is the fixture's, keyed by its kind's id.
+    const keyOf = (kindName) => { const declaredKey = contract.vertices.find((one) => one.kind === kindName)?.key ?? ['id']; return Object.fromEntries(declaredKey.map((name) => [name, stated(name, kindName)])); };
+    const key = keyOf(kind);
+    const field = (declared.fields ?? []).find((one) => !(declared.key ?? []).includes(one.name));
+    const vertex = { kind, key, ...(field === undefined ? {} : { values: { [field.name]: field.type === 'json' ? [] : stated(field.name, kind) } }), evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 1 } };
+    // The fixture's own edge is the one this case is about: the agent states it in the turn of its later end.
+    const edges = contract.edges.filter((edge) => edge.kind.startsWith('probe.')).map((edge) => ({ kind: edge.kind, from: { kind: edge.from, key: keyOf(edge.from) }, to: { kind: edge.to, key: keyOf(edge.to) }, evidence: vertex.evidence }));
+    const result = ok ? { vertices: [vertex], edges, end: { state: 'complete' } } : { end: { state: 'partial', cause: JSON.stringify({ kind, a, b, outside, write }) } };
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'usage_update', used: 31, size: 1000 } } });
     send({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(result) } } } });
     send({ id: m.id, result: { stopReason: 'end_turn' } });
@@ -97,7 +105,6 @@ kinds:
     definition: A summary of the fixture documents.
     sources: ["https://example.test/probe-summary"]
     acquisition: [agent-from-graph]
-    status: implemented
     relation-constraints: { out: [], in: [] }
     template-policy: page
     labels:
@@ -169,7 +176,7 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
     try {
-      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
+      const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
         connect: connectAcpAgent,
         onSession: (report) => sessions.push(report),
@@ -179,7 +186,8 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       if (run.state !== 'succeeded') throw new Error(JSON.stringify(run));
       const rows = await owner.transaction('snapshot', async (tx) => await tx.query(`SELECT * FROM ${generatedTableName('probe.link', 'edge')} WHERE state='open'`));
       expect(rows.rows).toHaveLength(1);
-      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);
+      // The whole fill leaves code.file's state machines to the agent too, beside the two fixture kinds.
+      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:code.file', 'agent-fill:probe.a', 'agent-fill:probe.b']);
     } finally { await owner.close(); }
   }, 120_000);
 });

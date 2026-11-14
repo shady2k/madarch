@@ -7,7 +7,6 @@ sources:
 - https://support.atlassian.com/jira-software-cloud/docs/create-a-work-item-and-a-subtask/
 acquisition:
 - conversation
-status: implemented
 relation-constraints:
   out:
   - hasPart

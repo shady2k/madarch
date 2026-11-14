@@ -32,7 +32,6 @@ export interface CatalogKindData {
   readonly sources: readonly string[];
   /** `extractor <id>`, or one of the catalog's origin marks. */
   readonly acquisition: readonly string[];
-  readonly status: 'implemented' | 'partial' | 'not-implemented';
   readonly out: readonly string[];
   readonly into: readonly string[];
   readonly policy: 'page' | 'member' | 'none';
@@ -92,7 +91,6 @@ interface CatalogMetadata {
     attributes: string[];
     'origin-marks': string[];
     'extractor-mark': string;
-    statuses: string[];
     'template-policies': string[];
     relations: Record<string, string | null>;
   };
@@ -123,7 +121,7 @@ export const CATALOG_KIND_FILES: Readonly<Record<string, string>> = kindFiles;
 /** Reverse the manifest spelling for the seed helpers. */
 function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
   const {
-    group, id, definition, sources, acquisition, status, 'relation-constraints': constraints,
+    group, id, definition, sources, acquisition, 'relation-constraints': constraints,
     'template-policy': policy, source, origin, labels, description, fields, key,
     'derives-from': derivesFrom, 'definition-block': definitionBlock, details,
     card, history, views, er, sequence, system, listing, nav, capability, ...remaining
@@ -132,7 +130,7 @@ function kindData(name: string, raw: Record<string, unknown>): CatalogKindData {
   const descriptions = description as Record<string, string> | undefined;
   const relations = constraints as { out: string[]; in: string[] };
   return {
-    name, id, group, definition, sources, acquisition, status, out: relations.out, into: relations.in, policy,
+    name, id, group, definition, sources, acquisition, out: relations.out, into: relations.in, policy,
     ...(source === undefined ? {} : { source }), ...(origin === undefined ? {} : { origin }),
     ...(names?.en === undefined ? {} : { en: [names.en.one, names.en.many] }),
     ...(names?.ru === undefined ? {} : { ru: [names.ru.one, names.ru.many] }),

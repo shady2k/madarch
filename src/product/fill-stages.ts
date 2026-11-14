@@ -68,7 +68,7 @@ export interface StagesFillOptions {
    * dependency order, and with a vertex the one entity it rewrites. Left out, the run fills every kind the manifest binds
    * a plugin to, as a whole fill does.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
   /** The plugin closures this fill trusts beside the release's. */
   readonly releaseHashes?: readonly string[];
   /** The supervised ACP adapter available to this run's agent plugin turns. */
@@ -80,6 +80,8 @@ export interface StagesFillOptions {
   readonly runId?: string;
   /** The budget explicitly supplied for this run, never a saved catalogue selection. */
   readonly budget?: AgentRunBudget;
+  /** The person's token cap for this run; a plan that runs an agent unit needs one, and the engine sets none itself. */
+  readonly tokenCap?: number;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -154,7 +156,11 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     return readFillManifests(own, folder);
   });
   if (kindsRead.present) {
-    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined);
+    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined, options.targets?.requested);
+    // A plan that runs an agent unit runs under a cap the person chose: the engine sets no cap of its own.
+    if (options.pluginAgent !== undefined && plan.requiresAgent && options.tokenCap === undefined) {
+      throw new Error(`${folder}/madarch/catalog.yaml:1: this fill runs an agent, and a token cap is required: pass --token-cap <n>, a positive whole number of tokens`);
+    }
     assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, folder));
   }
   const locks = new Map(lockRead.ok ? lockRead.entries.map((entry) => [entry.id, entry] as const) : []);

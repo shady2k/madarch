@@ -58,7 +58,7 @@ function dependenciesOf(manifest: KindsManifest, reads: (kind: string) => readon
 /** The declarations a manifest hands the planner, so this listing reads the same gap coverage and reads it plans by. */
 function declarationsOf(manifest: KindsManifest): FillDeclarationInput {
   return {
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, ...(plugin.declarationText === undefined ? {} : { text: plugin.declarationText }) }]),
   };
 }
@@ -84,8 +84,10 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
     };
   }
   const declarations = declarationsOf(manifest);
+  // The kinds the person asked for: an agent's fallback for any other kind is not planned, so its reads order nothing.
+  const asked = new Set(requested);
   // A producer's earlier read of its own kind is its snapshot, not a prerequisite kind: it orders nothing new.
-  const reads = (kind: string): readonly string[] => effectiveReadsOf(declarations, kind)
+  const reads = (kind: string): readonly string[] => effectiveReadsOf(declarations, kind, asked)
     .map((read) => typeof read === 'string' ? read : read.kind)
     .filter((read) => read !== kind);
   const reasons = new Map<string, FillTargetEntry>();

@@ -3,6 +3,7 @@ import { parsePluginManifest } from '../src/plugin/closure.js';
 import { planFillDeclarations, planManifestFill } from '../src/plugin/fill-declarations.js';
 import { createPluginTurnStage, planPluginTurns, type PluginTurnWiring } from '../src/fill/plugin-turns.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
+import { fillTargets } from '../src/knowledge/fill-targets.js';
 
 const base = { version: '1.0.0', entry: 'index.ts', runtime: { name: 'bun', version: Bun.version } };
 function plugin(name: string, produces: unknown[] = [{ kind: 'File', fields: '*' }], agent = false) {
@@ -12,7 +13,7 @@ function plugin(name: string, produces: unknown[] = [{ kind: 'File', fields: '*'
 const kind = (name: string, fields = ['title', 'description'], derivesFrom: string[] = []) => ({ name, fields, derivesFrom, file: '/product/kinds.yaml', line: name === 'File' ? 4 : 9 });
 const kinds = [kind('File')];
 const output = (name: string, fields: '*' | string[] = '*', extra = {}) => ({ kind: name, fields, ...extra });
-const general = () => plugin('general', [output('*', '*', { coverage: 'gaps' })], true);
+const general = (reads: string[] = []) => plugin('general', [output('*', '*', { coverage: 'gaps', reads })], true);
 function manifestOf(catalogue: ReturnType<typeof kind>[], declarations: ReturnType<typeof plugin>[]): KindsManifest {
   return {
     file: '/product/kinds.yaml',
@@ -44,7 +45,8 @@ test('S1: gap coverage is per field and complementary descriptions need no refin
   const plan = planFillDeclarations({ kinds, plugins: [plugin('index', [output('File', ['title'])]), general()] });
   expect(plan.outputs.get('general')?.get('File')).toEqual(['description']);
   expect(plan.requiresAgent).toBe(true);
-  expect(() => planFillDeclarations({ kinds, plugins: [plugin('index', [output('File', ['title'])]), general()], agentSelected: false })).toThrow(/general.*requested an agent/);
+  expect(plan.agentNeeds).toEqual([{ kind: 'File', fields: ['description'] }]);
+  expect(() => planFillDeclarations({ kinds, plugins: [plugin('index', [output('File', ['title'])]), general()], agentSelected: false })).toThrow(/leaves File \(description\) to an agent, and none is chosen/);
 });
 test('S2: declaration gaps never depend on runtime omission or a value quality judgement', () => {
   const covered = planFillDeclarations({ kinds, plugins: [plugin('index'), general()] });
@@ -171,32 +173,32 @@ test('unknown references, empty outputs and invalid concurrency retain source lo
   expect(() => parsePluginManifest('{\n "name":"a",\n "concurrency":0\n}', '/product/a/plugin.json')).toThrow('/product/a/plugin.json:3: plugin a concurrency must be a positive integer');
   expect(() => parsePluginManifest(JSON.stringify({ ...base, name: 'a', produces: [output('File')], reads: [] }), '/product/a/plugin.json')).toThrow();
 });
-test('manifest planning does not turn available agent capability into executable coverage', () => {
+test('manifest planning fills an uncovered kind with the agent, and asks for one before it runs', () => {
   const manifest = manifestOf([kind('File')], [general()]);
-  const plan = planManifestFill(manifest, '/product', ['File'], false);
-  expect(plan.order).toEqual([]);
-  expect(plan.requiresAgent).toBe(false);
-  expect([...plan.outputs]).toEqual([]);
-  expect(plan.producers('File', 'description')).toEqual([]);
-  expect(plan.unproducedKinds).toEqual([{
-    kind: 'File', outcome: 'abstained',
-    reason: 'kind File has no configured producer; configure an ordinary producer or kind.agent',
-  }]);
+  // No chosen agent: the plan stops, naming the kind and every field the agent would fill; the kind never runs unfilled.
+  expect(() => planManifestFill(manifest, '/product', ['File'], false)).toThrow(/leaves File \(title, description\) to an agent, and none is chosen/);
+  const plan = planManifestFill(manifest, '/product', ['File'], true);
+  expect(plan.order).toEqual(['general']);
+  expect(plan.requiresAgent).toBe(true);
+  expect(plan.agentNeeds).toEqual([{ kind: 'File', fields: ['title', 'description'] }]);
+  expect(plan.outputs.get('general')?.get('File')).toEqual(['title', 'description']);
+  expect(plan.errors).toEqual([]);
 });
 test('manifest planning requires a selected adapter for explicitly configured agent output', () => {
   const manifest = manifestOf([kind('File')], [general()]);
   const file = manifest.kinds.get('File')!;
   const configured = { ...manifest, kinds: new Map([['File', { ...file, agent: { plugin: 'general', fields: '*' } }]]) } as KindsManifest;
-  expect(() => planManifestFill(configured, '/product', ['File'], false)).toThrow(/general.*requested an agent/);
+  expect(() => planManifestFill(configured, '/product', ['File'], false)).toThrow(/leaves File \(title, description\) to an agent, and none is chosen/);
   const plan = planManifestFill(configured, '/product', ['File'], true);
   expect(plan.order).toEqual(['general']);
   expect(plan.requiresAgent).toBe(true);
   expect(plan.outputs.get('general')?.get('File')).toEqual(['title', 'description']);
-  expect(plan.unproducedKinds).toEqual([]);
+  expect(plan.errors).toEqual([]);
 });
-test('manifest planning reports missing prerequisites without scheduling their dependants', () => {
+test('manifest planning reports kinds no output at all names, without scheduling their dependants', () => {
   const catalogue = [kind('File'), kind('Summary', ['description'], ['File']), kind('Independent')];
-  const manifest = manifestOf(catalogue, [plugin('summary', [output('Summary', '*', { reads: ['File'] })]), plugin('independent', [output('Independent')]), general()]);
+  // A manifest that holds no agent plugin: nothing produces File, so neither File nor what rests on it runs.
+  const manifest = manifestOf(catalogue, [plugin('summary', [output('Summary', '*', { reads: ['File'] })]), plugin('independent', [output('Independent')])]);
   const plan = planManifestFill(manifest, '/product', ['Summary', 'Independent'], false);
   expect(plan.order).toEqual(['independent']);
   expect(plan.selectedKinds).toEqual(['Independent']);
@@ -204,8 +206,169 @@ test('manifest planning reports missing prerequisites without scheduling their d
   expect(plan.producers('File', 'description')).toEqual([]);
   expect(plan.producers('Summary', 'description')).toEqual([]);
   expect(plan.requiresAgent).toBe(false);
-  expect(plan.unproducedKinds).toEqual([
-    { kind: 'File', outcome: 'abstained', reason: 'kind File has no configured producer; configure an ordinary producer or kind.agent' },
-    { kind: 'Summary', outcome: 'abstained', reason: 'required prerequisite has no configured producer for Summary' },
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped).toEqual([
+    { kind: 'File', fields: ['description', 'title'], reason: 'no producer in the manifest' },
+    { kind: 'Summary', fields: [], reason: 'its prerequisite "File" has no producer in the manifest' },
   ]);
+});
+
+test('64o5.63: the plan names the plugin of every field and leaves exactly the rest to the agent', () => {
+  const catalogue = [kind('File', ['repository', 'path', 'content', 'state_machines'])];
+  const disk = plugin('disk', [output('File', ['repository', 'path', 'content'])]);
+  const manifest = manifestOf(catalogue, [disk, general(['code.file'])]);
+  // The kind alone: the agent's read of code.file is not a declared kind here, so plan the declarations directly.
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [disk, general()], selectedKinds: ['File'], agentSelected: true });
+  expect(plan.fieldProducers('File')).toEqual(new Map([
+    ['repository', ['disk']],
+    ['path', ['disk']],
+    ['content', ['disk']],
+    ['state_machines', ['general']],
+  ]));
+  expect(plan.agentNeeds).toEqual([{ kind: 'File', fields: ['state_machines'] }]);
+  expect(plan.outputs.get('general')?.get('File')).toEqual(['state_machines']);
+  expect(plan.producers('File', 'content')).toEqual(['disk']);
+  expect(plan.lastProducer('File', 'content')).toBe('disk');
+  expect(manifest.kinds.has('File')).toBe(true);
+});
+
+test('64o5.63: a kind every deterministic producer covers runs without an agent', () => {
+  const covered = planFillDeclarations({ kinds, plugins: [plugin('index')], selectedKinds: ['File'] });
+  expect(covered.order).toEqual(['index']);
+  expect(covered.requiresAgent).toBe(false);
+  expect(covered.agentNeeds).toEqual([]);
+  expect(covered.fieldProducers('File')).toEqual(new Map([['title', ['index']], ['description', ['index']]]));
+  // The universal agent capability is not scheduled where no field is left to it.
+  const both = planFillDeclarations({ kinds, plugins: [plugin('index'), general()], selectedKinds: ['File'], agentSelected: false });
+  expect(both.order).toEqual(['index']);
+  expect(both.outputs.has('general')).toBe(false);
+  expect(both.requiresAgent).toBe(false);
+});
+
+test('64o5.49: lastProducer follows the kind\'s unit order, not the first unit of each plugin', () => {
+  const catalogue = [kind('W', ['note']), kind('X', ['title'])];
+  // Plugin `a` opens with its W unit, and its X unit refines `b`'s: the deduplicated plugin order would read a, b even
+  // though b fills X first and a fills it last.
+  const early = plugin('a', [output('W'), output('X', ['title'], { refines: ['b'] })]);
+  const other = plugin('b', [output('X', ['title'])]);
+  const plan = planFillDeclarations({ kinds: catalogue, plugins: [early, other], selectedKinds: ['W', 'X'], agentSelected: true });
+  expect(plan.producers('X', 'title')).toEqual(['b', 'a']);
+  expect(plan.lastProducer('X', 'title')).toBe('a');
+});
+
+test('64o5.49: an agent-filled kind reads the graph it works from', () => {
+  const catalogue = [kind('code.file', ['repository', 'path', 'content']), kind('doc.decision', ['title'])];
+  const manifest = manifestOf(catalogue, [plugin('disk', [output('code.file')]), general(['code.file'])]);
+  const plan = planManifestFill(manifest, '/product', ['doc.decision'], true);
+  expect(plan.readsFor('general', 'doc.decision')).toEqual(['code.file']);
+  expect(plan.unitPredecessors('general', 'doc.decision')).toEqual([{ plugin: 'disk', kind: 'code.file' }]);
+  // The files the agent reads are the fill's input, so their producer runs first.
+  expect(plan.selectedKinds).toEqual(['code.file', 'doc.decision']);
+  expect(plan.order).toEqual(['disk', 'general']);
+});
+
+test('64o5.49: a request nothing in the manifest can produce fails with the reason', async () => {
+  // File has no producer and the manifest holds no agent plugin: Summary's turn can never read it, and neither runs.
+  const catalogue = [kind('File'), kind('Summary', ['description'], ['File'])];
+  const manifest = manifestOf(catalogue, [plugin('summary', [output('Summary', '*', { reads: ['File'] })])]);
+  const wiring = { manifest, productFolder: '/product', targets: { kinds: ['Summary'], requested: ['Summary'] }, locks: new Map([['summary', { id: 'summary', version: '1.0.0', closure: 'a'.repeat(64), path: 'plugins/summary', line: 1 }]]) } as unknown as PluginTurnWiring;
+  const stage = createPluginTurnStage(wiring);
+  await expect(stage.plan(undefined as never)).rejects.toThrow(/nothing the fill was asked for has a producer: kind "File" \(the fields "description", "title"\) is skipped: no producer in the manifest/);
+});
+
+test('64o5.60: a kind configuring a missing agent plugin is an error naming its fields and the plugin', () => {
+  const manifest = manifestOf([kind('File')], []);
+  const file = manifest.kinds.get('File')!;
+  const configured = { ...manifest, kinds: new Map([['File', { ...file, agent: { plugin: 'agent-fill', fields: '*' } }]]) } as KindsManifest;
+  // A manifest read for its declarations alone still refuses the configuration it cannot honour.
+  expect(() => planManifestFill(configured, '/product', [])).toThrow(/kind File configures unknown or disabled agent plugin agent-fill/);
+  // A fill records that kind's error, naming its fields and the plugin, and plans the other kinds.
+  const plan = planManifestFill(configured, '/product', ['File'], true);
+  expect(plan.errors).toEqual([{
+    kind: 'File', fields: ['description', 'title'], plugin: 'agent-fill',
+    message: 'kind "File": the fields "description", "title" have no producer: the manifest declares no plugin "agent-fill"',
+  }]);
+});
+
+/** A KindsManifest whose kind declarations carry real field declarations (bindings included). */
+function manifestWithFields(catalogue: readonly { name: string; fields: readonly Record<string, unknown>[]; derivesFrom?: readonly string[] }[], declarations: ReturnType<typeof plugin>[]): KindsManifest {
+  return {
+    file: '/product/kinds.yaml',
+    kinds: new Map(catalogue.map((entry) => [entry.name, { name: entry.name, fields: entry.fields, derivesFrom: entry.derivesFrom ?? [], file: '/product/kinds.yaml', line: 4 }])),
+    plugins: new Map(declarations.map((entry) => [entry.manifest.name, { id: entry.manifest.name, declaration: entry.manifest, declarationFile: entry.file, declarationText: entry.text }])),
+  } as unknown as KindsManifest;
+}
+
+test('review 1: a field no producer fills is an error, never a silent gap', async () => {
+  const manifest = manifestWithFields([
+    { name: 'File', fields: [{ name: 'title', type: 'text' }, { name: 'body', type: 'text', binding: { kind: 'agent', description: 'What the file says.' } }] },
+  ], [plugin('index', [output('File', ['title'])])]);
+  const plan = planManifestFill(manifest, '/product', ['File'], true);
+  expect(plan.fieldProducers('File').get('body')).toEqual([]);
+  // No agent plugin is held: the field is skipped, named, and the kind's own producer still runs.
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped).toEqual([{ kind: 'File', fields: ['body'], reason: 'no producer in the manifest' }]);
+  const wiring = { manifest, productFolder: '/product', targets: { kinds: ['File'], requested: ['File'] }, locks: new Map([['index', { id: 'index', version: '1.0.0', closure: 'a'.repeat(64), path: 'plugins/index', line: 1 }]]) } as unknown as PluginTurnWiring;
+  const planned = await createPluginTurnStage(wiring).plan(undefined as never);
+  expect(planned.units.map((unit) => unit.id)).toEqual(['index:File']);
+});
+
+test('review 2: target selection does not count an unasked kind\'s agent fallback reads', async () => {
+  const catalogue = [
+    { name: 'A', fields: [{ name: 'title', type: 'text' }] },
+    { name: 'B', fields: [{ name: 'title', type: 'text' }, { name: 'body', type: 'text', binding: { kind: 'agent', description: 'What B says.' } }] },
+    { name: 'code.file', fields: [{ name: 'content', type: 'text' }] },
+  ];
+  const manifest = manifestWithFields(catalogue, [
+    plugin('pa', [output('A', '*', { reads: ['B'] })]),
+    plugin('pb', [output('B', ['title'])]),
+    general(['code.file']),
+    plugin('pf', [output('code.file', '*', { reads: ['A'] })]),
+  ]);
+  // B joins only as A's input: its agent fallback is not planned, so its read of code.file orders nothing.
+  const read = fillTargets(manifest, ['A']);
+  expect(read.ok).toBe(true);
+  if (!read.ok) return;
+  expect(read.targets.order).toEqual(['B', 'A']);
+  const plan = planManifestFill(manifest, '/product', ['A'], true, ['A']);
+  expect(plan.errors).toEqual([]);
+  expect(plan.order).toEqual(['pb', 'pa']);
+});
+
+test('review 3: with an agent plugin, a kind whose input has no producer is an error, and the other kinds still run', async () => {
+  const catalogue = [
+    { name: 'Summary', fields: [{ name: 'title', type: 'text', binding: { kind: 'agent', description: 'A title.' } }] },
+    { name: 'code.file', fields: [{ name: 'content', type: 'text' }] },
+    { name: 'Other', fields: [{ name: 'title', type: 'text' }] },
+  ];
+  const manifest = manifestWithFields(catalogue, [general(['code.file']), plugin('other', [output('Other')])]);
+  // The product holds an agent plugin, so a kind that cannot be filled because its input is unproduced is the plan's
+  // error, named before the run: it is never skipped in silence. Only a product without an agent plugin skips.
+  const plan = planManifestFill(manifest, '/product', ['Summary', 'Other'], true, ['Summary', 'Other']);
+  expect(plan.skipped).toEqual([]);
+  expect(plan.errors.map((error) => error.kind).sort()).toEqual(['Summary', 'code.file']);
+  expect(plan.errors.find((error) => error.kind === 'Summary')).toEqual({
+    kind: 'Summary', fields: [],
+    message: 'kind "Summary" cannot be filled: its input "code.file" has no producer in the manifest',
+  });
+  expect(plan.errors.find((error) => error.kind === 'code.file')?.message).toContain('no producer');
+  expect(plan.order).toEqual(['other']);
+  expect(plan.outputs.get('other')?.has('Other')).toBe(true);
+});
+
+test('review 4: a deterministic plugin\'s read of a kind resting on its output is a cycle, not dropped', () => {
+  const catalogue = [kind('A', ['title']), kind('B', ['title'], ['A'])];
+  const declarations = [plugin('p', [output('A', '*', { reads: ['B'] })]), plugin('q', [output('B')])];
+  expect(() => planFillDeclarations({ kinds: catalogue, plugins: declarations, selectedKinds: ['A'] })).toThrow(/fill declarations form a cycle/);
+});
+
+test('the clean-install walk\'s fixture plans nothing: a fieldless kind with no plugins needs no agent', () => {
+  // The walk replaces the draft's manifest with one fieldless kind and no plugins before it presses Fill with
+  // `agent: null`: nothing is planned, so the press cannot wait for an agent that the machine has no sandbox for.
+  const manifest = manifestWithFields([{ name: 'code.file', fields: [] }], []);
+  const plan = planManifestFill(manifest, '/product', undefined, false);
+  expect(plan.order).toEqual([]);
+  expect(plan.errors).toEqual([]);
+  expect(plan.agentNeeds).toEqual([]);
+  expect(plan.selectedKinds).toEqual(['code.file']);
 });

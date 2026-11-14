@@ -6,7 +6,6 @@ sources:
 - https://github.com/opencontainers/image-spec
 acquisition:
 - extractor operations
-status: implemented
 relation-constraints:
   out:
   - generates

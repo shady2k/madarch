@@ -4,7 +4,6 @@ purpose: structure
 definition: A note of the demo, with no declared field but its label.
 sources: [https://example.test/standard]
 acquisition: [conversation]
-status: implemented
 relation-constraints: { out: [], in: [] }
 template-policy: page
 

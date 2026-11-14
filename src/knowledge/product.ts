@@ -53,6 +53,8 @@ import { assertPluginTurnsEnabled, fillStageConfigurationFrom } from '../product
 import { firstFillStagesOfFiles, engineFirstFillStages, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { workingTreeFiles } from '../plugin/product-files.js';
 import { planManifestFill } from '../plugin/fill-declarations.js';
+import { readFillTargets } from './fill-targets.js';
+import { fillPlanView, type FillPlanView } from './fill-plan.js';
 import { configuredPluginAgent, pluginAgentOptions, adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
@@ -826,8 +828,23 @@ export class KnowledgeProduct {
 
   // ---- the fill --------------------------------------------------------------------------
 
+  /**
+   * The plan one press of these kinds runs, before any unit does (madarch-64o5.63): which plugin fills which field, which
+   * fields are the agent's, and which kinds the manifest holds no producer for. The fill route answers it, and a press
+   * that names kinds the plan leaves to an agent stops here with the same words.
+   */
+  fillPlan(selected: readonly string[]): FillPlanView {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const read = readKinds(product.folder);
+    if (!read.present) throw new WikiReadError(`${read.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares`);
+    const targets = readFillTargets(read.manifest, { entities: selected });
+    if (!targets.ok) throw new WikiReadError(targets.message);
+    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind));
+  }
+
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { selected?: readonly string[]; agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { selected?: readonly string[]; agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -845,8 +862,17 @@ export class KnowledgeProduct {
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
+      // The plan is read before the adapter is resolved, so a press that chooses an agent and no cap is refused with the
+      // cap's own words: whenever the plan runs an agent unit, a positive cap is the person's to choose (madarch-64o5.63).
+      const wantedAgent = options.agent === undefined ? this.chosenAgent()?.id ?? null : options.agent;
+      if (wantedAgent !== null && options.tokenCap === undefined) {
+        const plannedUnderAgent = planManifestFill(read.manifest, product.folder, options.targets?.kinds, true, options.targets?.requested);
+        if (plannedUnderAgent.requiresAgent) {
+          return { started: false, message: `${read.manifest.file}:1: this fill runs the agent ${wantedAgent}, and a token cap is required: name a positive --token-cap <n> for the fill; the engine sets no cap of its own`, fill: this.fill };
+        }
+      }
       const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
-      const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined);
+      const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested);
       const files = workingTreeFiles(product.folder);
       assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, product.folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, product.folder));
     } catch (error) {
@@ -981,7 +1007,7 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] } } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
@@ -1038,7 +1064,7 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string } }): Promise<void> {
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] } }): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;

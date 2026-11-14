@@ -6,7 +6,6 @@ sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/Package/
 acquisition:
 - extractor imports
-status: implemented
 relation-constraints:
   out: []
   in:

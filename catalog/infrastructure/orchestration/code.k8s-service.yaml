@@ -6,7 +6,6 @@ sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
 - extractor operations
-status: implemented
 relation-constraints:
   out:
   - routesTo

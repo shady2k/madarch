@@ -20,6 +20,7 @@ import { readProduct } from '../src/product/manifest.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { commitProduct, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { useExtractedGlossary } from './extracted-glossary-fixture.js';
+import { useFixturePlugins } from './enabled-plugins-fixture.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { prepareTestProduct } from './prepared-server.js';
 
@@ -42,6 +43,8 @@ beforeAll(() => {
   const repository = generateTrainingRepository(join(ROOT, 'repository'));
   product = makeProduct(PRODUCTS_HOME, 'training-shop', repository);
   useExtractedGlossary(product);
+  // The deterministic fill this case starts from: the repository producers only, so no field waits for an agent.
+  useFixturePlugins(product, ['disk', 'git']);
   commitProduct(product, 'Declare the extracted glossary used by this fill');
   const read = readProduct(product);
   if (!read.ok) throw new Error(`${read.file}:${read.line}: ${read.message}`);

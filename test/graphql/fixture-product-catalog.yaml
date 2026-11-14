@@ -10,7 +10,6 @@ catalog:
   attributes: [version]
   origin-marks: [document, conversation, agent-from-graph, live-system, not-implemented]
   extractor-mark: extractor
-  statuses: [implemented, partial, not-implemented]
   template-policies: [page, member, none]
   relations: { contains: null }
 edges:

@@ -6,7 +6,6 @@ sources:
 - https://arc42.org/overview
 acquisition:
 - agent-from-graph
-status: implemented
 relation-constraints:
   out:
   - evidences

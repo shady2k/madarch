@@ -4,7 +4,6 @@ purpose: structure
 definition: A file of the demo.
 sources: [https://example.test/standard]
 acquisition: [document]
-status: implemented
 relation-constraints: { out: [], in: [contains] }
 template-policy: page
 

@@ -11,7 +11,7 @@
  * schema of whatever catalog the product holds and refuses a row that leaves a
  * field out, a subgroup above its bound, two kinds of one concept, a value the
  * catalog marks as an attribute declared as a kind, and an area, a subgroup, a
- * status, a template policy or an origin mark the manifest does not declare.
+ * a template policy or an origin mark the manifest does not declare.
  *
  * ```yaml
  * catalog:
@@ -19,7 +19,6 @@
  *   attributes: [version, coverage]
  *   origin-marks: [document, conversation, agent-from-graph, live-system, not-implemented]
  *   extractor-mark: extractor
- *   statuses: [implemented, partial, not-implemented]
  *   template-policies: [page, member, none]
  *   relations:
  *     c4.uses: { source: https://c4model.com/abstractions, labels: { en: { out: uses, in: used by } } }
@@ -31,7 +30,6 @@
  *     definition: A deployable part of the system.
  *     sources: [https://c4model.com/abstractions]
  *     acquisition: [extractor operations]
- *     status: implemented
  *     relation-constraints: { out: [c4.uses], in: [c4.contains] }
  *     template-policy: page
  * ```
@@ -57,8 +55,6 @@ export interface CatalogSchema {
   readonly originMarks: readonly string[];
   /** The mark an extractor's own id follows: `extractor code`. */
   readonly extractorMark: string;
-  /** The implementation statuses a kind can declare (item 8). */
-  readonly statuses: readonly string[];
   /** The template policies a kind can declare: a page of its own, a member's row, or none. */
   readonly templatePolicies: readonly string[];
   /** The relation names the catalog knows, each with the address of the standard that defines it, or none for a plain verb. */
@@ -88,7 +84,6 @@ export interface CatalogEntry {
   readonly sources: readonly string[];
   /** How the kind can be acquired: `extractor <id>` or one of the catalog's origin marks. */
   readonly acquisition: readonly string[];
-  readonly status: string;
   /** The purpose the kind's declaration names, when it names one of the manifest's purposes. */
   readonly purpose?: string;
   /** The roles the kind's declaration names as its audience, when it names any. */
@@ -115,7 +110,7 @@ export interface CatalogGroup {
 }
 
 /** Every field of a catalog row, in the order a manifest writes them. `group` is the wiki's own field and is not listed. */
-const CATALOG_KIND_FIELDS = ['id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy'] as const;
+const CATALOG_KIND_FIELDS = ['id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy'] as const;
 
 /** The fields a kind declares only when the manifest holds a catalog: a kind that writes one of them without one is a finding. */
 export const CATALOG_ONLY_FIELDS: ReadonlySet<string> = new Set(CATALOG_KIND_FIELDS);
@@ -161,11 +156,11 @@ export function readCatalogSchema(value: unknown, at: (path: (string | number)[]
     findings.push({ file, line: written ? at(['catalog', ...path]) : at(['catalog']), message });
   };
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    problem([], '"catalog" declares the schema of the entity catalog: subgroup-kind-bound, attributes, origin-marks, extractor-mark, statuses, template-policies and relations');
+    problem([], '"catalog" declares the schema of the entity catalog: subgroup-kind-bound, attributes, origin-marks, extractor-mark, template-policies and relations');
     return { findings };
   }
   const body = value as Record<string, unknown>;
-  const known = new Set(['subgroup-kind-bound', 'attributes', 'origin-marks', 'extractor-mark', 'statuses', 'template-policies', 'relations']);
+  const known = new Set(['subgroup-kind-bound', 'attributes', 'origin-marks', 'extractor-mark', 'template-policies', 'relations']);
   for (const key of Object.keys(body)) if (!known.has(key)) problem([key], `"${key}" is not a field of the catalog: the fields are ${[...known].join(', ')}`);
   const before = findings.length;
   const bound = body['subgroup-kind-bound'];
@@ -177,8 +172,6 @@ export function readCatalogSchema(value: unknown, at: (path: (string | number)[]
   const extractorMark = body['extractor-mark'];
   if (!isIdentifier(extractorMark)) problem(['extractor-mark'], `"extractor-mark" is the mark an extractor's id follows ("extractor code"), got ${JSON.stringify(extractorMark)}`);
   else if ((originMarks ?? []).includes(extractorMark)) problem(['extractor-mark'], `"extractor-mark" is ${JSON.stringify(extractorMark)}, and "origin-marks" declares it as a mark of its own: an extractor's mark is followed by its id`);
-  const statuses = distinctStrings(body['statuses']);
-  if (statuses === undefined) problem(['statuses'], '"statuses" is a list of the implementation statuses a kind declares, such as "implemented" and "not-implemented"');
   const templatePolicies = distinctStrings(body['template-policies']);
   if (templatePolicies === undefined) problem(['template-policies'], '"template-policies" is a list of the template policies a kind declares, such as "page", "member" and "none"');
   const relations = new Map<string, string | undefined>();
@@ -220,7 +213,6 @@ export function readCatalogSchema(value: unknown, at: (path: (string | number)[]
       attributes: attributes!,
       originMarks: originMarks!,
       extractorMark: extractorMark as string,
-      statuses: statuses!,
       templatePolicies: templatePolicies!,
       relations,
       relationLabels,
@@ -323,8 +315,6 @@ export function readCatalogKind(
   const marks = distinctStrings(acquisition);
   if (marks === undefined) fail(['acquisition'], `"acquisition" is a list of the ways the kind comes to be: "${schema.extractorMark} <id>" or one of ${schema.originMarks.join(', ')}`);
   else for (const [index, mark] of marks.entries()) if (!acquisitionMark(mark, schema)) fail(['acquisition', index], `"acquisition" holds ${JSON.stringify(mark)}, which is not an acquisition of this catalog: "${schema.extractorMark} <id>" or one of ${schema.originMarks.join(', ')}`);
-  const status = decl['status'];
-  if (typeof status !== 'string' || !schema.statuses.includes(status)) fail(['status'], `"status" is one of ${schema.statuses.join(', ')}, got ${JSON.stringify(status)}`);
   const policy = decl['template-policy'];
   if (typeof policy !== 'string' || !schema.templatePolicies.includes(policy)) fail(['template-policy'], `"template-policy" is one of ${schema.templatePolicies.join(', ')}, got ${JSON.stringify(policy)}`);
   const subgroupName = decl['group'];
@@ -364,7 +354,6 @@ export function readCatalogKind(
     definition: definition as string,
     sources: sources as string[],
     acquisition: marks!,
-    status: status as string,
     relationsOut: out,
     relationsIn: into,
     templatePolicy: policy as string,

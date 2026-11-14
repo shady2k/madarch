@@ -31,7 +31,7 @@ export interface FillRunJob {
    * The kinds the press asked for (madarch-stm0.6): the catalogue's selection and the kinds its dependencies add, in the
    * dependency order to run them in, and with a vertex the one entity it rewrites. Absent, the run fills every kind.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
 }
 
 /**

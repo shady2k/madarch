@@ -6,7 +6,7 @@
  *
  * - **graphql-only-reads**: every route the server answers is `/graphql`, `/graphql/schema`, or one of the routes
  *   section 8 keeps because it is not graph data — the product identity and status, the event stream, a source file's
- *   text, the fill and its runs, the run's trace, the agents and settings, the journal, the kind usage, the refresh plan,
+ *   text, the fill, its plan and its runs, the run's trace, the agents and settings, the journal, the kind usage, the refresh plan,
  *   the resets, the graph verdicts, the page rewrite and start-fresh commands, the answer/correction and problem/task
  *   writes, and the model mode's `/models`, `/views` and `/sources`. A read of a page, a block, a catalogue, a search, a
  *   statement, a neighborhood, a view or a document is GraphQL's.
@@ -44,6 +44,7 @@ export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { method: '*', path: '/api/kind-usage' },
   { method: '*', path: '/api/run' },
   { method: '*', path: '/api/fill' },
+  { method: '*', path: '/api/fill-plan' },
   { method: '*', path: '/api/fill-selected' },
   { method: '*', path: '/api/fill-runs' },
   { method: '*', path: '/api/pause' },

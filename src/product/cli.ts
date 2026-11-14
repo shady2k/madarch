@@ -88,8 +88,8 @@ function commandHelp(command: string): string {
       '  --entity <kind>       Fill this kind and its transitive derives-from prerequisites only; repeat it',
       '  --vertex <entity id>  Rewrite only this one entity, such as doc.term:Fill',
       '  --workers <n>         Units the run holds in hand at once (16 by default)',
-      '  --agent <id>          Offer this agent to every plugin that requests one',
-      '  --token-cap <n>       Maximum tokens for this fill, a positive integer',
+      '  --agent <id>          Fill every field no plugin fills with this agent; a fill that needs one and has none stops before a unit runs',
+      '  --token-cap <n>       Cap the tokens this fill may spend, a positive integer',
       '  --json                Print one object of machine-readable facts',
       '  --probe-acp           Report the agents on this machine that speak the Agent Client Protocol, and fill nothing',
       '',
@@ -1024,7 +1024,7 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
   const { readKinds } = await import('./manifest/kinds.js');
   const { readFillTargets } = await import('../knowledge/fill-targets.js');
   const { readPinnedGraphContract } = await import('./preparation-contract.js');
-  let targets: { kinds: readonly string[]; vertex?: string } | undefined;
+  let targets: { kinds: readonly string[]; vertex?: string; requested?: readonly string[] } | undefined;
   if (parsed.entities !== undefined || parsed.vertex !== undefined) {
     const kinds = readKinds(folder);
     if (!kinds.present) { console.error(`${kinds.file}:1: the product ${displayPath(folder)} has no manifest, so it declares no entity to fill: madarch init --template everything writes one`); return 1; }
@@ -1036,7 +1036,24 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
     console.log(read.targets.vertex === undefined
       ? `Filling in dependency order: ${read.targets.order.join(', ')}.`
       : `Rewriting only ${read.targets.vertex}, and nothing else.`);
-    targets = { kinds: read.targets.order, ...(read.targets.vertex === undefined ? {} : { vertex: read.targets.vertex }) };
+    targets = { kinds: read.targets.order, requested: read.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), ...(read.targets.vertex === undefined ? {} : { vertex: read.targets.vertex }) };
+  }
+  // Whenever the plan runs an agent unit, a token cap is the person's to choose: the command names the flag before it
+  // resolves an adapter or starts a run (madarch-64o5.63). The engine sets no cap of its own.
+  if (parsed.agent !== undefined && parsed.tokenCap === undefined) {
+    const { planManifestFill } = await import('../plugin/fill-declarations.js');
+    const kindsRead = readKinds(folder);
+    if (kindsRead.present) {
+      try {
+        const plan = planManifestFill(kindsRead.manifest, folder, targets?.kinds, true, targets?.requested);
+        if (plan.requiresAgent) {
+          console.error(`${kindsRead.manifest.file}:1: this fill runs the agent ${parsed.agent}, and a token cap is required: pass --token-cap <n>, a positive whole number of tokens`);
+          return 2;
+        }
+      } catch {
+        // The run reports its own plan refusal, with its file and line.
+      }
+    }
   }
   let run;
   try {

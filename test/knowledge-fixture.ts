@@ -94,7 +94,8 @@ export function makeProduct(home: string, name: string, repository: string, repo
 
 /** Keeps only repository facts in fixtures that do not exercise enrichment plugins. */
 export function withRepositoryPluginsOnly(folder: string): void {
-  useFixturePlugins(folder, ['disk', 'git']);
+  // The sample pages a fixture publishes are a person's own writing: their kinds stay beside the repository producers.
+  useFixturePlugins(folder, ['disk', 'git'], ['product', 'domain']);
   commitProduct(folder, 'Run only repository fact plugins in this fixture');
 }
 
