@@ -15,12 +15,16 @@ import { DiagramSection } from './components/diagram.js';
 import { SourceSection } from './components/source.js';
 import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
+import { FillSection } from './components/fill.js';
+import { RunSection } from './components/run.js';
 import type { SectionContext } from './components/types.js';
 
 export interface PageRuntime {
   readonly base: string;
   readonly language: string;
   readonly busy: boolean;
+  /** The page's variables as the composition bound them (a `run` component reads its run from one). */
+  readonly variables: Readonly<Record<string, unknown>>;
   readonly open: (path: string) => void;
   readonly reload: (variables: Record<string, unknown>) => void;
 }
@@ -40,6 +44,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       language: runtime.language,
       base: runtime.base,
       busy: runtime.busy,
+      variables: runtime.variables,
       open: runtime.open,
       reload: runtime.reload,
       renderSection: (id) => {
@@ -71,5 +76,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'source': return <SourceSection context={context} />;
     case 'tabs': return <TabsSection context={context} sections={sections} />;
     case 'search': return <SearchSection context={context} />;
+    case 'fill': return <FillSection context={context} />;
+    case 'run': return <RunSection context={context} />;
   }
 }

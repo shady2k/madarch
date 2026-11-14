@@ -1,0 +1,232 @@
+
+/**
+ * The command client (decision 0036, section 7): the one way a command component asks the server's retained command
+ * reads and presses its commands. A page's graph data comes through `/graphql`; the fill's plan, its agents, its runs and
+ * its controls are workflow state, not graph data, and they are read here.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+// ---- the answers the commands give -------------------------------------------------------------------------------
+
+/** One field of a kind in the fill plan, and the plugins that fill it. */
+export interface FillPlanField {
+  readonly field: string;
+  readonly plugins: readonly string[];
+  readonly agent: boolean;
+}
+
+/** One kind of the fill plan, in the catalogue's words. */
+export interface FillPlanKind {
+  readonly kind: string;
+  readonly labels: { readonly one: string; readonly many: string };
+  readonly group: { readonly name: string; readonly label: string } | null;
+  readonly reason?: 'requested' | 'dependency';
+  readonly namedBy?: string;
+  readonly plugins: readonly string[];
+  readonly fields: readonly FillPlanField[];
+  readonly agent: boolean;
+}
+
+/** `GET /api/fill-plan`: the catalogue, the plan of a selection and what it holds. */
+export interface FillPlanAnswer {
+  readonly order: readonly string[];
+  readonly kinds: readonly FillPlanKind[];
+  readonly catalogue: readonly FillPlanKind[];
+  readonly requiresAgent: boolean;
+  readonly unproduced: readonly string[];
+  readonly refusal?: string;
+}
+
+/** One agent `GET /api/agents` offers, and the one saved for this product. */
+export interface AgentOffer {
+  readonly id: string;
+  readonly label: string;
+  readonly installed: boolean;
+  readonly login: 'signed-in' | 'not-signed-in' | 'unknown';
+  readonly version: string | null;
+}
+
+export interface AgentsAnswer {
+  readonly agents: readonly AgentOffer[];
+  readonly chosen: { readonly id: string; readonly label: string } | null;
+}
+
+/** What an agent reports of its own model choices (`GET /api/agent-choices`). */
+export interface AgentChoicesAnswer {
+  readonly agent: { readonly id: string; readonly label: string };
+  readonly choices: {
+    readonly model: { readonly name: string; readonly current: string | null; readonly values: readonly { readonly value: string; readonly name: string }[] } | null;
+  };
+}
+
+/** The product's fill state, as much as the fill page and its button read (`GET /api/status`). */
+export interface FillStatusAnswer {
+  readonly fill: { readonly state: string; readonly runId?: string };
+  /** madarch's own wiki is documentation: it offers no fill. */
+  readonly own?: boolean;
+}
+
+/** One kind and plugin of a run: how much of it is done and in what state. */
+export interface FillRunGroup {
+  readonly kind: string;
+  readonly group: string | null;
+  readonly plugin: string;
+  readonly done: number;
+  readonly total: number;
+  readonly state: string;
+}
+
+/** One thing a run recorded, as the run's own sequence states it. */
+export interface FillRunEvent {
+  readonly seq: number;
+  readonly at: string;
+  readonly stage: string;
+  readonly unitId: string;
+  readonly type: string;
+  readonly summary: string;
+}
+
+/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events and its usage. */
+export interface FillRunDetail {
+  readonly runId: string;
+  readonly state: string;
+  readonly startedAt: string;
+  readonly updatedAt: string;
+  readonly finishedAt: string | null;
+  readonly elapsedMs: number;
+  readonly remainingMs: number | null;
+  readonly selected: readonly string[] | null;
+  readonly order: readonly string[] | null;
+  readonly vertex: string | null;
+  readonly groups: readonly FillRunGroup[];
+  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly generation: number; readonly attempts: number }[];
+  readonly events: readonly FillRunEvent[];
+  readonly records: number;
+  readonly publishedUnits: number;
+  readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number } | null;
+}
+
+// ---- the client -------------------------------------------------------------------------------------------------
+
+export class CommandError extends Error {}
+
+function messageOf(body: unknown, status: number): string {
+  if (body !== null && typeof body === 'object') {
+    const held = body as { message?: unknown; error?: { message?: unknown } };
+    if (typeof held.error?.message === 'string') return held.error.message;
+    if (typeof held.message === 'string') return held.message;
+  }
+  return `the server answered ${String(status)}`;
+}
+
+async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      credentials: 'same-origin',
+      ...init,
+      headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
+    });
+  } catch (error) {
+    throw new CommandError(`the request failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = undefined;
+  }
+  if (!response.ok) throw new CommandError(messageOf(body, response.status));
+  return body as T;
+}
+
+const query = (params: Record<string, string | undefined>): string => {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') search.set(key, value);
+  return search.size === 0 ? '' : `?${search.toString()}`;
+};
+
+/** The fill plan of the kinds checked, or the catalogue alone when none are. */
+export function readFillPlan(base: string, lang: string, kinds: readonly string[], signal?: AbortSignal): Promise<FillPlanAnswer> {
+  return command<FillPlanAnswer>(base, `/api/fill-plan${query({ lang, kinds: kinds.length === 0 ? undefined : kinds.join(',') })}`, signal === undefined ? {} : { signal });
+}
+
+/** The agents the reader may pick, and the one the product saved. */
+export const readAgents = (base: string, signal?: AbortSignal): Promise<AgentsAnswer> => command<AgentsAnswer>(base, '/api/agents', signal === undefined ? {} : { signal });
+
+/** The models the chosen agent reports; asking starts its adapter on this machine. */
+export const readAgentChoices = (base: string, agent: string, signal?: AbortSignal): Promise<AgentChoicesAnswer> => command<AgentChoicesAnswer>(base, `/api/agent-choices${query({ agent })}`, signal === undefined ? {} : { signal });
+
+/** The product's own fill state, for the page's lock and the top bar's button. */
+export const readFillStatus = (base: string, signal?: AbortSignal): Promise<FillStatusAnswer> => command<FillStatusAnswer>(base, '/api/status', signal === undefined ? {} : { signal });
+
+/** The past runs, newest first. */
+export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs: readonly FillRunDetail[] }> => command(base, '/api/fill-runs', signal === undefined ? {} : { signal });
+
+/** One run, by its id. */
+export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${query({ run: runId })}`, signal === undefined ? {} : { signal });
+
+/** Starts the fill of the kinds checked: their dependencies and order are the server's. */
+export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null }): Promise<{ runId: string; order: readonly string[] }> =>
+  command(base, '/api/fill-selected', { method: 'POST', body: JSON.stringify(selection) });
+
+/** A person's «Пауза». */
+export const pauseFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/pause${query({ run: runId })}`, { method: 'POST', body: '{}' });
+
+/** A person's «Остановить», after the second press that confirms it. */
+export const stopFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/stop${query({ run: runId })}`, { method: 'POST', body: JSON.stringify({ confirm: true }) });
+
+/** The product's one change stream, for a page that stays open while a fill runs. */
+export const eventsAddress = (base: string): string => `${base}/api/events`;
+
+// ---- the reads a component uses -----------------------------------------------------------------------------------
+
+/** What one command read holds: its answer, the message of a failed read, and the way to read it again. */
+export interface CommandRead<T> {
+  readonly data: T | null;
+  readonly error: string | null;
+  readonly busy: boolean;
+  readonly reload: () => void;
+}
+
+/**
+ * One command read, re-run when its key changes or its `reload` is pressed. The loader is held in a ref, so a component
+ * may write it inline; the key says when it must be read.
+ */
+export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, enabled = true): CommandRead<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(enabled);
+  const [nonce, setNonce] = useState(0);
+  const loader = useRef(load);
+  loader.current = load;
+  useEffect(() => {
+    if (!enabled) {
+      setData(null);
+      setBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    let alive = true;
+    setBusy(true);
+    loader.current(controller.signal).then(
+      (answer) => { if (alive) { setData(answer); setError(null); setBusy(false); } },
+      (failure: unknown) => { if (alive && !controller.signal.aborted) { setError(failure instanceof Error ? failure.message : String(failure)); setBusy(false); } },
+    );
+    return () => { alive = false; controller.abort(); };
+  }, [key, enabled, nonce]);
+  const reload = useCallback(() => { setNonce((at) => at + 1); }, []);
+  return { data, error, busy, reload };
+}
+
+/** Calls the listener whenever the product's change stream says something changed; silent where the browser has none. */
+export function useChangeStream(base: string, onChange: () => void): void {
+  const listener = useRef(onChange);
+  listener.current = onChange;
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return;
+    const stream = new EventSource(eventsAddress(base));
+    stream.addEventListener('change', () => { listener.current(); });
+    return () => { stream.close(); };
+  }, [base]);
+}

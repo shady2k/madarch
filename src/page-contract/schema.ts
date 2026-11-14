@@ -20,6 +20,8 @@ export const LOCALIZED_TEXT_SCHEMA = {
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
   'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search',
+  // Command components (section 7): they call the command API and read what they show from the retained command reads.
+  'fill', 'run',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
@@ -107,6 +109,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   source: { parameters: { path: { type: 'string' } }, required: ['path'] },
   tabs: { parameters: { sections: { type: 'array', minItems: 1, items: { type: 'string' } } }, required: ['sections'] },
   search: { parameters: { kinds: { type: 'array', items: { type: 'string' } } }, required: [] },
+  fill: { parameters: { mode: { type: 'string', enum: ['choose', 'run'] } }, required: [] },
+  run: { parameters: { runVariable: { type: 'string' } }, required: ['runVariable'] },
 };
 
 /** The parameters of one section, as a schema: the object the `params` node of a section is judged by. */

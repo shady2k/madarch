@@ -33,7 +33,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>): P
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); } },
+      runtime: { base: '', language: 'en', busy: false, variables: {}, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); } },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };

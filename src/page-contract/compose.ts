@@ -221,11 +221,31 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
     }
     composed.push({ ...section, alias });
   }
+  // Every variable the template declares is bound from the address or its default, even one no query uses: a command
+  // component (`run { runVariable* }`) states which address parameter it reads. The operation declares only the
+  // variables its queries use, since GraphQL refuses an unused one.
+  for (const name of Object.keys(resolved.resolved.variables).sort(byCodePoint)) {
+    if (declarations.has(name) || ['id', 'lang', 'role'].includes(name)) continue;
+    const declared: TemplateVariable = resolved.resolved.variables[name]!;
+    const bound = address.params?.[name];
+    if (bound !== undefined) {
+      const boundValue = coerced(bound, declared.type);
+      if ('refusal' in boundValue) findings.push({ file: 'templates', line: 1, path: `variables.${name}`, message: `$${name}: ${boundValue.refusal}` });
+      else values[name] = boundValue.value;
+    } else if (declared.default !== undefined) {
+      values[name] = declared.default;
+    } else if (declared.required === true) {
+      findings.push({ file: 'templates', line: 1, path: `variables.${name}`, message: `$${name} is required, and the address binds none: give ?${name}=<value>` });
+    }
+  }
   if (findings.length > 0) return { ...empty, sections: composed, findings };
   const declared = [...declarations.entries()].sort(([left], [right]) => byCodePoint(left, right));
-  const operation = declared.length === 0
-    ? `{\n${parts.join('\n')}\n}`
-    : `query Page(${declared.map(([name, type]) => `$${name}: ${type}`).join(', ')}) {\n${parts.join('\n')}\n}`;
+  // A page whose sections ask the graph nothing has no operation: a command page is drawn from its command reads alone.
+  const operation = parts.length === 0
+    ? ''
+    : declared.length === 0
+      ? `{\n${parts.join('\n')}\n}`
+      : `query Page(${declared.map(([name, type]) => `$${name}: ${type}`).join(', ')}) {\n${parts.join('\n')}\n}`;
   return { template, operation, variables: values, sections: composed, findings };
 }
 

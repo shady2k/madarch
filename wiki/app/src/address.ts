@@ -3,9 +3,10 @@
  * template bound to no entity. A query parameter binds a variable the template declares, and `lang` and `role` are the
  * reader's own: they are passed to the page's operation, never stored in it.
  *
- * The frame's own sections — the catalogue, the glossary, the fill, the loop's problems, the sources and the product's
- * settings — stand at their own addresses. Their pages are not rebuilt yet, so each opens a page that says it is being
- * rebuilt: the frame came back first, and the pages follow one by one.
+ * The frame's own sections — the catalogue, the glossary, the loop's problems, the sources and the product's settings —
+ * stand at their own addresses. Their pages are not rebuilt yet, so each opens a page that says it is being rebuilt: the
+ * frame came back first, and the pages follow one by one. The fill page is a product template (`/p/fill`) and one run
+ * is another (`/p/run?run=<id>`).
  */
 import type { PageAddress } from '../../../src/page-contract/index.js';
 
@@ -16,12 +17,19 @@ import type { PageAddress } from '../../../src/page-contract/index.js';
 export const FRAME_PAGES = {
   catalogue: '/p/catalogue',
   glossary: '/p/glossary',
-  fill: '/p/fill',
   problems: '/p/problems',
   documents: '/p/documents',
   settings: '/p/settings',
   kit: '/p/kit',
 } as const;
+
+/** The fill page, a template of the product (`/p/fill`): its command component chooses the kinds and starts a run. */
+export const FILL_PAGE = '/p/fill';
+
+/** One fill run's page, the `run` template with the run's id as its variable. */
+export function runAddress(runId: string): string {
+  return `/p/run?run=${encodeURIComponent(runId)}`;
+}
 
 /** One of the frame's own sections. */
 export type FramePage = keyof typeof FRAME_PAGES;

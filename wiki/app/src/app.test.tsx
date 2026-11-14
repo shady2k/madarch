@@ -91,7 +91,16 @@ function answerFor(query: string, variables: Record<string, unknown>): unknown {
 
 beforeEach(() => {
   requests.length = 0;
-  (globalThis as { fetch: typeof fetch }).fetch = (async (_url: string, init?: { body?: string }) => {
+  // The frame's «Заполнить…» button reads the product's command state, and the change stream is silent here.
+  (globalThis as { EventSource?: unknown }).EventSource = undefined;
+  (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
+    const path = String(url);
+    if (!path.endsWith('/graphql')) {
+      const command = path.includes('/api/status')
+        ? { fill: { state: 'idle' } }
+        : path.includes('/api/fill-plan') ? { order: [], kinds: [], catalogue: [], requiresAgent: false, unproduced: [] } : {};
+      return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
     requests.push({ query: body.query, variables: body.variables ?? {} });
     return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });

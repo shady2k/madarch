@@ -18,6 +18,7 @@ import type { Handled, ReplyMaker } from './http.js';
 import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
 import { readKinds } from '../product/manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
+import { fillPlanOf } from '../knowledge/fill-plan.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
@@ -43,6 +44,8 @@ export interface KnowledgePart {
   fill: (request: Request) => Promise<Handled>;
   /** Starts the fill page’s selected kinds, with their dependencies in order. */
   fillSelected: (request: Request) => Promise<Handled>;
+  /** The fill plan the page shows: the catalogue's kinds, what fills each field, and the order of a selection. */
+  fillPlan: (request: Request) => Promise<Handled>;
   fillRuns: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
@@ -309,6 +312,15 @@ export function createKnowledgePart(
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
     }, true, true),
+    fillPlan: guarded('read the fill plan', async (request) => {
+      const url = new URL(request.url);
+      const asked = url.searchParams.get('kinds');
+      const selected = asked === null || asked.trim() === '' ? [] : asked.split(',').map((kind) => kind.trim()).filter((kind) => kind !== '');
+      const read = readKinds(product.folder);
+      if (!read.present) return refused(409, { message: `${read.file}:1: the product has no kinds manifest: the fill plan shows the kinds that file declares` });
+      const lang = url.searchParams.get('lang');
+      return { response: json(200, fillPlanOf(read.manifest, product.folder, { selected, ...(lang === null || lang === '' ? {} : { lang }) })) };
+    }, false),
     fillRuns: guarded('read fill history', async (request) => {
       const runId = new URL(request.url).searchParams.get('run');
       const runs = await product.fillRuns(runId ?? undefined);

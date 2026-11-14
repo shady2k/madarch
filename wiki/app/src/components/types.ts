@@ -12,6 +12,8 @@ export interface SectionContext {
   readonly language: string;
   readonly base: string;
   readonly busy: boolean;
+  /** The page's variables as the composition bound them: a command component reads the one its parameters name. */
+  readonly variables: Readonly<Record<string, unknown>>;
   readonly open: (path: string) => void;
   /** The same page, asked again with the variables the press named (a table's page, a filter, a sort). */
   readonly reload: (variables: Record<string, unknown>) => void;

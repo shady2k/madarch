@@ -25,9 +25,10 @@ import {
 } from './components/ui/dropdown-menu.js';
 import { Button } from './components/ui/button.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
+import { FillButton } from './components/fill-button.js';
 import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
-import { entityAddress, FRAME_PAGES, type FramePage } from './address.js';
+import { entityAddress, FILL_PAGE, FRAME_PAGES, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
 
 /** The word the frame gives one of its own sections, in the language the reader reads. */
@@ -35,7 +36,6 @@ export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
     case 'catalogue': return t('navigation.catalogue');
     case 'glossary': return t('knowledge.glossary.title');
-    case 'fill': return t('navigation.fill');
     case 'problems': return t('loop.problemsTitle');
     case 'documents': return t('navigation.documents');
     case 'settings': return t('settings.nav');
@@ -122,7 +122,9 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
         </NavigationLink>
         {section('catalogue', LayoutGridIcon)}
         {section('glossary', BookOpenIcon)}
-        {section('fill', RefreshCwIcon)}
+        <NavigationLink icon={RefreshCwIcon} active={here(FILL_PAGE)} aria-current={here(FILL_PAGE) ? 'page' : undefined} data-testid="nav-fill" {...link(FILL_PAGE)}>
+          <NavigationLabel>{t('navigation.fill')}</NavigationLabel>
+        </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
           <NavigationLink icon={AlertTriangleIcon} active={tasks.frame === 'problems'} aria-current={tasks.frame === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...link(FRAME_PAGES.problems)}>
@@ -264,6 +266,7 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
       </ShellBreadcrumb>
       <ShellActions>
         {menu}
+        <FillButton base={base} open={open} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
         </Button>

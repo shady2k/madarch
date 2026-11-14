@@ -158,6 +158,14 @@ export function App(): ReactElement {
       setLoaded(null);
       return;
     }
+    // A page whose sections ask the graph nothing (`fill`, `run`) is drawn from the command reads alone: it sends no
+    // empty operation, and the page's own components make their requests.
+    if (composition.operation === '') {
+      setFailure(null);
+      setBusy(false);
+      setLoaded({ composition, variables: composition.variables, data: {} });
+      return;
+    }
     void ask(composition, composition.variables);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionKey]);
@@ -170,7 +178,7 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  const runtime: PageRuntime = { base, language, busy, open, reload };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, open, reload };
   const section: FramePage | null = address.frame;
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
@@ -214,7 +222,7 @@ export function App(): ReactElement {
             <FrameToolbar
               product={navigation?.product ?? null}
               base={base}
-              task={address.home ? t('knowledge.home') : section === null ? null : frameWord(section, t)}
+              task={address.home ? t('knowledge.home') : section === null ? (address.page.template === 'fill' ? t('navigation.fill') : address.page.template === 'run' ? t('knowledge.fillRun.title') : null) : frameWord(section, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}

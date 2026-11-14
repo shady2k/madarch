@@ -1,0 +1,15 @@
+# The fill page (decision 0036, section 7): the catalogue's kinds to choose, the plan the server answers for the
+# selection, the agent and its token cap when the plan holds the agent, and the press that starts the run. Its one
+# section is the command component `fill`; the page names no kind and holds no plan of its own.
+template: fill
+sections:
+  - id: header
+    component: header
+    title: { en: Fill, ru: Заполнение }
+    params:
+      titlePath: label
+  - id: fill
+    component: fill
+    after: header
+    params:
+      mode: run

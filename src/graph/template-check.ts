@@ -84,6 +84,18 @@ export function checkProductTemplates(folder: string): TemplateFinding[] {
     findings.push({ file: 'templates/entity.yaml', line: 1, path: '', message: 'the base template "entity" is missing: a kind without a record template opens it' });
   }
   for (const kind of unbound) check({ kind, id: PLACEHOLDER_ID }, 'entity', `the kind "${kind}" opens the base entity template`);
+  // A template bound to no kind or entity is a page of its own at `/p/<name>` (the fill page, one run): it is checked
+  // with a placeholder for each variable it declares, so a command page broken at start is refused like any other.
+  const named = new Set<string>([...templates.records.values(), ...templates.own.values(), templates.catalogue, 'entity', templateFor(bootstrap, { home: true })]);
+  const placeholder = (type: string): string => type === 'Boolean' ? 'false' : type === 'Int' || type === 'Float' ? '0' : type === 'JSON' || type.startsWith('[') ? 'null' : 'x';
+  for (const file of files.files) {
+    if (named.has(file.name)) continue;
+    // A template whose section reads a subject is a page of an entity, not a page of `/p/<name>`; the base pages
+    // (`entity`, `text`, `catalogue-entity`) are checked through the kinds and the catalogue above.
+    if (file.sections.some((section) => section.on !== 'root' && (section.query ?? '').trim() !== '')) continue;
+    const params = Object.fromEntries(Object.entries(file.variables).map(([name, declared]) => [name, placeholder(declared.type)]));
+    check({ template: file.name, params }, file.name, `the template page "/p/${file.name}"`);
+  }
   // One finding per line and message: a base template used by a hundred kinds says each thing once.
   const seen = new Set<string>();
   return findings.filter((one) => {

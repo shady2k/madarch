@@ -288,7 +288,8 @@ sections:
   formats, rendered on the server from the graph read layer and served to any client on request),
   /api/source (a file's text at the filled commit,
   from git), /api/events (the event stream), /api/status and /api/products and /api/product, the
-  fill commands and /api/fill-runs and /api/run (workflow state), /api/agents and /api/agent-choices
+  fill commands and /api/fill-plan and /api/fill-runs and /api/run (workflow state and the plan a
+  fill press offers), /api/agents and /api/agent-choices
   and /api/model-role, /api/settings and /api/product-settings, /api/journal, /api/kind-usage (agent
   metering), /api/refresh-plan, /api/reset, /api/graph-verdicts, /api/rewrite-pages,
   /api/start-fresh, the authored and problem and task writes, and GET and POST /sources, POST
