@@ -1,7 +1,7 @@
 id: practice.user-guide
 purpose: understand
 audience: [product, analyst, designer, tester]
-definition: The tasks a person can do with the product and the procedures that reach them.
+definition: A user guide describes the tasks a person can do with the product and the procedures that reach them.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -80,5 +80,5 @@ labels:
     one: Руководство пользователя
     many: Руководство пользователя
 description:
-  en: Supported tasks and API procedures, with known gaps.
-  ru: Поддерживаемые задачи и API-процедуры с известными пробелами.
+  en: A user guide explains what the product lets a person do and how to do each thing, in the language of the work rather than of the code. It is the reference a user returns to when a task is unclear.
+  ru: Руководство пользователя объясняет, что продукт позволяет человеку делать и как делать каждое дело, на языке работы, а не кода. К нему возвращаются, когда задача неясна.

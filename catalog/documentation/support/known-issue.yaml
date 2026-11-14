@@ -1,7 +1,7 @@
 id: practice.known-issue
 purpose: quality
 audience: [operations, product, developer]
-definition: A defect or a limitation the people who use the product are told about.
+definition: A known issue is a defect or a limitation the people who use the product are told about.
 sources:
 - https://glossary.istqb.org/en_US/term/defect
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Известная проблема
     many: Известные проблемы
 description:
-  en: A defect or a limitation the people who use the product are told about.
-  ru: Дефект или ограничение, о котором сообщают людям, пользующимся продуктом.
+  en: A known issue describes a defect or a limitation that is already understood but not yet fixed, and what a person can do meanwhile. It is published so users do not spend time reporting what is already known.
+  ru: Известная проблема описывает дефект или ограничение, о котором уже знают, но ещё не исправили, и что человек может делать пока. Её публикуют, чтобы пользователи не тратили время на сообщения о том, что уже известно.

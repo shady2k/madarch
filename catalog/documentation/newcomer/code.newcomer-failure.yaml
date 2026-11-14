@@ -1,7 +1,7 @@
 id: practice.known-failure
 purpose: operations
 audience: [developer, platform-devops]
-definition: A failure the README names, with its symptom and its fix.
+definition: A newcomer failure is a failure the README names, with its symptom and its fix.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -27,5 +27,5 @@ labels:
     one: Известная ошибка
     many: Известные ошибки
 description:
-  en: A failure the README names, with its fix.
-  ru: Ошибка, которую называет README, и как её исправить.
+  en: A newcomer failure records a problem that people hit while following the README, how it shows itself and what resolves it. Naming it saves the next person the same search.
+  ru: Известная ошибка — проблема, с которой сталкиваются, следуя README, как она проявляется и что её устраняет. Названная заранее, она избавляет следующего человека от тех же поисков.

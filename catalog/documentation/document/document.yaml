@@ -1,7 +1,7 @@
 id: practice.document
 purpose: understand
 audience: [product, analyst, developer, operations]
-definition: A written page of the product, such as a README, a guide or a reference.
+definition: A document is a written text of the product, such as a README, a guide or a reference.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -54,5 +54,5 @@ labels:
     one: Документ
     many: Документы
 description:
-  en: A written page of the product, such as a README, a guide or a reference.
-  ru: 'Написанная страница продукта: README, руководство или справочник.'
+  en: 'A document is a text written for a person who works with the product: what it is for, how to use it, how it is built or what was decided. It has a title, sections and a place in the repository, and its purpose decides what belongs in it.'
+  ru: 'Документ — текст, написанный для человека, который работает с продуктом: для чего он, как им пользоваться, как он устроен или что решили. У документа есть название, разделы и место в репозитории, а его назначение решает, что в нём должно быть.'
