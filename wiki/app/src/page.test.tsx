@@ -226,23 +226,35 @@ test('a table with a next page draws its pager even when the page holds fewer ro
 });
 
 test('a table offers a sort only when its query declares the order variable', async () => {
-  const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
+  // The sort control is the kit's Select (Radix): a combobox that opens a listbox, not a native select. The table sorts
+  // by its first sortable column already, so the test chooses the second one.
+  const columns = [
+    { label: { en: 'A' }, path: 'node.label', sortField: 'label' },
+    { label: { en: 'B' }, path: 'node.path', sortField: 'path' },
+  ];
+  const without = await renderPage([section('rows', 'table', { path: 'rows', columns })], { rows: { totalCount: 0, edges: [] } });
   try {
-    expect(without.container.querySelector('select')).toBeNull();
+    expect(without.container.querySelector('[role="combobox"]')).toBeNull();
   } finally {
     await without.close();
   }
-  const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { totalCount: 0, edges: [] } });
+  const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { totalCount: 0, edges: [] } });
   try {
-    const select = withOrder.container.querySelector('select');
-    expect(select).not.toBeNull();
+    const trigger = withOrder.container.querySelector('[role="combobox"]');
+    expect(trigger).not.toBeNull();
+    // The table sorts by its first sortable column already; the chosen one is shown there.
+    expect(trigger?.textContent).toBe('A');
+    // A mouse press opens the listbox, and the item is chosen by a click, the way Radix's select answers both.
     await act(async () => {
-      if (select !== null) {
-        select.value = 'label';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      trigger?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
     });
-    expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }]);
+    // The item wears the column's own word; its value is the sort field.
+    const option = [...document.querySelectorAll('[role="option"]')].find((one) => one.textContent === 'B');
+    expect(option).not.toBeUndefined();
+    await act(async () => {
+      option?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    });
+    expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'path', direction: 'ASC' }] }]);
   } finally {
     await withOrder.close();
   }

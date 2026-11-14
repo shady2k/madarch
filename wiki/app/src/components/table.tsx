@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, UNSORTED } from './ui/select.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
 import { at, dateOf, formatValue, hostOf, localized } from './format.js';
@@ -130,19 +130,28 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           {canFilter && filters.length > 1 ? (
             <FilterField>
               {t('knowledge.tableField')}
-              <Select aria-label={t('knowledge.tableField')} value={filterField} onChange={(event) => { setFilterField(event.target.value); }} options={filters.map((one) => ({ value: String(one.field ?? ''), label: localized(one.label, language) ?? String(one.field ?? '') }))} />
+              <Select value={filterField} onValueChange={setFilterField}>
+                <SelectTrigger aria-label={t('knowledge.tableField')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {filters.map((one) => {
+                    const value = String(one.field ?? '');
+                    return <SelectItem key={value} value={value}>{localized(one.label, language) ?? value}</SelectItem>;
+                  })}
+                </SelectContent>
+              </Select>
             </FilterField>
           ) : null}
           {canFilter ? <Button variant="default" size="sm" onClick={() => { askFilter(filterText, filterField); }}>{t('knowledge.tableFilter')}</Button> : null}
           {canSort ? (
             <FilterField>
               {t('knowledge.tableSort')}
-              <Select
-                aria-label={t('knowledge.tableSort')}
-                value={sort}
-                options={[{ value: '', label: '—' }, ...sortable.map((column) => ({ value: String(column.sortField), label: localized(column.label, language) ?? String(column.sortField) }))]}
-                onChange={(event) => { setSort(event.target.value); askSort(event.target.value); }}
-              />
+              <Select value={sort === '' ? UNSORTED : sort} onValueChange={(next) => { const field = next === UNSORTED ? '' : next; setSort(field); askSort(field); }}>
+                <SelectTrigger aria-label={t('knowledge.tableSort')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNSORTED}>—</SelectItem>
+                  {sortable.map((column) => <SelectItem key={String(column.sortField)} value={String(column.sortField)}>{localized(column.label, language) ?? String(column.sortField)}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </FilterField>
           ) : null}
         </FilterBar>

@@ -49,13 +49,12 @@ import {
 import { OrderedList } from './components/ui/ordered-list.js';
 import { Progress } from './components/ui/progress.js';
 import { RadioGroup, RadioGroupItem } from './components/ui/radio-group.js';
-import { RadioInput } from './components/ui/radio-input.js';
 import { Blockquote, ReadingContent } from './components/ui/reading-content.js';
 import {
   SearchContainer, SearchGroupTitle, SearchResultLink, SearchResults,
 } from './components/ui/search-results.js';
 import { SegmentedChoice } from './components/ui/segmented-choice.js';
-import { Select } from './components/ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select.js';
 import {
   ShellAnswersCount, ShellAnswersLink, ShellAnswersWords, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellIconLink,
   ShellTab, ShellTabClose, ShellTabTrigger, ShellTabs,
@@ -155,18 +154,22 @@ export function KitPage(): ReactElement {
         <KitState label={state('default')}><Input aria-label={state('name')} placeholder={state('name')} /><Textarea aria-label={state('description')} placeholder={state('description')} /></KitState>
         <KitState label={state('disabled')}><Input aria-label={state('name')} defaultValue={state('sample')} disabled /><Textarea aria-label={state('description')} defaultValue={state('sample')} disabled /></KitState>
         <KitState label={state('error')}><Input aria-label={state('name')} aria-invalid="true" aria-describedby="kit-input-error" /><Alert variant="problem" id="kit-input-error"><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
-        <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select aria-label={state('name')} options={[{ value: 'one', label: state('sample') }, { value: 'two', label: state('description') }]} /></Form></KitState>
+        <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select defaultValue="one"><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem><SelectItem value="two">{state('description')}</SelectItem></SelectContent></Select></Form></KitState>
+        <KitState label={`Select — ${state('disabled')}`}><Select defaultValue="one" disabled><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem></SelectContent></Select></KitState>
       </KitSection>
 
       <KitSection title="Checkbox / Radio / Switch / Toggle">
-        <KitState label="Checkbox"><Checkbox aria-label={state('name')} defaultChecked /></KitState>
+        <KitState label={`Checkbox — ${state('default')}`}><Checkbox aria-label={state('name')} /></KitState>
+        <KitState label={`Checkbox — ${state('selected')}`}><Checkbox aria-label={state('name')} defaultChecked /></KitState>
+        <KitState label={`Checkbox — ${state('indeterminate')}`}><Checkbox aria-label={state('name')} checked="indeterminate" /></KitState>
+        <KitState label={`Checkbox — ${state('disabled')}`}><Checkbox aria-label={state('name')} disabled defaultChecked /></KitState>
         <KitState label="RadioGroup">
           <RadioGroup defaultValue="one" aria-label={state('name')}><RadioGroupItem value="one" aria-label={state('selected')} /><RadioGroupItem value="two" aria-label={state('default')} /></RadioGroup>
         </KitState>
         <KitState label="Choice">
           <RadioGroup value={choice} onValueChange={setChoice} aria-label={state('name')}>
             {['one', 'two'].map((value) => (
-              <ChoiceCard key={value}><RadioInput name="kit-choice" value={value} checked={choice === value} onChange={() => { setChoice(value); }} /><ChoiceDescription>{state('sample')}</ChoiceDescription></ChoiceCard>
+              <ChoiceCard key={value}><RadioGroupItem value={value} /><ChoiceDescription>{state('sample')}</ChoiceDescription></ChoiceCard>
             ))}
           </RadioGroup>
         </KitState>
