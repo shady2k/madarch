@@ -1,7 +1,7 @@
 id: practice.directory
 purpose: structure
 audience: [developer, architect]
-definition: A folder of a code repository, which holds files and further folders.
+definition: A directory is a folder in a code repository that holds files and further folders.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/
 acquisition:
@@ -36,7 +36,7 @@ labels:
     one: Папка
     many: Папки
 description:
-  en: A folder of a code repository, which holds files and further folders.
-  ru: Папка репозитория кода, которая содержит файлы и другие папки.
+  en: A directory groups files and other directories under one name in a repository, usually along the structure of the code. Its path places it, and what it holds says what part of the product it belongs to.
+  ru: Папка объединяет файлы и другие папки под одним именем в репозитории, обычно по устройству кода. Её путь указывает место, а содержимое говорит, к какой части продукта она относится.
 derives-from:
 - code.repository

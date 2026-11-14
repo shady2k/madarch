@@ -1,7 +1,7 @@
 id: openapi.webhook
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A callback a service sends to another system when something happens.
+definition: A webhook is a call a service makes to another system's address when something happens.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Вебхук
     many: Вебхуки
 description:
-  en: A callback a service sends to another system when something happens.
-  ru: Обратный вызов, который сервис отправляет другой системе при событии.
+  en: A webhook is an HTTP request the service sends to an address the other side gave it, announcing an event such as a payment or a completed build. The receiving system trusts the call only if it can verify the sender.
+  ru: 'Вебхук — HTTP-запрос, который сервис отправляет на адрес, данный другой стороной, сообщая о событии: платеже или завершённой сборке. Получающая система доверяет вызову, только если может проверить отправителя.'

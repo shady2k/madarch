@@ -1,7 +1,7 @@
 id: practice.module
 purpose: structure
 audience: [developer, architect]
-definition: A folder of code with a purpose of its own, with the modules it depends on.
+definition: A module is a folder of code with a purpose of its own, with the modules it depends on.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -52,5 +52,5 @@ labels:
     one: Модуль
     many: Модули
 description:
-  en: A folder of code with a purpose of its own, with the modules it depends on.
-  ru: Папка кода со своим назначением и модули, от которых она зависит.
+  en: A module is a group of code files that belong together around one responsibility, such as billing or authentication, and depend on other modules through their public parts. Its boundary says what may be changed without reaching the rest of the product.
+  ru: 'Модуль — группа файлов кода, объединённых одной ответственностью: оплата или вход, — и зависящих от других модулей через их открытые части. Его граница говорит, что можно менять, не задевая остальной продукт.'
