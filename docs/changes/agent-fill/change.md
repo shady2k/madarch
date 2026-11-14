@@ -52,3 +52,4 @@ Place: `madarch fill` and the fill route
 3. Without the agent flag, the same command stops before any unit and names `doc.decision (legacy_id, title, body)` as the agent's fields.
 4. With the agent, the run's unit list shows `plugin-turns/agent-fill:doc.decision` beside the files producer's units, and the kind's page shows each decision with the file and lines it was read from.
 5. `POST /api/fill-plan` with `{"selected": ["doc.decision"]}` answers the same plan: every field, its producers, and the field list that needs an agent.
+6. Naming an agent without a token cap (`--agent` alone, or a press with no `tokenCap`) is refused with the cap's own flag and the run starts nothing: the plan runs an agent unit only under a positive cap the person chose.

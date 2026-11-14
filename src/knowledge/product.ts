@@ -814,6 +814,15 @@ export class KnowledgeProduct {
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
+      // The plan is read before the adapter is resolved, so a press that chooses an agent and no cap is refused with the
+      // cap's own words: whenever the plan runs an agent unit, a positive cap is the person's to choose (madarch-64o5.63).
+      const wantedAgent = options.agent === undefined ? this.chosenAgent()?.id ?? null : options.agent;
+      if (wantedAgent !== null && options.tokenCap === undefined) {
+        const plannedUnderAgent = planManifestFill(read.manifest, product.folder, options.targets?.kinds, true, options.targets?.requested);
+        if (plannedUnderAgent.requiresAgent) {
+          return { started: false, message: `${read.manifest.file}:1: this fill runs the agent ${wantedAgent}, and a token cap is required: name a positive --token-cap <n> for the fill; the engine sets no cap of its own`, fill: this.fill };
+        }
+      }
       const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
       const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested);
       const files = workingTreeFiles(product.folder);
