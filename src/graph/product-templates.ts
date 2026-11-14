@@ -3,8 +3,9 @@
  * the template a catalogue entity's page opens, the record template of each kind and the template an entity opens by its
  * own id. The bootstrap answers these, so the app knows which template to compose before it asks the graph.
  *
- * A template names the pages it draws in its own file: `records: [<kind>...]` makes it that kind's record template, and
- * `entities: [<id>...]` makes it the template of those entities. The file's own name is its template name.
+ * A template names the pages it draws in its own file: `records: [<kind>...]` makes it that kind's record template,
+ * `entities: [<id>...]` makes it the template of those entities, and `catalogue: [<kind>...]` makes it the page of that
+ * kind's catalogue entry. The file's own name is its template name.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -28,6 +29,8 @@ export interface ProductTemplates {
   readonly records: ReadonlyMap<string, string>;
   /** The template an entity opens by its own id. */
   readonly own: ReadonlyMap<string, string>;
+  /** The template a kind's catalogue entry opens, by kind name. */
+  readonly catalogueOf: ReadonlyMap<string, string>;
   /** Every finding the files answered when they were read. */
   readonly findings: readonly TemplateFinding[];
 }
@@ -62,6 +65,7 @@ export function readProductTemplates(folder: string): ProductTemplates {
   const findings: TemplateFinding[] = [];
   const records = new Map<string, string>();
   const own = new Map<string, string>();
+  const catalogueOf = new Map<string, string>();
   const names = new Set<string>();
   for (const file of files) {
     names.add(file.name);
@@ -70,12 +74,14 @@ export function readProductTemplates(folder: string): ProductTemplates {
     if (read.template === undefined) continue;
     for (const kind of read.template.records) records.set(kind, read.template.name);
     for (const id of read.template.entities) own.set(id, read.template.name);
+    for (const kind of read.template.catalogue) catalogueOf.set(kind, read.template.name);
   }
   return {
     templates: files.map((file) => ({ name: file.name, body: file.body })),
     catalogue: names.has(CATALOGUE_TEMPLATE_NAME) ? CATALOGUE_TEMPLATE_NAME : FALLBACK_TEMPLATE,
     records,
     own,
+    catalogueOf,
     findings,
   };
 }

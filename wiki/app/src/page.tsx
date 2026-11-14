@@ -15,7 +15,9 @@ import { DiagramSection } from './components/diagram.js';
 import { SourceSection } from './components/source.js';
 import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
+import { KindsSection } from './components/kinds.js';
 import type { SectionContext } from './components/types.js';
+import type { Navigation } from './client.js';
 
 export interface PageRuntime {
   readonly base: string;
@@ -23,6 +25,9 @@ export interface PageRuntime {
   readonly busy: boolean;
   readonly open: (path: string) => void;
   readonly reload: (variables: Record<string, unknown>) => void;
+  /** The frame's own reading: the product's name and the kinds the sidebar lists. */
+  readonly product: string | null;
+  readonly navigation: Navigation | null;
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
@@ -46,6 +51,8 @@ export function PageView({ composition, data, runtime }: { readonly composition:
         const held = composition.sections.find((one) => one.id === id);
         return held === undefined ? null : render(held);
       },
+      product: runtime.product,
+      navigation: runtime.navigation,
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
@@ -71,5 +78,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'source': return <SourceSection context={context} />;
     case 'tabs': return <TabsSection context={context} sections={sections} />;
     case 'search': return <SearchSection context={context} />;
+    case 'kinds': return <KindsSection context={context} />;
   }
 }

@@ -11,31 +11,13 @@ sections:
       kind
       label
       template
-      contested
     params:
       titlePath: label
       kindPath: kind
-  - id: facts
-    component: facts
-    title: { en: Facts, ru: Факты }
-    query: |
-      id
-      kind
-      template
-      contested
-    params:
-      rows:
-        - label: { en: Kind, ru: Вид }
-          path: kind
-        - label: { en: Template, ru: Шаблон }
-          path: template
-        - label: { en: Contested, ru: Спорные }
-          path: contested
   # The picture is drawn by the server (decision 0036, sections 7 and 8): the section names the entity and how far around
   # it reads; no relation is asked here, because the renderer reads the neighbourhood through the graph read layer.
   - id: diagram
     component: diagram
-    after: facts
     title: { en: Around it, ru: Вокруг }
     query: |
       id
@@ -50,11 +32,12 @@ sections:
         edges {
           node {
             relation
+            edge
+            inverse
             to {
               id
               kind
               label
-              template
             }
           }
         }
@@ -63,7 +46,7 @@ sections:
     params:
       path: outgoing
       labelPath: relation
-      emptyText: { en: Nothing leads out of it. }
+      emptyText: { en: Nothing leads out of it, ru: Ничего не ведёт отсюда }
   - id: backlinks
     component: relations
     title: { en: Linked from, ru: Ссылаются }
@@ -72,11 +55,12 @@ sections:
         edges {
           node {
             relation
+            edge
+            inverse
             from {
               id
               kind
               label
-              template
             }
           }
         }
@@ -85,4 +69,4 @@ sections:
     params:
       path: backlinks
       labelPath: relation
-      emptyText: { en: Nothing links to it yet. }
+      emptyText: { en: Nothing links to it yet, ru: Сюда пока ничего не ведёт }

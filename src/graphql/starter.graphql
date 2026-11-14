@@ -70,8 +70,17 @@ type AdministratorGuideEdge {
   node: AdministratorGuide!
 }
 
+type Aggregate {
+  count: Int!
+  groupBy(field: String!, limit: Int = 20): [Group!]!
+  histogram(field: String!, bounds: [JSON!]!): [Bucket!]!
+  topN(field: String!, n: Int = 10): [Ranked!]!
+}
+
 type Backlink {
   relation: String!
+  edge: String!
+  inverse: Boolean!
   from: Entity!
 }
 
@@ -102,6 +111,12 @@ type BootstrapHome {
   template: String!
 }
 
+type Bucket {
+  from: JSON
+  to: JSON
+  count: Int!
+}
+
 type CatalogueEntity implements Entity {
   id: ID!
   kind: String!
@@ -123,6 +138,7 @@ type CatalogueEntity implements Entity {
   plugins: [String!]!
   fields: [CatalogueField!]!
   instances(first: Int, after: String, lang: String): EntityConnection!
+  instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   grounds(first: Int, after: String): GroundsConnection!
@@ -150,6 +166,11 @@ type CatalogueField {
   nullable: Boolean!
   reference: String
   producers: [String!]!
+}
+
+type Cochange {
+  node: Entity!
+  count: Int!
 }
 
 type CodeAsIsConnection {
@@ -2812,6 +2833,11 @@ type GroundsEdge {
   node: Entity!
 }
 
+type Group {
+  key: JSON
+  count: Int!
+}
+
 type LinksToConnection {
   edges: [LinksToConnectionEdge!]!
   pageInfo: PageInfo!
@@ -2852,6 +2878,7 @@ type Navigation {
   product: String
   groups: [NavigationGroup!]!
   kinds: [NavigationKind!]!
+  purposes: [NavigationPurpose!]!
 }
 
 type NavigationGroup {
@@ -2871,6 +2898,11 @@ type NavigationKind {
   entryId: ID
 }
 
+type NavigationPurpose {
+  id: String!
+  labels: JSON!
+}
+
 type Opinion {
   value: JSON
   producer: String!
@@ -2882,6 +2914,8 @@ type Opinion {
 
 type Outgoing {
   relation: String!
+  edge: String!
+  inverse: Boolean!
   to: Entity!
 }
 
@@ -3082,6 +3116,11 @@ type QuestionEdge {
   node: Question!
 }
 
+type Ranked {
+  node: Entity!
+  value: JSON!
+}
+
 type RecordTemplate {
   kind: String!
   template: String!
@@ -3236,85 +3275,161 @@ type UserGuideEdge {
 type Query {
   entity(id: ID!, lang: String): Entity
   allAdministratorGuide(where: AdministratorGuideWhere, orderBy: [AdministratorGuideOrder!], first: Int, after: String, lang: String): AdministratorGuideConnection!
+  allAdministratorGuideAggregate(where: AdministratorGuideWhere, lang: String): Aggregate!
   allCodeAuthor(where: CodeAuthorWhere, orderBy: [CodeAuthorOrder!], first: Int, after: String, lang: String): CodeAuthorConnection!
+  allCodeAuthorAggregate(where: CodeAuthorWhere, lang: String): Aggregate!
   allCodeBroker(first: Int, after: String, lang: String): CodeBrokerConnection!
+  allCodeBrokerAggregate(where: JSON, lang: String): Aggregate!
   allCodeChannel(where: CodeChannelWhere, orderBy: [CodeChannelOrder!], first: Int, after: String, lang: String): CodeChannelConnection!
+  allCodeChannelAggregate(where: CodeChannelWhere, lang: String): Aggregate!
   allCodeCiJob(first: Int, after: String, lang: String): CodeCiJobConnection!
+  allCodeCiJobAggregate(where: JSON, lang: String): Aggregate!
   allCodeCiWorkflow(first: Int, after: String, lang: String): CodeCiWorkflowConnection!
+  allCodeCiWorkflowAggregate(where: JSON, lang: String): Aggregate!
   allCodeColumn(where: CodeColumnWhere, orderBy: [CodeColumnOrder!], first: Int, after: String, lang: String): CodeColumnConnection!
+  allCodeColumnAggregate(where: CodeColumnWhere, lang: String): Aggregate!
   allCodeCommit(where: CodeCommitWhere, orderBy: [CodeCommitOrder!], first: Int, after: String, lang: String): CodeCommitConnection!
+  allCodeCommitAggregate(where: CodeCommitWhere, lang: String): Aggregate!
   allCodeComposeService(first: Int, after: String, lang: String): CodeComposeServiceConnection!
+  allCodeComposeServiceAggregate(where: JSON, lang: String): Aggregate!
   allCodeContract(where: CodeContractWhere, orderBy: [CodeContractOrder!], first: Int, after: String, lang: String): CodeContractConnection!
+  allCodeContractAggregate(where: CodeContractWhere, lang: String): Aggregate!
   allCodeCycle(first: Int, after: String, lang: String): CodeCycleConnection!
+  allCodeCycleAggregate(where: JSON, lang: String): Aggregate!
   allCodeDatabase(where: CodeDatabaseWhere, orderBy: [CodeDatabaseOrder!], first: Int, after: String, lang: String): CodeDatabaseConnection!
+  allCodeDatabaseAggregate(where: CodeDatabaseWhere, lang: String): Aggregate!
   allCodeDebt(first: Int, after: String, lang: String): CodeDebtConnection!
+  allCodeDebtAggregate(where: JSON, lang: String): Aggregate!
   allCodeDependency(first: Int, after: String, lang: String): CodeDependencyConnection!
+  allCodeDependencyAggregate(where: JSON, lang: String): Aggregate!
   allCodeDirectory(where: CodeDirectoryWhere, orderBy: [CodeDirectoryOrder!], first: Int, after: String, lang: String): CodeDirectoryConnection!
+  allCodeDirectoryAggregate(where: CodeDirectoryWhere, lang: String): Aggregate!
   allCodeDockerfile(first: Int, after: String, lang: String): CodeDockerfileConnection!
+  allCodeDockerfileAggregate(where: JSON, lang: String): Aggregate!
   allCodeDocumentSection(first: Int, after: String, lang: String): CodeDocumentSectionConnection!
+  allCodeDocumentSectionAggregate(where: JSON, lang: String): Aggregate!
   allCodeEntryPoint(first: Int, after: String, lang: String): CodeEntryPointConnection!
+  allCodeEntryPointAggregate(where: JSON, lang: String): Aggregate!
   allCodeEnvDefinition(first: Int, after: String, lang: String): CodeEnvDefinitionConnection!
+  allCodeEnvDefinitionAggregate(where: JSON, lang: String): Aggregate!
   allCodeEnvVar(first: Int, after: String, lang: String): CodeEnvVarConnection!
+  allCodeEnvVarAggregate(where: JSON, lang: String): Aggregate!
   allCodeFacet(first: Int, after: String, lang: String): CodeFacetConnection!
+  allCodeFacetAggregate(where: JSON, lang: String): Aggregate!
   allCodeField(first: Int, after: String, lang: String): CodeFieldConnection!
+  allCodeFieldAggregate(where: JSON, lang: String): Aggregate!
   allCodeFile(where: CodeFileWhere, orderBy: [CodeFileOrder!], first: Int, after: String, lang: String): CodeFileConnection!
+  allCodeFileAggregate(where: CodeFileWhere, lang: String): Aggregate!
   allCodeGitlink(where: CodeGitlinkWhere, orderBy: [CodeGitlinkOrder!], first: Int, after: String, lang: String): CodeGitlinkConnection!
+  allCodeGitlinkAggregate(where: CodeGitlinkWhere, lang: String): Aggregate!
   allCodeHealthEndpoint(first: Int, after: String, lang: String): CodeHealthEndpointConnection!
+  allCodeHealthEndpointAggregate(where: JSON, lang: String): Aggregate!
   allCodeHealthcheck(first: Int, after: String, lang: String): CodeHealthcheckConnection!
+  allCodeHealthcheckAggregate(where: JSON, lang: String): Aggregate!
   allCodeImage(first: Int, after: String, lang: String): CodeImageConnection!
+  allCodeImageAggregate(where: JSON, lang: String): Aggregate!
   allCodeIndex(where: CodeIndexWhere, orderBy: [CodeIndexOrder!], first: Int, after: String, lang: String): CodeIndexConnection!
+  allCodeIndexAggregate(where: CodeIndexWhere, lang: String): Aggregate!
   allCodeInput(first: Int, after: String, lang: String): CodeInputConnection!
+  allCodeInputAggregate(where: JSON, lang: String): Aggregate!
   allCodeK8sDeployment(first: Int, after: String, lang: String): CodeK8sDeploymentConnection!
+  allCodeK8sDeploymentAggregate(where: JSON, lang: String): Aggregate!
   allCodeK8sService(first: Int, after: String, lang: String): CodeK8sServiceConnection!
+  allCodeK8sServiceAggregate(where: JSON, lang: String): Aggregate!
   allCodeLockfile(first: Int, after: String, lang: String): CodeLockfileConnection!
+  allCodeLockfileAggregate(where: JSON, lang: String): Aggregate!
   allCodeLogger(first: Int, after: String, lang: String): CodeLoggerConnection!
+  allCodeLoggerAggregate(where: JSON, lang: String): Aggregate!
   allCodeMakeTarget(first: Int, after: String, lang: String): CodeMakeTargetConnection!
+  allCodeMakeTargetAggregate(where: JSON, lang: String): Aggregate!
   allCodeManifest(first: Int, after: String, lang: String): CodeManifestConnection!
+  allCodeManifestAggregate(where: JSON, lang: String): Aggregate!
   allCodeMessage(first: Int, after: String, lang: String): CodeMessageConnection!
+  allCodeMessageAggregate(where: JSON, lang: String): Aggregate!
   allCodeMetric(first: Int, after: String, lang: String): CodeMetricConnection!
+  allCodeMetricAggregate(where: JSON, lang: String): Aggregate!
   allCodeMetricsEndpoint(first: Int, after: String, lang: String): CodeMetricsEndpointConnection!
+  allCodeMetricsEndpointAggregate(where: JSON, lang: String): Aggregate!
   allCodeMigration(first: Int, after: String, lang: String): CodeMigrationConnection!
+  allCodeMigrationAggregate(where: JSON, lang: String): Aggregate!
   allCodeModule(where: CodeModuleWhere, orderBy: [CodeModuleOrder!], first: Int, after: String, lang: String): CodeModuleConnection!
+  allCodeModuleAggregate(where: CodeModuleWhere, lang: String): Aggregate!
   allCodeNewcomerCommand(first: Int, after: String, lang: String): CodeNewcomerCommandConnection!
+  allCodeNewcomerCommandAggregate(where: JSON, lang: String): Aggregate!
   allCodeNewcomerFailure(first: Int, after: String, lang: String): CodeNewcomerFailureConnection!
+  allCodeNewcomerFailureAggregate(where: JSON, lang: String): Aggregate!
   allCodeNewcomerPrerequisites(first: Int, after: String, lang: String): CodeNewcomerPrerequisitesConnection!
+  allCodeNewcomerPrerequisitesAggregate(where: JSON, lang: String): Aggregate!
   allCodeOperation(where: CodeOperationWhere, orderBy: [CodeOperationOrder!], first: Int, after: String, lang: String): CodeOperationConnection!
+  allCodeOperationAggregate(where: CodeOperationWhere, lang: String): Aggregate!
   allCodePackage(where: CodePackageWhere, orderBy: [CodePackageOrder!], first: Int, after: String, lang: String): CodePackageConnection!
+  allCodePackageAggregate(where: CodePackageWhere, lang: String): Aggregate!
   allCodePort(first: Int, after: String, lang: String): CodePortConnection!
+  allCodePortAggregate(where: JSON, lang: String): Aggregate!
   allCodeProbe(first: Int, after: String, lang: String): CodeProbeConnection!
+  allCodeProbeAggregate(where: JSON, lang: String): Aggregate!
   allCodeProcess(first: Int, after: String, lang: String): CodeProcessConnection!
+  allCodeProcessAggregate(where: JSON, lang: String): Aggregate!
   allCodeRepository(where: CodeRepositoryWhere, orderBy: [CodeRepositoryOrder!], first: Int, after: String, lang: String): CodeRepositoryConnection!
+  allCodeRepositoryAggregate(where: CodeRepositoryWhere, lang: String): Aggregate!
   allCodeRoute(first: Int, after: String, lang: String): CodeRouteConnection!
+  allCodeRouteAggregate(where: JSON, lang: String): Aggregate!
   allCodeService(where: CodeServiceWhere, orderBy: [CodeServiceOrder!], first: Int, after: String, lang: String): CodeServiceConnection!
+  allCodeServiceAggregate(where: CodeServiceWhere, lang: String): Aggregate!
   allCodeSnapshot(first: Int, after: String, lang: String): CodeSnapshotConnection!
+  allCodeSnapshotAggregate(where: JSON, lang: String): Aggregate!
   allCodeSqlBuild(first: Int, after: String, lang: String): CodeSqlBuildConnection!
+  allCodeSqlBuildAggregate(where: JSON, lang: String): Aggregate!
   allCodeSqlSink(first: Int, after: String, lang: String): CodeSqlSinkConnection!
+  allCodeSqlSinkAggregate(where: JSON, lang: String): Aggregate!
   allCodeSymbol(where: CodeSymbolWhere, orderBy: [CodeSymbolOrder!], first: Int, after: String, lang: String): CodeSymbolConnection!
+  allCodeSymbolAggregate(where: CodeSymbolWhere, lang: String): Aggregate!
   allCodeTable(where: CodeTableWhere, orderBy: [CodeTableOrder!], first: Int, after: String, lang: String): CodeTableConnection!
+  allCodeTableAggregate(where: CodeTableWhere, lang: String): Aggregate!
   allCodeTask(first: Int, after: String, lang: String): CodeTaskConnection!
+  allCodeTaskAggregate(where: JSON, lang: String): Aggregate!
   allCodeTestCase(first: Int, after: String, lang: String): CodeTestCaseConnection!
+  allCodeTestCaseAggregate(where: JSON, lang: String): Aggregate!
   allCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String, lang: String): CodeTestQuarantineConnection!
+  allCodeTestQuarantineAggregate(where: CodeTestQuarantineWhere, lang: String): Aggregate!
   allCorrection(where: CorrectionWhere, orderBy: [CorrectionOrder!], first: Int, after: String, lang: String): CorrectionConnection!
+  allCorrectionAggregate(where: CorrectionWhere, lang: String): Aggregate!
   allDocDecision(where: DocDecisionWhere, orderBy: [DocDecisionOrder!], first: Int, after: String, lang: String): DocDecisionConnection!
+  allDocDecisionAggregate(where: DocDecisionWhere, lang: String): Aggregate!
   allDocRequirement(where: DocRequirementWhere, orderBy: [DocRequirementOrder!], first: Int, after: String, lang: String): DocRequirementConnection!
+  allDocRequirementAggregate(where: DocRequirementWhere, lang: String): Aggregate!
   allDocRule(where: DocRuleWhere, orderBy: [DocRuleOrder!], first: Int, after: String, lang: String): DocRuleConnection!
+  allDocRuleAggregate(where: DocRuleWhere, lang: String): Aggregate!
   allDocTerm(where: DocTermWhere, orderBy: [DocTermOrder!], first: Int, after: String, lang: String): DocTermConnection!
+  allDocTermAggregate(where: DocTermWhere, lang: String): Aggregate!
   allDocUseCase(where: DocUseCaseWhere, orderBy: [DocUseCaseOrder!], first: Int, after: String, lang: String): DocUseCaseConnection!
+  allDocUseCaseAggregate(where: DocUseCaseWhere, lang: String): Aggregate!
   allDocument(where: DocumentWhere, orderBy: [DocumentOrder!], first: Int, after: String, lang: String): DocumentConnection!
+  allDocumentAggregate(where: DocumentWhere, lang: String): Aggregate!
   allDomain(where: DomainWhere, orderBy: [DomainOrder!], first: Int, after: String, lang: String): DomainConnection!
+  allDomainAggregate(where: DomainWhere, lang: String): Aggregate!
   allEnrichment(where: EnrichmentWhere, orderBy: [EnrichmentOrder!], first: Int, after: String, lang: String): EnrichmentConnection!
+  allEnrichmentAggregate(where: EnrichmentWhere, lang: String): Aggregate!
   allProblemDismissal(where: ProblemDismissalWhere, orderBy: [ProblemDismissalOrder!], first: Int, after: String, lang: String): ProblemDismissalConnection!
+  allProblemDismissalAggregate(where: ProblemDismissalWhere, lang: String): Aggregate!
   allProduct(where: ProductWhere, orderBy: [ProductOrder!], first: Int, after: String, lang: String): ProductConnection!
+  allProductAggregate(where: ProductWhere, lang: String): Aggregate!
   allQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String, lang: String): QuestionConnection!
+  allQuestionAggregate(where: QuestionWhere, lang: String): Aggregate!
   allSource(where: SourceWhere, orderBy: [SourceOrder!], first: Int, after: String, lang: String): SourceConnection!
+  allSourceAggregate(where: SourceWhere, lang: String): Aggregate!
   allTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String, lang: String): TaskConnection!
+  allTaskAggregate(where: TaskWhere, lang: String): Aggregate!
   allUserGuide(where: UserGuideWhere, orderBy: [UserGuideOrder!], first: Int, after: String, lang: String): UserGuideConnection!
+  allUserGuideAggregate(where: UserGuideWhere, lang: String): Aggregate!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
   navigation(lang: String): Navigation!
+  cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
+  related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }
 
 input AdministratorGuideBodyFilter {
@@ -6312,6 +6427,12 @@ input QuestionWhere {
   title: QuestionTitleFilter
   body: QuestionBodyFilter
   front: QuestionFrontFilter
+}
+
+input RelatedOrder {
+  field: String!
+  direction: OrderDirection
+  nulls: NullsOrder
 }
 
 input SourceCommitFilter {

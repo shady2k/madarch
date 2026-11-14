@@ -1,0 +1,130 @@
+# A kind's catalogue page, as the graph's own kind (decision 0036, section 6): what the kind is, the facts the graph
+# holds of its records (counted, grouped, ranked and bucketed in SQL), and the records themselves, their columns asked by
+# the fields a file states. The page of the catalogue entry of `code.file`; every other kind opens `catalogue-entity`.
+template: catalogue-code-file
+extends: catalogue-entity
+catalogue: [code.file]
+sections:
+  - id: facts
+    replace: true
+    component: facts
+    title: { en: What it is, ru: Что это }
+    query: |
+      label
+      definition
+      group
+      subgroup
+      purpose
+      audience
+      taken
+      standards
+    params:
+      rows:
+        - { label: { en: Definition, ru: Определение }, path: definition, keep: true }
+        - { label: { en: Area, ru: Область }, path: group, format: group }
+        - { label: { en: Subgroup, ru: Подгруппа }, path: subgroup, format: group }
+        - { label: { en: Purpose, ru: Назначение }, path: purpose, format: purpose }
+        - { label: { en: Audience, ru: Аудитория }, path: audience, format: audience }
+        - { label: { en: In the product, ru: В продукте }, path: taken, format: boolean }
+        - { label: { en: Sources, ru: Источники }, path: standards, format: links }
+  - id: count
+    component: facts
+    on: root
+    title: { en: Files, ru: Файлы }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+      }
+    params:
+      rows:
+        - { label: { en: Files, ru: Файлы }, path: count, format: number }
+  - id: byLanguage
+    component: bars
+    on: root
+    title: { en: By language, ru: По языку }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "language", limit: 20) { key count }
+      }
+    params:
+      path: groupBy
+  - id: byFolder
+    component: bars
+    on: root
+    title: { en: By folder, ru: По папке }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "directory", limit: 20) { key count }
+      }
+    params:
+      path: groupBy
+  - id: largest
+    component: bars
+    on: root
+    title: { en: Largest files, ru: Самые большие }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        topN(field: "bytes", n: 10) { value node { id kind label } }
+      }
+    params:
+      path: topN
+      labelPath: node.label
+      valuePath: value
+  - id: mostChanged
+    component: bars
+    on: root
+    title: { en: Most changed, ru: Самые изменяемые }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        topN(field: "commitCount", n: 10) { value node { id kind label } }
+      }
+    params:
+      path: topN
+      labelPath: node.label
+      valuePath: value
+  - id: age
+    component: bars
+    on: root
+    title: { en: Time since the last change, ru: Время с последнего изменения }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        histogram(field: "lastChange", bounds: [30, 90, 365]) { from to count }
+      }
+    params:
+      path: histogram
+      buckets: true
+  - id: records
+    replace: true
+    component: table
+    title: { en: Records, ru: Записи }
+    query: |
+      instances(first: $records_first, after: $records_after) {
+        edges {
+          node {
+            id
+            kind
+            label
+            ... on CodeFile {
+              path
+              language
+              class
+              lines
+              lastChange
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+      }
+    params:
+      path: instances
+      pageSize: 50
+      columns:
+        - { label: { en: Path, ru: Путь }, path: node.label }
+        - { label: { en: Language, ru: Язык }, path: node.language }
+        - { label: { en: Class, ru: Класс }, path: node.class }
+        - { label: { en: Lines, ru: Строк }, path: node.lines, format: number }
+        - { label: { en: Last change, ru: Последнее изменение }, path: node.lastChange, format: date }

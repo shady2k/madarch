@@ -1,0 +1,205 @@
+# A file of a code repository (decision 0036, section 6): what the graph says of it, the picture of its place, and the
+# three tabs the old page opened — its own facts and picture, its history, and the files that changed with it. The
+# relations stand beside them, each asking one relation of the graph at a time, so a page's rows are its own and a
+# commit reads as its short hash, its message, its date and its author.
+template: code-file
+extends: entity
+records: [code.file]
+sections:
+  - id: header
+    replace: true
+    component: header
+    title: { en: File, ru: Файл }
+    query: |
+      id
+      kind
+      label
+      template
+      repository
+      path
+    params:
+      titlePath: label
+      kindPath: kind
+      trail: { repository: repository, path: path }
+  - id: tabs
+    after: header
+    component: tabs
+    params:
+      groups:
+        - title: { en: Overview, ru: Обзор }
+          sections: [facts, diagram]
+        - title: { en: History, ru: История }
+          sections: [history]
+        - title: { en: Co-change, ru: Совместные изменения }
+          sections: [cochange]
+  - id: facts
+    after: header
+    component: facts
+    title: { en: Facts, ru: Факты }
+    query: |
+      language
+      class
+      lines
+      bytes
+      addedAt
+      addedIn
+      removedAt
+      removedIn
+      lastChange
+      commitCount
+      repository
+      directory
+      contested
+    params:
+      rows:
+        - { label: { en: Language, ru: Язык }, path: language }
+        - { label: { en: Type, ru: Тип }, path: class }
+        - { label: { en: Lines, ru: Строк }, path: lines, format: number }
+        - { label: { en: Size, ru: Размер }, path: bytes, format: bytes }
+        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: addedIn, format: commit } }
+        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: removedIn, format: commit } }
+        - { label: { en: Last change, ru: Последнее изменение }, path: lastChange, format: date }
+        - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
+        - { label: { en: Repository, ru: Репозиторий }, path: repository }
+        - { label: { en: Folder, ru: Папка }, path: directory }
+  - id: latest
+    component: facts
+    on: root
+    title: { en: Last change, ru: Последнее изменение }
+    query: |
+      related(id: $id, edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 1) {
+        edges {
+          node {
+            id
+            kind
+            label
+            ... on CodeCommit {
+              hash
+              subject
+              commitDate
+              codeAuthoredOf(first: 1) {
+                edges { node { node { id label } } }
+              }
+            }
+          }
+        }
+      }
+    params:
+      rows:
+        - { label: { en: Latest commit, ru: Последний коммит }, path: edges.0.node, format: commit }
+  - id: history
+    component: table
+    on: root
+    title: { en: History, ru: История }
+    query: |
+      related(id: $id, edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: $history_first, after: $history_after) {
+        edges {
+          node {
+            id
+            kind
+            ... on CodeCommit {
+              subject
+              commitDate
+              codeAuthoredOf(first: 1) {
+                edges { node { node { id label } } }
+              }
+            }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+        totalCount
+      }
+    params:
+      path: .
+      pageSize: 20
+      emptyText: { en: No commit changed this file, ru: Ни один коммит не менял этот файл }
+      columns:
+        - { label: { en: Date, ru: Дата }, path: node.commitDate, format: date }
+        - { label: { en: Author, ru: Автор }, path: node.codeAuthoredOf.edges.0.node.node.label }
+        - { label: { en: Message, ru: Сообщение }, path: node.subject }
+  - id: cochange
+    component: table
+    on: root
+    title: { en: Changed together, ru: Совместные изменения }
+    query: |
+      cochange(id: $id, edge: "code.touched", first: 20) {
+        count
+        node { id kind label }
+      }
+    params:
+      path: .
+      emptyText: { en: No other file changed with it twice, ru: Ни один другой файл не менялся вместе с ним дважды }
+      columns:
+        - { label: { en: File, ru: Файл }, path: node.label }
+        - { label: { en: Commits together, ru: Общих коммитов }, path: count, format: number }
+  - id: outgoing
+    replace: true
+    component: relations
+    on: root
+    title: { en: Leads to, ru: Ведёт к }
+    query: |
+      related(id: $id, edge: "code.imports", inverse: false, first: 50) {
+        edges { node { id kind label } }
+        totalCount
+      }
+    params:
+      path: .
+      edge: code.imports
+      inverse: false
+      emptyText: { en: Nothing leads out of it, ru: Ничего не ведёт отсюда }
+  - id: contained
+    after: backlinks
+    component: relations
+    on: root
+    title: { en: Contained in, ru: Содержится в }
+    query: |
+      related(id: $id, edge: "code.contains", inverse: true, first: 5) {
+        edges { node { id kind label } }
+        totalCount
+      }
+    params:
+      path: .
+      edge: code.contains
+      inverse: true
+  - id: backlinks
+    replace: true
+    component: relations
+    on: root
+    title: { en: Changed by, ru: Изменён коммитами }
+    query: |
+      related(id: $id, edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 10) {
+        edges {
+          node {
+            id
+            kind
+            label
+            ... on CodeCommit {
+              hash
+              subject
+              commitDate
+              codeAuthoredOf(first: 1) {
+                edges { node { node { id label } } }
+              }
+            }
+          }
+        }
+        totalCount
+      }
+    params:
+      path: .
+      edge: code.touched
+      inverse: true
+  - id: imported
+    after: contained
+    component: relations
+    on: root
+    title: { en: Imported by, ru: Импортируется из }
+    query: |
+      related(id: $id, edge: "code.imports", inverse: true, first: 50) {
+        edges { node { id kind label } }
+        totalCount
+      }
+    params:
+      path: .
+      edge: code.imports
+      inverse: true

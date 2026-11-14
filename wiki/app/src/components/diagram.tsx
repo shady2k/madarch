@@ -25,7 +25,7 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'archify', label: 'archify' },
 ];
 
-/** The format the reader opened last; the first visit draws nothing until the reader asks, because each picture costs a render. */
+/** The format the reader opened last; the first visit draws the server's own LikeC4 picture until the reader picks another. */
 const PREFERRED_KEY = 'madarch-wiki-diagram';
 
 function preferredTab(): Tab | null {
@@ -35,7 +35,7 @@ function preferredTab(): Tab | null {
   } catch {
     // A browser that refuses storage keeps the choice for this page only.
   }
-  return null;
+  return 'likec4';
 }
 
 export function DiagramSection({ context }: { readonly context: SectionContext }): ReactElement {
@@ -43,7 +43,7 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   const id = typeof valueAt(context.data, 'id') === 'string' ? String(valueAt(context.data, 'id')) : '';
   const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
-  const [tab, setTab] = useState<Tab | null>(() => preferredTab());
+  const [tab, setTab] = useState<Tab>(() => preferredTab() ?? 'likec4');
   const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
   const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
@@ -66,16 +66,14 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
       setAnswers((held) => ({ ...held, [format]: { failed: error instanceof Error ? error.message : String(error) } }));
     }
   }, [address, answers, id]);
-  useEffect(() => { if (tab !== null) void ask(tab); }, [tab, ask]);
-  const held = tab === null ? undefined : answers[tab];
+  useEffect(() => { void ask(tab); }, [tab, ask]);
+  const held = answers[tab];
   return (
-    <Tabs value={tab ?? ''} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
+    <Tabs value={tab} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
       <TabsList aria-label="diagram">
         {TABS.map((one) => <TabsTrigger key={one.id} value={one.id}>{one.label}</TabsTrigger>)}
       </TabsList>
-      {tab === null ? (
-        <Paragraph>{t('knowledge.choosePicture')}</Paragraph>
-      ) : (
+      {(
         <TabsContent value={tab}>
           {tab === 'archify' ? (
             <ArchifyPane src={address('archify')} root={root} open={context.open} />

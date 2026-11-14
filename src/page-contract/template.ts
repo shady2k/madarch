@@ -48,6 +48,8 @@ export interface TemplateFile {
   readonly records: readonly string[];
   /** The entities that open this template by their own id (the bootstrap's `ownTemplates`). */
   readonly entities: readonly string[];
+  /** The kinds whose catalogue entry opens this template (the bootstrap's `ownTemplates`, by that entry's id). */
+  readonly catalogue: readonly string[];
   readonly variables: Readonly<Record<string, TemplateVariable>>;
   readonly sections: readonly PageSection[];
 }
@@ -160,6 +162,7 @@ export function readTemplate(text: string, options: { readonly name: string; rea
       ...(isScalar(childOf(root, 'extends')) ? { extends: String((childOf(root, 'extends') as { value: unknown }).value) } : {}),
       records: stringsOf(nodeValue(childOf(root, 'records'))),
       entities: stringsOf(nodeValue(childOf(root, 'entities'))),
+      catalogue: stringsOf(nodeValue(childOf(root, 'catalogue'))),
       variables: (nodeValue(variablesNode) ?? {}) as Record<string, TemplateVariable>,
       sections,
     },

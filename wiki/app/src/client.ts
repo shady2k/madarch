@@ -24,11 +24,18 @@ export interface NavigationGroup {
   readonly parent: string | null;
 }
 
-/** The frame's whole data: the product's name, its groups and the kinds it declares with their counts. */
+/** One purpose of the manifest: its id and its words in every interface language. */
+export interface NavigationPurpose {
+  readonly id: string;
+  readonly labels: Record<string, string>;
+}
+
+/** The frame's whole data: the product's name, its groups and purposes, and the kinds it declares with their counts. */
 export interface Navigation {
   readonly product: string | null;
   readonly groups: readonly NavigationGroup[];
   readonly kinds: readonly NavigationKind[];
+  readonly purposes: readonly NavigationPurpose[];
 }
 
 /**
@@ -49,6 +56,7 @@ export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
     product
     groups { name labels short open parent }
     kinds { kind one many group count entryId }
+    purposes { id labels }
   }
 }`;
 

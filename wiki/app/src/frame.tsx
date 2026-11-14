@@ -4,7 +4,7 @@
  * in the top bar. Everything it draws comes from the one navigation answer and the app's own words: the sidebar knows no
  * kind of its own, and a row opens the catalogue entry of its kind, whose page the product's templates draw.
  */
-import { useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -24,6 +24,9 @@ import {
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './components/ui/dropdown-menu.js';
 import { Button } from './components/ui/button.js';
+import { Input } from './components/ui/input.js';
+import { SearchContainer } from './components/ui/search-results.js';
+import { askSearch, ResultsOf, type SearchAnswer } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { PageHeader, PageTitle, Paragraph, Text } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
@@ -238,8 +241,63 @@ function LanguageMenu({ language, onLanguage }: { readonly language: 'en' | 'ru'
   );
 }
 
-/** The top bar: where the reader stands, their role, the language and the way to read the graph again. */
-export function FrameToolbar({ product, base, task, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
+
+/** The search in the top bar (the old portal's field): as the reader types, the graph's `search` root answers, grouped by
+ * kind in the reader's language; Enter opens the results page, and Escape closes the answers. */
+function SearchBox({ base, open, kindWord }: { readonly base: string; readonly open: (path: string) => void; readonly kindWord: (kind: unknown) => string }): ReactElement {
+  const { t } = useTranslation();
+  const [text, setText] = useState('');
+  const [answer, setAnswer] = useState<SearchAnswer | undefined>(undefined);
+  const [shown, setShown] = useState(false);
+  const [failed, setFailed] = useState<string | undefined>(undefined);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; if (timer.current !== null) clearTimeout(timer.current); }, []);
+  const ask = (value: string): void => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void askSearch(base, value, undefined, 8).then((result) => {
+        if (!alive.current) return;
+        if (result.failure !== undefined) { setFailed(result.failure); setAnswer(undefined); setShown(true); return; }
+        setFailed(undefined);
+        setAnswer(result.answer);
+        setShown(true);
+      });
+    }, 180);
+  };
+  const goResults = (): void => {
+    if (text.trim() === '') return;
+    setShown(false);
+    open(`/p/search?text=${encodeURIComponent(text.trim())}`);
+  };
+  return (
+    <SearchContainer>
+      <Input
+        className="shell-search-input"
+        value={text}
+        aria-label={t('knowledge.searchLabel')}
+        placeholder={t('knowledge.searchPlaceholder')}
+        data-testid="search-field"
+        onChange={(event) => { setText(event.target.value); ask(event.target.value); }}
+        onFocus={() => { if (answer !== undefined) setShown(true); }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') { event.preventDefault(); goResults(); }
+          if (event.key === 'Escape') setShown(false);
+        }}
+      />
+      {shown ? (
+        failed !== undefined
+          ? <ResultsOf answer={{ edges: [], totalCount: 0 }} base={base} open={open} kindWord={kindWord} testId="search-failed" />
+          : answer === undefined || answer.edges.length === 0
+            ? null
+            : <ResultsOf answer={answer} base={base} open={(path) => { setShown(false); open(path); }} kindWord={kindWord} testId="search-results" />
+      ) : null}
+    </SearchContainer>
+  );
+}
+
+/** The top bar: where the reader stands, the search, the way to the fill, the role and the language. */
+export function FrameToolbar({ product, base, task, language, role, roles, navigation, busy, menu, open, onLanguage, onRole, onReload }: {
   readonly product: string | null;
   readonly base: string;
   /** The section in front, or nothing when the page is an entity's own. */
@@ -247,6 +305,7 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
   readonly language: 'en' | 'ru';
   readonly role: string;
   readonly roles: readonly string[];
+  readonly navigation: Navigation | null;
   readonly busy: boolean;
   /** The navigation at a phone's width. */
   readonly menu: ReactNode;
@@ -256,6 +315,10 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
   readonly onReload: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const kindWord = (kind: unknown): string => {
+    const name = typeof kind === 'string' ? kind : '';
+    return navigation?.kinds.find((one) => one.kind === name)?.many ?? name;
+  };
   return (
     <ShellToolbar>
       <ShellBreadcrumb>
@@ -264,6 +327,8 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
       </ShellBreadcrumb>
       <ShellActions>
         {menu}
+        <SearchBox base={base} open={open} kindWord={kindWord} />
+        <Button variant="default" size="default" data-testid="fill-button" onClick={() => { open(FRAME_PAGES.fill); }}>{t('knowledge.fillRun.open')}</Button>
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
         </Button>

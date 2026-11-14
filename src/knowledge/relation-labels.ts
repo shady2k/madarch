@@ -222,6 +222,68 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
   }
 };
 
+/**
+ * The words a relation is drawn with, by the direction it is read in: what an entity leads to (`out`) and what reaches
+ * it (`in`). The catalogue names the relations; the wiki's two languages word them, and a relation the table does not
+ * hold keeps the readable spelling of its name.
+ */
+const INVERSE_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<string, string>>>> = {
+  en: {
+    'code.contains': 'contained in',
+    'code.touched': 'changed by',
+    'code.imports': 'imported by',
+    'code.imports-package': 'imported by',
+    'code.has-column': 'column of',
+    'code.has-index': 'index of',
+    'code.foreign-key': 'referenced by',
+    'code.declared-in': 'declares',
+    'code.authored': 'authored by',
+    'code.parent': 'parent of',
+    'code.renamed-from': 'renamed to',
+    'code.renamed-to': 'renamed from',
+    'code.as-is': 'snapshot of',
+    'code.history': 'history of',
+    'contains': 'contained in',
+    'partOf': 'part of',
+    'linksTo': 'linked from',
+    'mentions': 'mentioned by',
+    'grounds': 'grounds',
+  },
+  ru: {
+    'code.contains': 'содержится в',
+    'code.touched': 'изменён коммитами',
+    'code.imports': 'импортируется из',
+    'code.imports-package': 'импортируется из',
+    'code.has-column': 'столбец таблицы',
+    'code.has-index': 'индекс таблицы',
+    'code.foreign-key': 'ссылается на',
+    'code.declared-in': 'объявлена в',
+    'code.authored': 'автор',
+    'code.parent': 'родитель для',
+    'code.renamed-from': 'переименовано в',
+    'code.renamed-to': 'переименовано из',
+    'code.as-is': 'снимок',
+    'code.history': 'история',
+    'contains': 'содержится в',
+    'partOf': 'часть',
+    'linksTo': 'ссылаются на',
+    'mentions': 'упомянут в',
+    'grounds': 'основание',
+  },
+};
+
+/** A relation's word in the direction it was read: the edge's `out` side by default, its `in` side when asked. */
+export function relationWords(edge: string, language: string, inverse: boolean): string {
+  const code = language.startsWith('ru') ? 'ru' : 'en';
+  const inverseWord = INVERSE_LABELS[code][edge];
+  if (inverse) return inverseWord ?? readable(edge);
+  return RELATION_LABELS[code][edge] ?? relationLabel(edge, language);
+}
+
+function readable(edge: string): string {
+  return edge.replace(/^code\./u, '').replace(/^engine:/u, '').replace(/-/gu, ' ');
+}
+
 /** A custom product relation keeps the readable spelling the wiki has always shown. */
 export function relationLabel(relation: string, language: string): string {
   return RELATION_LABELS[language.startsWith('ru') ? 'ru' : 'en'][relation]

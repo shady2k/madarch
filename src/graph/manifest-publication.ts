@@ -15,6 +15,9 @@ import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { SchemaRefusal } from '../graphql/names.js';
+import { writeProductEntity } from './start-entity.js';
+import { productEntityOf } from '../product/manifest.js';
+import { homeKind } from '../product/manifest/kinds.js';
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -108,8 +111,19 @@ function workflowDependencies(stages: readonly string[]): readonly { from: strin
   return read.graph.edges;
 }
 
-/** One transaction closes removed declarations and states the entire valid catalogue atomically. */
+/**
+ * One transaction closes removed declarations and states the entire valid catalogue atomically; the product's own page
+ * is stated beside it, when the product's files name one and the graph holds none (the home page opens on the product).
+ */
 export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests): Promise<number> {
+  const written = await publishDeclarations(owner, validated);
+  const home = homeKind(validated.manifest);
+  await writeProductEntity(owner, home === undefined ? undefined : productEntityOf(validated.folder, { home: { name: home.name, key: home.key, source: home.source } }, headCommitOf(validated.folder)?.commit));
+  return written;
+}
+
+/** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
+async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests): Promise<number> {
   return await owner.transaction('write', async (tx) => {
     const identity = (kind: string, key: unknown): string => JSON.stringify([kind, key]);
     const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);

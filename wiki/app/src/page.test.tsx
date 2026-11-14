@@ -33,7 +33,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>): P
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); } },
+      runtime: { base: '', language: 'en', busy: false, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, product: 'Madarch', navigation: null },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -186,11 +186,11 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   try {
     const tabs = [...page.container.querySelectorAll('[role="tab"]')].map((one) => one.textContent);
     expect(tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
-    // A picture costs a server render: nothing is asked until the reader picks a tab.
-    expect(requested).toHaveLength(0);
+    // The first tab is the picture drawn by itself: LikeC4's view is asked for at once.
+    expect(requested).toHaveLength(1);
+    expect(requested[0]).toContain('format=likec4');
     const likeC4Tab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'LikeC4');
     await act(async () => { likeC4Tab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
-    expect(requested).toHaveLength(1);
     expect(requested[0]).toContain('/render/diagram?entity=uid');
     expect(requested[0]).toContain('format=likec4');
     const mermaidTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');

@@ -14,7 +14,7 @@ import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPa
 import { KitPage } from './kit-page.js';
 import { parseAddress, type FramePage } from './address.js';
 import { PageView, type PageRuntime } from './page.js';
-import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
+import { Alert, AlertDescription } from './components/ui/alert.js';
 import {
   ShellDocument, ShellError, ShellFixed, ShellMain, ShellNavigationLoading, ShellRow, ShellScroll, ShellSidebar,
   ShellToolbarLoading,
@@ -170,7 +170,7 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  const runtime: PageRuntime = { base, language, busy, open, reload };
+  const runtime: PageRuntime = { base, language, busy, open, reload, product: navigation?.product ?? null, navigation };
   const section: FramePage | null = address.frame;
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
@@ -218,6 +218,7 @@ export function App(): ReactElement {
               language={language}
               role={role}
               roles={bootstrap.roles}
+              navigation={navigation}
               busy={busy}
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
@@ -232,7 +233,6 @@ export function App(): ReactElement {
                 <main data-testid="wiki-main">
                   {failure === null ? null : (
                     <Alert variant="problem" className="mb-4" data-testid="wiki-error">
-                      <AlertTitle>{t('knowledge.noSuchPage')}</AlertTitle>
                       <AlertDescription>{failure}</AlertDescription>
                     </Alert>
                   )}

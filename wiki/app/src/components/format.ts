@@ -21,8 +21,24 @@ export function formatValue(value: unknown, format: string, language: string): s
     const date = new Date(String(value));
     return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(language, { dateStyle: 'medium' }).format(date);
   }
+  if (Array.isArray(value)) return value.map((one) => formatValue(one, 'text', language)).join(', ');
+  if (typeof value === 'boolean') return value ? '✓' : '—';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+/** The date a timestamp reads as, or nothing when the value is not one. */
+export function dateOf(value: unknown, language: string): string | undefined {
+  if (typeof value !== 'string' || value === '') return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : new Intl.DateTimeFormat(language, { dateStyle: 'medium' }).format(date);
+}
+
+/** The short form of a commit hash: the seven characters Git itself shows. */
+export function shortHash(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return /^[0-9a-f]{7,64}$/u.test(trimmed) ? trimmed.slice(0, 7) : undefined;
 }
 
 /** The label a text states in the reader's language, else English, else the value itself. */

@@ -15,8 +15,11 @@ import { ReadContext, entityOf } from './graphql-read.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { readProductTemplates } from './product-templates.js';
 
-/** The depth a query may reach, counting the root field as one (decision 0036, section 5). */
-export const MAX_DEPTH = 6;
+/**
+ * The depth a query may reach, counting the root field as one (decision 0036, section 5; seven since the portal frame's
+ * return, so a page can reach a commit's author through the relation that names it).
+ */
+export const MAX_DEPTH = 7;
 /** The deadline of one operation, in milliseconds. */
 export const DEADLINE_MS = 2000;
 /** The aliases one operation may hold (decision 0036, section 5). */

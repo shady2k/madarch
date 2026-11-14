@@ -73,7 +73,7 @@ describe('the starter templates', () => {
     }
     for (const name of templateNames) expect(resolveTemplate(name, templates).findings).toEqual([]);
     expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'facts', 'records', 'diagram', 'outgoing', 'backlinks']);
-    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'body', 'facts', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'body', 'diagram', 'outgoing', 'backlinks']);
   });
 
   test('the home page composes against the real schema', () => {
@@ -113,29 +113,30 @@ describe('the starter templates', () => {
 
   test('the split hands each section the value under its alias', () => {
     const page = composePage(bootstrap, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000006' });
-    const data = { s_header: { label: 'a' }, s_facts: { id: 'x' } };
+    const data = { s_header: { label: 'a' }, s_diagram: { id: 'x' } };
     expect(splitResponse(page, data)['header']).toEqual({ label: 'a' });
-    expect(splitResponse(page, data)['facts']).toEqual({ id: 'x' });
+    expect(splitResponse(page, data)['diagram']).toEqual({ id: 'x' });
     expect(splitResponse(page, data)['backlinks']).toBeNull();
   });
 
   test('a section that asks the graph nothing is drawn by the page and holds no part in the operation', () => {
-    // The home template's search and kind tabs name no query: the page's operation asks only its data sections.
-    const page = composePage(bootstrap, { home: true });
+    // A section that names no query (the file page's tabs) is drawn by the page alone: the operation asks only its data.
+    const quiet = body('entity').replace('  - id: header\n', '  - id: tabs\n    component: tabs\n    params:\n      sections: [header]\n  - id: header\n');
+    const held: Bootstrap = { ...bootstrap, templates: [{ name: 'entity', body: quiet }] };
+    const page = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000009' });
     expect(page.findings).toEqual([]);
-    expect(page.sections.map((one) => one.id)).toContain('search');
-    expect(page.operation).not.toContain('s_search');
-    expect(page.operation).not.toContain('$id');
+    expect(page.sections.map((one) => one.id)).toContain('tabs');
+    expect(page.operation).not.toContain('s_tabs');
     expect(validate(schema, parse(page.operation))).toEqual([]);
   });
 
   test('a section is shown to the role its template names, and to every role without one', () => {
-    const withRoles = body('entity').replace('    component: facts\n', '    component: facts\n    roles: { show: [engineer] }\n');
+    const withRoles = body('entity').replace('    component: header\n', '    component: header\n    roles: { show: [engineer] }\n');
     const held: Bootstrap = { ...bootstrap, templates: [{ name: 'entity', body: withRoles }], roles: ['engineer', 'analyst'] };
     const engineer = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'engineer' });
     const analyst = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'analyst' });
-    expect(engineer.sections.map((one) => one.id)).toContain('facts');
-    expect(analyst.sections.map((one) => one.id)).not.toContain('facts');
+    expect(engineer.sections.map((one) => one.id)).toContain('header');
+    expect(analyst.sections.map((one) => one.id)).not.toContain('header');
   });
 
   test('a template an address names is composed, and one it cannot bind is refused', () => {

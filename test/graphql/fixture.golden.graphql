@@ -4,8 +4,17 @@ scalar DateTime
 
 scalar JSON
 
+type Aggregate {
+  count: Int!
+  groupBy(field: String!, limit: Int = 20): [Group!]!
+  histogram(field: String!, bounds: [JSON!]!): [Bucket!]!
+  topN(field: String!, n: Int = 10): [Ranked!]!
+}
+
 type Backlink {
   relation: String!
+  edge: String!
+  inverse: Boolean!
   from: Entity!
 }
 
@@ -36,6 +45,12 @@ type BootstrapHome {
   template: String!
 }
 
+type Bucket {
+  from: JSON
+  to: JSON
+  count: Int!
+}
+
 type CatalogueEntity implements Entity {
   id: ID!
   kind: String!
@@ -57,6 +72,7 @@ type CatalogueEntity implements Entity {
   plugins: [String!]!
   fields: [CatalogueField!]!
   instances(first: Int, after: String, lang: String): EntityConnection!
+  instancesAggregate(where: JSON, lang: String): Aggregate!
   derivesFrom(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   derivedBy(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   mentions(first: Int, after: String): MentionsConnection!
@@ -80,6 +96,11 @@ type CatalogueField {
   nullable: Boolean!
   reference: String
   producers: [String!]!
+}
+
+type Cochange {
+  node: Entity!
+  count: Int!
 }
 
 type DemoAuthor implements Entity {
@@ -361,6 +382,11 @@ type Evidence {
   words: String
 }
 
+type Group {
+  key: JSON
+  count: Int!
+}
+
 type MentionsConnection {
   edges: [MentionsConnectionEdge!]!
   pageInfo: PageInfo!
@@ -383,6 +409,7 @@ type Navigation {
   product: String
   groups: [NavigationGroup!]!
   kinds: [NavigationKind!]!
+  purposes: [NavigationPurpose!]!
 }
 
 type NavigationGroup {
@@ -402,6 +429,11 @@ type NavigationKind {
   entryId: ID
 }
 
+type NavigationPurpose {
+  id: String!
+  labels: JSON!
+}
+
 type Opinion {
   value: JSON
   producer: String!
@@ -413,6 +445,8 @@ type Opinion {
 
 type Outgoing {
   relation: String!
+  edge: String!
+  inverse: Boolean!
   to: Entity!
 }
 
@@ -442,6 +476,11 @@ type PageTemplate {
   body: String!
 }
 
+type Ranked {
+  node: Entity!
+  value: JSON!
+}
+
 type RecordTemplate {
   kind: String!
   template: String!
@@ -450,15 +489,21 @@ type RecordTemplate {
 type Query {
   entity(id: ID!, lang: String): Entity
   allDemoAuthor(where: DemoAuthorWhere, orderBy: [DemoAuthorOrder!], first: Int, after: String, lang: String): DemoAuthorConnection!
+  allDemoAuthorAggregate(where: DemoAuthorWhere, lang: String): Aggregate!
   allDemoCommit(where: DemoCommitWhere, orderBy: [DemoCommitOrder!], first: Int, after: String, lang: String): DemoCommitConnection!
+  allDemoCommitAggregate(where: DemoCommitWhere, lang: String): Aggregate!
   allDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String, lang: String): DemoFileConnection!
+  allDemoFileAggregate(where: DemoFileWhere, lang: String): Aggregate!
   allDemoRepository(where: DemoRepositoryWhere, orderBy: [DemoRepositoryOrder!], first: Int, after: String, lang: String): DemoRepositoryConnection!
+  allDemoRepositoryAggregate(where: DemoRepositoryWhere, lang: String): Aggregate!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   home(lang: String): Entity
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
   navigation(lang: String): Navigation!
+  cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
+  related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }
 
 input CatalogueEntityDefinitionFilter {
@@ -995,6 +1040,12 @@ input DemoTouchedEdgeWhere {
   weight: DemoTouchedEdgeWeightFilter
   binary: DemoTouchedEdgeBinaryFilter
   meta: DemoTouchedEdgeMetaFilter
+}
+
+input RelatedOrder {
+  field: String!
+  direction: OrderDirection
+  nulls: NullsOrder
 }
 
 enum CatalogueEntityOrderField {

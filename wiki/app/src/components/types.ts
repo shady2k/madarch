@@ -1,10 +1,11 @@
 /**
  * What a page component is handed (decision 0036, section 7): the section of the template, the data the graph answered
- * under its alias, and the page's own runtime — where a press walks, how a table asks for its next page, and how the
- * reader's language and role are spelled.
+ * under its alias, and the page's own runtime — where a press walks, how a table asks for its next page, how the
+ * reader's language and role are spelled, and the product's names the frame read once.
  */
 import type { ReactNode } from 'react';
 import type { ComposedSection } from '../../../../src/page-contract/index.js';
+import type { Navigation } from '../client.js';
 
 export interface SectionContext {
   readonly section: ComposedSection;
@@ -17,4 +18,7 @@ export interface SectionContext {
   readonly reload: (variables: Record<string, unknown>) => void;
   /** One section of this page drawn by its own component: what a `tabs` section shows inside its tab. */
   readonly renderSection: (id: string) => ReactNode;
+  /** The product's name and the kinds the frame's navigation read: what a page's own words come from. */
+  readonly product: string | null;
+  readonly navigation: Navigation | null;
 }
