@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'bun:test';
-import { readProduct, readManifestText, repositoryDeclarationLine, manifestNamed, manifestWithRepo, yamlWord, yamlText, cutComment } from '../src/product/manifest.js';
+import { productEntityOf, readProduct, readManifestText, repositoryDeclarationLine, manifestNamed, manifestWithRepo, yamlWord, yamlText, cutComment } from '../src/product/manifest.js';
 
 const EXAMPLES = fileURLToPath(new URL('../examples/contract/', import.meta.url));
 const SET_MADE = join(EXAMPLES, 'set-made-product');
@@ -324,4 +324,16 @@ describe('manifest text and repository declaration diagnostics', () => {
     expect(repositoryDeclarationLine(folder, 1)).toBe(6);
     expect(repositoryDeclarationLine(folder, 20)).toBe(3);
   });
+});
+
+test('the start states the product name alone, never a README paragraph', () => {
+  const folder = tempFolder('madarch-product-entity-');
+  mkdirSync(join(folder, 'repos', 'sample'), { recursive: true });
+  writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: 1e5c4d90-9f3a-4c7e-b2d1-0a4f6e2b1d33\nname: shop\nrepos:\n  - name: sample\n    url: https://example.invalid/sample.git\n');
+  writeFileSync(join(folder, 'repos', 'sample', 'README.md'), '# Shop\n\nA shop takes orders.\n');
+  const entity = productEntityOf(folder, { home: { name: 'product', key: ['slug'], source: 'graph' } }, undefined);
+  expect(entity?.values).toEqual({ title: 'shop' });
+  expect(entity?.key).toEqual({ slug: 'shop' });
+  expect(entity?.values).not.toHaveProperty('body');
+  expect(entity?.values).not.toHaveProperty('file');
 });

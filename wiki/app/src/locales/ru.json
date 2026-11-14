@@ -366,6 +366,7 @@
     "searchButton": "Найти",
     "tableFilter": "Фильтр",
     "tableEmpty": "Пока нет записей",
+    "textEmpty": "Описание пока не написано.",
     "breadcrumb": "Путь",
     "tableSort": "Сортировка",
     "tableField": "Поле",

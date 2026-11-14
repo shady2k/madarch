@@ -25,7 +25,7 @@
  * opens.
  */
 import { basename, join, resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 /** The schema version madarch writes and reads; the folder layout is fixed by it alone. */
 export const PRODUCT_SCHEMA_VERSION = 1;
@@ -490,58 +490,24 @@ export interface ProductHomeKind { readonly name: string; readonly key?: readonl
 export interface KindManifestLike { readonly home?: ProductHomeKind }
 
 
-/** The first paragraph of a Markdown file after its first heading, and the line it starts on. */
-function summaryOf(markdown: string): { title?: string; body?: string; line: number } {
-  const lines = markdown.split('\n');
-  let heading: string | undefined;
-  let headingLine = 0;
-  const paragraphs: { text: string; line: number }[] = [];
-  let held: string[] = [];
-  let start = 0;
-  for (const [at, raw] of lines.entries()) {
-    const line = raw.trim();
-    if (heading === undefined && /^#\s+/u.test(line)) { heading = line.replace(/^#\s+/u, '').trim(); headingLine = at + 1; continue; }
-    if (heading !== undefined && line.startsWith('## ')) break;
-    if (heading === undefined) continue;
-    if (line === '') {
-      if (held.length > 0) { paragraphs.push({ text: held.join(' '), line: start }); held = []; }
-      continue;
-    }
-    if (line.startsWith('#') || line.startsWith('>') || line.startsWith('```') || line.startsWith('|')) continue;
-    if (held.length === 0) start = at + 1;
-    held.push(line);
-  }
-  if (held.length > 0 && paragraphs.length === 0) paragraphs.push({ text: held.join(' '), line: start });
-  return { ...(heading === undefined ? {} : { title: heading }), ...(paragraphs[0] === undefined ? {} : { body: paragraphs[0].text }), line: paragraphs[0]?.line ?? headingLine ?? 1 };
-}
-
 /** A word as a key: letters, digits and dashes, lower case, so two starts write one key for one product. */
 export function keyWord(value: string): string {
   return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/gu, '') || 'product';
 }
 
-/** The product entity's own values, read from the product's files: its name and its README's first paragraph. */
+/**
+ * The product entity's identity, stated from the product's manifest: the home opens on the product itself, not on an
+ * empty graph. It states the name alone. The description and every other value belong to the graph, written by an agent
+ * or a person; the engine reads no README or vision text into them.
+ */
 export function productEntityOf(folder: string, manifest: KindManifestLike, commit: string | undefined): ProductEntity | undefined {
   const home = (manifest as unknown as { home?: { name: string; key?: readonly string[]; source: string } }).home;
   const kind = home;
   if (kind === undefined || kind.source !== 'graph') return undefined;
   const read = readProduct(folder);
   const name = read.ok === true ? read.product.name : '';
-  const repos = read.ok === true ? read.product.repos : [];
-  const keyOfKind = (title: string): Record<string, unknown> => Object.fromEntries((kind.key ?? []).map((field: string) => [field, keyWord(title)]));
-  for (const repo of repos) {
-    const path = join(folder, 'repos', repo.name, 'README.md');
-    if (!existsSync(path)) continue;
-    const summary = summaryOf(readFileSync(path, 'utf8'));
-    const values: Record<string, unknown> = {
-      ...(summary.title === undefined ? {} : { title: summary.title }),
-      ...(summary.body === undefined ? {} : { body: summary.body, body_line: summary.line }),
-      file: 'README.md',
-    };
-    const title = typeof values['title'] === 'string' ? values['title'] : name;
-    return { kind: kind.name, key: keyOfKind(title), values, evidence: [{ repository: folder, path: `repos/${repo.name}/README.md`, lineStart: summary.line, lineEnd: summary.line, ...(commit === undefined ? {} : { commit }) }] };
-  }
   if (name === '') return undefined;
+  const keyOfKind = (title: string): Record<string, unknown> => Object.fromEntries((kind.key ?? []).map((field: string) => [field, keyWord(title)]));
   return { kind: kind.name, key: keyOfKind(name), values: { title: name }, evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
 }
 

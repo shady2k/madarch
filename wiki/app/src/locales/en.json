@@ -366,6 +366,7 @@
     "searchButton": "Search",
     "tableFilter": "Filter",
     "tableEmpty": "No records yet",
+    "textEmpty": "The description is not written yet.",
     "breadcrumb": "Breadcrumb",
     "tableSort": "Sort",
     "tableField": "Field",

@@ -198,6 +198,15 @@ test('a table offers a sort only when its query declares the order variable', as
   }
 });
 
+test('an empty text section says the description is not written yet', async () => {
+  const page = await renderPage([section('body', 'text', { path: 'body' })], { body: { body: '' } });
+  try {
+    expect(page.container.querySelector('[data-testid="text-empty"]')?.textContent).toBe('The description is not written yet.');
+  } finally {
+    await page.close();
+  }
+});
+
 test('the text section draws the graph\'s Markdown and drops raw HTML', async () => {
   const page = await renderPage([section('body', 'text', { path: 'body' })], { body: { body: '# Title\n\nA *word*.\n\n<script>alert(1)</script>\n' } });
   try {

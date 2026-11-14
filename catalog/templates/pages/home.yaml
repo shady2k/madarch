@@ -1,7 +1,7 @@
 # The product's home page (decision 0036, section 6): the page every product opens at `/`. It shows the product the
-# graph holds (the entity the start states from the product's own files: its name and its README's first paragraph), the
-# code repositories it spans, the main facts of the graph and what it holds of each kind. The whole catalogue is a page
-# of its own, not this one.
+# graph holds (its name from the manifest, and the description an agent or a person wrote; an unwritten description says
+# so), the code repositories it spans, the main facts of the graph and what it holds of each kind. The whole catalogue
+# is a page of its own, not this one.
 template: home
 sections:
   - id: header
