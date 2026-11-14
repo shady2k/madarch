@@ -12,6 +12,10 @@ import {
   Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from './components/ui/breadcrumb.js';
 import { Button } from './components/ui/button.js';
+import {
+  ActivityCalendar, ChartBar, ChartCalendar, ChartHeatmap, ChartSparkline, ChartStackedBar, ChartSunburst, ChartTreemap,
+  type ChartDay, type ChartNode,
+} from './components/ui/charts.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card.js';
 import { Checkbox } from './components/ui/checkbox.js';
 import { ChoiceCard, ChoiceDescription } from './components/ui/choice-card.js';
@@ -36,7 +40,7 @@ import {
 } from './components/ui/graph.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
-import { KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
+import { KitFigureState, KitNarrow, KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
 import { MetadataLine } from './components/ui/metadata-line.js';
 import {
   NavigationCount, NavigationGroup, NavigationGroupTrigger, NavigationLabel, NavigationLink, NavigationPending,
@@ -76,6 +80,42 @@ import {
 } from './components/ui/typography.js';
 
 const CONTENTS = [{ id: 'kit-intro', label: 'UI kit' }, { id: 'kit-forms', label: 'Forms' }];
+
+// The figures' data: a repository by bytes, a catalogue by kinds, fill outcomes by day, and ninety days of fills. Fixed
+// numbers, so the page reads the same on every run and a shot can be compared with the one before it.
+const REPOSITORY: readonly ChartNode[] = [
+  { label: 'src', children: [{ label: 'fill', value: 412 }, { label: 'graph', value: 268 }, { label: 'server', value: 196 }, { label: 'knowledge', value: 154 }] },
+  { label: 'wiki/app', children: [{ label: 'components', value: 231 }, { label: 'styles', value: 88 }, { label: 'page.tsx', value: 64 }] },
+  { label: 'test', children: [{ label: 'fixtures', value: 142 }, { label: 'fill', value: 96 }] },
+  { label: 'docs', value: 120 },
+];
+/** The same shape the catalogue has: many kinds whose tail is folded into one entry when it outgrows the budget. */
+const CATALOGUE: readonly ChartNode[] = Array.from({ length: 40 }, (_, index) => ({ label: `kind-${String(index + 1)}`, value: 40 - index }));
+const BARS = [{ label: 'components', value: 3210 }, { label: 'sections', value: 1840 }, { label: 'templates', value: 912 }, { label: 'views', value: 640 }, { label: 'styles', value: 388 }];
+const GROUPS = ['11 Nov', '12 Nov', '13 Nov', '14 Nov', '15 Nov'];
+const STACKED = [
+  { name: 'published', data: [42, 51, 38, 60, 47] },
+  { name: 'failed', data: [3, 1, 5, 2, 4] },
+  { name: 'blocked', data: [6, 4, 2, 5, 3] },
+];
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const HEATMAP = { rows: WEEKDAYS, cols: ['W45', 'W46', 'W47', 'W48', 'W49'], values: [[6, 8, 3, 9, 5], [4, 7, 9, 2, 8], [5, 3, 6, 7, 4], [9, 2, 4, 8, 6], [3, 6, 8, 5, 7], [1, 2, 1, 3, 2], [0, 1, 2, 1, 0]] };
+const SPARK = [3, 5, 4, 8, 6, 9, 7, 11, 10, 12, 9, 14];
+/** Ninety days of fills ending on a fixed day, so the calendar reads the same every run. */
+const DAYS: readonly ChartDay[] = Array.from({ length: 90 }, (_, index) => {
+  const at = new Date(Date.UTC(2026, 7, 17 + index));
+  return { date: at.toISOString().slice(0, 10), count: (index * 7 + (index % 5) * 3) % 13 };
+});
+const EMPTY_TREE: readonly ChartNode[] = [{ label: 'nothing yet' }];
+
+/** Fold a hierarchy's children to a budget: the biggest stay, the rest become one entry that says how many it holds. */
+function folded(nodes: readonly ChartNode[], budget: number): ChartNode[] {
+  const sorted = [...nodes].sort((left, right) => (right.value ?? 0) - (left.value ?? 0));
+  if (sorted.length <= budget) return sorted;
+  const kept = sorted.slice(0, budget - 1);
+  const rest = sorted.slice(budget - 1);
+  return [...kept, { label: `+${String(rest.length)} folded`, value: rest.reduce((sum, node) => sum + (node.value ?? 0), 0) }];
+}
 
 export function KitPage(): ReactElement {
   const { t } = useTranslation();
@@ -255,6 +295,71 @@ export function KitPage(): ReactElement {
           <SearchResultLink active href="/#kit-intro">{state('sample')}</SearchResultLink>
           <SearchResultLink active={false} href="/#kit-forms">{state('content')}</SearchResultLink>
         </SearchResults>
+      </KitSection>
+
+      <KitSection title={state('charts')} description={state('chartsNote')}>
+        <KitState label={`${state('treemap')} — ${state('data')}`}>
+          <ChartTreemap title={state('treeTitle')} nodes={REPOSITORY} width={640} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('treemap')} — ${state('folded')}`}>
+          <ChartTreemap title={state('foldedTitle')} nodes={folded(CATALOGUE, 6)} width={640} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('treemap')} — ${state('empty')}`}>
+          <ChartTreemap title={state('treeTitle')} nodes={EMPTY_TREE} width={640} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sunburst')} — ${state('data')}`}>
+          <ChartSunburst title={state('sunburstTitle')} nodes={REPOSITORY} width={360} height={360} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sunburst')} — ${state('empty')}`}>
+          <ChartSunburst title={state('sunburstTitle')} nodes={EMPTY_TREE} width={360} height={360} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('bar')} — ${state('data')}`}>
+          <ChartBar title={state('barTitle')} rows={BARS} width={520} height={220} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('bar')} — ${state('empty')}`}>
+          <ChartBar title={state('barTitle')} rows={[]} width={520} height={220} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('stackedBar')} — ${state('data')}`}>
+          <ChartStackedBar title={state('stackedTitle')} groups={GROUPS} series={STACKED} width={520} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('stackedBar')} — ${state('empty')}`}>
+          <ChartStackedBar title={state('stackedTitle')} groups={[]} series={[]} width={520} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('heatmap')} — ${state('data')}`}>
+          <ChartHeatmap title={state('heatmapTitle')} matrix={HEATMAP} width={560} height={260} printValues note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('heatmap')} — ${state('empty')}`}>
+          <ChartHeatmap title={state('heatmapTitle')} matrix={{ rows: WEEKDAYS, cols: [], values: [] }} width={560} height={260} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sparkline')} — ${state('data')}`}>
+          <ChartSparkline title={state('sparklineTitle')} values={SPARK} width={240} height={48} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sparkline')} — ${state('empty')}`}>
+          <ChartSparkline title={state('sparklineTitle')} values={[]} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('calendar')} — ${state('data')}`}>
+          <ChartCalendar title={state('calendarTitle')} days={DAYS} width={640} height={140} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('calendar')} — ${state('empty')}`}>
+          <ChartCalendar title={state('calendarTitle')} days={[]} width={640} height={140} note={state('noData')} />
+        </KitState>
+        <KitFigureState label={`${state('activity')} — ${state('data')}`}>
+          <ActivityCalendar title={state('activityTitle')} days={DAYS} note={state('noData')} />
+        </KitFigureState>
+        <KitFigureState label={`${state('activity')} — ${state('empty')}`}>
+          <ActivityCalendar title={state('activityTitle')} days={[]} note={state('noData')} />
+        </KitFigureState>
+        <KitFigureState label={state('narrow')}>
+          <KitNarrow>
+            <ChartTreemap title={state('treeTitle')} nodes={REPOSITORY} width={390} height={180} note={state('noData')} />
+            <ChartBar title={state('barTitle')} rows={BARS.slice(0, 3)} width={390} height={180} note={state('noData')} />
+            <ChartCalendar title={state('calendarTitle')} days={DAYS} width={390} height={110} note={state('noData')} />
+            <ActivityCalendar title={state('activityTitle')} days={DAYS} note={state('noData')} />
+          </KitNarrow>
+        </KitFigureState>
+        <KitFigureState label={state('darkCharts')}>
+          <ChartHeatmap title={state('heatmapTitle')} matrix={HEATMAP} width={560} height={260} note={state('noData')} />
+        </KitFigureState>
       </KitSection>
 
       <KitSection title="Embedded">

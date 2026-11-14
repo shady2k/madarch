@@ -129,3 +129,25 @@ components from `@assistant-ui/ui`'s sources where the audit finds ours weaker
 
 `bun run check` on this branch, and the wiki app's own `bun run check` and
 `bun test`, before the note was committed. No code changed in this commit.
+
+## The kit page, as reviewed
+
+The chosen forms stand in the kit page (the whole kit's list, decision 0020)
+in their states — with data, empty, folded to a size budget, 390 px, and the
+page's dark scheme — and the four shots below are that section of the page,
+taken with headless Chromium (Chrome for Testing 157, viewport 1440 and 390,
+`prefers-color-scheme` emulated) from a development page that mounts the kit
+page alone.
+
+- [1440 px, light](kit-shots/kit-charts-1440-light.png)
+- [1440 px, dark](kit-shots/kit-charts-1440-dark.png)
+- [390 px, light](kit-shots/kit-charts-390-light.png)
+- [390 px, dark](kit-shots/kit-charts-390-dark.png)
+
+Checked on the rendered page rather than by eye alone: every data state draws
+an `svg[data-dg]` (the twelve figures), every empty state draws the kit's own
+line instead (eight of them), the fills the browser computes are the token
+colours — `rgb(46, 48, 52)` for the ink in light, `rgb(229, 229, 229)` in dark,
+and the remaining steps are `color-mix` of that ink with the page — the
+interactive calendar draws 376 cells with month labels, and the page has no
+horizontal overflow at 390 px (`scrollWidth` equals the viewport).
