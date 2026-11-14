@@ -42,7 +42,6 @@ sections:
             label
             ... on CodeRepository {
               name
-              url
               defaultBranch
             }
           }
@@ -55,7 +54,6 @@ sections:
       columns:
         - { label: { en: Repository, ru: Репозиторий }, path: node.label }
         - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
-        - { label: { en: What it is, ru: Что это }, path: node.url, format: repository }
   - id: files
     component: facts
     on: root
