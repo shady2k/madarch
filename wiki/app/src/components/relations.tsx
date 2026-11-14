@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Metadata, Paragraph, SectionTitle, TextLink } from './ui/typography.js';
 import { at, localized } from './format.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
-import { entityHref, edgesOf, totalOf } from './connection.js';
+import { entityHref, edgesOf } from './connection.js';
 import type { SectionContext } from './types.js';
 
 interface RelationRow {
@@ -41,8 +41,8 @@ export function RelationsSection({ context }: { readonly context: SectionContext
     : [{
         key: `${named}\u0000${context.section.params['inverse'] === true ? 'in' : 'out'}`,
         word: relationWords(named, context.language, context.section.params['inverse'] === true),
-        rows: edgesOf(connection),
-        total: totalOf(connection),
+        rows: uniqueRows(edgesOf(connection)),
+        total: uniqueRows(edgesOf(connection)).length,
       }];
   if (groups.length === 0) {
     return <Paragraph data-testid="relations-empty">{localized(context.section.params['emptyText'], context.language) ?? titleIn(context.section.title, context.language) ?? t('knowledge.linksHere')}</Paragraph>;
@@ -68,6 +68,19 @@ export function RelationsSection({ context }: { readonly context: SectionContext
   );
 }
 
+/** One row per entity: a relation may repeat between the same ends (two imports on two lines), and a reader sees the file once. */
+function uniqueRows(rows: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const held = (row['node'] ?? {}) as Record<string, unknown>;
+    const node = (held['from'] ?? held['to'] ?? held) as Record<string, unknown>;
+    const id = typeof (node as Record<string, unknown>)['id'] === 'string' ? String((node as Record<string, unknown>)['id']) : JSON.stringify(node);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 /** The rows of one connection, grouped by the relation they were read through, the fullest group first. */
 function groupOf(rows: readonly Record<string, unknown>[], language: string): RelationGroup[] {
   const groups = new Map<string, RelationGroup>();
@@ -87,7 +100,8 @@ function groupOf(rows: readonly Record<string, unknown>[], language: string): Re
 /** The entity at the other end of one row, linked, or the commit's own line when the row is one. */
 function otherOf(row: RelationRow, labelPath: string, context: SectionContext): ReactElement {
   const node = (row.node ?? {}) as Record<string, unknown>;
-  const other = (node['from'] ?? node['to'] ?? {}) as Record<string, unknown>;
+  // A `related` section's row is the entity itself; a backlinks row names its other end (`from`/`to`).
+  const other = (node['from'] ?? node['to'] ?? node) as Record<string, unknown>;
   if (isCommit(other)) {
     return <CommitLine commit={other as CommitNode} base={context.base} open={context.open} language={context.language} />;
   }

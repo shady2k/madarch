@@ -491,7 +491,7 @@ export interface KindManifestLike { readonly home?: ProductHomeKind }
 
 
 /** The first paragraph of a Markdown file after its first heading, and the line it starts on. */
-export function summaryOf(markdown: string): { title?: string; body?: string; line: number } {
+function summaryOf(markdown: string): { title?: string; body?: string; line: number } {
   const lines = markdown.split('\n');
   let heading: string | undefined;
   let headingLine = 0;

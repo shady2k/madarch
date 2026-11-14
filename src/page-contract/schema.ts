@@ -23,7 +23,7 @@ export const COMPONENT_NAMES = [
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
-const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'boolean', 'group', 'purpose', 'audience'] as const;
+const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class'] as const;
 const OPERATORS = ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'] as const;
 
 /**

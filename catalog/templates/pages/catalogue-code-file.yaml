@@ -5,6 +5,14 @@ template: catalogue-code-file
 extends: catalogue-entity
 catalogue: [code.file]
 sections:
+  - id: header
+    replace: true
+    component: header
+    title: { en: Kind, ru: Вид }
+    query: |
+      label
+    params:
+      titlePath: label
   - id: facts
     replace: true
     component: facts
@@ -30,6 +38,7 @@ sections:
   - id: count
     component: facts
     on: root
+    after: facts
     title: { en: Files, ru: Файлы }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
@@ -41,6 +50,7 @@ sections:
   - id: byLanguage
     component: bars
     on: root
+    after: count
     title: { en: By language, ru: По языку }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
@@ -48,9 +58,11 @@ sections:
       }
     params:
       path: groupBy
+      valuePath: count
   - id: byFolder
     component: bars
     on: root
+    after: byLanguage
     title: { en: By folder, ru: По папке }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
@@ -58,9 +70,11 @@ sections:
       }
     params:
       path: groupBy
+      valuePath: count
   - id: largest
     component: bars
     on: root
+    after: byFolder
     title: { en: Largest files, ru: Самые большие }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
@@ -73,6 +87,7 @@ sections:
   - id: mostChanged
     component: bars
     on: root
+    after: largest
     title: { en: Most changed, ru: Самые изменяемые }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
@@ -85,6 +100,7 @@ sections:
   - id: age
     component: bars
     on: root
+    after: mostChanged
     title: { en: Time since the last change, ru: Время с последнего изменения }
     query: |
       allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
@@ -96,6 +112,7 @@ sections:
   - id: records
     replace: true
     component: table
+    after: age
     title: { en: Records, ru: Записи }
     query: |
       instances(first: $records_first, after: $records_after) {

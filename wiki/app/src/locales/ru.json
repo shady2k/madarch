@@ -1169,6 +1169,13 @@
       "under": "до {{to}} дн.",
       "between": "{{from}}–{{to}} дн.",
       "over": "{{from}}+ дн."
+    },
+    "class": {
+      "code": "код",
+      "test": "тест",
+      "documentation": "документация",
+      "dependency": "зависимость",
+      "generated": "сгенерировано"
     }
   },
   "loop": {

@@ -277,7 +277,23 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
     const see = prepared ?? prepare(await readPublishedManifest(tx) ?? missingManifest(product.folder), document, operation);
     const { manifest, published, sdl, schema } = see;
     const structure = structureRevisionOf(sdl, templates.templates);
-    const context = new ReadContext(tx, manifest, published, product.folder, operation.lang, structure, templates);
+    // One connection, one statement at a time: resolvers of one level run together, and a client asked for a second
+    // query while the first is in flight answers neither (the weight of a page's aliases must not break its read).
+    let queue: Promise<unknown> = Promise.resolve();
+    const serial = new Proxy(tx, {
+      get(target, property, receiver) {
+        if (property === 'query') {
+          return async (text: string, params?: readonly unknown[]) => {
+            const run = queue.then(async () => await target.query(text, params as never));
+            queue = run.catch(() => undefined);
+            return await run;
+          };
+        }
+        const held = Reflect.get(target, property, receiver) as unknown;
+        return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
+      },
+    });
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates);
     const result = await execute({
       schema,
       document,

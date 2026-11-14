@@ -5,7 +5,8 @@ import { titleIn, valueAt } from '../../../../src/page-contract/index.js';
 import { Badge } from './ui/badge.js';
 import { InlineGroup } from './ui/typography.js';
 import { DefinitionList, DefinitionTerm, DefinitionValue, TextLink } from './ui/typography.js';
-import { formatValue, localized } from './format.js';
+import { formatValue, localized, shortHash } from './format.js';
+import { InlineCode } from './ui/inline-content.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import type { SectionContext } from './types.js';
 
@@ -88,11 +89,21 @@ function factOf(value: unknown, format: string, then: { readonly value: unknown;
     return <>{addresses.map((address, at) => <Fragment key={address}>{at === 0 ? '' : ', '}<TextLink href={address} rel="noreferrer">{hostOf(address)}</TextLink></Fragment>)}</>;
   }
   if (format === 'boolean') return typeof value === 'boolean' ? t(value ? 'knowledge.yes' : 'knowledge.no') : formatValue(value, 'text', context.language);
+  if (format === 'hash') {
+    const hash = shortHash(value);
+    return hash === undefined ? formatValue(value, 'text', context.language) : <InlineCode>{hash}</InlineCode>;
+  }
+  if (format === 'class') {
+    const name = typeof value === 'string' ? value : '';
+    return t(`knowledge.class.${name}`, { defaultValue: formatValue(name, 'text', context.language) });
+  }
   const written = formatValue(value, format, context.language);
   if (then === undefined) return written;
   const extra = then.format === 'commit' && isCommit(then.value)
     ? <CommitLine commit={then.value as CommitNode} base={context.base} open={context.open} language={context.language} withDate={false} withAuthor={false} />
-    : formatValue(then.value, then.format, context.language);
+    : then.format === 'hash' || then.format === 'boolean' || then.format === 'class'
+      ? factOf(then.value, then.format, undefined, context, t)
+      : formatValue(then.value, then.format, context.language);
   if (written === '') return extra;
   if (extra === '' || extra === null || extra === undefined) return written;
   return <>{written}{' · '}{extra}</>;

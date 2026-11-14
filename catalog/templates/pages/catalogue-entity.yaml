@@ -5,6 +5,15 @@
 template: catalogue-entity
 extends: entity
 sections:
+  # The page's title is the kind's own word; the catalogue entity's own label is that word, so no kind badge stands.
+  - id: header
+    replace: true
+    component: header
+    title: { en: Kind, ru: Вид }
+    query: |
+      label
+    params:
+      titlePath: label
   - id: facts
     component: facts
     after: header
@@ -51,4 +60,3 @@ sections:
       pageSize: 50
       columns:
         - { label: { en: Label, ru: Название }, path: node.label }
-        - { label: { en: Kind, ru: Вид }, path: node.kind }

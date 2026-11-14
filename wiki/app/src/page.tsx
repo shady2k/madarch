@@ -35,7 +35,8 @@ export function PageView({ composition, data, runtime }: { readonly composition:
   const tabbed = new Set<string>();
   for (const section of composition.sections) {
     if (section.component !== 'tabs') continue;
-    const ids = Array.isArray(section.params['sections']) ? section.params['sections'] : [];
+    const groups = Array.isArray(section.params['groups']) ? (section.params['groups'] as { sections?: unknown }[]) : [];
+    const ids = [...(Array.isArray(section.params['sections']) ? section.params['sections'] : []), ...groups.flatMap((group) => (Array.isArray(group.sections) ? group.sections : []))];
     for (const id of ids) if (typeof id === 'string') tabbed.add(id);
   }
   const render = (section: ComposedSection): ReactElement => {

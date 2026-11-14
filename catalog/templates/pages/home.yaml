@@ -76,6 +76,18 @@ sections:
       }
     params:
       path: groupBy
+      valuePath: count
+  - id: byRepository
+    component: bars
+    on: root
+    title: { en: Files by repository, ru: Файлы по репозиторию }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "repository", limit: 20) { key count }
+      }
+    params:
+      path: groupBy
+      valuePath: count
   - id: kinds
     component: kinds
     on: root

@@ -53,11 +53,11 @@ sections:
     params:
       rows:
         - { label: { en: Language, ru: Язык }, path: language }
-        - { label: { en: Type, ru: Тип }, path: class }
+        - { label: { en: Type, ru: Тип }, path: class, format: class }
         - { label: { en: Lines, ru: Строк }, path: lines, format: number }
         - { label: { en: Size, ru: Размер }, path: bytes, format: bytes }
-        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: addedIn, format: commit } }
-        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: removedIn, format: commit } }
+        - { label: { en: Added, ru: Появился }, path: addedAt, format: date, then: { path: addedIn, format: hash } }
+        - { label: { en: Removed, ru: Удалён }, path: removedAt, format: date, then: { path: removedIn, format: hash } }
         - { label: { en: Last change, ru: Последнее изменение }, path: lastChange, format: date }
         - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
         - { label: { en: Repository, ru: Репозиторий }, path: repository }
@@ -65,6 +65,7 @@ sections:
   - id: latest
     component: facts
     on: root
+    after: facts
     title: { en: Last change, ru: Последнее изменение }
     query: |
       related(id: $id, edge: "code.touched", inverse: true, orderBy: [{ field: "commitDate", direction: DESC }], first: 1) {

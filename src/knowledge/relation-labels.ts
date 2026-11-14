@@ -108,6 +108,8 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
     "code.implements": "implements",
     "code.publishes": "publishes",
     "code.reads": "reads",
+    "code.imports": "imports",
+    "code.imports-package": "imports a package",
     "code.writes": "writes"
   },
   "ru": {
@@ -218,6 +220,8 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
     "code.implements": "реализует",
     "code.publishes": "публикует",
     "code.reads": "читает",
+    "code.imports": "импортирует",
+    "code.imports-package": "импортирует пакет",
     "code.writes": "пишет"
   }
 };

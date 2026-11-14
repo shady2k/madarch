@@ -1169,6 +1169,13 @@
       "under": "under {{to}} days",
       "between": "{{from}}–{{to}} days",
       "over": "{{from}}+ days"
+    },
+    "class": {
+      "code": "code",
+      "test": "test",
+      "documentation": "documentation",
+      "dependency": "dependency",
+      "generated": "generated"
     }
   },
   "loop": {
