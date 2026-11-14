@@ -144,7 +144,7 @@ function quote(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n');
 }
 
-/** The LikeC4 view of one picture: the workspace text and its laid-out model, as the browser's LikeC4 runtime renders it. */
+/** The LikeC4 view of one picture: the workspace text and its laid-out model, as the browser's runtime renders it. */
 export interface LikeC4Picture {
   readonly format: 'likec4';
   readonly workspace: string;
@@ -278,6 +278,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     rmSync(folder, { recursive: true, force: true });
   }
 }
+
+/** The rendered page with the press forwarded: a click on a node's box opens the entity's page in the wiki. */
 
 /** The rendered page with the press forwarded: a click on a node's box opens the entity's page in the wiki. */
 export function forwarder(html: string, graph: DiagramGraph): string {

@@ -138,10 +138,13 @@ async function layout(graph: DiagramGraph, format: DiagramRequest['format'], dea
       return Buffer.byteLength(JSON.stringify(body), 'utf8') > DIAGRAM_MAX_BYTES ? { status: 200, code: 'FAILED', error: `the diagram answer is over ${String(DIAGRAM_MAX_BYTES)} bytes` } : { status: 200, body };
     }
     return { status: 200, code: 'FAILED', error: String(answer['message'] ?? 'the picture could not be drawn') };
-  } catch {
-    // The picture missed its deadline: the process is killed and the next picture starts a fresh one.
-    if (drawing !== undefined) { try { drawing.child.kill(9); } catch { /* already gone */ } drawing = undefined; }
-    return { status: 200, code: 'TIMEOUT', error: `the picture did not draw within ${String(Math.round(deadlineMs / 100) / 10)} s` };
+  } catch (error) {
+    // A picture past its deadline loses its process; any other failure is the drawing's own words.
+    const missed = error instanceof Error && error.message === 'timeout';
+    if (missed && drawing !== undefined) { try { drawing.child.kill(9); } catch { /* already gone */ } drawing = undefined; }
+    return missed
+      ? { status: 200, code: 'TIMEOUT', error: `the picture did not draw within ${String(Math.round(deadlineMs / 100) / 10)} s` }
+      : { status: 200, code: 'FAILED', error: error instanceof Error ? error.message : String(error) };
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

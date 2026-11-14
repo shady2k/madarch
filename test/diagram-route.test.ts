@@ -68,7 +68,7 @@ test('the archify format answers its self-contained interactive page, each node 
   // The first archify answer may pay the drawing process's own start; the guard is for that, not for the page.
   const first = await renderDiagram(product, { entity: '1', format: 'archify' });
   const answer = 'html' in first ? first : await renderDiagram(product, { entity: '1', format: 'archify' });
-  if (!('html' in answer)) throw new Error('the archify answer is not HTML');
+  if (!('html' in answer)) throw new Error(`the archify answer is not HTML: ${JSON.stringify(answer).slice(0, 400)}`);
   expect(answer.html.toLowerCase()).toContain('<!doctype html');
   expect(answer.html).toContain('data-node-id');
   expect(answer.html).toContain('/e/code.file/2');

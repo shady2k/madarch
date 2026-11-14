@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
@@ -25,6 +26,14 @@ import { TooltipProvider } from './components/ui/tooltip.js';
 import { STALE_STRUCTURE } from './stale.js';
 
 const ROLE_KEY = 'madarch-wiki-role';
+
+/** The section a template-bound address stands for, when the page has a name of the frame's own. */
+function templateTask(template: string | undefined, t: TFunction): string | null {
+  if (template === 'catalogue') return t('navigation.catalogue');
+  if (template === 'glossary') return t('knowledge.glossary.title');
+  if (template === 'search') return t('knowledge.searchResults');
+  return null;
+}
 
 function storedRole(): string {
   try {
@@ -214,7 +223,7 @@ export function App(): ReactElement {
             <FrameToolbar
               product={navigation?.product ?? null}
               base={base}
-              task={address.home ? t('knowledge.home') : section === null ? null : frameWord(section, t)}
+              task={address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}

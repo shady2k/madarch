@@ -1,6 +1,7 @@
 # The product's catalogue (decision 0031, section 6): every kind the manifest declares, by the area and the subgroup the
 # manifest gives it, with its word, its definition, what the graph holds of it and whether the product takes it. The
-# counts and the area words come from the frame's one navigation read; a row opens the kind's page.
+# counts and the area words come from the frame's one navigation read; a row opens the kind's page. The page reads every
+# kind at once: the connection answers a page at a time, and the page asks for the next until it has them all.
 template: catalogue
 sections:
   - id: header
@@ -10,8 +11,6 @@ sections:
     query: |
       home(lang: $lang) {
         id
-        kind
-        label
       }
     params:
       titlePath: label
@@ -20,7 +19,7 @@ sections:
     on: root
     title: { en: Kinds, ru: Виды }
     query: |
-      allCatalogueEntity(first: $kinds_first, after: $kinds_after, orderBy: [{ field: group, direction: ASC }, { field: name, direction: ASC }]) {
+      allCatalogueEntity(first: $kinds_first, after: $kinds_after, orderBy: [{ field: group, direction: ASC }, { field: name, direction: ASC }], lang: $lang) {
         edges {
           node {
             id
@@ -32,8 +31,12 @@ sections:
             taken
           }
         }
-        pageInfo { hasNextPage endCursor }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         totalCount
       }
     params:
       path: .
+      pageSize: 200

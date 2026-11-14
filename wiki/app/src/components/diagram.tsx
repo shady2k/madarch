@@ -50,9 +50,9 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
   const address = useMemo(() => {
-    const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove) });
+    const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove), lang: context.language });
     return (format: Tab): string => `${context.base}/render/diagram?${query.toString()}&format=${format}`;
-  }, [id, depth, aggregateAbove, context.base]);
+  }, [id, depth, aggregateAbove, context.base, context.language]);
   const ask = useCallback(async (format: Tab): Promise<void> => {
     if (id === '' || answers[format] !== undefined) return;
     const stop = new AbortController();

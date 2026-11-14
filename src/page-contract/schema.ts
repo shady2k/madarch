@@ -161,7 +161,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   /** What the graph holds of each kind, the fullest first, each row opening the kind's catalogue page. */
   kinds: { parameters: {} , required: [] },
   /** The product's catalogue: every kind by area and subgroup, with its word, its definition, its count and its taking. */
-  catalogue: { parameters: { path: { type: 'string' } }, required: [] },
+  catalogue: { parameters: { path: { type: 'string' }, pageSize: { type: 'integer' } }, required: [] },
 };
 
 /** The parameters of one section, as a schema: the object the `params` node of a section is judged by. */
