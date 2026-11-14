@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
+import { KIND_FIELDS, homeKind, parseKinds, readKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { CATALOG_KIND_FILES } from '../src/knowledge/catalog-starter.js';
 import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
@@ -67,7 +67,8 @@ describe('the kinds manifest', () => {
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "both": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
       [5, 'kind "neither": a markdown kind names exactly one of "folder" (many entities) and "file" (one entity)'],
-      [6, 'kind "stray": "colour" is not a field of a kind: the fields are purpose, audience, facts, source, folder, file, import-folder, import-file, title, attributes, relations, labels, group, origin, description, identifier, terms, headings, semantics, structure, details, member, card, history, findings, views, er, sequence, system, definition-block, listing, nav, fields, key, capability, derives-from, agent, classes, id, definition, sources, acquisition, status, relation-constraints, template-policy'],
+      // The fields are the parser's own list, so a field the manifest gains is expected here without a second edit.
+      [6, `kind "stray": "colour" is not a field of a kind: the fields are ${KIND_FIELDS.join(', ')}`],
       [7, 'kind "graphfolder": a graph kind has no "folder" or "file": its entities come from the graph'],
     ]);
     expect(manifest.findings.every((finding) => finding.file === 'madarch/catalog.yaml')).toBe(true);

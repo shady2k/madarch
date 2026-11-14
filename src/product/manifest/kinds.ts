@@ -631,13 +631,19 @@ export type KindsRead =
 /** The shape a manifest field's binding to a plugin field takes: `<plugin>@<major>.<field>` (decision 0035, item 17). */
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
-const KIND_KEYS = new Set([
+/**
+ * The fields a kind declares. The finding for a field that is not one of them names the fields, so the message and
+ * the check read this one list: a field added here is listed by the finding and expected by the test alike.
+ */
+export const KIND_FIELDS: readonly string[] = [
   'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
   'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'status', 'relation-constraints', 'template-policy',
-]);
+];
+
+const KIND_KEYS = new Set<string>(KIND_FIELDS);
 
 /** Whether a value is one of the shapes a kind's history page can have. */
 function isHistoryShape(value: unknown): value is HistoryShape {
@@ -1538,7 +1544,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     }
     const decl = value as Record<string, unknown>;
     const before = findings.length;
-    for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${[...KIND_KEYS].join(', ')}`);
+    for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${KIND_FIELDS.join(', ')}`);
     // The catalog's row of the kind: its place, its meaning, its sources, its acquisition, its status, the relations
     // it may carry and its template policy. A row with a problem leaves the kind out, like every other problem does;
     // a kind the catalog declares with the policy "none" is catalogue data only and shows no page.
