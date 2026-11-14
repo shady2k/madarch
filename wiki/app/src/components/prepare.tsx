@@ -83,6 +83,16 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     setPluginsOnly(only);
     sync(only);
   };
+  // A person with no agent configured gets the plugins-only choice, not a dead press: the plan's agent fields are named
+  // as left unfilled, and the run is one press. Choosing an agent or unchecking the box is still theirs.
+  const onlyChosen = useRef(false);
+  useEffect(() => {
+    if (onlyChosen.current || agents.data === null || !requiresAgent) return;
+    if (agents.data.chosen === null) {
+      onlyChosen.current = true;
+      setOnly(true);
+    }
+  }, [agents.data, requiresAgent]);
   const run = (): void => {
     if (plan === undefined || planRead.busy || errors.length > 0 || missingAgent || !validCap) return;
     setBusy(true);

@@ -192,15 +192,12 @@ test('the preparation panel states the final set, both fillers, the agent and th
     expect(text).toContain('Что заполнится');
     expect(text).toContain('Плагины заполнят: disk');
     expect(text).toContain('Агент заполнит: definition');
-    expect(page.container.querySelector('[data-testid="prepare-agent"]')).not.toBeNull();
-    expect(page.container.querySelector('[data-testid="prepare-cap"]')).not.toBeNull();
-    expect(page.container.querySelector('[data-testid="prepare-cap-note"]')?.textContent).toContain('токены');
-    // «Только плагины» leaves the agent's fields unfilled and says so.
-    await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
-    await settle();
-    expect(page.container.querySelector('[data-testid="prepare-agent"]')).toBeNull();
+    // No agent is configured, so «Только плагины» stands: the agent's fields are named and the press is live.
+    expect((page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked).toBe(true);
     expect(page.container.querySelector('[data-testid="prepare-unfilled"]')?.textContent).toContain('definition');
-    // Back to the agent: choose one, cap it, and press once.
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(page.container.querySelector('[data-testid="prepare-agent"]')).toBeNull();
+    // Choose an agent instead: uncheck the box, choose one, cap it, and press once.
     await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
     await settle();
     const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
