@@ -38,8 +38,8 @@ const NAVIGATION = {
 };
 
 const ALPHA = { kind: 'demo.alpha', fields: [{ field: 'path', producers: ['disk'] }], agentFields: [] };
-const BETA = { kind: 'demo.beta', fields: [{ field: 'definition', producers: ['agent-fill'] }], agentFields: ['definition'] };
-const GAMMA = { kind: 'demo.gamma', fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', producers: ['agent-fill'] }], agentFields: ['definition'] };
+const BETA = { kind: 'demo.beta', fields: [{ field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
+const GAMMA = { kind: 'demo.gamma', fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
 
 const ALL_PLAN = {
   selectedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], order: ['disk', 'agent-fill'],
@@ -64,7 +64,11 @@ function planFor(selected: readonly string[], pluginsOnly = false) {
 const RUN = {
   runId: 'fill-run-1', state: 'running', startedAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString(), finishedAt: null,
   elapsedMs: 5000, remainingMs: 2500, selected: ['demo.alpha'], order: ['demo.alpha'], vertex: null,
-  groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 2, total: 3, state: 'running' }],
+  groups: [
+    { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 2, total: 3, state: 'running' },
+    // A producer with no planned unit: a plugins-only run's agent row, which the page must not draw.
+    { kind: 'demo.gamma', group: 'docs', plugin: 'agent-fill', done: 0, total: 0, state: 'planned' },
+  ],
   units: [
     { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', generation: 1, attempts: 1 },
     { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', generation: 1, attempts: 1 },
@@ -143,7 +147,7 @@ test('the catalogue reads by default, in the catalogue\'s words, with counts, «
     expect(text).toContain('2 записи');
     expect(text).toContain('В продукте');
     expect(text).toContain('Заполнит: disk');
-    expect(text).toContain('Заполнит агент: definition');
+    expect(text).toContain('Заполнит агент: Определение');
     expect(page.container.querySelector('[data-testid="catalogue-select"]')).not.toBeNull();
     expect(page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]')).toBeNull();
     // Search reads the definition too.
@@ -191,10 +195,10 @@ test('the preparation panel states the final set, both fillers, the agent and th
     expect(text).toContain('app');
     expect(text).toContain('Что заполнится');
     expect(text).toContain('Плагины заполнят: disk');
-    expect(text).toContain('Агент заполнит: definition');
+    expect(text).toContain('Агент заполнит: Определение');
     // No agent is configured, so «Только плагины» stands: the agent's fields are named and the press is live.
     expect((page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked).toBe(true);
-    expect(page.container.querySelector('[data-testid="prepare-unfilled"]')?.textContent).toContain('definition');
+    expect(page.container.querySelector('[data-testid="prepare-unfilled"]')?.textContent).toContain('Определение');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     expect(page.container.querySelector('[data-testid="prepare-agent"]')).toBeNull();
     // Choose an agent instead: uncheck the box, choose one, cap it, and press once.
@@ -220,6 +224,7 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
   try {
     const text = page.container.textContent ?? '';
     expect(text).toContain('Код · Файлы · disk');
+    expect(text).not.toContain('Сценарии');
     expect(text).toContain('Опубликовано 2 из 3 единиц');
     expect(text).not.toContain('demo.alpha');
     // The log is the words of the run's events, never its trace: no machine path and no forty-character id.

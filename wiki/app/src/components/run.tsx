@@ -175,7 +175,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         <CardHeader><CardTitle>{t('knowledge.fillRun.result')}</CardTitle></CardHeader>
         <CardContent>
           <PlainList className="m-0 list-none p-0">
-            {liveRun.groups.map((group) => {
+            {liveRun.groups.filter((group) => group.total > 0).map((group) => {
               const kind = labelOf(group.kind);
               if (kind === undefined) return null;
               const area = groupLabelOf(group.kind);
