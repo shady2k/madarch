@@ -1,7 +1,7 @@
 id: practice.request
 purpose: understand
 audience: [product-lead, analyst, developer]
-definition: 'A request is what a person asks of a team, kept in the words they used: a question, a change or a report of a problem.'
+definition: A request is a person's utterance or an agent's proposal, kept verbatim, that may change something in the product; its consequences are reviewed and a responsible person approves them before they are applied.
 sources:
 - https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md
 - https://support.atlassian.com/jira-service-management-cloud/docs/what-are-service-requests/
@@ -26,5 +26,5 @@ labels:
     one: Запрос
     many: Запросы
 description:
-  en: 'A request is a message in which a person asks for something: an answer, a change or a fix. It is kept in the words the person used, and it belongs to the piece of work that answers it.'
-  ru: 'Запрос — сообщение, в котором человек о чём-то просит: ответа, изменения или исправления. Его сохраняют в тех словах, в которых человек его написал, и он относится к работе, которая на него отвечает.'
+  en: A request is a person's utterance or an agent's proposal, kept in the words in which it was made, that may change something in the product. Its consequences are reviewed, and a responsible person approves them before they are applied.
+  ru: Запрос — высказывание человека или предложение агента, сохранённое дословно, которое может изменить что-то в продукте; последствия разбирают, а ответственный человек согласует их до применения.
