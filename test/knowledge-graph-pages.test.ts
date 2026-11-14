@@ -35,3 +35,16 @@ test('invalid structured list opinions fail rather than silently dropping a page
 test('a present malformed body is rejected even when no body field is declared', async () => {
   await expect(graphMarkdownEntities(graph([entity('page:broken', { body: 7 })]), manifest)).rejects.toThrow('page:broken.body');
 });
+
+test('an optional declared body may be absent; a required one may not', async () => {
+  const kinds = {
+    file: 'madarch/catalog.yaml',
+    kinds: new Map([
+      ['optional', { name: 'optional', source: 'graph', fields: [{ name: 'body', type: 'text', nullable: true }] }],
+      ['required', { name: 'required', source: 'graph', fields: [{ name: 'body', type: 'text' }] }],
+    ]),
+  } as unknown as KindsManifest;
+  const rows = (kind: string): Pick<GraphReader, 'list'> => ({ list: async (requested) => ({ rows: requested === kind ? [{ key: `${kind}:one`, kind, label: kind, properties: {}, nodeIds: [], scope: '' }] : [], next: null, total: requested === kind ? 1 : 0 }) }) as Pick<GraphReader, 'list'>;
+  expect((await graphMarkdownEntities(rows('optional'), kinds)).entities).toEqual([]);
+  await expect(graphMarkdownEntities(rows('required'), kinds)).rejects.toThrow('required:one.body');
+});

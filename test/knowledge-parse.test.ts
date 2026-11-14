@@ -15,7 +15,6 @@ import { BUNDLED_PLUGINS } from '../src/plugin/bundled.js';
 import { byCodePoint } from '../src/model/order.js';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo, productEntityOf } from '../src/product/manifest.js';
-import { createHash } from 'node:crypto';
 import { gitEnv } from './git-env.js';
 
 const folders: string[] = [];
@@ -89,34 +88,25 @@ describe('the kinds manifest', () => {
 });
 
 describe('the starter set madarch init seeds', () => {
-  test('the startup home is a complete page opinion with or without a README paragraph', () => {
+  test('the startup home states the manifest name under its stable identity, never README text', () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'sample', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
     const fields = ['title', 'body', 'body_line', 'file', 'relates', 'sources', 'statements', 'digest', 'producer', 'links', 'findings', 'ungrounded'].map((name) => ({ name }));
     const manifest = { home: { name: 'product', key: ['slug'], source: 'graph', fields } };
     const empty = productEntityOf(draft.folder, manifest, 'fixture-commit');
-    expect(empty).toMatchObject({ kind: 'product', key: { slug: draft.id }, values: {
-      title: 'sample', body: '', body_line: 1, file: 'workspace.yaml', relates: [], sources: ['workspace.yaml'],
-      statements: [], digest: createHash('sha256').update('').digest('hex'), producer: 'start', links: [], findings: [], ungrounded: [],
-    } });
+    // The key is the product's stable identity; the value is the manifest name, and the description stays unwritten.
+    expect(empty).toMatchObject({ kind: 'product', key: { slug: draft.id }, values: { title: 'sample' } });
+    expect(empty?.values).not.toHaveProperty('body');
     const repository = join(draft.folder, 'repos', 'library');
     mkdirSync(repository, { recursive: true });
     writeFileSync(join(draft.folder, 'workspace.yaml'), manifestWithRepo(readFileSync(join(draft.folder, 'workspace.yaml'), 'utf8'), { name: 'library', linked: true }));
     writeFileSync(join(repository, 'README.md'), '# Library\n\nA library for readers.\n');
     const readme = productEntityOf(draft.folder, manifest, 'fixture-commit');
-    expect(readme).toMatchObject({ key: empty!.key, values: {
-      title: 'Library', body: 'A library for readers.', body_line: 3, file: 'repos/library/README.md',
-      sources: ['repos/library/README.md'], digest: createHash('sha256').update('A library for readers.').digest('hex'),
-      ungrounded: [{ text: 'A library for readers.', line: 3 }],
-    } });
-    for (const field of ['relates', 'statements', 'links', 'findings']) expect(readme?.values[field]).toEqual([]);
-    expect(readme?.values['producer']).toBe('start');
-    expect(productEntityOf(draft.folder, { home: { ...manifest.home, fields: [{ name: 'title' }] } }, 'fixture-commit')?.values).toEqual({ title: 'Library' });
-    writeFileSync(join(repository, 'README.md'), 'A README with no heading.\n');
-    expect(productEntityOf(draft.folder, manifest, 'fixture-commit')?.evidence).toEqual([
-      { repository: draft.folder, path: 'repos/library/README.md', lineStart: 1, lineEnd: 1, commit: 'fixture-commit' },
-    ]);
+    expect(readme).toMatchObject({ key: empty!.key, values: { title: 'sample' } });
+    expect(JSON.stringify(readme?.values)).not.toContain('A library for readers.');
+    expect(productEntityOf(draft.folder, { home: { ...manifest.home, fields: [{ name: 'title' }] } }, 'fixture-commit')?.values).toEqual({ title: 'sample' });
+    expect(readme?.evidence).toEqual([{ repository: draft.folder, path: '.', lineStart: 1, lineEnd: 1, commit: 'fixture-commit' }]);
   });
 
   test('a new product holds the manifest and the starter templates, the manifest reads without a finding and the authored starter files match their packaged content', async () => {

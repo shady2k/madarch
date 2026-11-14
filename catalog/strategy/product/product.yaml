@@ -28,6 +28,7 @@ fields:
     agent: 'Read docs/product.md: The stable page slug from its id; identify the entity with its declared page id.'
 - name: body
   type: text
+  nullable: true
   binding:
     agent: 'Read docs/product.md: The complete Markdown body, preserving paragraphs and references.'
 - name: body_line
