@@ -14,6 +14,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
+import { stopDatabasesUnderSync } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
@@ -180,3 +181,44 @@ test('SIGKILL of the daemon leaves no server after the next start, and opens the
   const after = servers(fix.home);
   expect(after.filter((server) => alive(server.pid)).length).toBeLessThanOrEqual(1);
 }, 120_000);
+test('madarch stop leaves a standalone serve\'s database alone', async () => {
+  const fix = fixture();
+  const serve = Bun.spawn(['bun', CLI, 'serve', '--product', fix.folder, '--port', '0', '--no-open'], { cwd: root, env: fix.env, stdout: 'pipe', stderr: 'pipe' });
+  children.push(serve);
+  let base = '';
+  let stdout = '';
+  const reader = (serve.stdout as ReadableStream).getReader();
+  void (async () => { for (;;) { const { done, value } = await reader.read(); if (done) break; stdout += new TextDecoder().decode(value); } })();
+  const start = Date.now();
+  while (Date.now() - start < 20_000) {
+    base = stdout.split('\n').find((line) => line.startsWith('The wiki is running at ') || line.startsWith('Wiki: '))?.match(/(https?:\/\/\S+)/)?.[1] ?? '';
+    if (base !== '') break;
+    await Bun.sleep(100);
+  }
+  if (base === '') throw new Error(`serve printed no address: ${stdout}`);
+  await openStore(fix, base);
+  const before = servers(fix.home).filter((server) => alive(server.pid));
+  if (before.length === 0) throw new Error('serve opened no database');
+  runCli(fix, ['stop']);
+  await Bun.sleep(500);
+  const after = servers(fix.home).filter((server) => alive(server.pid));
+  if (after.length !== before.length) throw new Error(`madarch stop took the standalone serve's database: ${JSON.stringify(after)}`);
+  const status = await fetch(`${base}/api/status`);
+  if (status.status !== 200) throw new Error(`the standalone serve stopped answering: ${String(status.status)}`);
+  serve.kill('SIGTERM');
+  await serve.exited;
+  await noServers(fix.home);
+}, 120_000);
+
+test('the synchronous sweep signals no pid it cannot verify is the data folder\'s postmaster', async () => {
+  const base = mkdtempSync(join(root, 'orphan-'));
+  const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(dataDir, { recursive: true });
+  const unrelated = Bun.spawn(['sleep', '30'], { stdout: 'ignore', stderr: 'ignore' });
+  children.push(unrelated);
+  writeFileSync(join(dataDir, 'postmaster.pid'), `${String(unrelated.pid)}\n${dataDir}\n`);
+  stopDatabasesUnderSync(join(base, 'knowledge'));
+  if (!alive(unrelated.pid)) throw new Error('the sweep killed an unrelated process whose pid was reused');
+  if (!existsSync(join(dataDir, 'postmaster.pid'))) throw new Error('the sweep removed a pid file without a stopped server');
+  unrelated.kill('SIGKILL');
+}, 60_000);

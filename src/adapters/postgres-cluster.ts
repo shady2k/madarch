@@ -621,24 +621,82 @@ export function runningServersUnder(knowledgeRoot: string): { readonly dataDir: 
   const found: { dataDir: string; pid: number }[] = [];
   for (const folder of databaseFoldersUnder(knowledgeRoot)) {
     const pid = holderOf(join(folder, 'pgdata'));
-    if (pid !== null && alive(pid)) found.push({ dataDir: join(folder, 'pgdata'), pid });
+    if (pid !== null && alive(pid) && postmasterOfDataDir(join(folder, 'pgdata'), pid)) found.push({ dataDir: join(folder, 'pgdata'), pid });
   }
   return found;
 }
 
-/** Stops every recorded server of a knowledge root without awaiting: `madarch stop`, whose call is a command's answer. */
+/** Whether a pid really is the postmaster of this data folder: the only pid a fallback signal may touch. */
+function postmasterOfDataDir(dataDir: string, pid: number): boolean {
+  if (process.platform === 'win32') return false;
+  if (process.platform === 'linux') {
+    try {
+      const command = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8');
+      return command.includes('postgres') && command.includes(dataDir);
+    } catch { return false; }
+  }
+  const seen = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5_000 });
+  return seen.status === 0 && (seen.stdout ?? '').includes('postgres') && (seen.stdout ?? '').includes(dataDir);
+}
+
+/** Waits synchronously for one pid to end, without blocking the kernel's own timers forever. */
+function waitGoneSync(pid: number, timeoutMs: number): boolean {
+  for (let waited = 0; waited < timeoutMs && alive(pid); waited += 20) Bun.sleepSync(20);
+  return !alive(pid);
+}
+
+/**
+ * Stops every recorded server of a knowledge root without awaiting: `madarch stop`, whose call is a command's answer.
+ * A server another live process of the binary holds (a standalone serve, an independent fill) is left alone by the same
+ * users lock the asynchronous stop follows; a pid `postmaster.pid` names is signaled only after it is verified to be that
+ * data folder's postmaster, and the pid file is removed only once the process is confirmed gone, under the cluster's start
+ * lock.
+ */
 export function stopDatabasesUnderSync(knowledgeRoot: string): void {
   const bin = join(postgresInstallFolder(process.env), 'bin');
   if (!existsSync(join(bin, postgresProgram('pg_ctl')))) return;
   for (const folder of databaseFoldersUnder(knowledgeRoot)) {
     const dataDir = join(folder, 'pgdata');
-    const pid = holderOf(dataDir);
-    if (pid === null || !alive(pid)) continue;
-    spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', 'stop'], { stdio: 'ignore', timeout: 60_000, env: { ...process.env, LC_ALL: 'C' } });
-    if (alive(pid)) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
-    for (let waited = 0; waited < 10_000 && alive(pid); waited += 20) Bun.sleepSync(20);
-    if (alive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
-    rmSync(join(dataDir, 'postmaster.pid'), { force: true });
+    const key = resolve(dataDir);
+    mkdirSync(dirname(key), { recursive: true, mode: 0o700 });
+    const users = openLock(usersLockPath(key));
+    try {
+      if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
+        // A live process still uses this server: `madarch stop` of another daemon, or a service of the same home that
+        // is not the daemon. Its own stop is the one that may end it.
+        continue;
+      }
+      const start = openLock(startLockPath(key));
+      try {
+        const got = flock(start, LOCK_EX | LOCK_NB) === 0;
+        if (!got) continue;
+        const pid = holderOf(dataDir);
+        if (pid === null) continue;
+        if (!alive(pid)) { rmSync(join(dataDir, 'postmaster.pid'), { force: true }); continue; }
+        if (!postmasterOfDataDir(dataDir, pid)) {
+          console.error(`${join(dataDir, 'postmaster.pid')}:1: the pid ${String(pid)} is not this data folder's postmaster; it is not signaled and its record stays`);
+          continue;
+        }
+        const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
+        if (stopped.status !== 0 && alive(pid) && postmasterOfDataDir(dataDir, pid)) {
+          try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
+          waitGoneSync(pid, 10_000);
+          if (alive(pid) && postmasterOfDataDir(dataDir, pid)) {
+            try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+          }
+        }
+        if (!waitGoneSync(pid, 10_000)) {
+          console.error(`${join(dataDir, 'postmaster.pid')}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
+          continue;
+        }
+        removeSocketFiles(clusterPaths(folder).socketDir);
+        rmSync(join(dataDir, 'postmaster.pid'), { force: true });
+      } finally {
+        releaseLock(start);
+      }
+    } finally {
+      releaseLock(users);
+    }
   }
 }
 
