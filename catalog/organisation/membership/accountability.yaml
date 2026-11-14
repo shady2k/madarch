@@ -1,7 +1,7 @@
 id: scrum.accountability
 purpose: history
 audience: [product-lead, product, architect]
-definition: What a role answers for, as the Scrum Guide states the accountabilities of a Scrum team.
+definition: An accountability is what a role answers for, as the Scrum Guide states for a Scrum team.
 sources:
 - https://scrumguides.org/scrum-guide.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Ответственность
     many: Ответственности
 description:
-  en: What a role answers for, as the Scrum Guide states the accountabilities of a Scrum team.
-  ru: То, за что отвечает роль, как Scrum Guide описывает ответственности команд Scrum.
+  en: 'An accountability is the part of the work that a role owns and answers for, such as the product owner''s care for the product''s value. The Scrum Guide names three on a Scrum team: the product owner, the developers and the scrum master.'
+  ru: 'Ответственность — то, за что роль держит ответ: например, владелец продукта отвечает за ценность продукта. Scrum Guide называет три такие роли в команде Scrum: владелец продукта, разработчики и скрам-мастер.'
