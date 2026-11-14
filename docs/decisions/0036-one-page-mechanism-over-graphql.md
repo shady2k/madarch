@@ -255,6 +255,8 @@ sections:
   `fill-kind` (a kind page's press into that panel), `run` (a fill run's progress), `settings-form`,
   `problem-actions`, `sources` (the Sources page's documents and repositories); they call the command
   API and read what they show from the graph or the retained command reads. The app names no kind.
+  The top bar's «Заполнить…» entry opens the catalogue in selection mode while no run is live; a live
+  run replaces it with its progress. The old `/p/fill` address opens the same selection mode.
 - **Component parameters** (all optional unless marked; `path` is a dot path into the section's
   data; texts are `{ en, ru }`): `header { titlePath*, kindPath, provenancePath }`;
   `facts { rows*: [{ label*, path*, format: text|number|date|bytes|link }] }`;

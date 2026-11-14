@@ -32,6 +32,7 @@ let home = '';
 let folder = '';
 let server: StartedServer | undefined;
 let planServer: StartedServer | undefined;
+let emptyServer: StartedServer | undefined;
 let browser: Browser | undefined;
 
 /** The page's text, as a person reads it. */
@@ -72,11 +73,18 @@ run('the fill flow on a product filled with disk and git', () => {
     if (planDraft.outcome !== 'created') throw new Error(JSON.stringify(planDraft));
     commitProduct(planDraft.folder, 'A product whose plan needs the agent');
     planServer = await startPreparedServer({ productFolder: planDraft.folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
+    // A product created from scratch and never filled: the owner's critical path from an empty graph.
+    const emptyHome = join(root, 'empty-products');
+    const emptyDraft = createDraft({ home: emptyHome, name: 'empty-start', gitEnv: gitEnv(SAMPLE_IDENTITY) });
+    if (emptyDraft.outcome !== 'created') throw new Error(JSON.stringify(emptyDraft));
+    commitProduct(emptyDraft.folder, 'A product created from scratch');
+    emptyServer = await startPreparedServer({ productFolder: emptyDraft.folder, appFolder: APP, port: 0, log: () => undefined, errorLog: () => undefined });
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   }, 300_000);
 
   afterAll(async () => {
     await browser?.close();
+    await emptyServer?.stop();
     await planServer?.stop();
     await server?.stop();
     if (root !== '') rmSync(root, { recursive: true, force: true });
@@ -237,4 +245,77 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.close();
     }
   }, 600_000);
+
+  test('a product created from scratch fills from the wiki without an agent', async () => {
+    const page = await browser!.newPage();
+    const failures: string[] = [];
+    page.on('pageerror', (error) => { failures.push(String(error)); });
+    page.on('console', (message) => { if (message.type() === 'error') failures.push(message.text()); });
+    const shotAt = async (name: string, width: number, height: number): Promise<void> => {
+      await page.setViewport({ width, height, deviceScaleFactor: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, `${name}-${String(width)}.png`) });
+    };
+    try {
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
+      // The owner's first page: the top bar's «Заполнить…» opens the catalogue's selection mode.
+      await page.goto(`${emptyServer!.url}/`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="fill-entry"]', { timeout: 60_000 });
+      await shotAt('empty-home', 1440, 900);
+      await page.click('[data-testid="fill-entry"]');
+      await page.waitForSelector('[data-testid="catalogue-bottom"]', { timeout: 30_000 });
+      expect(new URL(page.url()).pathname).toBe('/p/catalogue');
+      expect(new URL(page.url()).searchParams.get('select')).toBe('1');
+      await page.waitForSelector('[data-testid="catalogue-kind-check-code.file"]', { timeout: 60_000 });
+      await page.$eval('[data-testid="catalogue-kind-check-code.file"]', (element) => (element as HTMLInputElement).click());
+      await page.waitForFunction(() => (document.querySelector('[data-testid="catalogue-selected-count"]')?.textContent ?? '').includes('Выбран 1 вид'), { timeout: 30_000 });
+      await page.click('[data-testid="catalogue-show-selected"]');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shotAt('empty-catalogue', 1440, 900);
+      await shotAt('empty-catalogue', 390, 844);
+
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="catalogue-prepare"]');
+      await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="prepare-agent"]', { timeout: 60_000 });
+      expect(await textOf(page)).toContain('Только плагины');
+      await shotAt('empty-prepare', 1440, 900);
+      await shotAt('empty-prepare', 390, 844);
+
+      // The plugins-only press: the agent's fields stay unfilled, and the fill runs to its end.
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.$eval('[data-testid="prepare-plugins-only"]', (element) => (element as HTMLInputElement).click());
+      await page.waitForSelector('[data-testid="prepare-unfilled"]', { timeout: 30_000 });
+      await page.click('[data-testid="prepare-run"]');
+      await page.waitForFunction(() => window.location.pathname === '/p/run', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="fill-run-page"]', { timeout: 60_000 });
+      await page.waitForFunction(() => ['running', 'created', 'planning'].includes(document.querySelector('[data-testid="fill-run-page"]')?.getAttribute('data-state') ?? ''), { timeout: 60_000 });
+      const firstState = await page.$eval('[data-testid="fill-run-page"]', (element) => element.getAttribute('data-state'));
+      process.stdout.write(`EMPTY RUN FIRST STATE ${String(firstState)}\n`);
+      const paused = await page.waitForFunction(() => {
+        const state = document.querySelector('[data-testid="fill-run-page"]')?.getAttribute('data-state') ?? '';
+        return state === 'running' || ['succeeded', 'completed_partial', 'failed', 'cancelled', 'blocked'].includes(state);
+      }, { timeout: 60_000 }).then(() => true, () => false);
+      expect(paused).toBe(true);
+      await shotAt('empty-run', 1440, 900);
+      await page.waitForFunction(() => {
+        const state = document.querySelector('[data-testid="fill-run-page"]')?.getAttribute('data-state') ?? '';
+        return state !== '' && !['created', 'planning', 'running', 'pausing', 'cancelling'].includes(state);
+      }, { timeout: 600_000 });
+      const end = await textOf(page);
+      expect(end).not.toContain('/work/');
+      expect(end).not.toMatch(/\b[0-9a-f]{40}\b/u);
+      const state = await page.$eval('[data-testid="fill-run-page"]', (element) => element.getAttribute('data-state'));
+      expect(['succeeded', 'completed_partial']).toContain(state ?? '');
+      await page.waitForSelector('[data-testid="fill-entry"]', { timeout: 30_000 });
+      await page.screenshot({ path: join(SHOTS, 'empty-end-1440.png') });
+      await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, 'empty-end-390.png') });
+      expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
+    } finally {
+      await page.close();
+    }
+  }, 900_000);
 });

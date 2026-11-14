@@ -90,6 +90,8 @@ export function parseAddress(pathname: string, search: string, base: string): Ap
   if (path === '' || path === '/') return { page: { ...shared, home: true }, home: true, unknown: false, frame: null };
   const entity = /^\/e\/([^/]+)\/([^/]+)\/?$/u.exec(path);
   if (entity !== null) return { page: { ...shared, kind: decode(entity[1]!), id: decode(entity[2]!) }, home: false, unknown: false, frame: null };
+  // The old fill address opens the catalogue's selection mode: the separate fill list page is gone.
+  if (path === '/p/fill') return { page: { ...shared, template: 'catalogue', params: { ...params, select: '1' } }, home: false, unknown: false, frame: null };
   const template = /^\/p\/([^/]+)\/?$/u.exec(path);
   if (template !== null) {
     const name = decode(template[1]!);

@@ -96,9 +96,11 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const live = run !== null && LIVE.includes(run.state);
   useEffect(() => {
     if (!live) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    // The run's own state moves while a fill writes; the change stream may not say so, so the page reads it again each
+    // second. The clock drives the elapsed line between reads.
+    const timer = setInterval(() => { setNow(Date.now()); read.reload(); }, 1000);
     return () => clearInterval(timer);
-  }, [live]);
+  }, [live, read.reload]);
 
   const catalogue = context.navigation?.kinds ?? [];
   const groups = context.navigation?.groups ?? [];

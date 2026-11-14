@@ -58,7 +58,10 @@ export function App(): ReactElement {
   const [role, setRole] = useState(storedRole);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [navigation, setNavigation] = useState<Navigation | null>(null);
-  const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal));
+  // The run page polls its own run; the problems listing reads the whole product and would stand in its way while a
+  // fill writes. Its count is read on every other page.
+  const onRunPage = path.split('?')[0] === '/p/run';
+  const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product-identity', (signal) => readProduct(base, signal));
   useChangeStream(base, problems.reload);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
