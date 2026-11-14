@@ -301,9 +301,10 @@ never a file in git, shown at `/e/<id>` (decision 0026, "Pages").
 
 **Diagram renderer** (`vendor/archify/`):
 The vendored archify renderer that draws the wiki's architecture and relation
-diagrams; the app's build bundles it into the wiki's assets
-(`scripts/build-wiki-archify.ts`), and a template's diagram component draws
-with it (decision 0036, section 7).
+diagrams at LikeC4's positions; the app's build bundles it into the wiki's
+assets (`scripts/build-wiki-archify.ts`). A template's diagram component draws
+in one of three formats: LikeC4 (interactive), Mermaid, or archify (decision
+0036, section 7).
 
 **Open question**:
 What the fill does not know and a person or an agent must settle: a `question`
