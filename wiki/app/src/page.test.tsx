@@ -175,6 +175,20 @@ test('an empty table says so in one line and offers no pager', async () => {
   }
 });
 
+test('a table whose records fit one page offers no pager line', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', pageSize: 50, columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 2, pageInfo: { hasNextPage: false, endCursor: null }, edges: [{ node: entity('1', 'a') }, { node: entity('2', 'b') }] } } },
+  );
+  try {
+    expect(page.container.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(page.container.textContent).not.toContain('1–2 / 2');
+    expect([...page.container.querySelectorAll('button')].some((one) => one.textContent === '→')).toBe(false);
+  } finally {
+    await page.close();
+  }
+});
+
 test('a table offers a sort only when its query declares the order variable', async () => {
   const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
   try {

@@ -103,6 +103,8 @@ export function TableSection({ context }: { readonly context: SectionContext }):
     });
   });
   const pageSize = typeof section.params['pageSize'] === 'number' ? section.params['pageSize'] : 50;
+  // A connection that fits one page has no next page to open: the count alone would be a pager for nothing.
+  const singlePage = total <= pageSize;
   const firstLabel = localized(filters[0]?.label, language) ?? '';
   return (
     <>
@@ -144,7 +146,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           </TableBody>
         </Table>
       )}
-      {rows.length === 0 ? null : (
+      {rows.length === 0 || singlePage ? null : (
         <PaginationBar>
           <PaginationSummary>{`${String(page * pageSize + 1)}–${String(page * pageSize + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
           {canPage ? (
