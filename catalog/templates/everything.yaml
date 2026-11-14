@@ -10,51 +10,203 @@ kinds: all
 default: true
 # The starter value sets the work kinds point at (owner 2026-11-14): each set names a closed list a field may take,
 # each entry is a value-set-entry entity with its labels, description and order.
+# The starter value sets the work kinds point at (owner 2026-11-14): each set names a closed list a field may take,
+# each entry is a value-set-entry entity with its labels, description and order.
 values:
   task-status:
-    labels: { en: "Task status", ru: "Статус задачи" }
+    order: 10
+    labels:
+      en: Task status
+      ru: Статус задачи
     description: The states a work item passes through, from open to closed.
     entries:
-      - { value: open, order: 10, labels: { en: Open, ru: Открыта }, description: The work is known and nobody has started it. }
-      - { value: in_progress, order: 20, labels: { en: In progress, ru: В работе }, description: Someone is working on it now. }
-      - { value: blocked, order: 30, labels: { en: Blocked, ru: Заблокирована }, description: The work waits for something else to happen first. }
-      - { value: closed, order: 40, labels: { en: Closed, ru: Закрыта }, description: The work is finished or was dropped, and the reason is recorded. }
+    - value: open
+      order: 10
+      labels:
+        en: Open
+        ru: Открыта
+      description: The work is known and nobody has started it.
+    - value: in_progress
+      order: 20
+      labels:
+        en: In progress
+        ru: В работе
+      description: Someone is working on it now.
+    - value: blocked
+      order: 30
+      labels:
+        en: Blocked
+        ru: Заблокирована
+      description: The work waits for something else to happen first.
+    - value: closed
+      order: 40
+      labels:
+        en: Closed
+        ru: Закрыта
+      description: The work is finished or was dropped, and the reason is recorded.
   priority:
-    labels: { en: "Priority", ru: "Приоритет" }
+    order: 20
+    labels:
+      en: Priority
+      ru: Приоритет
     description: How urgent a work item is compared with the others.
     entries:
-      - { value: p0, order: 10, labels: { en: Critical, ru: Критический }, description: The product is broken for its users and the work comes before everything else. }
-      - { value: p1, order: 20, labels: { en: High, ru: Высокий }, description: The work must be done in the current period. }
-      - { value: p2, order: 30, labels: { en: Normal, ru: Обычный }, description: The work is planned like most other work. }
-      - { value: p3, order: 40, labels: { en: Low, ru: Низкий }, description: The work can wait until more important work is done. }
-      - { value: p4, order: 50, labels: { en: Backlog, ru: Когда-нибудь }, description: The work is a wish with no date. }
+    - value: p0
+      order: 10
+      labels:
+        en: Critical
+        ru: Критический
+      description: The product is broken for its users and the work comes before everything else.
+    - value: p1
+      order: 20
+      labels:
+        en: High
+        ru: Высокий
+      description: The work must be done in the current period.
+    - value: p2
+      order: 30
+      labels:
+        en: Normal
+        ru: Обычный
+      description: The work is planned like most other work.
+    - value: p3
+      order: 40
+      labels:
+        en: Low
+        ru: Низкий
+      description: The work can wait until more important work is done.
+    - value: p4
+      order: 50
+      labels:
+        en: Backlog
+        ru: Когда-нибудь
+      description: The work is a wish with no date.
   issue-type:
-    labels: { en: "Issue type", ru: "Тип задачи" }
+    order: 30
+    labels:
+      en: Issue type
+      ru: Тип задачи
     description: The kind of work item, which decides what it holds and how it moves.
     entries:
-      - { value: task, order: 10, labels: { en: Task, ru: Задача }, description: A piece of work with a scope and a done criterion. }
-      - { value: bug, order: 20, labels: { en: Bug, ru: Ошибка }, description: A defect in the product with the steps that show it. }
-      - { value: feature, order: 30, labels: { en: Feature, ru: Возможность }, description: A service the product gives its users. }
-      - { value: epic, order: 40, labels: { en: Epic, ru: Эпик }, description: A need too large to meet in one iteration. }
-      - { value: stage, order: 50, labels: { en: Stage, ru: Этап }, description: A part of a feature one person or agent can finish. }
-      - { value: milestone, order: 60, labels: { en: Milestone, ru: Веха }, description: A dated point a set of epics is planned to reach. }
-      - { value: chore, order: 70, labels: { en: Chore, ru: Подсобное дело }, description: Work that keeps the product healthy without adding a feature. }
+    - value: task
+      order: 10
+      labels:
+        en: Task
+        ru: Задача
+      description: A piece of work with a scope and a done criterion.
+    - value: bug
+      order: 20
+      labels:
+        en: Bug
+        ru: Ошибка
+      description: A defect in the product with the steps that show it.
+    - value: feature
+      order: 30
+      labels:
+        en: Feature
+        ru: Возможность
+      description: A service the product gives its users.
+    - value: epic
+      order: 40
+      labels:
+        en: Epic
+        ru: Эпик
+      description: A need too large to meet in one iteration.
+    - value: stage
+      order: 50
+      labels:
+        en: Stage
+        ru: Этап
+      description: A part of a feature one person or agent can finish.
+    - value: milestone
+      order: 60
+      labels:
+        en: Milestone
+        ru: Веха
+      description: A dated point a set of epics is planned to reach.
+    - value: chore
+      order: 70
+      labels:
+        en: Chore
+        ru: Подсобное дело
+      description: Work that keeps the product healthy without adding a feature.
   link-type:
-    labels: { en: "Link type", ru: "Тип связи" }
+    order: 40
+    labels:
+      en: Link type
+      ru: Тип связи
     description: The relation one work item has to another.
     entries:
-      - { value: blocks, order: 10, labels: { en: Blocks, ru: Блокирует }, description: One item must finish before the other can start. }
-      - { value: relates, order: 20, labels: { en: Relates to, ru: Связана с }, description: The items concern the same thing without an order between them. }
-      - { value: duplicates, order: 30, labels: { en: Duplicates, ru: Дублирует }, description: One item describes the same work as the other. }
-      - { value: parent-child, order: 40, labels: { en: Parent of, ru: Родитель }, description: One item holds the other as a part of its own work. }
-      - { value: discovered-from, order: 50, labels: { en: Discovered from, ru: Найдена при }, description: One item was found while doing the other. }
+    - value: blocks
+      order: 10
+      labels:
+        en: Blocks
+        ru: Блокирует
+      description: One item must finish before the other can start.
+    - value: relates
+      order: 20
+      labels:
+        en: Relates to
+        ru: Связана с
+      description: The items concern the same thing without an order between them.
+    - value: duplicates
+      order: 30
+      labels:
+        en: Duplicates
+        ru: Дублирует
+      description: One item describes the same work as the other.
+    - value: parent-child
+      order: 40
+      labels:
+        en: Parent of
+        ru: Родитель
+      description: One item holds the other as a part of its own work.
+    - value: discovered-from
+      order: 50
+      labels:
+        en: Discovered from
+        ru: Найдена при
+      description: One item was found while doing the other.
   label:
-    labels: { en: "Label", ru: "Метка" }
+    order: 50
+    labels:
+      en: Label
+      ru: Метка
     description: A word that groups work items by the area or the kind of attention they need.
     entries:
-      - { value: security, order: 10, labels: { en: Security, ru: Безопасность }, description: The work touches protection, access or secrets. }
-      - { value: performance, order: 20, labels: { en: Performance, ru: Производительность }, description: The work changes speed, memory or cost. }
-      - { value: documentation, order: 30, labels: { en: Documentation, ru: Документация }, description: The work changes what people read to use or build the product. }
-      - { value: testing, order: 40, labels: { en: Testing, ru: Тестирование }, description: The work changes checks or the data they need. }
-      - { value: refactoring, order: 50, labels: { en: Refactoring, ru: Переработка }, description: The work changes the shape of the code without changing what it does. }
-      - { value: operations, order: 60, labels: { en: Operations, ru: Эксплуатация }, description: The work changes how the product is run or watched. }
+    - value: security
+      order: 10
+      labels:
+        en: Security
+        ru: Безопасность
+      description: The work touches protection, access or secrets.
+    - value: performance
+      order: 20
+      labels:
+        en: Performance
+        ru: Производительность
+      description: The work changes speed, memory or cost.
+    - value: documentation
+      order: 30
+      labels:
+        en: Documentation
+        ru: Документация
+      description: The work changes what people read to use or build the product.
+    - value: testing
+      order: 40
+      labels:
+        en: Testing
+        ru: Тестирование
+      description: The work changes checks or the data they need.
+    - value: refactoring
+      order: 50
+      labels:
+        en: Refactoring
+        ru: Переработка
+      description: The work changes the shape of the code without changing what it does.
+    - value: operations
+      order: 60
+      labels:
+        en: Operations
+        ru: Эксплуатация
+      description: The work changes how the product is run or watched.

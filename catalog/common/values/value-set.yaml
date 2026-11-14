@@ -23,6 +23,19 @@ fields:
   type: text
   producers:
   - person
+- name: label_en
+  type: text
+  producers:
+  - person
+- name: label_ru
+  type: text
+  producers:
+  - person
+- name: description
+  type: text
+  nullable: true
+  producers:
+  - person
 - name: purpose
   type: text
   nullable: true
@@ -38,7 +51,9 @@ key:
 origin: person
 nav: own-page
 details:
-- name
+- label_en
+- label_ru
+- description
 - purpose
 - order
 labels:

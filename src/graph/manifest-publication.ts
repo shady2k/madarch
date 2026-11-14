@@ -13,6 +13,7 @@ import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { SchemaRefusal } from '../graphql/names.js';
 
@@ -20,6 +21,8 @@ export interface ValidatedManifests {
   readonly folder: string;
   readonly manifest: KindsManifest;
   readonly vertices: readonly VertexDraft[];
+  /** The starter value sets, written as their own entities beside the catalogue's declarations. */
+  readonly starterValues: readonly VertexDraft[];
   readonly templatePaths: readonly string[];
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
@@ -97,7 +100,25 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     for (const edge of graph) add('dependency', JSON.stringify(['workflow', name, edge.from, edge.to, edge.via]), { workflow: name, ...edge }, WORKFLOWS_FILE, entry.stageLines.get(edge.to) ?? entry.line);
   }
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(JSON.stringify(left.key), JSON.stringify(right.key)));
-  return { ok: true, value: { folder, manifest, vertices, templatePaths } };
+  const starterValues: VertexDraft[] = [];
+  for (const [name, set] of manifest.values ?? []) {
+    const evidenceAt = (line: number): { repository: string; path: string; lineStart: number; lineEnd: number; commit: string }[] => [{ repository: folder, path: KINDS_FILE, lineStart: line, lineEnd: line, commit: head.commit }];
+    starterValues.push({
+      kind: 'value-set',
+      key: { name },
+      values: { label_en: set.labels['en']!, label_ru: set.labels['ru']!, ...(set.description === undefined ? {} : { description: set.description }), ...(set.order === undefined ? {} : { order: set.order }) },
+      evidence: evidenceAt(set.line), producer: 'manifest', producerVersion: '1',
+    });
+    for (const entry of set.entries) {
+      starterValues.push({
+        kind: 'value-set-entry',
+        key: { set: { kind: 'value-set', key: { name } }, value: entry.value },
+        values: { label_en: entry.labels['en']!, label_ru: entry.labels['ru']!, ...(entry.description === undefined ? {} : { description: entry.description }), ...(entry.order === undefined ? {} : { order: entry.order }) },
+        evidence: evidenceAt(entry.line), producer: 'manifest', producerVersion: '1',
+      });
+    }
+  }
+  return { ok: true, value: { folder, manifest, vertices, starterValues, templatePaths } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -132,7 +153,11 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
       const values = Object.fromEntries(Object.entries(one.values ?? {}).filter(([name]) => !fields.key.includes(name)));
       return held === undefined || !isDeepStrictEqual(held.values, values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
     });
-    return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
+    let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
+    if (validated.starterValues.length > 0) {
+      written += await publishGraphDrafts(tx, graphContractOf(validated.manifest), { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+    }
+    return written;
   });
 }
 

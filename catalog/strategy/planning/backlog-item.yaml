@@ -20,8 +20,8 @@ labels:
     one: Backlog item
     many: Backlog items
   ru:
-    one: Элемент журнала
-    many: Элементы журнала
+    one: Элемент бэклога
+    many: Элементы бэклога
 description:
   en: 'A backlog item is one candidate piece of work: a feature, a user story, a bug or a chore, with what it should achieve and how it will be accepted. The product owner orders the items, so the team always knows what matters most.'
-  ru: 'Элемент журнала — одна возможная работа: возможность, история пользователя, ошибка или подсобное дело, — с тем, чего она должна добиться и как её примут. Владелец продукта упорядочивает элементы, чтобы команда всегда знала, что важнее.'
+  ru: 'Элемент бэклога — одна возможная работа: возможность, история пользователя, ошибка или подсобное дело, — с тем, чего она должна добиться и как её примут. Владелец продукта упорядочивает элементы бэклога, чтобы команда всегда знала, что важнее.'

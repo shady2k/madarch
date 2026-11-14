@@ -3478,6 +3478,15 @@ type ValueSet implements Entity {
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
+  labelEn: String
+  labelEnOpinions: [Opinion!]!
+  labelEnOpinionsCount: Int!
+  labelRu: String
+  labelRuOpinions: [Opinion!]!
+  labelRuOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
   purpose: String
   purposeOpinions: [Opinion!]!
   purposeOpinionsCount: Int!
@@ -7623,6 +7632,20 @@ input UserGuideWhere {
   ungrounded: UserGuideUngroundedFilter
 }
 
+input ValueSetDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input ValueSetEntryDescriptionFilter {
   _eq: String
   _neq: String
@@ -7705,6 +7728,34 @@ input ValueSetEntryWhere {
   order: ValueSetEntryOrderFilter
 }
 
+input ValueSetLabelEnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetLabelRuFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input ValueSetNameFilter {
   _eq: String
   _neq: String
@@ -7753,6 +7804,9 @@ input ValueSetPurposeFilter {
 
 input ValueSetWhere {
   name: ValueSetNameFilter
+  labelEn: ValueSetLabelEnFilter
+  labelRu: ValueSetLabelRuFilter
+  description: ValueSetDescriptionFilter
   purpose: ValueSetPurposeFilter
   order: ValueSetOrderFilter
 }
@@ -8203,6 +8257,9 @@ enum ValueSetEntryOrderField {
 
 enum ValueSetOrderField {
   name
+  labelEn
+  labelRu
+  description
   purpose
   order
 }

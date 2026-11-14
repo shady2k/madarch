@@ -24,4 +24,4 @@ labels:
     many: Цели продукта
 description:
   en: A product goal states the one outcome the product is trying to reach at present, such as making onboarding possible without help. The backlog is ordered to serve it, and a new goal replaces it when the old one is met or abandoned.
-  ru: 'Цель продукта называет один результат, к которому продукт идёт сейчас: например, сделать подключение возможным без помощи. Журнал продукта упорядочен ради неё, а новая цель сменяет прежнюю, когда та достигнута или оставлена.'
+  ru: 'Цель продукта называет один результат, к которому продукт идёт сейчас: например, сделать подключение возможным без помощи. Бэклог продукта упорядочен ради неё, а новая цель сменяет прежнюю, когда та достигнута или оставлена.'

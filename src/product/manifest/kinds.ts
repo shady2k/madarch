@@ -494,6 +494,25 @@ export interface PropertyDecl {
   fields?: ReadonlyMap<string, PropertyDecl>;
 }
 
+/** One value of a starter value set, as the manifest declares it (owner 2026-11-14). */
+export interface ValueSetEntryDecl {
+  readonly value: string;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly description?: string;
+  readonly order?: number;
+  readonly line: number;
+}
+
+/** A named closed list of values the kinds' fields point at, as the manifest declares it. */
+export interface ValueSetDecl {
+  readonly name: string;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly description?: string;
+  readonly order?: number;
+  readonly entries: readonly ValueSetEntryDecl[];
+  readonly line: number;
+}
+
 /**
  * A kind whose entities are members of another entity's page rather than pages of their own (madarch-m38l.21):
  * a field of a class, a facet of a file. The relation names the edge to the parent; `property` is the fallback when
@@ -550,6 +569,8 @@ export interface KindsManifest {
   diagram?: string;
   /** The reader-facing labels and value formats of the properties the kinds show. */
   properties: ReadonlyMap<string, PropertyDecl>;
+  /** The starter value sets the product declares (`values:`): each names a closed list its fields point at. */
+  values?: ReadonlyMap<string, ValueSetDecl>;
   kinds: ReadonlyMap<string, KindDecl>;
   /** Source paths of folder declarations, keyed by kind name. */
   kindFiles?: ReadonlyMap<string, string>;
@@ -1192,7 +1213,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'purposes' && key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram" and "journal"` });
+    } else if (key !== 'purposes' && key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal' && key !== 'values') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram", "values" and "journal"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -1237,6 +1258,42 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (labels === null || typeof labels !== 'object' || Array.isArray(labels) || Object.keys(labels).length !== LABEL_LANGUAGES.length || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || !(labels[lang] as string).trim())) problem('labels', `labels names each language (${LABEL_LANGUAGES.join(', ')})`);
       if (!Number.isSafeInteger(body['order'])) problem('order', 'order is a safe integer');
       if (findings.length === start) purposes.set(id, { id, labels: labels as Record<string, string>, order: body['order'] as number, line: at(path) });
+    }
+  }
+  const valueSets = new Map<string, ValueSetDecl>();
+  const rawValues = top['values'];
+  if (rawValues !== undefined) {
+    if (rawValues === null || typeof rawValues !== 'object' || Array.isArray(rawValues)) findings.push({ file, line: at(['values']), message: '"values" maps a value set name to { labels: { en, ru }, description?, order?, entries: [{ value, labels, description?, order? }] }' });
+    else for (const [name, raw] of Object.entries(rawValues)) {
+      const path = ['values', name];
+      const problem = (key: string, message: string): void => { findings.push({ file, line: at([...path, key]), message: `value set "${name}": ${message}` }); };
+      const start = findings.length;
+      if (!/^[a-z][a-z0-9-]*$/.test(name)) { problem('', 'a value set name is a lower-case identifier'); continue; }
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) { problem('', 'the value set is a mapping'); continue; }
+      const body = raw as Record<string, unknown>;
+      for (const key of Object.keys(body)) if (!['labels', 'description', 'order', 'entries'].includes(key)) problem(key, `unknown field "${key}"`);
+      const labels = body['labels'] as Record<string, unknown> | undefined;
+      if (labels === null || typeof labels !== 'object' || Array.isArray(labels) || LABEL_LANGUAGES.some((lang) => typeof labels[lang] !== 'string' || !(labels[lang] as string).trim())) problem('labels', `labels names each language (${LABEL_LANGUAGES.join(', ')})`);
+      if (body['description'] !== undefined && (typeof body['description'] !== 'string' || body['description'].trim() === '')) problem('description', 'description is a sentence when it is stated');
+      if (body['order'] !== undefined && !Number.isSafeInteger(body['order'])) problem('order', 'order is a safe integer');
+      const entries: ValueSetEntryDecl[] = [];
+      const rawEntries = body['entries'];
+      if (!Array.isArray(rawEntries) || rawEntries.length === 0) problem('entries', 'entries is a non-empty list of values');
+      else for (const [index, rawEntry] of rawEntries.entries()) {
+        const entryPath = [...path, 'entries', index];
+        const entryProblem = (key: string, message: string): void => { findings.push({ file, line: at([...entryPath, key]), message: `value set "${name}" entry ${String(index)}: ${message}` }); };
+        if (rawEntry === null || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) { entryProblem('', 'an entry is { value, labels, description?, order? }'); continue; }
+        const entry = rawEntry as Record<string, unknown>;
+        for (const key of Object.keys(entry)) if (!['value', 'labels', 'description', 'order'].includes(key)) entryProblem(key, `unknown field "${key}"`);
+        if (typeof entry['value'] !== 'string' || !/^[a-z][a-z0-9_-]*$/.test(entry['value'])) { entryProblem('value', 'value is a lower-case identifier'); continue; }
+        if (entries.some((held) => held.value === entry['value'])) { entryProblem('value', `value ${JSON.stringify(entry['value'])} repeats in the set`); continue; }
+        const entryLabels = entry['labels'] as Record<string, unknown> | undefined;
+        if (entryLabels === null || typeof entryLabels !== 'object' || Array.isArray(entryLabels) || LABEL_LANGUAGES.some((lang) => typeof entryLabels[lang] !== 'string' || !(entryLabels[lang] as string).trim())) { entryProblem('labels', `labels names each language (${LABEL_LANGUAGES.join(', ')})`); continue; }
+        if (entry['description'] !== undefined && (typeof entry['description'] !== 'string' || entry['description'].trim() === '')) { entryProblem('description', 'description is a sentence when it is stated'); continue; }
+        if (entry['order'] !== undefined && !Number.isSafeInteger(entry['order'])) { entryProblem('order', 'order is a safe integer'); continue; }
+        entries.push({ value: entry['value'], labels: entryLabels as Record<string, string>, ...(entry['description'] === undefined ? {} : { description: entry['description'] as string }), ...(entry['order'] === undefined ? {} : { order: entry['order'] as number }), line: at(entryPath) });
+      }
+      if (findings.length === start) valueSets.set(name, { name, labels: labels as Record<string, string>, ...(body['description'] === undefined ? {} : { description: body['description'] as string }), ...(body['order'] === undefined ? {} : { order: body['order'] as number }), entries, line: at(path) });
     }
   }
   const groups = new Map<string, GroupDecl>();
@@ -2094,7 +2151,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (debug === true) journal = { debug: true };
     }
   }
-  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
+  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, ...(valueSets.size === 0 ? {} : { values: valueSets }), kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**
