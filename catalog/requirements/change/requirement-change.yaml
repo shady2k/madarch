@@ -1,7 +1,7 @@
 id: practice.requirement-change
 purpose: understand
 audience: [product, analyst, tester, architect, product-lead]
-definition: A change to a stated requirement, with what it replaces and why.
+definition: A requirement change is a change to a stated requirement, with what it replaces and why.
 sources:
 - https://www.omg.org/spec/SACM/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Изменение требования
     many: Изменения требований
 description:
-  en: A change to a stated requirement, with what it replaces and why.
-  ru: Изменение заявленного требования с тем, что оно заменяет, и причиной.
+  en: A requirement change replaces one requirement with another, or alters part of it, and says why the old form no longer serves. It keeps the history of what was asked for, so an old decision can be understood later.
+  ru: Изменение требования заменяет одно требование другим или меняет его часть и говорит, почему прежняя формулировка больше не годится. Оно сохраняет историю того, что требовалось, чтобы позднее понять старое решение.

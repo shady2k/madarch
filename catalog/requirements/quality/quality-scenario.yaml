@@ -1,7 +1,7 @@
 id: arc42.quality-scenario
 purpose: quality
 audience: [product, analyst, tester, architect]
-definition: A concrete, measurable situation that states a quality requirement so a test can judge it.
+definition: A quality scenario is a concrete, measurable situation that states a quality requirement so a test can judge it.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Сценарий качества
     many: Сценарии качества
 description:
-  en: A concrete, measurable situation that states a quality requirement so a test can judge it.
-  ru: Конкретная измеримая ситуация, которая выражает требование качества так, что его может судить тест.
+  en: A quality scenario describes a source of stimulation, the system's response and the measure that tells whether the response is good enough, for example a thousand users in one minute with a response under a second. Because it is concrete, a test or a review can decide whether the requirement is met.
+  ru: 'Сценарий качества описывает источник воздействия, ответ системы и меру, по которой видно, достаточно ли хорош ответ: например, тысяча пользователей за минуту при отклике меньше секунды. Благодаря конкретности тест или проверка могут решить, выполнено ли требование.'
