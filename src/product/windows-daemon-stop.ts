@@ -49,12 +49,29 @@ function waitGone(pids: readonly number[], timeoutMs: number, exists = alive): b
   return !pids.some(exists);
 }
 
+/**
+ * Whether this process is store preparation: initdb, or something initdb started. initdb runs its bootstrap
+ * `postgres --boot` through cmd.exe on Windows, so that whole subtree is preparation and never a store server.
+ */
+function inStorePreparation(pid: number, processes: readonly WindowsProcess[]): boolean {
+  const seen = new Set<number>();
+  for (let at = pid; !seen.has(at);) {
+    seen.add(at);
+    const row = processes.find((one) => one.pid === at);
+    if (row === undefined) return false;
+    if (row.name.toLowerCase() === 'initdb.exe') return true;
+    at = row.parent;
+  }
+  return false;
+}
+
 /** Do not report success until every captured application process and store server has ended. */
 export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   processes?: () => WindowsProcess[] | undefined;
   alive?: (pid: number) => boolean;
   kill?: (pid: number) => void;
-  taskkill?: (pid: number, timeoutMs: number) => { status: number | null; error?: Error; stdout: string; stderr: string };
+  /** `subtree` is set only where no store server can be under the pid; see the kill loop. */
+  taskkill?: (pid: number, timeoutMs: number, subtree: boolean) => { status: number | null; error?: Error; stdout: string; stderr: string };
   pgCtl?: string;
   stopStore?: (program: string, folder: string) => boolean;
   /** A stale daemon record may still need its stores swept, but its PID must not be signaled. */
@@ -64,9 +81,15 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
 } = {}): boolean {
   const exists = reads.alive ?? alive;
   const snapshot = reads.storesOnly ? [] : (reads.processes ?? processes)();
-  if (snapshot === undefined) return false;
+  if (snapshot === undefined) {
+    // The listing is the only thing that can say what the daemon started: a stop that cannot read it cannot end a
+    // tree it cannot name, and must not guess.
+    console.error(`Windows stop could not read the process list with powershell or pwsh, so the tree of pid ${state.pid} could not be named or ended`);
+    return false;
+  }
+  const nameOf = (pid: number): string => snapshot.find((row) => row.pid === pid)?.name ?? 'unknown';
   const tree = reads.storesOnly ? [] : applicationProcessTree(state.pid, snapshot);
-  if (!reads.processes && !reads.storesOnly) console.error(`Windows stop process tree: ${JSON.stringify(snapshot.filter((row) => tree.includes(row.pid) || tree.includes(row.parent)))}`);
+  if (!reads.processes && !reads.storesOnly) console.error(`Windows stop process tree: ${JSON.stringify(tree.map((pid) => snapshot.find((row) => row.pid === pid) ?? { pid }))}`);
   const root = knowledgeRootOf(state.home);
   const listStores = reads.storeFolders ?? ((): string[] | Error => {
     try { return readdirSync(root).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }
@@ -94,39 +117,70 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   const before = look('before the kill');
   const stores = (before ?? []).map((folder) => capture(folder));
   const deadline = Date.now() + 5_000; // The existing daemon TERM + KILL budget, shared by process checks.
-  for (const pid of tree) {
+  const taskkill = reads.taskkill ?? ((pid: number, timeoutMs: number, subtree: boolean) =>
+    spawnSync('taskkill', ['/F', ...(subtree ? ['/T'] : []), '/PID', String(pid)], { encoding: 'utf8', timeout: timeoutMs }));
+  // Children before parents: Windows recycles a process id as soon as its holder ends, so a tree walked from the top
+  // can wait on an id that already names something else.
+  for (const pid of [...tree].reverse()) {
     if (!exists(pid)) continue;
+    // /T is what reaches everything a process started after the snapshot: initdb runs its bootstrap `postgres --boot`
+    // through cmd.exe, and a bootstrap started between the listing and this kill is in no list. Only a preparation
+    // subtree may be ended whole, since a store server is never under one; the daemon's own subtree does hold one,
+    // which pg_ctl stops with a fast shutdown, so that subtree is walked, never swept.
+    const subtree = inStorePreparation(pid, snapshot);
     try {
       if (reads.kill) reads.kill(pid);
       else {
-        // No /T: the captured targets exclude running store servers, which need pg_ctl's fast shutdown.
         const timeout = deadline - Date.now();
         if (timeout <= 0) throw new Error('the termination budget is exhausted');
-        const result = reads.taskkill
-          ? reads.taskkill(pid, timeout)
-          : spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8', timeout });
-        if (result.error || result.status !== 0) throw new Error(`taskkill exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
+        const result = taskkill(pid, timeout, subtree);
+        if (result.error || result.status !== 0) throw new Error(`taskkill${subtree ? ' /T' : ''} exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
       }
     } catch (error) {
-      // Windows can refuse a PID that exited since the snapshot. Still attempt the remaining captured children.
-      if (exists(pid)) console.error(`Windows stop could not terminate pid ${pid} (${snapshot.find((row) => row.pid === pid)?.name ?? 'unknown'}): ${String(error)}`);
+      // Windows can refuse a pid that exited since the snapshot. Still attempt the remaining captured children.
+      if (exists(pid)) console.error(`Windows stop could not terminate pid ${pid} (${nameOf(pid)}${subtree ? ', store preparation' : ''}): ${String(error)}`);
     }
   }
-  const applicationsGone = waitGone(tree, Math.max(0, deadline - Date.now()), exists);
+  let applicationsGone = waitGone(tree, Math.max(0, deadline - Date.now()), exists);
+  if (!applicationsGone) {
+    // An id Windows recycled while the stop waited holds another process, not the one this tree captured: a listing
+    // names what each id holds now, and a captured pid under another name is not a survivor.
+    const listing = (reads.processes ?? processes)();
+    const survivors = listing === undefined
+      ? tree.filter((pid) => exists(pid))
+      : listing.filter((row) => tree.includes(row.pid) && row.name === nameOf(row.pid)).map((row) => row.pid);
+    applicationsGone = survivors.length === 0;
+    if (!applicationsGone) console.error(`Windows stop left ${survivors.map((pid) => `pid ${String(pid)} (${nameOf(pid)})`).join(', ')} running`);
+  }
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
   const sweep = (store: { folder: string; pid?: number }): boolean => {
     store.pid ??= capture(store.folder).pid;
     const pidFile = join(store.folder, 'postmaster.pid');
     if (!existsSync(pidFile) && (store.pid === undefined || !exists(store.pid))) return true;
     // The installed binary only: stopping must never download a PostgreSQL build.
-    if (!existsSync(pgCtl)) return false;
+    if (!existsSync(pgCtl)) {
+      console.error(`Windows stop could not stop the store ${store.folder}: ${pgCtl} is not installed`);
+      return false;
+    }
     const ok = reads.stopStore ? reads.stopStore(pgCtl, store.folder) : (() => {
       const result = spawnSync(pgCtl, ['-D', store.folder, '-m', 'fast', '-w', '-t', '60', 'stop'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+      if (result.error || result.status !== 0) console.error(`Windows stop: pg_ctl stop of ${store.folder} exited ${String(result.status)}: ${result.error?.message ?? ''} ${result.stdout} ${result.stderr}`);
       return !result.error && result.status === 0;
     })();
-    if (!ok) return false;
-    if (store.pid !== undefined && !waitGone([store.pid], Math.max(0, deadline - Date.now()), exists)) return false;
-    return !existsSync(pidFile);
+    if (!ok) {
+      if (reads.stopStore) console.error(`Windows stop could not stop the store ${store.folder}`);
+      return false;
+    }
+    // A store's server has its own short window: pg_ctl -w already waited for it, and the tree's budget is spent.
+    if (store.pid !== undefined && !waitGone([store.pid], 2_000, exists)) {
+      console.error(`Windows stop: the store server pid ${String(store.pid)} of ${store.folder} is still running after pg_ctl stop`);
+      return false;
+    }
+    if (existsSync(pidFile)) {
+      console.error(`Windows stop: ${pidFile} remains after pg_ctl stop of ${store.folder}`);
+      return false;
+    }
+    return true;
   };
   let stopped = applicationsGone;
   // The stores the first look named are swept whatever the look after them says: a stop never leaves a server running

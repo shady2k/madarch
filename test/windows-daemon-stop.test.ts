@@ -88,7 +88,8 @@ test('Windows shutdown terminates initdb bootstrap descendants but keeps running
       alive: (pid) => live.has(pid),
       kill: (pid) => { killed.push(pid); live.delete(pid); },
     })).toBe(true);
-    expect(killed).toEqual([10, 11, 12, 13, 14, 15]);
+    // Children before parents, so a killed parent's id is never waited on after Windows has recycled it.
+    expect(killed).toEqual([15, 14, 13, 12, 11, 10]);
     expect([...live]).toEqual([20, 21, 30]);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
@@ -139,7 +140,7 @@ test('Windows shutdown sweeps stores and remaining children even when one applic
       pgCtl,
       stopStore: () => { live.delete(42); rmSync(pidFile); return true; },
     })).toBe(false);
-    expect(killed).toEqual([10, 11, 12]);
+    expect(killed).toEqual([12, 11, 10]);
     expect([...live]).toEqual([11]);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 10_000);
@@ -297,5 +298,90 @@ test('a final store listing that fails still sweeps the stores the first look na
     expect(run.answer).toBe(false);
     expect(swept).toEqual([folder]);
     expect([...live]).toEqual([]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('the walk\'s Windows tree ends whole, bootstrap postgres under initdb and cmd included', () => {
+  // The tree the clean install walk printed at main c70335f7 (windows-x64 leg): initdb runs its bootstrap
+  // `postgres --boot` through cmd.exe, which a taskkill of initdb alone never reaches. No store server is under initdb,
+  // so its whole subtree may be ended at once.
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-walk-tree-'));
+  const snapshot = [
+    { pid: 7464, parent: 8344, name: 'madarch.exe' },
+    { pid: 1584, parent: 7464, name: 'madarch.exe' },
+    { pid: 1364, parent: 1584, name: 'conhost.exe' },
+    { pid: 9904, parent: 1584, name: 'madarch.exe' },
+    { pid: 6184, parent: 7464, name: 'initdb.exe' },
+    { pid: 7048, parent: 6184, name: 'conhost.exe' },
+    { pid: 5216, parent: 6184, name: 'initdb.exe' },
+    { pid: 5464, parent: 5216, name: 'cmd.exe' },
+    { pid: 6252, parent: 5464, name: 'postgres.exe' },
+  ];
+  expect(applicationProcessTree(7464, snapshot)).toEqual([7464, 1584, 6184, 1364, 9904, 7048, 5216, 5464, 6252]);
+  const live = new Set(snapshot.map((row) => row.pid));
+  const killed: { pid: number; subtree: boolean }[] = [];
+  try {
+    expect(stopWindowsDaemon({ pid: 7464, home }, {
+      processes: () => snapshot,
+      alive: (pid) => live.has(pid),
+      // taskkill ends the named process; /T ends what it started, which is what reaches a bootstrap postgres.
+      taskkill: (pid, _timeout, subtree) => {
+        killed.push({ pid, subtree });
+        if (!subtree) { live.delete(pid); return { status: 0, stdout: '', stderr: '' }; }
+        const queue = [pid];
+        while (queue.length > 0) {
+          const at = queue.pop()!;
+          live.delete(at);
+          for (const row of snapshot) if (row.parent === at && live.has(row.pid)) queue.push(row.pid);
+        }
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    })).toBe(true);
+    expect([...live]).toEqual([]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+  expect(killed.map((one) => one.pid)).toEqual([6252, 5464, 5216, 7048, 9904, 1364, 6184, 1584, 7464]);
+  // initdb's subtree is swept whole; the daemon's is walked, because a store server is under the daemon and only
+  // pg_ctl may end it.
+  expect(killed.filter((one) => one.subtree).map((one) => one.pid)).toEqual([6252, 5464, 5216, 7048, 6184]);
+});
+
+test('a process that outlives its termination fails the stop, and the reason names it', () => {
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-survivor-'));
+  const live = new Set([10, 11]);
+  const run = captureErrors(() => stopWindowsDaemon({ pid: 10, home }, {
+    processes: () => [
+      { pid: 10, parent: 1, name: 'madarch.exe' },
+      { pid: 11, parent: 10, name: 'stuck.exe' },
+    ],
+    alive: (pid) => live.has(pid),
+    taskkill: (pid) => { if (pid !== 11) live.delete(pid); return { status: 0, stdout: '', stderr: '' }; },
+  }));
+  try {
+    expect(run.answer).toBe(false);
+    const why = run.messages.find((message) => message.includes('pid 11 (stuck.exe)'));
+    expect(why).toBeDefined();
+    expect(why).toContain('running');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+}, 10_000);
+
+test('a store server whose pg_ctl is not installed fails the stop, and the reason names the path', () => {
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-no-pgctl-'));
+  const folder = join(home, '.madarch', 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, 'postmaster.pid'), '42\n');
+  const pgCtl = join(home, 'missing', 'pg_ctl.exe');
+  const live = new Set([10, 42]);
+  const run = captureErrors(() => stopWindowsDaemon({ pid: 10, home }, {
+    processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+    alive: (pid) => live.has(pid),
+    kill: () => { live.delete(10); },
+    pgCtl,
+    stopStore: () => { throw new Error('no pg_ctl to stop with'); },
+  }));
+  try {
+    expect(run.answer).toBe(false);
+    const why = run.messages.find((message) => message.includes(folder) && message.includes(pgCtl));
+    expect(why).toBeDefined();
+    expect(why).toContain('is not installed');
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

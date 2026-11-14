@@ -111,7 +111,9 @@ async function serveCheck(): Promise<void> {
   /** Stops the home's server the way the command says, and proves no server is left. */
   const stopServer = (): void => {
     const stopped = runMadarch('stop', ['--home', home]);
-    if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})`);
+    // The stop names on stderr why it failed: the walk's own message carries those words, since the CI summary shows
+    // the error and not the commands' output.
+    if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})${stopped.stderr.trim() === '' ? '' : `: ${stopped.stderr.trim()}`}`);
     const status = runMadarch('status', ['--home', home]);
     if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
   };
