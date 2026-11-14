@@ -1,7 +1,7 @@
 id: practice.sms-message
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: A short message a service sends over SMPP, with its sender and its parts.
+definition: An SMS message is a short text a service sends over the mobile network, with its sender and its parts.
 sources:
 - https://smpp.org/SMPP_v3_4_Issue1_2.pdf
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: SMS-сообщение
     many: SMS-сообщения
 description:
-  en: A short message a service sends over SMPP, with its sender and its parts.
-  ru: Короткое сообщение, которое сервис отправляет по SMPP, с отправителем и частями.
+  en: An SMS message is a text of up to 160 characters sent to a mobile phone, longer texts being split into parts. It names the sender and the parts, so the whole message can be put back together.
+  ru: SMS-сообщение — текст до 160 символов, отправленный на мобильный телефон; более длинные делят на части. У него указаны отправитель и части, чтобы всё сообщение можно было собрать заново.
