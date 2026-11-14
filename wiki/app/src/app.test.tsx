@@ -172,6 +172,47 @@ test('a path that is no page says so, and asks the graph for nothing', async () 
 });
 
 
+test('a change event refreshes the navigation and asks the current page again', async () => {
+  class FakeSource {
+    static last: FakeSource | undefined;
+    static readonly all: FakeSource[] = [];
+    private readonly listeners: (() => void)[] = [];
+    constructor() { FakeSource.last = this; FakeSource.all.push(this); }
+    addEventListener(type: string, listener: () => void): void { if (type === 'change') this.listeners.push(listener); (FakeSource as unknown as { registered: number }).registered = ((FakeSource as unknown as { registered: number }).registered ?? 0) + 1; }
+    close(): void { /* closed by the app */ }
+    emit(): void { for (const listener of this.listeners) listener(); }
+  }
+  (globalThis as { EventSource?: unknown }).EventSource = FakeSource as unknown as typeof EventSource;
+  expect(globalThis.EventSource).toBe(FakeSource as unknown as typeof EventSource);
+  let bootstraps = 0;
+  let pages = 0;
+  (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
+    const path = String(url);
+    if (!path.endsWith('/graphql')) return new Response(JSON.stringify(path.includes('/api/problems') ? { open: 3 } : { fill: { state: 'idle' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
+    if (body.query.includes('bootstrap')) {
+      bootstraps += 1;
+      return new Response(JSON.stringify({ data: { bootstrap, navigation: { ...navigation, kinds: navigation.kinds.map((one) => ({ ...one, count: bootstraps })) } } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    pages += 1;
+    return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    expect(bootstraps).toBe(1);
+    expect(pages).toBe(1);
+    expect(FakeSource.last).toBeDefined();
+    expect((FakeSource as unknown as { registered: number }).registered).toBeGreaterThan(0);
+    await act(async () => { for (const source of FakeSource.all) source.emit(); });
+    await settle();
+    expect(bootstraps).toBe(2);
+    expect(pages).toBe(2);
+  } finally {
+    await page.close();
+  }
+});
+
 test('the sidebar\'s «Ждёт вас» count is the problems listing\'s open total', async () => {
   window.history.pushState({}, '', '/');
   const page = await render();

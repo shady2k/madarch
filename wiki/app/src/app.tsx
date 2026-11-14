@@ -168,7 +168,7 @@ export function App(): ReactElement {
   }, [address, base, bootstrap, language, loadBootstrap, role]);
 
   // One page view, one operation: the page is composed from the bootstrap and the address, then asked once.
-  const compositionKey = `${language}\u0000${role}\u0000${path}\u0000${bootstrap?.structureRevision ?? ''}`;
+  const compositionKey = `${language}\u0000${role}\u0000${path}\u0000${bootstrap?.structureRevision ?? ''}\u0000${String(bootstrapVersion.current)}`;
   useEffect(() => {
     if (bootstrap === null) return;
     if (address.unknown) {
