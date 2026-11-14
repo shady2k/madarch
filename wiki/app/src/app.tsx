@@ -80,7 +80,6 @@ export function App(): ReactElement {
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product-identity', (signal) => readProduct(base, signal));
-  useChangeStream(base, problems.reload);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -126,6 +125,10 @@ export function App(): ReactElement {
     setNavigation(read.navigation ?? null);
     return read.bootstrap;
   }, [base, language]);
+
+  // A publication moves the graph: the same event that refreshes the problems count refreshes the frame's navigation, so
+  // a run that published its kinds shows them in the sidebar without a page reload.
+  useChangeStream(base, () => { problems.reload(); void loadBootstrap(); });
 
   // The bootstrap and the navigation are read once per structure and language: what they hold changes only with the
   // product's files or the reader's language.

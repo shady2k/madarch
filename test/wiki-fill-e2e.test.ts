@@ -180,6 +180,11 @@ run('the fill flow on a product filled with disk and git', () => {
       expect(result).not.toMatch(/\b[0-9a-f]{40}\b/u);
       // The run is over: the live indicator is gone.
       await page.waitForFunction(() => document.querySelector('[data-testid="run-indicator"]') === null, { timeout: 30_000 });
+      // The frame's navigation carries the kinds the run published, without a reload.
+      await page.waitForFunction(() => {
+        const labels = [...document.querySelectorAll('[data-testid="nav-kind"]')].map((one) => one.textContent ?? '');
+        return labels.some((one) => one.includes('Файлы')) && labels.some((one) => one.includes('Папки'));
+      }, { timeout: 30_000 });
       await page.screenshot({ path: join(SHOTS, 'run-ru.png') });
       // The home after the fill: the product's own name, its repositories and what the graph holds; no first-run card,
       // no separate search section and no raw kind table.
