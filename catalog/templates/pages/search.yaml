@@ -23,15 +23,18 @@ sections:
     on: root
     title: { en: Results, ru: Результаты }
     query: |
-      search(text: $text, first: 50) {
-        edges {
+      searchGroups(text: $text, perKind: 20, lang: $lang) {
+        kind
+        label
+        count
+        results {
           node {
             id
             kind
             label
             template
           }
+          line
         }
-        totalCount
       }
     params: {}
