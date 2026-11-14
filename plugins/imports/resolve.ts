@@ -20,8 +20,11 @@ const SOURCE_OF: Readonly<Record<string, readonly string[]>> = {
   '.cjs': ['.cts', '.d.cts'],
 };
 
-/** The fields of a package.json that name the module a folder stands for, in the order Node and TypeScript read them. */
-const MAIN_FIELDS: readonly string[] = ['main', 'module', 'types', 'typings'];
+/**
+ * The fields of a package.json that name the module a folder stands for, in the order TypeScript reads them: a folder
+ * that states its types answers with those, and only a package without them answers with its runtime entry.
+ */
+const MAIN_FIELDS: readonly string[] = ['types', 'typings', 'main', 'module'];
 
 /** The tsconfig nearest a file: the options it inherits through `extends`, resolved against the folders that declared them. */
 export interface Tsconfig {
@@ -29,8 +32,10 @@ export interface Tsconfig {
   readonly dir: string;
   /** The folder a bare specifier is looked up in, repository-relative; absent when no config on the chain declares one. */
   readonly baseUrl?: string;
-  /** The `paths` aliases of the effective config: the pattern as written, and the resolved patterns its targets name. */
+  /** The `paths` aliases of the effective config: the pattern as written, and its targets as written. */
   readonly paths: Readonly<Record<string, readonly string[]>>;
+  /** The folder the alias targets are relative to when no `baseUrl` is in effect: the config that declared them. */
+  readonly pathsDir?: string;
 }
 
 /** Where a specifier leads: a file of the repository, a package outside it, or the file path a relative one names and no vertex holds. */
@@ -174,29 +179,32 @@ function captureOf(pattern: string, specifier: string): string | undefined {
 }
 
 /**
- * The options one config states, with the `baseUrl` and `paths` it inherits already resolved: a child that declares
- * `paths` replaces the inherited aliases, and its targets resolve against the effective `baseUrl` — its own or the one
- * it inherits — or its own folder when no config declares a base.
+ * The options one config states, with the `baseUrl` it inherits and the `paths` in effect: a child that declares
+ * `paths` replaces the inherited aliases. The targets stay as written, because the folder they resolve against is the
+ * final effective `baseUrl` — not the one of the config that first declared them.
  */
 function optionsOf(text: string, dir: string, inherited: Tsconfig | undefined): Tsconfig {
   const body = parseJsonc(text) as { compilerOptions?: { baseUrl?: unknown; paths?: unknown } };
   const options = body.compilerOptions ?? {};
   const declaredBase = typeof options.baseUrl === 'string' ? options.baseUrl : undefined;
   const baseUrl = declaredBase === undefined ? inherited?.baseUrl : normalizePath(`${dir}/${declaredBase}`);
-  const anchor = baseUrl ?? dir;
   let paths: Readonly<Record<string, readonly string[]>>;
+  let pathsDir: string | undefined;
   if (options.paths !== undefined) {
     const own: Record<string, readonly string[]> = {};
     if (options.paths !== null && typeof options.paths === 'object' && !Array.isArray(options.paths)) {
       for (const [pattern, targets] of Object.entries(options.paths as Record<string, unknown>)) {
         if (!Array.isArray(targets)) continue;
-        own[pattern] = targets.filter((target): target is string => typeof target === 'string')
-          .map((target) => normalizePath(`${anchor}/${target}`));
+        own[pattern] = targets.filter((target): target is string => typeof target === 'string');
       }
     }
     paths = own;
-  } else paths = inherited?.paths ?? {};
-  return { dir, ...(baseUrl === undefined ? {} : { baseUrl }), paths };
+    pathsDir = dir;
+  } else {
+    paths = inherited?.paths ?? {};
+    pathsDir = inherited?.pathsDir;
+  }
+  return { dir, ...(baseUrl === undefined ? {} : { baseUrl }), paths, ...(pathsDir === undefined ? {} : { pathsDir }) };
 }
 
 /**
@@ -269,8 +277,11 @@ export function resolveSpecifier(fromPath: string, specifier: string, files: Rea
   if (config !== undefined) {
     const match = bestPathMatch(config.paths, specifier);
     if (match !== undefined) {
+      // TypeScript anchors alias targets at the effective baseUrl — a child's own, or the one it inherits — and only at
+      // the declaring config's folder when no config states a base (utilities.ts `getPathsBasePath`, v5.9.3).
+      const anchor = config.baseUrl ?? config.pathsDir ?? config.dir;
       for (const target of config.paths[match.pattern] ?? []) {
-        const resolved = resolveBase(target.replace('*', match.capture), files, texts);
+        const resolved = resolveBase(normalizePath(`${anchor}/${target.replace('*', match.capture)}`), files, texts);
         if (resolved !== undefined) return { kind: 'file', path: resolved };
       }
     }

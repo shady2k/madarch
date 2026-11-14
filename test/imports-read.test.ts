@@ -194,6 +194,29 @@ describe('the repository resolution', () => {
     expect(failed.records.map((record) => record.to)).toEqual([{ kind: 'package', name: 'foo' }]);
   });
 
+
+  test('a folder package.json types precede its main', () => {
+    const read = read_with({
+      'src/dir/package.json': '{"main":"./entry.js","types":"./index.d.ts"}',
+      'src/dir/entry.js': 'module.exports = 1;\n',
+      'src/dir/index.d.ts': 'export declare const value: number;\n',
+      'src/user.ts': "import './dir';\n",
+    });
+    expect(read.problems).toEqual([]);
+    expect(read.records.map((record) => record.to)).toEqual([{ kind: 'file', path: 'src/dir/index.d.ts' }]);
+  });
+
+  test('inherited paths are anchored at the child\'s effective baseUrl', () => {
+    const read = read_with({
+      'tsconfig.base.json': '{"compilerOptions":{"baseUrl":".","paths":{"@/*":["lib/*"]}}}',
+      'child/tsconfig.json': '{"extends":"../tsconfig.base.json","compilerOptions":{"baseUrl":"."}}',
+      'child/lib/x.ts': 'export const x = 1;\n',
+      'child/user.ts': "import '@/x';\n",
+    });
+    expect(read.problems).toEqual([]);
+    expect(read.records.map((record) => [record.specifier, record.to])).toEqual([['@/x', { kind: 'file', path: 'child/lib/x.ts' }]]);
+  });
+
   test('a config without baseUrl does not resolve a bare name to a file at the repository root', () => {
     const read = read_with({
       'tsconfig.json': '{}',
