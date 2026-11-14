@@ -120,6 +120,12 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(notJson.status).toBe(415);
   }, 120_000);
 
+  test('a plugins-only directory fill names the repository, never the files an agent would read', async () => {
+    const answer = await call('/api/fill-plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.directory'], pluginsOnly: true }) });
+    expect(answer.status).toBe(200);
+    expect(answer.body.plan.selectedKinds).toEqual(['code.repository', 'code.directory']);
+  });
+
   test('a selected kind the plan leaves to the agent refuses an explicit no-agent, naming the fields', async () => {
     const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: null, tokenCap: null }) });
     expect(pressed.status).toBe(409);
