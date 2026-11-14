@@ -13,6 +13,7 @@ import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from '
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
+import { ProblemsPage } from './problems.js';
 import { parseAddress, type FramePage } from './address.js';
 import { PageView, type PageRuntime } from './page.js';
 import { Alert, AlertDescription } from './components/ui/alert.js';
@@ -214,8 +215,8 @@ export function App(): ReactElement {
       </Stack>
     );
   }
-  // The kit's own review surface stands at `/kit`; every other section of the frame waits for its page.
-  const page = section === null ? null : section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />;
+  // The kit and template findings have frame pages; other sections wait for their pages.
+  const page = section === null ? null : section === 'kit' ? <KitPage /> : section === 'problems' ? <ProblemsPage base={base} /> : <RebuildingPage word={frameWord(section, t)} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <Stack layout="shell" data-testid="wiki-app">
