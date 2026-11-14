@@ -15,7 +15,7 @@
  *
  * **The catalogue is a graph too.** Every entry the product's start publishes as a `manifest.kind` vertex is a
  * catalogue entity, taken or not; its fields, the plugins that fill it, whether the product takes it and its
- * derivation relations come from those vertices and the manifest's field and dependency vertices.
+ * derivation relations come from those vertices, the manifest's field vertices and real dependency edges.
  */
 import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
@@ -25,6 +25,7 @@ import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
+import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
 
 /** One open opinion of a vertex or an edge, as the read holds it. */
 export interface OpinionRow {
@@ -282,6 +283,8 @@ export interface DiagramGroup {
   /** The edge kind the rows were read through (`code.contains`), and the direction they came from. */
   readonly relation: string;
   readonly side: 'in' | 'out';
+  /** Metadata arrows keep the declaration's direction, even when the root is their target. */
+  readonly canonicalLabel?: boolean;
   readonly kind: string;
   /** How many neighbours the group holds, of which at most `first` were read. */
   readonly total: number;
@@ -920,15 +923,17 @@ export class ReadContext {
     const catalogue = await this.catalogueData().catch(() => undefined);
     const found = await this.tx.query<Record<string, unknown>>(
       `WITH around AS (
-         SELECT 'out' AS side, en.name AS relation, e.to_node AS other
+         SELECT 'out' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
+                en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
          WHERE e.from_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
          UNION ALL
-         SELECT 'in' AS side, en.name AS relation, e.from_node AS other
+         SELECT 'in' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
+                en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.from_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
-         WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
+         WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1 AND e.from_node <> e.to_node
        ), live AS (
-         SELECT around.side, around.relation, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
+         SELECT around.side, around.relation, around.metadata, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
          FROM around
          JOIN node n2 ON n2.id = around.other AND n2.context_id = 1 AND NOT n2.removed
          JOIN entity en2 ON en2.id = n2.entity_id
@@ -950,7 +955,7 @@ export class ReadContext {
     for (const [key, rows] of sample) {
       const [side, relation, kind] = key.split('\u0000') as ['in' | 'out', string, string];
       const total = Number(rows[0]?.['total'] ?? rows.length);
-      groups.set(key, { relation, side, kind, total, nodes: rows.map((row) => String(row['uid'])) });
+      groups.set(key, { relation, side, kind, total, ...(rows[0]?.['metadata'] === true ? { canonicalLabel: true } : {}), nodes: rows.map((row) => String(row['uid'])) });
       const entry = catalogue?.byName.get(kind);
       if (entry !== undefined) kindPages.set(kind, `/e/catalogue/${encodeURIComponent(entry.uid)}`);
       const label = this.kindWord(kind, lang);
@@ -1028,9 +1033,9 @@ export class ReadContext {
       const ids = sql.param(held.ids, '::bigint[]');
       const parts: string[] = [
         held.direction === 'in'
-          ? `SELECT e.to_node AS target, en.name AS relation, e.id::text AS source_id, e.from_node AS other
+          ? `SELECT e.to_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.from_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.to_node = ANY(${ids}) AND e.context_id = 1`
-          : `SELECT e.from_node AS target, en.name AS relation, e.id::text AS source_id, e.to_node AS other
+          : `SELECT e.from_node AS target, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation, e.id::text AS source_id, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id WHERE e.from_node = ANY(${ids}) AND e.context_id = 1`,
       ];
       for (const [inverseField, inverse] of held.direction === 'out' ? [] : (this.referenceInverseByType.get(held.entity.typeName) ?? new Map())) {
@@ -1657,7 +1662,6 @@ export class ReadContext {
     const byId = new Map<string, CatalogueValue>();
     const kindTable = generatedTableName('manifest.kind', 'vertex');
     const fieldTable = generatedTableName('manifest.field', 'vertex');
-    const dependencyTable = generatedTableName('manifest.dependency', 'vertex');
     const kinds = await this.tx.query<Record<string, unknown>>(
       `SELECT DISTINCT ON (n.id) n.id::text AS node_id, n.uid::text AS uid, n.key->>'name' AS name, p.declaration AS declaration
        FROM "${kindTable}" p
@@ -1671,9 +1675,12 @@ export class ReadContext {
        WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`,
     );
     const dependencies = await this.tx.query<Record<string, unknown>>(
-      `SELECT p.declaration AS declaration FROM "${dependencyTable}" p
-       JOIN node n ON n.id = p.node_id
-       WHERE p.state = 'open' AND p.context_id = 1 AND split_part(p.said_by, '@', 1) = 'manifest' AND n.context_id = 1 AND NOT n.removed`,
+      `SELECT DISTINCT dependent.key->>'name' AS dependent, prerequisite.key->>'name' AS prerequisite
+       FROM edge e JOIN entity en ON en.id = e.entity_id AND en.name = '${MANIFEST_DEPENDS_ON}'
+       JOIN node dependent ON dependent.id = e.from_node AND dependent.context_id = 1 AND NOT dependent.removed
+       JOIN node prerequisite ON prerequisite.id = e.to_node AND prerequisite.context_id = 1 AND NOT prerequisite.removed
+       WHERE e.context_id = 1
+       ORDER BY dependent, prerequisite`,
     );
     const fieldsByKind = new Map<string, CatalogueFieldValue[]>();
     for (const row of fieldRows.rows) {
@@ -1692,13 +1699,10 @@ export class ReadContext {
     const derives = new Map<string, string[]>();
     const derivedBy = new Map<string, string[]>();
     for (const row of dependencies.rows) {
-      const declaration = row['declaration'] as Record<string, unknown> | undefined;
-      if (declaration === undefined || declaration['via'] !== 'derives-from' || declaration['workflow'] !== undefined) continue;
-      const from = String(declaration['from'] ?? '');
-      const to = String(declaration['to'] ?? '');
-      if (from === '' || to === '') continue;
-      derives.set(to, [...(derives.get(to) ?? []), from]);
-      derivedBy.set(from, [...(derivedBy.get(from) ?? []), to]);
+      const dependent = String(row['dependent']);
+      const prerequisite = String(row['prerequisite']);
+      derives.set(dependent, [...(derives.get(dependent) ?? []), prerequisite]);
+      derivedBy.set(prerequisite, [...(derivedBy.get(prerequisite) ?? []), dependent]);
     }
     for (const row of kinds.rows) {
       const name = String(row['name'] ?? '');
@@ -1728,8 +1732,8 @@ export class ReadContext {
     if (name === 'label' || name === 'title') return this.catalogueTitle(value, lang);
     if (name === 'template') return this.productTemplates.catalogue;
     if (name === 'contested') return [];
-    if (name === 'backlinks') return this.backlinks({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value }, args);
-    if (name === 'outgoing') return this.outgoing({ nodeId: value.nodeId, uid: value.uid, kind: 'catalogue', key: {}, typeName: 'CatalogueEntity', catalogue: value }, args);
+    if (name === 'backlinks') return this.backlinks(this.catalogueEntityValue(value, lang), args);
+    if (name === 'outgoing') return this.outgoing(this.catalogueEntityValue(value, lang), args);
     if (name === 'name') return value.name;
     if (name === 'definition') return this.catalogueDefinition(value, lang);
     if (name === 'group') return String(value.entry['area'] ?? '');

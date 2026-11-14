@@ -27,6 +27,7 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
     "contains": "contains",
     "defines": "defines",
     "dependsOn": "depends on",
+    "manifest.depends-on": "depends on",
     "derivesFrom": "derives from",
     "documents": "documents",
     "evidences": "evidences",
@@ -116,7 +117,7 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
     "as-is": "текущее состояние",
     "history": "история",
     "parent": "родитель",
-    "touched": "изменяет",
+    "touched": "затронул",
     "authored": "автор",
     "renamed-from": "переименовано из",
     "renamed-to": "переименовано в",
@@ -139,6 +140,7 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
     "contains": "содержит",
     "defines": "определяет",
     "dependsOn": "зависит от",
+    "manifest.depends-on": "зависит от",
     "derivesFrom": "происходит от",
     "documents": "документирует",
     "evidences": "обосновывает",
@@ -191,7 +193,7 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
     "code.as-is": "текущее состояние",
     "code.history": "история",
     "code.parent": "родитель",
-    "code.touched": "изменяет",
+    "code.touched": "затронул",
     "code.authored": "автор",
     "code.renamed-from": "переименовано из",
     "code.renamed-to": "переименовано в",
@@ -233,6 +235,7 @@ export const RELATION_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<strin
  */
 const INVERSE_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<string, string>>>> = {
   en: {
+    'manifest.depends-on': 'depended on by',
     'code.contains': 'contained in',
     'code.touched': 'changed by',
     'code.imports': 'imported by',
@@ -254,6 +257,7 @@ const INVERSE_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<string, strin
     'grounds': 'grounds',
   },
   ru: {
+    'manifest.depends-on': 'от него зависят',
     'code.contains': 'содержится в',
     'code.touched': 'изменён коммитами',
     'code.imports': 'импортируется из',

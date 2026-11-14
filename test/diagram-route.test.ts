@@ -40,6 +40,25 @@ const neighbourhood: DiagramNeighbourhood = {
 
 const product = { diagramNeighbourhood: async () => neighbourhood } as unknown as KnowledgeProduct;
 
+test('LikeC4 shows a self relation through another occurrence linked to the same real entity', async () => {
+  const self: DiagramNeighbourhood = {
+    ...neighbourhood,
+    nodes: new Map([['1', repository as never]]),
+    groups: [{ relation: 'code.imports', side: 'out', kind: 'code.repository', total: 1, nodes: ['1'], canonicalLabel: true }],
+    links: [{ from: '1', to: '1', relation: 'code.imports' }],
+  };
+  const held = { diagramNeighbourhood: async () => self } as unknown as KnowledgeProduct;
+  const answer = await renderDiagram(held, { entity: '1', format: 'likec4' });
+  if (!('body' in answer)) throw new Error(JSON.stringify(answer));
+  const body = answer.body as { workspace: string; links: Record<string, string>; view: { views: Record<string, { edges: { label: string }[] }> } };
+  expect(body.workspace).toContain('n0 -> n1 "импортирует"');
+  expect(body.view.views['index']!.edges.map(edge => edge.label)).toContain('импортирует');
+  expect(body.links).toEqual({ n0: '/e/code.repository/1', n1: '/e/code.repository/1' });
+  const mermaid = await renderDiagram(held, { entity: '1', format: 'mermaid' });
+  if (!('body' in mermaid)) throw new Error(JSON.stringify(mermaid));
+  expect(mermaid.body['source']).toContain('n0 -->|"импортирует"| n0');
+});
+
 test('the Mermaid format answers the server\'s source with a click per node that has a page', async () => {
   const answer = await renderDiagram(product, { entity: '1', format: 'mermaid' });
   if (!('body' in answer)) throw new Error('the Mermaid answer is not JSON');

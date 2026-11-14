@@ -3,8 +3,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
-import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
+import type { EdgeDraft, EdgeRemovalDraft, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
+import { MANIFEST_CONTRACT, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from '../graph/manifest-contract.js';
 import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
 import { headCommitOf } from '../product/fill-updates.js';
@@ -23,6 +23,7 @@ export interface ValidatedManifests {
   readonly folder: string;
   readonly manifest: KindsManifest;
   readonly vertices: readonly VertexDraft[];
+  readonly edges: readonly EdgeDraft[];
   readonly templatePaths: readonly string[];
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
@@ -72,11 +73,18 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   if (!read.present) return { ok: true, value: undefined };
   const manifest = read.manifest;
   const vertices: VertexDraft[] = [];
+  const edges: EdgeDraft[] = [];
   const head = commit === undefined ? headCommitOf(folder) : { commit };
   if (head === undefined) return { ok: false, templatePaths, findings: [{ file: join(folder, '.git', 'HEAD'), line: 1, message: 'the product repository holds no commit: manifest opinions require its checkout commit' }] };
   const evidence = (path: string, line: number) => [{ repository: folder, path, lineStart: line, lineEnd: line, commit: head.commit }];
   const add = (category: string, name: string, declaration: unknown, path: string, line: number): void => {
     vertices.push({ kind: `manifest.${category}`, key: { name }, values: { declaration: encode(declaration) },
+      evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
+  };
+  const addEdge = (edgeKind: string, from: string, to: string, declaration: unknown, path: string, line: number, relation?: string): void => {
+    edges.push({ kind: edgeKind, from: { kind: 'manifest.kind', key: { name: from } }, to: { kind: 'manifest.kind', key: { name: to } },
+      ...(relation === undefined ? {} : { discriminator: relation }),
+      values: { declaration: encode(declaration), ...(relation === undefined ? {} : { relation }) },
       evidence: evidence(path, line), producer: 'manifest', producerVersion: '1' });
   };
   add('catalogue', 'product', manifest, KINDS_FILE, 1);
@@ -88,11 +96,21 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     const path = manifest.kindFiles?.get(name) ?? KINDS_FILE;
     add('kind', name, { ...kind, ...(manifest.catalog?.kinds.get(name) === undefined ? {} : { catalog: manifest.catalog.kinds.get(name) }), taken: true, plugins: pluginsOf(name) }, path, kind.line);
     for (const field of kind.fields ?? []) add('field', JSON.stringify([name, field.name]), { kind: name, ...field }, path, field.line ?? kind.line);
-    for (const [index, relation] of (kind.relations ?? []).entries()) add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
-    for (const dependency of kind.derivesFrom ?? []) add('dependency', JSON.stringify(['kind', name, dependency]), { from: dependency, to: name, via: 'derives-from' }, path, kind.line);
+    for (const [index, relation] of (kind.relations ?? []).entries()) {
+      add('relation', JSON.stringify([name, index]), { from: name, ...relation }, path, relation.line);
+      addEdge(MANIFEST_RELATION_EDGE, name, relation.to.split(':')[0]!, { from: name, ...relation }, path, relation.line, relation.type);
+    }
+    for (const dependency of kind.derivesFrom ?? []) addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line);
   }
   for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind, taken: false, plugins: [] }, manifest.kindFiles?.get(name) ?? KINDS_FILE, kind.line);
-  for (const [name, edge] of manifest.edges ?? []) add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);
+  for (const [name, edge] of manifest.edges ?? []) {
+    add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);
+    // A wildcard permits endpoints; it does not declare a relationship between every pair of kinds.
+    // Its complete declaration remains a catalogue relation, without invented concrete links.
+    for (const from of edge.from) for (const to of edge.to) {
+      if (from !== 'any' && to !== 'any') addEdge(MANIFEST_RELATION_EDGE, from, to, edge, KINDS_FILE, edge.line, name);
+    }
+  }
   for (const [name, entry] of manifest.workflows?.workflows ?? []) {
     add('workflow', name, entry, WORKFLOWS_FILE, entry.line);
     // Dependencies are the same derivation a fill plans, not an order guessed by the reader.
@@ -100,7 +118,18 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     for (const edge of graph) add('dependency', JSON.stringify(['workflow', name, edge.from, edge.to, edge.via]), { workflow: name, ...edge }, WORKFLOWS_FILE, entry.stageLines.get(edge.to) ?? entry.line);
   }
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(JSON.stringify(left.key), JSON.stringify(right.key)));
-  return { ok: true, value: { folder, manifest, vertices, templatePaths } };
+  const projectedEdges = new Map<string, EdgeDraft[]>();
+  for (const edge of edges) {
+    const key = JSON.stringify([edge.kind, edge.from.key, edge.to.key, edge.discriminator ?? '']);
+    const held = projectedEdges.get(key) ?? [];
+    held.push(edge);
+    projectedEdges.set(key, held);
+  }
+  const combinedEdges = [...projectedEdges.values()].map((held): EdgeDraft => held.length === 1 ? held[0]! : {
+    ...held[0]!, values: { ...held[0]!.values, declaration: { relations: held.map((one) => one.values!['declaration']) } },
+    evidence: held.flatMap((one) => one.evidence ?? []),
+  });
+  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, templatePaths } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -146,12 +175,33 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       const values = Object.fromEntries(Object.entries(one.values ?? {}).filter(([name]) => !fields.key.includes(name)));
       return held === undefined || !isDeepStrictEqual(held.values, values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
     });
-    return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
+    const edgeIdentity = (one: Pick<EdgeDraft, 'kind' | 'from' | 'to' | 'discriminator'>): string =>
+      JSON.stringify([one.kind, one.from.key, one.to.key, one.discriminator ?? '']);
+    const publishedEdges = await tx.query<{ kind: string; from_key: Record<string, string>; to_key: Record<string, string>; discriminator: string; values: unknown; evidence: unknown }>(MANIFEST_CONTRACT.edge.map((kind) => {
+      const values = `jsonb_build_object(${kind.fields.map((field) => `'${field.name}', p."${field.name}"`).join(', ')})`;
+      return `SELECT '${kind.name}' AS kind, fn.key AS from_key, tn.key AS to_key, e.discriminator, ${values} AS values, p.evidence
+        FROM (SELECT DISTINCT ON (p.edge_id) p.* FROM "${kind.table}" p
+          WHERE p.context_id = 1 AND p.lang IS NULL AND p.state = 'open' AND split_part(p.said_by, '@', 1) = 'manifest'
+          ORDER BY p.edge_id, p.id DESC) p
+        JOIN edge e ON e.id = p.edge_id AND e.context_id = 1
+        JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node`;
+    }).join(' UNION ALL '));
+    const edgeDrafts = new Map(validated.edges.map((one) => [edgeIdentity(one), one]));
+    const currentEdges = new Map(publishedEdges.rows.map((one) => {
+      const draft = { kind: one.kind, from: { kind: 'manifest.kind', key: one.from_key }, to: { kind: 'manifest.kind', key: one.to_key }, discriminator: one.discriminator };
+      return [edgeIdentity(draft), { ...one, draft }];
+    }));
+    const edgeRemovals: EdgeRemovalDraft[] = [...currentEdges].filter(([key]) => !edgeDrafts.has(key))
+      .map(([, one]) => ({ ...one.draft, producer: 'manifest' }));
+    const edges = [...edgeDrafts].filter(([key, one]) => {
+      const held = currentEdges.get(key);
+      return held === undefined || !isDeepStrictEqual(held.values, one.values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
+    }).map(([, one]) => one);
+    return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges, removals, edgeRemovals }, 1, { author: 'manifest' });
   });
 }
 
 
-/** Explicit dependency opinions, already derived and validated at publication. */
 /** The complete validated metadata, never a read of the checkout or a fallback to it. */
 export async function readPublishedManifest(tx: SqlExecutor): Promise<KindsManifest | undefined> {
   const table = MANIFEST_CONTRACT.vertex.find((one) => one.name === 'manifest.catalogue')!.table;
