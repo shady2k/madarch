@@ -5,7 +5,7 @@
  * the scroll buttons take the kit's surfaces, so a menu opened over a page is
  * the page's own.
  */
-import { forwardRef, type ComponentProps, type ComponentPropsWithoutRef } from 'react';
+import { forwardRef, type ComponentPropsWithoutRef } from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils.js';

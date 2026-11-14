@@ -106,6 +106,8 @@ const DAYS: readonly ChartDay[] = Array.from({ length: 90 }, (_, index) => {
   return { date: at.toISOString().slice(0, 10), count: (index * 7 + (index % 5) * 3) % 13 };
 });
 const EMPTY_TREE: readonly ChartNode[] = [{ label: 'nothing yet' }];
+/** The aggregate a section's `bars`, `treemap` or `timeline` display draws: a label, its value and where it leads. */
+const FACT_ROWS = [{ label: 'components', value: 42 }, { label: 'sections', value: 27 }, { label: 'templates', value: 18 }, { label: 'views', value: 9 }];
 
 /** Fold a hierarchy's children to a budget: the biggest stay, the rest become one entry that says how many it holds. */
 function folded(nodes: readonly ChartNode[], budget: number): ChartNode[] {
@@ -192,7 +194,10 @@ export function KitPage(): ReactElement {
           <TableHeader><TableRow><TableHead>{state('name')}</TableHead><TableHead>{state('description')}</TableHead></TableRow></TableHeader>
           <TableBody><TableRow><TableCell>{state('sample')}</TableCell><TableCell>{state('content')}</TableCell></TableRow></TableBody>
         </Table>
-        <FactChart display="bar" rows={[{ label: state('sample'), value: 3 }, { label: state('content'), value: 7 }]} labelTitle={state('name')} valueTitle={state('description')} />
+        <KitState label={`FactChart — ${state('bar')}`}><FactChart display="bar" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('treemap')}`}><FactChart display="treemap" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('timeline')}`}><FactChart display="timeline" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('empty')}`}><FactChart display="bar" rows={[]} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
       </KitSection>
 
       <KitSection title="FilterBar">
