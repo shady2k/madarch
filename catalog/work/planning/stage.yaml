@@ -16,6 +16,81 @@ relation-constraints:
   in:
   - partOf
 template-policy: none
+fields:
+- name: legacy_id
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: title
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: issue_type
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: dependencies
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: comments
+  type: json
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Stage

@@ -1,0 +1,72 @@
+id: practice.value-set-entry
+purpose: structure
+audience: [product-lead, analyst, developer, architect]
+definition: A value set entry is one value of a value set, with its label in each language, its description and its order.
+sources:
+- https://www.w3.org/TR/skos-reference/
+- https://github.com/shady2k/madarch/blob/main/docs/vision.md
+acquisition:
+- conversation
+- not-implemented
+status: not-implemented
+relation-constraints:
+  out:
+  - partOf
+  - appliesTo
+  in:
+  - hasPart
+  - appliesTo
+template-policy: page
+source: graph
+fields:
+- name: set
+  type: json
+  reference: value-set
+  producers:
+  - person
+- name: value
+  type: text
+  producers:
+  - person
+- name: label_en
+  type: text
+  producers:
+  - person
+- name: label_ru
+  type: text
+  producers:
+  - person
+- name: description
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: order
+  type: integer
+  nullable: true
+  producers:
+  - person
+key:
+- set
+- value
+origin: person
+nav: own-page
+details:
+- set
+- value
+- label_en
+- label_ru
+- description
+- order
+labels:
+  en:
+    one: Value set entry
+    many: Value set entries
+  ru:
+    one: Значение справочника
+    many: Значения справочника
+description:
+  en: 'A value set entry is one value of one value set: its label in each interface language, what it means and where it stands in the order. Entities that hold the value point at the entry, so its backlinks show every entity that uses it.'
+  ru: 'Значение справочника — одно значение одного справочника: его подпись на каждом языке интерфейса, что оно означает и какое место занимает в порядке. Сущности, которые держат это значение, указывают на запись, поэтому её обратные ссылки показывают все сущности, которые ею пользуются.'
+derives-from:
+- value-set

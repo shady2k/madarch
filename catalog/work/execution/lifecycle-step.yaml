@@ -19,6 +19,53 @@ relation-constraints:
   - hasPart
   - measures
 template-policy: none
+fields:
+- name: step
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: who
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: executor_type
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: model
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: duration
+  type: integer
+  nullable: true
+  producers:
+  - person
+- name: tokens
+  type: integer
+  nullable: true
+  producers:
+  - person
+- name: cost
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: outcome
+  type: text
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Lifecycle step

@@ -15,7 +15,47 @@ relation-constraints:
   - linksTo
   in:
   - linksTo
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: relation
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: source
+  type: json
+  producers:
+  - person
+- name: target
+  type: json
+  producers:
+  - person
+- name: note
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_by
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+details:
+- relation
+- source
+- target
+- note
+- created_by
+- created_at
 labels:
   en:
     one: Link

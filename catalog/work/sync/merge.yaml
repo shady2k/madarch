@@ -17,6 +17,53 @@ relation-constraints:
   - partOf
   - approves
 template-policy: none
+fields:
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Merge

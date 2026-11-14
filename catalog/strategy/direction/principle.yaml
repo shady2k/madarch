@@ -1,7 +1,7 @@
 id: archimate.principle
 purpose: understand
-audience: [product, product-lead, analyst]
-definition: A principle is a normative property the architecture keeps, stated so a decision can be judged against it.
+audience: [product, product-lead, analyst, developer, architect]
+definition: A principle is a rule the team keeps in its architecture and its code, stated so a decision or a change can be judged against it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -12,9 +12,29 @@ status: not-implemented
 relation-constraints:
   out:
   - constrains
+  - appliesTo
+  - derivesFrom
   in:
   - constrains
+  - appliesTo
 template-policy: none
+fields:
+- name: rationale
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: examples
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: status
+  type: json
+  reference: value-set-entry
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Principle
@@ -23,5 +43,5 @@ labels:
     one: Принцип
     many: Принципы
 description:
-  en: A principle is a rule the architecture should follow in every choice, such as prefer the simplest option that works or keep one source of truth for each fact. It is written so a decision can be held against it, and so a departure must be argued.
-  ru: 'Принцип — правило, которого архитектура держится в каждом выборе: предпочитать простейшее работающее решение или иметь один источник истины для каждого факта. Он сформулирован так, чтобы по нему можно было судить решение, а отступление нужно было обосновать.'
+  en: 'A principle is a rule the team follows in every choice about the architecture, the code or the way it works: one system for one job, no hard-coded values, delete what is replaced at once. It is written so a decision can be held against it and a departure must be argued.'
+  ru: 'Принцип — правило, которого команда держится в каждом выборе об архитектуре, коде или способе работы: одна система для одной задачи, никаких вписанных значений, заменённое удаляют сразу. Он сформулирован так, чтобы по нему можно было судить решение, а отступление нужно было обосновать.'

@@ -15,7 +15,40 @@ relation-constraints:
   - partOf
   in:
   - partOf
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: author
+  type: text
+  producers:
+  - person
+- name: body
+  type: text
+  producers:
+  - person
+- name: about
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  producers:
+  - person
+- name: edited_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+details:
+- author
+- body
+- about
+- created_at
+- edited_at
 labels:
   en:
     one: Comment
