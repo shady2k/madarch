@@ -1,7 +1,7 @@
 id: arc42.risk
 purpose: quality
 audience: [product, analyst, architect, developer]
-definition: Something that may happen and would harm a goal, with its likelihood and its effect.
+definition: A risk is something that may happen and would harm a goal, with how likely it is and how bad it would be.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Риск
     many: Риски
 description:
-  en: Something that may happen and would harm a goal, with its likelihood and its effect.
-  ru: То, что может случиться и навредить цели, с вероятностью и последствием.
+  en: A risk describes a possible future event that would damage a goal, such as a lost supplier, a delayed dependency or a security breach. It is judged by its likelihood and its impact, and tracked until it is avoided, reduced or accepted.
+  ru: 'Риск описывает возможное будущее событие, которое повредит цели: потерянный поставщик, задержанная зависимость или взлом. Его оценивают по вероятности и последствиям и ведут, пока его не избегут, не уменьшат или не примут.'
