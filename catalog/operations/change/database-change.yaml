@@ -1,7 +1,7 @@
 id: practice.database-change
 purpose: operations
 audience: [operations, platform-devops]
-definition: A change to a database's schema or its data, with the way back if it fails.
+definition: A database change is a change to a database's schema or its data, with the way back if it fails.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/job/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Изменение базы данных
     many: Изменения базы данных
 description:
-  en: A change to a database's schema or its data, with the way back if it fails.
-  ru: Изменение схемы или данных базы с путём назад при сбое.
+  en: A database change alters tables, indexes or rows in a live database, sometimes with a migration that must be reversible. It records what it does, how it is rolled back and what it does to the data while it runs.
+  ru: Изменение базы данных меняет таблицы, индексы или строки в работающей базе, иногда миграцией, которую можно отменить. В нём записано, что оно делает, как откатиться и что происходит с данными, пока оно идёт.

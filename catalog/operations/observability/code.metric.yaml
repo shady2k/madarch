@@ -1,7 +1,7 @@
 id: otel.metric-instrument
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: A declared counter, gauge or histogram and the code that updates it.
+definition: A metric is a declared counter, gauge or histogram and the code that updates it.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/metrics/
 acquisition:
@@ -30,5 +30,5 @@ labels:
     one: Метрика
     many: Метрики
 description:
-  en: A declared counter, gauge or histogram and the code that updates it.
-  ru: Объявленный счётчик, шкала или гистограмма и код, который меняет её.
+  en: 'A metric is one measured number a service publishes over time: a counter of requests, a gauge of queue length, a histogram of durations. Its name, its labels and the code that updates it define what can be watched and alerted on.'
+  ru: 'Метрика — одно измеряемое число, которое сервис публикует во времени: счётчик запросов, шкала длины очереди, гистограмма длительностей. Её имя, метки и код, который её меняет, задают, за чем можно следить и о чём оповещать.'

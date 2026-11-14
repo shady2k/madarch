@@ -1,7 +1,7 @@
 id: practice.compose-healthcheck
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: A configured compose healthcheck command and its timing.
+definition: A health check is a configured command and timing that a container platform uses to test a service.
 sources:
 - https://docs.docker.com/compose/
 acquisition:
@@ -31,5 +31,5 @@ labels:
     one: Проверка состояния
     many: Проверки состояния
 description:
-  en: A configured compose healthcheck command and its timing.
-  ru: Команда проверки состояния compose и её интервалы.
+  en: 'A compose health check tells the platform how to test one container: the command, how often, how long to wait and how many failures count. A container that fails becomes unhealthy and may be replaced.'
+  ru: 'Проверка состояния compose говорит платформе, как проверять один контейнер: команду, как часто, сколько ждать и сколько отказов считать. Контейнер, не прошедший проверку, становится нездоровым, и его могут заменить.'

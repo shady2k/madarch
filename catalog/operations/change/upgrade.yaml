@@ -1,7 +1,7 @@
 id: practice.upgrade
 purpose: operations
 audience: [operations, platform-devops]
-definition: A move of a component or a platform to a newer version, with what it requires first.
+definition: An upgrade is a move of a component or a platform to a newer version, with what it requires first.
 sources:
 - https://endoflife.date/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Обновление
     many: Обновления
 description:
-  en: A move of a component or a platform to a newer version, with what it requires first.
-  ru: Переход компонента или платформы на более новую версию и то, что для него нужно сначала.
+  en: An upgrade replaces one version of a component, a library or a platform with a newer one. It states the steps, the compatibility it needs, the backup it takes and how to return to the old version.
+  ru: Обновление заменяет одну версию компонента, библиотеки или платформы на более новую. В нём указаны шаги, нужная совместимость, делаемая копия и путь назад к прежней версии.

@@ -1,7 +1,7 @@
 id: practice.health-endpoint
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: The route that tells whether a service is alive.
+definition: A health endpoint is the route that tells whether a service is alive.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -28,5 +28,5 @@ labels:
     one: Проверка здоровья
     many: Проверки здоровья
 description:
-  en: The route that tells whether a service is alive.
-  ru: Маршрут, по которому видно, жив ли сервис.
+  en: A health endpoint answers a simple request with whether the service can serve traffic, and often which dependencies it has reached. A load balancer or a cluster uses it to decide whether to send work.
+  ru: Проверка здоровья отвечает на простой запрос тем, может ли сервис обслуживать трафик, и часто — какие зависимости он видит. По ней балансировщик или кластер решает, направлять ли ему работу.

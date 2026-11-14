@@ -1,7 +1,7 @@
 id: practice.scheduled-job
 purpose: operations
 audience: [operations, platform-devops]
-definition: Work the system runs on a timetable rather than in response to a request.
+definition: A scheduled job is work the system runs on a timetable rather than in response to a request.
 sources:
 - https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Задача по расписанию
     many: Задачи по расписанию
 description:
-  en: Work the system runs on a timetable rather than in response to a request.
-  ru: Работа, которую система выполняет по расписанию, а не в ответ на запрос.
+  en: 'A scheduled job is a task the system carries out at set times or intervals: send reminders, rebuild an index, close a day. Nobody has to ask for it, so its failures are noticed only if it reports them.'
+  ru: 'Задача по расписанию — работа, которую система выполняет в заданные моменты или через промежутки: отправить напоминания, перестроить индекс, закрыть день. Её никто не просит, поэтому её отказы замечают, только если она о них сообщает.'

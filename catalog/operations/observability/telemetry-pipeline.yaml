@@ -1,7 +1,7 @@
 id: otel.pipeline
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: The path telemetry takes from the services that emit it to the stores and the tools that read it.
+definition: A telemetry pipeline is the path telemetry takes from the services that emit it to the stores and tools that read it.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Конвейер телеметрии
     many: Конвейеры телеметрии
 description:
-  en: The path telemetry takes from the services that emit it to the stores and the tools that read it.
-  ru: Путь телеметрии от сервисов, которые её создают, до хранилищ и инструментов, которые её читают.
+  en: A telemetry pipeline collects metrics, logs and traces from services, processes them — filtering, sampling, adding labels — and sends them to stores and tools. Its stages decide what is kept, what is dropped and how late the data arrives.
+  ru: Конвейер телеметрии собирает метрики, журналы и трассы у сервисов, обрабатывает их — фильтрует, прореживает, добавляет метки — и отправляет в хранилища и инструменты. Его этапы решают, что сохранить, что отбросить и насколько поздно придут данные.

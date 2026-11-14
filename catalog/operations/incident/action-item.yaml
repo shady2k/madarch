@@ -1,7 +1,7 @@
 id: sre.action-item
 purpose: quality
 audience: [operations, platform-devops]
-definition: A piece of work a postmortem asks for, with its owner and how it is tracked.
+definition: An action item is a piece of work a postmortem asks for, with its owner and how it is tracked.
 sources:
 - https://sre.google/workbook/postmortem-culture/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Действие по разбору
     many: Действия по разбору
 description:
-  en: A piece of work a postmortem asks for, with its owner and how it is tracked.
-  ru: Работа, которую требует разбор инцидента, с её владельцем и способом отслеживания.
+  en: 'An action item is one change a review of an incident or a near miss asks for: fix the cause, add a check, change a rule. It has an owner and a date, and its completion is tracked like any other work.'
+  ru: 'Действие по разбору — одно изменение, которое требует разбор инцидента или его предотвращения: устранить причину, добавить проверку, изменить правило. У него есть владелец и срок, а выполнение ведут как любую другую работу.'
