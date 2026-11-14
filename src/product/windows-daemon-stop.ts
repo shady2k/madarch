@@ -59,6 +59,8 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   stopStore?: (program: string, folder: string) => boolean;
   /** A stale daemon record may still need its stores swept, but its PID must not be signaled. */
   storesOnly?: boolean;
+  /** The store data folders under the home's knowledge root, or undefined when they cannot be listed. */
+  storeFolders?: () => string[] | undefined;
 } = {}): boolean {
   const exists = reads.alive ?? alive;
   const snapshot = reads.storesOnly ? [] : (reads.processes ?? processes)();
@@ -66,15 +68,25 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   const tree = reads.storesOnly ? [] : applicationProcessTree(state.pid, snapshot);
   if (!reads.processes && !reads.storesOnly) console.error(`Windows stop process tree: ${JSON.stringify(snapshot.filter((row) => tree.includes(row.pid) || tree.includes(row.parent)))}`);
   const root = knowledgeRootOf(state.home);
-  let folders: string[] = [];
-  try { folders = readdirSync(root).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false; }
+  const listStores = reads.storeFolders ?? (() => {
+    try { return readdirSync(root).map((name) => join(root, name, 'graph', 'pgdata')).filter((folder) => existsSync(folder)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      // A store being prepared beside this home can hold the folder as it makes it, and Windows refuses the listing
+      // then (a sharing violation a moment later does not see). The look before the kill is an optimisation; the one
+      // after it, with the writers gone, decides.
+      console.error(`Windows stop could not list the stores under ${root}: ${(error as Error).message}`);
+      return undefined;
+    }
+  });
   const capture = (folder: string): { folder: string; pid?: number } => {
     let pid: number | undefined;
     try { const value = Number(readFileSync(join(folder, 'postmaster.pid'), 'utf8').split('\n')[0]); if (Number.isInteger(value) && value > 0) pid = value; } catch { /* no server recorded */ }
     return { folder, pid };
   };
-  const stores = folders.map(capture);
+  // A store that opens between this look and the termination is caught by the look after it.
+  const before = listStores();
+  const stores = (before ?? []).map((folder) => capture(folder));
   const deadline = Date.now() + 5_000; // The existing daemon TERM + KILL budget, shared by process checks.
   for (const pid of tree) {
     if (!exists(pid)) continue;
@@ -95,13 +107,11 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
     }
   }
   const applicationsGone = waitGone(tree, Math.max(0, deadline - Date.now()), exists);
-  // A store may have finished opening between the first capture and termination.
-  try {
-    for (const name of readdirSync(root)) {
-      const folder = join(root, name, 'graph', 'pgdata');
-      if (existsSync(folder) && !stores.some((store) => store.folder === folder)) stores.push(capture(folder));
-    }
-  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false; }
+  // A store may have finished opening between the first look and the termination, and a look that failed there is made
+  // again now that no process of this home writes.
+  const after = listStores() ?? before;
+  if (after === undefined) return false;
+  for (const folder of after) if (!stores.some((store) => store.folder === folder)) stores.push(capture(folder));
   for (const store of stores) store.pid ??= capture(store.folder).pid;
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
   let stopped = applicationsGone;

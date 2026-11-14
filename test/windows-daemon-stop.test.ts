@@ -178,3 +178,48 @@ test('a hung taskkill exhausts the shared budget but does not prevent store clea
     expect(swept).toBe(true);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }, 15_000);
+
+test('a store listing that fails before the kill does not cancel the stop, and the look after it decides', () => {
+  // A store being prepared beside the home can hold its folder as it makes it, and Windows refuses the listing then
+  // (madarch-64o5.81). The look before the kill is an optimisation: the tree still ends, and the look after it, with
+  // the writers gone, sees the store and sweeps it.
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-listing-'));
+  const folder = join(home, '.madarch', 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  const pidFile = join(folder, 'postmaster.pid');
+  writeFileSync(pidFile, '42\n');
+  const pgCtl = join(home, 'pg_ctl.exe');
+  writeFileSync(pgCtl, '');
+  const live = new Set([10, 42]);
+  const killed: number[] = [];
+  let looks = 0;
+  let swept = '';
+  try {
+    expect(stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { killed.push(pid); live.delete(pid); },
+      storeFolders: () => { looks += 1; return looks === 1 ? undefined : [folder]; },
+      pgCtl,
+      stopStore: (_program, data) => { swept = data; live.delete(42); rmSync(pidFile); return true; },
+    })).toBe(true);
+    expect(killed).toEqual([10]);
+    expect(swept).toBe(folder);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('a knowledge root that cannot be listed at all fails the stop after the tree is gone', () => {
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-nolisting-'));
+  const live = new Set([10]);
+  const killed: number[] = [];
+  try {
+    expect(stopWindowsDaemon({ pid: 10, home }, {
+      processes: () => [{ pid: 10, parent: 1, name: 'madarch.exe' }],
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { killed.push(pid); live.delete(pid); },
+      storeFolders: () => undefined,
+    })).toBe(false);
+    // The tree ended even though nothing could say what stores the home holds: a stop never leaves a server running.
+    expect(killed).toEqual([10]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
