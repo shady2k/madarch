@@ -11,7 +11,7 @@ import { Button } from './ui/button.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { ListItem, Paragraph, PlainList, Stack, TextLink } from './ui/typography.js';
-import { durationWords } from './format.js';
+import { durationWords, momentWords } from './format.js';
 import { readFillRuns, useChangeStream, useCommandRead, type FillRunDetail } from './command.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
@@ -43,10 +43,10 @@ export function RunsSection({ context }: { readonly context: SectionContext }): 
             <ListItem key={run.runId} className="rounded-lg border border-line p-3" data-testid="runs-run" data-state={run.state}>
               <Stack className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <TextLink href={context.base + runAddress(run.runId)} onClick={(event) => { event.preventDefault(); context.open(runAddress(run.runId)); }} className="font-medium">
-                  {new Date(run.startedAt).toLocaleString(language)}
+                  {momentWords(run.startedAt, language)}
                 </TextLink>
                 <Badge variant={run.state === 'running' || run.state === 'paused' ? 'solid' : 'outline'}>{t(`knowledge.fillRun.state.${run.state}`, { defaultValue: run.state })}</Badge>
-                {run.finishedAt === null ? null : <Paragraph className="m-0 text-small text-muted">{new Date(run.finishedAt).toLocaleString(language)}</Paragraph>}
+                {run.finishedAt === null ? null : <Paragraph className="m-0 text-small text-muted">{momentWords(run.finishedAt, language)}</Paragraph>}
               </Stack>
               <Paragraph className="m-0 mt-1 text-small text-secondary" data-testid="runs-summary">
                 {t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length })}

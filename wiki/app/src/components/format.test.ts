@@ -1,6 +1,6 @@
 /** The formatting helpers a page uses to write a value for a reader (madarch-64o5.83). */
 import { expect, test } from 'bun:test';
-import { durationWords } from './format.js';
+import { durationWords, momentWords } from './format.js';
 
 test('a span of work reads in the reader\'s language, with the unit a person says', () => {
   expect(durationWords(12_000, 'en')).toBe('12 sec');
@@ -8,4 +8,10 @@ test('a span of work reads in the reader\'s language, with the unit a person say
   expect(durationWords(3_725_000, 'en')).toBe('1 hr 02 min');
   expect(durationWords(214_000, 'ru')).toBe('3 мин 34 с');
   expect(durationWords(0, 'en')).toBe('0 sec');
+});
+
+test('a moment reads with the month\'s name in the reader\'s language, never a bare numeric date', () => {
+  expect(momentWords('2026-11-15T02:09:29.000Z', 'en')).toContain('Nov');
+  expect(momentWords('2026-11-15T02:09:29.000Z', 'ru')).toContain('нояб');
+  expect(momentWords('not a date', 'en')).toBe('not a date');
 });

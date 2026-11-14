@@ -76,3 +76,14 @@ export function durationWords(ms: number, language: string): string {
   if (minutes > 0) return `${unit(minutes, 'minute')} ${unit(seconds, 'second')}`;
   return unit(seconds, 'second');
 }
+
+/**
+ * A moment as a reader in a language reads it: the month's name and a 24-hour clock where the language uses one, never a
+ * bare numeric date that means two things in two places (madarch-64o5.83). The language is the page's, so Russian keeps
+ * Russian months and English its own.
+ */
+export function momentWords(iso: string, language: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(at);
+}

@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Progress } from './ui/progress.js';
+import { momentWords } from './format.js';
 import { Skeleton } from './ui/skeleton.js';
 import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import {
@@ -141,7 +142,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const terminal = !LIVE.includes(run.state) && run.state !== 'paused';
   const emptyWords = t(terminal ? 'knowledge.fillRun.noUnits' : 'knowledge.fillRun.planning');
   const agentUsage = run.agentUsage;
-  const finished = run.finishedAt === null ? null : new Date(run.finishedAt).toLocaleString(language);
+  const finished = run.finishedAt === null ? null : momentWords(run.finishedAt, language);
   const liveRun = run;
 
   return (
@@ -150,7 +151,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         <CardHeader>
           <CardTitle>{run.units.length === 0 ? emptyWords : t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length })}</CardTitle>
           <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-when">
-            {started.toLocaleString(language)} · {t(`knowledge.fillRun.state.${run.state}`, { defaultValue: run.state })}
+            {momentWords(run.startedAt, language)} · {t(`knowledge.fillRun.state.${run.state}`, { defaultValue: run.state })}
             {finished === null ? null : <> · {t('knowledge.fillPage.finished', { time: finished })}</>}
           </Paragraph>
           {names.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-selection">{names.join(', ')}</Paragraph>}
