@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
+import type { GraphContract, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
 import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
@@ -130,7 +130,7 @@ function workflowDependencies(stages: readonly string[]): readonly { from: strin
 }
 
 /** One transaction closes removed declarations and states the entire valid catalogue atomically. */
-export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests): Promise<number> {
+export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
   return await owner.transaction('write', async (tx) => {
     const identity = (kind: string, key: unknown): string => JSON.stringify([kind, key]);
     const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
@@ -154,9 +154,9 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
       return held === undefined || !isDeepStrictEqual(held.values, values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
     });
     let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
-    const authored = graphContractOf(validated.manifest);
-    if (validated.starterValues.length > 0 && authored.vertex.some((kind) => kind.name === 'value-set') && authored.vertex.some((kind) => kind.name === 'value-set-entry')) {
-      written += await publishGraphDrafts(tx, authored, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+    const valueContract = authored ?? graphContractOf(validated.manifest);
+    if (validated.starterValues.length > 0 && valueContract.vertex.some((kind) => kind.name === 'value-set') && valueContract.vertex.some((kind) => kind.name === 'value-set-entry')) {
+      written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
     return written;
   });

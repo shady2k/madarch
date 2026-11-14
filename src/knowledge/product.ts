@@ -275,6 +275,7 @@ export class KnowledgeProduct {
         if (this.reader !== undefined) this.reader.seq = this.generation;
         this.filesMemo = undefined;
         this.manifestMemo = undefined;
+        this.kindCountsMemo = undefined;
         this.notify();
       }
       return answer;
@@ -354,15 +355,16 @@ export class KnowledgeProduct {
     this.opening ??= (async () => {
       // Managed readers use only what the daemon published, not a second read of the checkout.
       const manifests = publication === undefined ? validateProductManifests(this.folder) : undefined;
+      let publicationContract = EMPTY_CONTRACT;
       if (manifests !== undefined) {
         if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
-        const contract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
-        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(contract));
+        publicationContract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
+        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(publicationContract));
       }
       const owner = await this.openStore();
       try {
         await owner.ready;
-        if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value);
+        if (manifests?.ok && manifests.value !== undefined) await publishValidatedManifests(owner, manifests.value, withManifestContract(publicationContract));
         await this.ensureStoreTables(owner);
         await this.loadPins(owner);
         // The publication the pins were read at: the first answer does not read them again (followStoreFill).
@@ -440,6 +442,8 @@ export class KnowledgeProduct {
 
   /** The manifest one graph revision was read as: the whole parse stands for the revision, not for a page. */
   private manifestMemo: { seq: number; folder: string; read: ReturnType<typeof readKindsFrom> } | undefined;
+  /** The kind counts one graph revision answered: a poll reads them again only after a publication moves the revision. */
+  private kindCountsMemo: { seq: number; kinds: WikiStatus['kinds'] } | undefined;
 
   /** The product's kinds manifest and the declaration files beside it, read from the graph: absent when the graph holds none. */
   private async manifestRead(folder: string): Promise<ReturnType<typeof readKindsFrom>> {
@@ -598,6 +602,7 @@ export class KnowledgeProduct {
       if (this.closed) return;
       const owner = await this.open();
       this.generation += 1;
+      this.kindCountsMemo = undefined;
       this.reader = { owner, seq: this.generation };
       // What the repositories were filled to is read with the graph: a source is read at the commit the graph it is
       // shown beside was filled from.
@@ -1608,6 +1613,7 @@ export class KnowledgeProduct {
       this.countsMemo = undefined;
       this.filesMemo = undefined;
       this.manifestMemo = undefined;
+      this.kindCountsMemo = undefined;
       this.problemsCache = undefined;
       this.pins.clear();
       this.fill = { state: 'idle' };
@@ -1862,12 +1868,16 @@ export class KnowledgeProduct {
    * product's whole map, and a kind nothing filled yet stands with a count of zero.
    */
   private async kindCounts(manifest: KindsManifest): Promise<WikiStatus['kinds']> {
+    const seq = this.reader?.seq ?? 0;
+    if (this.kindCountsMemo?.seq === seq) return this.kindCountsMemo.kinds;
     const owner = await this.open();
     const kinds = graphKindsOf(manifest);
     const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
     const counts = new Map((await reader.kindCounts().catch(() => [])).map((one) => [one.kind, one.count] as const));
     const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
-    return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+    const counted = names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+    this.kindCountsMemo = { seq, kinds: counted };
+    return counted;
   }
 
   /** The writer's state as the poll states it: what it does and the plan it holds, never the units it has done. */
@@ -1980,6 +1990,7 @@ export class KnowledgeProduct {
       if (this.storeStamp !== stamp) {
         this.storeStamp = stamp;
         this.generation += 1;
+        this.kindCountsMemo = undefined;
         this.reader = { owner: this.reader.owner, seq: this.generation };
         await this.loadPins(this.reader.owner).catch(() => undefined);
         // The graph a fill just published has a manifest and templates the worker has not opened yet: warm them beside
