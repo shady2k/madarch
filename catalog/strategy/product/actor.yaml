@@ -1,8 +1,7 @@
 id: c4.person
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A person who interacts with the system, as C4's person is; an external system is a different kind, outside the
-  boundary.
+definition: An actor is a person who interacts with the system, as C4's person is.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -24,5 +23,5 @@ labels:
     one: Действующее лицо
     many: Действующие лица
 description:
-  en: A person who interacts with the system, as C4's person is; an external system is a different kind, outside the boundary.
-  ru: Человек, который взаимодействует с системой, как person в C4; внешняя система — другой вид, вне границы.
+  en: 'An actor is a person who uses or is affected by the system to reach a goal: a customer, an administrator, an operator. External systems are not actors; they are another system at the boundary, not a person.'
+  ru: 'Действующее лицо — человек, который пользуется системой или испытывает её влияние, чтобы достичь цели: клиент, администратор, оператор. Внешние системы — не действующие лица, а другие системы на границе.'

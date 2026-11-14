@@ -1,7 +1,7 @@
 id: archimate.principle
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A normative property the architecture keeps, stated so a decision can be judged against it.
+definition: A principle is a normative property the architecture keeps, stated so a decision can be judged against it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Принцип
     many: Принципы
 description:
-  en: A normative property the architecture keeps, stated so a decision can be judged against it.
-  ru: Нормативное свойство, которое держит архитектура, изложенное так, что по нему можно судить решение.
+  en: A principle is a rule the architecture should follow in every choice, such as prefer the simplest option that works or keep one source of truth for each fact. It is written so a decision can be held against it, and so a departure must be argued.
+  ru: 'Принцип — правило, которого архитектура держится в каждом выборе: предпочитать простейшее работающее решение или иметь один источник истины для каждого факта. Он сформулирован так, чтобы по нему можно было судить решение, а отступление нужно было обосновать.'
