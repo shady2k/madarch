@@ -583,9 +583,13 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
       const plan = declarationPlan;
       const units = await planPluginTurns(wiring);
       // A request nothing in the manifest can produce fails with the reason, never as a run that succeeded with no units
-      // (madarch-64o5.49): kinds the agent covers are never here, because a plan that leaves them to it asks for one.
-      if (units.length === 0 && plan.errors.length > 0) {
-        throw new Error(`${wiring.manifest.file}:1: nothing the fill was asked for has a producer: ${plan.errors.map((error) => error.message).join('; ')}`);
+      // (madarch-64o5.49): kinds the agent covers are never here, because a plan that leaves them to it asks for one. A
+      // kind the product cannot fill and nothing else runs for is the request's own answer, and it says why.
+      if (units.length === 0 && plan.errors.length + plan.skipped.length > 0) {
+        throw new Error(`${wiring.manifest.file}:1: nothing the fill was asked for has a producer: ${[
+          ...plan.errors.map((error) => error.message),
+          ...plan.skipped.map((skip) => `kind "${skip.kind}" ${skip.fields.length === 0 ? '' : `(the ${skip.fields.length === 1 ? 'field' : 'fields'} ${skip.fields.map((field) => `"${field}"`).join(', ')}) `}is skipped: ${skip.reason}`),
+        ].join('; ')}`);
       }
       // A kind nothing produces is planned as one unit whose failure carries the plan's error, so that kind fails and
       // the others run.

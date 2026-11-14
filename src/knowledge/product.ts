@@ -861,12 +861,21 @@ export class KnowledgeProduct {
     // read, never the graph it is about to write (madarch-hsqs stage C).
     const read = readKinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
+    // Plugins-only is the person's explicit choice: it runs the deterministic producers and leaves the agent's fields
+    // unfilled. A press that names no agent and no plugins-only choice is the agent plan's to refuse or accept.
+    const pluginsOnly = options.pluginsOnly === true || options.targets?.pluginsOnly === true;
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
-      const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
-      // No agent chosen is a plugins-only fill: what a deterministic producer fills is written, and the agent's fields
-      // stay unfilled. The page's explicit «Только плагины» asks the same thing.
-      const pluginsOnly = options.pluginsOnly === true || options.targets?.pluginsOnly === true || options.agent === null;
+      // The plan is read before the adapter is resolved, so a press that chooses an agent and no cap is refused with the
+      // cap's own words: whenever the plan runs an agent unit, a positive cap is the person's to choose (madarch-64o5.63).
+      const wantedAgent = options.agent === undefined ? this.chosenAgent()?.id ?? null : options.agent;
+      if (!pluginsOnly && wantedAgent !== null && options.tokenCap === undefined) {
+        const plannedUnderAgent = planManifestFill(read.manifest, product.folder, options.targets?.kinds, true, options.targets?.requested);
+        if (plannedUnderAgent.requiresAgent) {
+          return { started: false, message: `${read.manifest.file}:1: this fill runs the agent ${wantedAgent}, and a token cap is required: name a positive --token-cap <n> for the fill; the engine sets no cap of its own`, fill: this.fill };
+        }
+      }
+      const selectedAgent = pluginsOnly ? undefined : options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
       const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested, pluginsOnly);
       const files = workingTreeFiles(product.folder);
       assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, product.folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, product.folder));
@@ -956,7 +965,7 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(options.pluginsOnly === true || options.agent === null ? { pluginsOnly: true } : {}) } }) };
+    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(pluginsOnly ? { pluginsOnly: true } : {}) } }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;

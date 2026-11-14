@@ -90,14 +90,14 @@ A plan that holds an agent and has none chosen shall be refused before any unit 
 - When: the plan names the last producer of that field
 - Then: the name is the plugin whose turn for that kind runs last, not the one a deduplicated plugin order would put last
 
-## Requirement: missing-plugin — A kind left without a producer is an error, and the run fails that kind
+## Requirement: missing-plugin — A declaration that names an absent plugin is an error, and an unproduced kind is skipped
 
-A selected kind or field left without any producer because a plugin is missing, disabled or broken — the agent plugin included — shall be stated by the plan as an error naming the kind, the field and the missing plugin, and the run shall fail that kind with the error while the other selected kinds run. This is an abnormal state of a product's manifest and never a kind's own status, a badge or a filter: nothing records it on the kind, and no command or page offers it as a selection. A kind whose every field is a person's own writing, in a product that holds no agent plugin, has nothing to extract: it is no error.
+A selected kind or field whose declaration names a plugin the manifest does not hold shall be stated by the plan as an error naming the kind, the field and the missing plugin, and the run shall fail that kind with the error while the other selected kinds run. A selected kind or field that no enabled producer fills at all, in a product that holds no agent plugin, shall be skipped: the plan names the kind, its fields and the reason, the run fills what it can, and nothing fails. Neither is ever a kind's own status, a badge or a filter: nothing records it on the kind, and no command or page offers it as a selection. A kind whose every field is a person's own writing has nothing to extract and is no error.
 
 ### Scenario: agent-plugin-removed
 - Given: a product whose decision kind's fields are bound to the agent, and whose manifest no longer declares the agent plugin
 - When: a fill of that kind and of a kind its producers cover is planned and run
-- Then: the plan names the decision kind, its fields and the missing agent plugin as an error, the run fails that kind with that error, and the kind with a producer runs and publishes
+- Then: the plan skips the decision kind with its fields and reason, the kind with a producer runs and publishes, and no unit fails
 
 ### Scenario: prerequisite-missing
 - Given: a kind whose prerequisite kind no plugin produces, and another kind that can be filled

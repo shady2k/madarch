@@ -1038,6 +1038,23 @@ async function fillCommand(parsed: Parsed, home: string | undefined): Promise<nu
       : `Rewriting only ${read.targets.vertex}, and nothing else.`);
     targets = { kinds: read.targets.order, requested: read.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), ...(read.targets.vertex === undefined ? {} : { vertex: read.targets.vertex }) };
   }
+  // Whenever the plan runs an agent unit, a token cap is the person's to choose: the command names the flag before it
+  // resolves an adapter or starts a run (madarch-64o5.63). The engine sets no cap of its own.
+  if (parsed.agent !== undefined && parsed.tokenCap === undefined) {
+    const { planManifestFill } = await import('../plugin/fill-declarations.js');
+    const kindsRead = readKinds(folder);
+    if (kindsRead.present) {
+      try {
+        const plan = planManifestFill(kindsRead.manifest, folder, targets?.kinds, true, targets?.requested);
+        if (plan.requiresAgent) {
+          console.error(`${kindsRead.manifest.file}:1: this fill runs the agent ${parsed.agent}, and a token cap is required: pass --token-cap <n>, a positive whole number of tokens`);
+          return 2;
+        }
+      } catch {
+        // The run reports its own plan refusal, with its file and line.
+      }
+    }
+  }
   let run;
   try {
     await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(folder));

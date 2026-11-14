@@ -18,7 +18,7 @@ import { sandboxSetupProblem } from '../src/plugin/sandbox.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
-import { startPreparedServer } from './prepared-server.js';
+import { executeGraphql } from '../src/graph/graphql-execute.js';
 import { makeProduct } from './knowledge-fixture.js';
 
 const roots: string[] = [];
@@ -160,37 +160,35 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       expect(root?.attributes['madarch.tokenCap']).toBe(1000);
     } finally { await owner.close(); }
 
-    // The wiki reads the same opinions over /graphql, with the evidence that grounds them.
-    const server = await startPreparedServer({ productFolder: f.product, knowledgeRoot: knowledgeRootOf(f.home), port: 0, log: () => undefined, errorLog: () => undefined });
+    // The same opinions answer over /graphql, with the evidence that grounds them: the one executor the route runs, over
+    // the store, so the case needs no built app and no server (a test shard builds neither).
+    const reader = await createDatabaseOwner({ store: storeDatabasePath(store) });
     try {
-      const answer = await fetch(`${server.url}/graphql`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: '{ allDocDecision(orderBy: [{ field: legacyId }]) { edges { node { legacyId title body bodyOpinions { producer evidence { repository path lineStart lineEnd } } } } } }' }),
+      const answer = await executeGraphql(reader, { manifest: declarations.manifest, folder: f.product }, {
+        query: '{ allDocDecision(orderBy: [{ field: legacyId }]) { edges { node { legacyId title body bodyOpinions { producer evidence { repository path lineStart lineEnd } } } } } }',
       });
       expect(answer.status).toBe(200);
-      const data = ((await answer.json()) as { data: any }).data;
+      const data = (answer.body as { data: any }).data;
       expect(data.allDocDecision.edges.map((edge: any) => [edge.node.legacyId, edge.node.title])).toEqual([['ADR-0001', 'Use PostgreSQL'], ['ADR-0002', 'Split billing out']]);
       const opinions = data.allDocDecision.edges[0].node.bodyOpinions;
       expect(opinions.map((opinion: any) => opinion.producer)).toEqual(['agent-fill']);
       expect(opinions[0].evidence).toEqual([{ repository: 'app', path: 'docs/decisions/0001-choose-postgres.md', lineStart: 1, lineEnd: 3 }]);
-    } finally { await server.stop(); }
+    } finally { await reader.close(); }
   }, 300_000);
 
-  test('a product whose agent plugin is removed names the kinds and fields it leaves without a producer, and fails them', async () => {
-    // The agent plugin is missing from the manifest: the fields it would fill have no producer at all, which is an error
-    // naming the kind, the fields and the missing plugin — never a kind status, a badge or a filter (madarch-64o5.60).
+  test('a product whose agent plugin is removed skips the fields it leaves without a producer, and fills the rest', async () => {
+    // The agent plugin is missing from the manifest: the fields it would fill have no producer at all. A product without
+    // an agent fills what its plugins fill and leaves the rest (decision 0035, item 22), and the plan says so — never a
+    // failed kind, a status, a badge or a filter.
     const f = fixture({ agent: false });
     const declarations = readKinds(f.product);
     if (!declarations.present) throw new Error('the fixture manifest is absent');
     expect(declarations.manifest.findings).toEqual([]);
     const plan = fillPlanView(declarations.manifest, f.product, ['code.directory', 'doc.decision'], ['code.directory', 'doc.decision']);
-    const error = plan.errors.find((one) => one.kind === 'doc.decision');
-    expect(error).toBeDefined();
-    expect(error!.fields).toEqual(['body', 'legacy_id', 'title']);
-    expect(error!.message).toContain('kind "doc.decision"');
-    expect(error!.message).toContain('no producer');
-    expect(error!.message).toContain('the agent plugin is missing from the manifest');
-    expect(plan.errors.some((one) => one.kind === 'code.directory')).toBe(false);
+    const skip = plan.skipped.find((one) => one.kind === 'doc.decision');
+    expect(skip).toEqual({ kind: 'doc.decision', fields: ['body', 'legacy_id', 'title'], reason: 'no producer in the manifest' });
+    expect(plan.errors).toEqual([]);
+    expect(plan.skipped.some((one) => one.kind === 'code.directory')).toBe(false);
 
     const store = productStoreFolder(f.product, knowledgeRootOf(f.home));
     const owner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });
@@ -203,14 +201,10 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       });
       expect(run.ok).toBe(true);
       if (!run.ok) return;
-      // The kind nothing produces fails with the plan's error; the kind that has a producer runs.
-      expect(run.state).toBe('completed_partial');
-      const failed = run.units.find((unit) => unit.unitId === 'plugin-turns/missing:doc.decision');
-      expect(failed?.state).toBe('failed');
+      // The kind with a producer runs and publishes; the kind nothing produces is skipped, so no unit fails.
+      expect(run.state).toBe('succeeded');
+      expect(run.units.some((unit) => unit.unitId.includes('missing:'))).toBe(false);
       expect(run.units.find((unit) => unit.unitId === 'plugin-turns/disk:code.directory')?.state).toBe('published');
-      const { readProgress } = await import('../src/fill/orchestrator-store.js');
-      const events = await readProgress(owner, run.runId);
-      expect(events.some((event) => event.kind === 'unit-failed' && event.unitId === 'plugin-turns/missing:doc.decision' && event.summary.includes('the agent plugin is missing from the manifest'))).toBe(true);
     } finally { await owner.close(); }
   }, 300_000);
 });

@@ -16,11 +16,11 @@ The catalogue no longer carries an implementation status: every field has a prod
 the agent's (decision 0035, items 16 and 22). The `status` field and its schema, the GraphQL catalogue field, the starter
 data and the guides that declared it are gone.
 
-A kind or field left without any producer because a plugin is missing, disabled or broken — the agent plugin included — is
-abnormal, not a kind of state: the plan states an error naming the kind, the field and the missing plugin, and the run
-fails that kind with the error while the other kinds run. It is never a kind's status, a badge or a filter. A product that
-holds no agent plugin and whose kind is people's own writing, every field naming a person, has nothing to extract: that
-kind is no error, and a tracker-only product still fills as it did.
+A kind or field whose declaration names a plugin the manifest does not hold is abnormal, not a kind of state: the plan
+states an error naming the kind, the field and the missing plugin, and the run fails that kind with the error while the
+other kinds run. It is never a kind's status, a badge or a filter. A kind or field no producer fills at all, in a product
+that holds no agent plugin, is skipped and named with its reason — a product without an agent fills what its plugins fill
+and leaves the rest (decision 0035, item 22) — so a fixture or tracker-only product still fills as it did.
 
 ## Out of scope
 - A real model or a real agent: every test runs a scripted ACP peer, and no run starts an adapter's model.
@@ -52,3 +52,4 @@ Place: `madarch fill` and the fill route
 3. Without the agent flag, the same command stops before any unit and names `doc.decision (legacy_id, title, body)` as the agent's fields.
 4. With the agent, the run's unit list shows `plugin-turns/agent-fill:doc.decision` beside the files producer's units, and the kind's page shows each decision with the file and lines it was read from.
 5. `POST /api/fill-plan` with `{"selected": ["doc.decision"]}` answers the same plan: every field, its producers, and the field list that needs an agent.
+6. Naming an agent without a token cap (`--agent` alone, or a press with no `tokenCap`) is refused with the cap's own flag and the run starts nothing: the plan runs an agent unit only under a positive cap the person chose.

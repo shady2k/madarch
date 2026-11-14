@@ -127,6 +127,14 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(JSON.stringify(pressed.body)).toContain('--agent <id>');
   });
 
+  test('a press that chooses an agent and no token cap is refused, naming the cap', async () => {
+    // The plan runs the agent for doc.term's fields, and the engine invents no cap: the press must name one.
+    const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: 'codex', tokenCap: null }) });
+    expect(pressed.status).toBe(409);
+    expect(JSON.stringify(pressed.body)).toContain('token cap');
+    expect(JSON.stringify(pressed.body)).toContain('--token-cap');
+  });
+
   test('the fill plan answers which plugin fills which field, and which fields the agent fills', async () => {
     const answer = await call('/api/fill-plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'] }) });
     expect(answer.status, JSON.stringify(answer.body)).toBe(200);

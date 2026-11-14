@@ -182,6 +182,14 @@ describe.skipIf(sandboxProblem !== undefined)('a fill of the entities a person n
     expect(answer.stderr).toContain('doc.decision');
   }, 600_000);
 
+  test('a fill that names an agent and no token cap is refused, naming the cap', async () => {
+    // doc.decision's fields are the agent's: the command must name the cap it would run under, and start nothing.
+    const answer = await fillCommand('--entity', 'doc.decision', '--agent', 'codex');
+    expect(answer.code).not.toBe(0);
+    expect(answer.stderr).toContain('--token-cap');
+    expect(answer.stderr).toContain('token cap');
+  });
+
   test('an entity the manifest does not declare is refused by name, with the kinds it declares', async () => {
     const answer = await fillCommand('--entity', 'doc.term2');
     expect(answer.code).not.toBe(0);

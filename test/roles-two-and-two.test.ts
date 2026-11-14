@@ -141,7 +141,8 @@ describe.skipIf(skip)('two api and two fill instances against one store', () => 
     // Both api instances answer the pages the fill published, and they answer the same thing: the pages themselves are
     // identical byte for byte, and the status answers the same kinds and repository (the moment each process learned of
     // the run is its own, so the fill's own timestamps are not compared).
-    for (const query of ['{ allCodeFile(first: 100) { totalCount } }', '{ allCodeSymbol(first: 100) { totalCount } }', '{ allDocument(first: 100) { totalCount } }']) {
+    // The fixture keeps the kinds its repository producers fill: files, folders and commits.
+    for (const query of ['{ allCodeFile(first: 100) { totalCount } }', '{ allCodeDirectory(first: 100) { totalCount } }', '{ allCodeCommit(first: 100) { totalCount } }']) {
       const first = await graphql(api[0]!, query);
       const second = await graphql(api[1]!, query);
       expect(first.status, query).toBe(200);

@@ -8,7 +8,6 @@ sources:
 acquisition:
 - conversation
 - not-implemented
-status: not-implemented
 relation-constraints:
   out:
   - hasPart

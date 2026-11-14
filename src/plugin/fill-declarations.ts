@@ -49,12 +49,13 @@ function restsOn(kinds: ReadonlyMap<string, { readonly derivesFrom?: readonly st
 }
 
 /**
- * A read a turn cannot make: the kind it reads rests on the kind the turn fills, so that kind's producers run after it
- * and the read could never be answered. Such a read orders nothing and is left out of the turn's inputs — the agent's
- * wildcard declares the files it works from for every kind, and a repository's turn cannot read its own files back.
+ * A read an agent's turn cannot make: the kind it reads rests on the kind the turn fills, so that kind's producers run
+ * after it and the read could never be answered. The agent's wildcard declares the files it works from for every kind, and
+ * a repository's turn cannot read its own files back; such a read is left out. A deterministic producer's declared read
+ * is never dropped: a read that would close a cycle is the manifest's error, refused by the unit graph.
  */
-function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly derivesFrom?: readonly string[] }>, kind: string, reads: readonly T[]): T[] {
-  return reads.filter((read) => !restsOn(kinds, typeof read === 'string' ? read : read.kind, kind));
+function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly derivesFrom?: readonly string[] }>, kind: string, reads: readonly T[], agent: boolean): T[] {
+  return agent ? reads.filter((read) => !restsOn(kinds, typeof read === 'string' ? read : read.kind, kind)) : [...reads];
 }
 
 /**
@@ -62,13 +63,13 @@ function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly 
  * claims is suppressed, and the reads of a suppressed producer are not inputs of the turn. This is the one gap-coverage
  * rule the fill plans by, and the one a selective fill lists its added kinds by.
  */
-export function effectiveReadsOf(input: FillDeclarationInput, kind: string): FillRead[] {
+export function effectiveReadsOf(input: FillDeclarationInput, kind: string, asked?: ReadonlySet<string>): FillRead[] {
   const fieldsOf = (name: string): readonly string[] => input.kinds.find((entry) => entry.name === name)?.fields ?? [];
-  const expanded: { declaration: FillPluginDeclaration['manifest']['produces'][number]; fields: readonly string[] }[] = [];
+  const expanded: { declaration: FillPluginDeclaration['manifest']['produces'][number]; fields: readonly string[]; agent: boolean }[] = [];
   for (const plugin of input.plugins) {
     for (const declaration of plugin.manifest.produces) {
       if (declaration.kind !== '*' && declaration.kind !== kind) continue;
-      expanded.push({ declaration, fields: declaration.fields === '*' ? fieldsOf(kind) : declaration.fields });
+      expanded.push({ declaration, fields: declaration.fields === '*' ? fieldsOf(kind) : declaration.fields, agent: plugin.manifest.agent !== undefined });
     }
   }
   // A claim covers the kind's natural key too: the producer that makes a vertex states the key with it.
@@ -78,7 +79,10 @@ export function effectiveReadsOf(input: FillDeclarationInput, kind: string): Fil
     || entry.fields.some((field) => !covered.has(field))
     || (entry.fields.length === 0 && covered.size === 0));
   const kinds = new Map(input.kinds.map((entry) => [entry.name, entry]));
-  return effective.flatMap((entry) => forwardReads(kinds, kind, entry.declaration.reads ?? []));
+  // An agent's fallback for a kind the fill was not asked for is not planned, so its reads are no input of this fill.
+  const planned = (entry: { readonly declaration: FillPluginDeclaration['manifest']['produces'][number] }): boolean =>
+    entry.declaration.coverage !== 'gaps' || asked === undefined || asked.has(kind);
+  return effective.filter(planned).flatMap((entry) => forwardReads(kinds, kind, entry.declaration.reads ?? [], entry.agent));
 }
 
 export function planFillDeclarations(input: FillDeclarationInput) {
@@ -124,7 +128,7 @@ export function planFillDeclarations(input: FillDeclarationInput) {
         // A deterministic claim states the kind's natural key with the vertex it makes, so the key is that producer's
         // field too; an agent's scoped output states only the fields it was asked for.
         const fields = declaration.coverage === 'gaps' || plugin.manifest.agent !== undefined ? declared : [...new Set([...declared, ...(kind!.key ?? [])])];
-        expanded.push({ plugin, index, kind: name, fields, reads: forwardReads(kinds, name, declaration.reads ?? []), declaration });
+        expanded.push({ plugin, index, kind: name, fields, reads: forwardReads(kinds, name, declaration.reads ?? [], plugin.manifest.agent !== undefined), declaration });
       }
     }
   }
@@ -238,11 +242,12 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   // A kind's turn needs the kinds its concept rests on and the kinds its producers read: a plugin's reads is the source
   // tie, so the selected set follows both, recursively, and stands in that order — every dependency before its dependant.
   const collecting = new Set<string>();
+  const askedKinds = new Set(requested);
   const collect = (name: string): void => {
     if (selected.has(name) || collecting.has(name)) return;
     collecting.add(name);
     for (const prerequisite of kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
-    for (const read of effectiveReadsOf(input, name)) collect(typeof read === 'string' ? read : read.kind);
+    for (const read of effectiveReadsOf(input, name, askedKinds)) collect(typeof read === 'string' ? read : read.kind);
     collecting.delete(name);
     selected.add(name);
   };
@@ -323,29 +328,62 @@ export function agentNeedMessage(needs: readonly AgentNeed[]): string {
   return `the fill leaves ${said} to an agent, and none is chosen: name one with --agent <id>, cap its spend with --token-cap <n>, or select an agent in the wiki`;
 }
 
-/** One selected kind nothing produces: the kind, the fields with no producer, the plugin the product lacks, and the words. */
+/** One kind or field the manifest names a producer for and does not hold: a manifest error, named by the plan. */
 export interface FillPlanError {
   readonly kind: string;
-  /** The fields of the kind no producer fills; empty when the kind's own producer exists but a prerequisite is missing. */
+  /** The fields of the kind whose binding names the absent plugin. */
   readonly fields: readonly string[];
-  /** The plugin the manifest names for those fields and does not hold, when a binding names one. */
+  /** The plugin the manifest names for those fields and does not hold. */
   readonly plugin?: string;
   readonly message: string;
 }
 
-/** The error one unproduced kind makes: its fields, the producer its own declarations name, and what a person must add. */
-function fillPlanError(manifest: KindsManifest, unavailable: ReadonlySet<string>, kind: string, configured?: string): FillPlanError {
+/**
+ * One kind or field no enabled producer fills, in a product that holds no agent plugin: skipped, never failed. A product
+ * without an agent fills what its plugins fill and leaves the rest (decision 0035, item 22), and says so.
+ */
+export interface FillPlanSkip {
+  readonly kind: string;
+  readonly fields: readonly string[];
+  readonly reason: string;
+}
+
+/**
+ * The producer a kind's unproduced fields name and the product lacks, in words: the plugin a binding names. Only a field
+ * that names a plugin the manifest does not hold is the manifest's error; a field with no producer at all, or one bound to
+ * the agent while the product holds no agent plugin, is a skip — a product without an agent fills what its plugins fill
+ * and leaves the rest (decision 0035, item 22), it does not fail.
+ */
+function missingProducer(manifest: KindsManifest, kind: string, fields: readonly string[], configured?: string): { plugin?: string; message: string } | undefined {
   const declaration = manifest.kinds.get(kind);
-  const blockedBy = [...(declaration?.derivesFrom ?? [])].find((parent) => unavailable.has(parent));
-  if (blockedBy !== undefined) {
-    return { kind, fields: [], message: `kind "${kind}" cannot be filled: its prerequisite "${blockedBy}" has no producer in the manifest` };
-  }
-  const fields = (declaration?.fields ?? []).map((field) => field.name).sort(byCodePoint);
-  const absent = configured ?? (declaration?.fields ?? []).flatMap((field) => field.binding?.kind === 'plugin' ? [field.binding.plugin] : []).find((plugin) => manifest.plugins?.has(plugin) !== true);
-  const agentBound = (declaration?.fields ?? []).some((field) => field.binding?.kind === 'agent');
+  const chosen = (declaration?.fields ?? []).filter((field) => fields.length === 0 || fields.includes(field.name));
+  const absent = configured ?? chosen.flatMap((field) => field.binding?.kind === 'plugin' ? [field.binding.plugin] : []).find((plugin) => manifest.plugins?.has(plugin) !== true);
+  return absent === undefined ? undefined : { plugin: absent, message: `the manifest declares no plugin "${absent}"` };
+}
+
+/** The error a kind makes when its declaration names a plugin the manifest does not hold. */
+function fillPlanError(manifest: KindsManifest, kind: string, configured?: string): FillPlanError | undefined {
+  const fields = (manifest.kinds.get(kind)?.fields ?? []).map((field) => field.name).sort(byCodePoint);
+  const missing = missingProducer(manifest, kind, fields, configured);
+  if (missing === undefined) return undefined;
   const said = fields.length === 0 ? 'its entities' : fields.map((field) => `"${field}"`).join(', ');
-  const missing = absent === undefined ? (agentBound ? 'the agent plugin is missing from the manifest, and no ordinary producer fills them' : 'no plugin in the manifest produces them') : `the manifest declares no plugin "${absent}"`;
-  return { kind, fields, ...(absent === undefined ? {} : { plugin: absent }), message: `kind "${kind}": the ${fields.length === 1 ? 'field' : 'fields'} ${said} ${fields.length === 1 ? 'has' : 'have'} no producer: ${missing}` };
+  return { kind, fields, ...(missing.plugin === undefined ? {} : { plugin: missing.plugin }), message: `kind "${kind}": the ${fields.length === 1 ? 'field' : 'fields'} ${said} ${fields.length === 1 ? 'has' : 'have'} no producer: ${missing.message}` };
+}
+
+/** The error one kind nothing produces makes when the product holds an agent: it is named before the run, never skipped. */
+function fillPlanUnproducibleError(unavailable: ReadonlySet<string>, kind: string, input: FillDeclarationInput): FillPlanError {
+  const skip = fillPlanSkip(unavailable, kind, input);
+  return { kind, fields: skip.fields, message: `kind "${kind}" cannot be filled: ${skip.reason}` };
+}
+
+/** Why one kind no producer fills is left out: its own fields, or the prerequisite or input that is missing. */
+function fillPlanSkip(unavailable: ReadonlySet<string>, kind: string, input: FillDeclarationInput): FillPlanSkip {
+  const declaration = input.kinds.find((entry) => entry.name === kind);
+  const blockedParent = [...(declaration?.derivesFrom ?? [])].find((parent) => unavailable.has(parent));
+  if (blockedParent !== undefined) return { kind, fields: [], reason: `its prerequisite "${blockedParent}" has no producer in the manifest` };
+  const blockedInput = effectiveReadsOf(input, kind).map((read) => typeof read === 'string' ? read : read.kind).find((read) => read !== kind && unavailable.has(read));
+  if (blockedInput !== undefined) return { kind, fields: [], reason: `its input "${blockedInput}" has no producer in the manifest` };
+  return { kind, fields: [...(declaration?.fields ?? [])].sort(byCodePoint), reason: 'no producer in the manifest' };
 }
 
 /**
@@ -422,12 +460,17 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     return { ...plugin, manifest: { ...plugin.manifest, produces } };
   });
   const requested = selectedKinds ?? [...manifest.kinds.keys()];
+  const declared = [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom }));
+  // The declarations the plan hands the planner: one source of the reads a kind's turn takes.
+  const input: FillDeclarationInput = { kinds: declared, plugins: executable };
+  const askedKinds = new Set(requested);
   const covered = new Set(executable.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
   const selected = new Set<string>();
   const collect = (name: string): void => {
     if (selected.has(name)) return;
     selected.add(name);
     for (const prerequisite of manifest.kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
+    for (const read of effectiveReadsOf(input, name, askedKinds)) collect(typeof read === 'string' ? read : read.kind);
   };
   for (const name of requested) collect(name);
   // A selected kind no output at all names — a manifest that keeps no producer for it, not even the agent — is reported
@@ -442,22 +485,35 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   const nothingToFill = new Set(hasAgent ? [] : [...selected].filter((name) => authoredOnly(name)));
   const unavailable = new Set([...selected].filter((name) => fielded(name) && !covered.has(name) && !nothingToFill.has(name)));
   for (const name of configuredMissing.keys()) if (selected.has(name)) unavailable.add(name);
+  // A kind that rests on an unproduced kind, or reads one, cannot be filled either: the run reports that kind and lets
+  // the kinds that do not depend on it run.
   let changed = true;
   while (changed) {
     changed = false;
     for (const name of selected) {
       if (unavailable.has(name) || !fielded(name)) continue;
-      if ((manifest.kinds.get(name)?.derivesFrom ?? []).some((parent) => unavailable.has(parent))) {
+      const needs = [...(manifest.kinds.get(name)?.derivesFrom ?? []),
+        ...effectiveReadsOf(input, name, askedKinds).map((read) => typeof read === 'string' ? read : read.kind).filter((read) => read !== name)];
+      if (needs.some((dependency) => unavailable.has(dependency))) {
         unavailable.add(name);
         changed = true;
       }
     }
   }
-  // A selected kind nothing produces is not a normal state: the plan names it as an error, with the fields and the
-  // plugin the product lacks, and the run fails that kind while the others run (madarch-64o5.60).
-  const errors = [...unavailable].sort(byCodePoint).map((kind) => fillPlanError(manifest, unavailable, kind, configuredMissing.get(kind)));
+  // A kind whose declaration names a plugin the manifest does not hold is the manifest's error. A kind nothing produces
+  // is the plan's error too when the product holds an agent — a kind the agent cannot fill is named before the run, never
+  // skipped in silence — and is skipped, with its reason, only where the product holds no agent plugin at all: such a
+  // product fills what its plugins fill and leaves the rest (decision 0035, item 22).
+  const errors = [...unavailable].sort(byCodePoint)
+    .map((kind) => fillPlanError(manifest, kind, configuredMissing.get(kind)))
+    .filter((error): error is FillPlanError => error !== undefined);
+  if (hasAgent) for (const kind of [...unavailable].sort(byCodePoint)) {
+    if (!errors.some((error) => error.kind === kind)) errors.push(fillPlanUnproducibleError(unavailable, kind, input));
+  }
+  const skipped: FillPlanSkip[] = hasAgent ? [] : [...unavailable].filter((kind) => !errors.some((error) => error.kind === kind)).sort(byCodePoint)
+    .map((kind) => fillPlanSkip(unavailable, kind, input));
   const plan = planFillDeclarations({
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+    kinds: declared,
     plugins: executable,
     selectedKinds: requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name)),
     agentSelected: true,
@@ -475,10 +531,35 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
       selectedKinds: runSelected,
       agentSelected: true,
     });
-    return { ...run, errors, agentNeeds: plan.agentNeeds, fieldProducers: plan.fieldProducers, pluginsOnly: true };
+    return { ...run, errors, skipped, agentNeeds: plan.agentNeeds, fieldProducers: plan.fieldProducers, pluginsOnly: true };
   }
+  // A field no producer fills is never silent: a field whose binding names a plugin the manifest lacks is an error, and
+  // any other is skipped with its kind and fields (codex review, P2). A field the manifest names a person for is that
+  // person's write, and a dependency kind's gaps are not this fill's ask.
+  const authoredFields = (kind: string): ReadonlySet<string> => new Set((manifest.kinds.get(kind)?.fields ?? [])
+    .filter((field) => (field.producers ?? []).includes('person')).map((field) => field.name));
+  const fieldOf = (kind: string, field: string) => manifest.kinds.get(kind)?.fields?.find((one) => one.name === field);
+  const askedSet = new Set(requested);
+  for (const kind of plan.selectedKinds) {
+    if (!askedSet.has(kind) || unavailable.has(kind) || nothingToFill.has(kind)) continue;
+    const authored = authoredFields(kind);
+    const empty = [...plan.fieldProducers(kind)].filter(([field, producers]) => producers.length === 0 && !authored.has(field)).map(([field]) => field);
+    if (empty.length === 0) continue;
+    const named = empty.filter((field) => fieldOf(kind, field)?.binding?.kind === 'plugin' && manifest.plugins?.has((fieldOf(kind, field)!.binding as { plugin: string }).plugin) !== true);
+    if (named.length > 0) {
+      const error = fillPlanError(manifest, kind);
+      if (error !== undefined) errors.push({ ...error, fields: named });
+    }
+    const rest = empty.filter((field) => !named.includes(field));
+    // With an agent the plan can leave no field unproduced unannounced: it is the plan's error, named with the kind.
+    if (rest.length > 0 && hasAgent) {
+      errors.push({ kind, fields: rest, message: `kind "${kind}": the ${rest.length === 1 ? 'field' : 'fields'} ${rest.map((field) => `"${field}"`).join(', ')} ${rest.length === 1 ? 'has' : 'have'} no producer in the manifest` });
+    } else if (rest.length > 0) skipped.push({ kind, fields: rest, reason: 'no producer in the manifest' });
+  }
+  errors.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(left.fields.join('\u0000'), right.fields.join('\u0000')));
+  skipped.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(left.fields.join('\u0000'), right.fields.join('\u0000')));
   if (agentSelected === false && plan.agentNeeds.length > 0) {
     throw new ClosureRefusal('fill-declaration', `${resolve(manifest.file)}:1: ${agentNeedMessage(plan.agentNeeds)}`, resolve(manifest.file), 1);
   }
-  return { ...plan, errors, pluginsOnly: false };
+  return { ...plan, errors, skipped, pluginsOnly: false };
 }

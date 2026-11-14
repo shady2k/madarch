@@ -6,10 +6,11 @@
 import { afterAll, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const IDENTITY = { GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test' };
@@ -81,6 +82,21 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
     if (facts.linked === undefined) throw new Error(`init did not keep the code repository as the product's source: ${made.stdout}`);
   });
   if (folder === '') { expect(failures).toEqual([]); return; }
+
+  await step('1 the code kind declares no agent field, so the code fill is its plugins\'', async () => {
+    // The catalogue binds code.file.state_machines to the agent, and this product chooses no agent: under decision 0035 a
+    // plan that runs an agent unit is refused without one. The owner's code fill is its plugins' turn, so this product's
+    // own copy of the kind writes that field as a person's own (a product's kinds are the product's files).
+    const file = join(folder, 'madarch', 'kinds', 'code', 'structure', 'code.file.yaml');
+    const kind = parseYaml(readFileSync(file, 'utf8')) as { fields?: { name: string; binding?: unknown; producers?: string[] }[] };
+    const held = (kind.fields ?? []).find((field) => field.name === 'state_machines');
+    if (held === undefined || held.binding === undefined) throw new Error(`${file}:1: the code.file kind declares no agent-bound state_machines field`);
+    delete held.binding;
+    held.producers = ['person'];
+    writeFileSync(file, stringifyYaml(kind));
+    git(folder, ['add', '-A']);
+    git(folder, ['commit', '-q', '-m', 'The code fill is its plugins\' turn']);
+  });
 
   await step('2 madarch serve answers', async () => {
     run(['stop']);

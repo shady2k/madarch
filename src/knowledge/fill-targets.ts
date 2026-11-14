@@ -84,8 +84,10 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
     };
   }
   const declarations = declarationsOf(manifest);
+  // The kinds the person asked for: an agent's fallback for any other kind is not planned, so its reads order nothing.
+  const asked = new Set(requested);
   // A producer's earlier read of its own kind is its snapshot, not a prerequisite kind: it orders nothing new.
-  const reads = (kind: string): readonly string[] => effectiveReadsOf(declarations, kind)
+  const reads = (kind: string): readonly string[] => effectiveReadsOf(declarations, kind, asked)
     .map((read) => typeof read === 'string' ? read : read.kind)
     .filter((read) => read !== kind);
   const reasons = new Map<string, FillTargetEntry>();
