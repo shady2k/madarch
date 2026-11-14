@@ -1182,14 +1182,15 @@
     "countHistory": "Over the whole history",
     "authors": "Authors",
     "retry": "Try again",
-    "diagramTooLong": "The picture took too long: try depth 1, or a narrower entity",
+    "diagramTooLong": "The diagram could not be built: the server did not answer within 2 seconds.",
     "catalogueFilter": "Filter the kinds",
     "catalogueKinds": "Kinds",
     "catalogueKind": "Kind",
     "catalogueWhat": "What it is",
     "catalogueCount": "Entities",
     "catalogueTaken": "In the product",
-    "catalogueMore": "Show more kinds"
+    "catalogueMore": "Show more kinds",
+    "diagramFailed": "The diagram could not be built: {{message}}"
   },
   "loop": {
     "questionsTitle": "Questions",

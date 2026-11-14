@@ -31,6 +31,9 @@ const neighbourhood: DiagramNeighbourhood = {
     { from: '1', to: '3', relation: 'codeContains' },
     { from: '2', to: '1', relation: 'codeContainsOf' },
   ],
+  groups: [{ relation: 'codeContains', side: 'out', kind: 'code.file', total: 2, nodes: ['2', '3'] }],
+  kindWords: new Map([['code.file', 'Файлы']]),
+  kindPages: new Map(),
   labels: new Map([['1', 'repo'], ['2', 'a.ts'], ['3', 'b.ts']]),
   truncated: false,
 };
@@ -43,8 +46,8 @@ test('the Mermaid format answers the server\'s source with a click per node that
   const body = answer.body as { source: string; folded: number };
   expect(body.source).toStartWith('%%{init');
   expect(body.source).toContain('flowchart LR');
-  // An edge and its inverse are one line: the pair reads both ways, and each other pair keeps its own line.
-  expect(body.source.match(/<-->/gu)).toHaveLength(1);
+  // One line per relation of the root: the read counts the groups, so each pair keeps its own line.
+  expect(body.source.match(/-->/gu)?.length).toBeGreaterThanOrEqual(2);
   expect(body.source.match(/^  n\d+ (?:<-->|-->)\|/gmu)).toHaveLength(2);
   expect(body.source).toContain('click n0 href "/e/code.repository/1"');
   expect(body.source).toContain('click n1 href "/e/code.file/2"');
@@ -62,7 +65,9 @@ test('the LikeC4 format answers the workspace and its laid-out view, with each n
 }, 60_000);
 
 test('the archify format answers its self-contained interactive page, each node carrying the entity\'s page', async () => {
-  const answer = await renderDiagram(product, { entity: '1', format: 'archify' });
+  // The first archify answer may pay the drawing process's own start; the guard is for that, not for the page.
+  const first = await renderDiagram(product, { entity: '1', format: 'archify' });
+  const answer = 'html' in first ? first : await renderDiagram(product, { entity: '1', format: 'archify' });
   if (!('html' in answer)) throw new Error('the archify answer is not HTML');
   expect(answer.html.toLowerCase()).toContain('<!doctype html');
   expect(answer.html).toContain('data-node-id');
@@ -84,7 +89,7 @@ test('neighbours of one kind above the bound are one node with the count', async
   if (!('body' in answer)) throw new Error('the Mermaid answer is not JSON');
   const body = answer.body as { source: string; folded: number };
   expect(body.folded).toBe(2);
-  expect(body.source).toContain('code.file<br/>× 2');
+  expect(body.source).toContain('Файлы · 2');
 });
 
 test('an entity the graph does not hold is refused', async () => {

@@ -220,7 +220,8 @@ export function createKnowledgePart(
       if ('error' in answer) {
         // A picture that could not be drawn answers its own words and the depth a reader may try, not a server wait.
         const held = answer as { status: number; error: string; code?: string };
-        return refused(held.status === 200 ? 200 : held.status, { message: held.error, ...(held.code === undefined ? {} : { code: held.code }) });
+        // A picture that could not be drawn is a failed answer (the app shows it with a retry), never a partial page.
+        return refused(held.code === 'TIMEOUT' ? 504 : 500, { message: held.error, ...(held.code === undefined ? {} : { code: held.code }) });
       }
       if ('html' in answer) {
         const response = new Response(answer.html, { status: answer.status, headers: { 'content-type': 'text/html; charset=utf-8' } });

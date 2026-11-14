@@ -6,7 +6,9 @@
  * answer says so with the depth a reader may try.
  */
 import type { KnowledgeProduct } from '../knowledge/product.js';
-import { diagramGraphOf, type DiagramGraph } from './diagram.js';
+import { diagramGraphOf, renderArchify, type DiagramGraph } from './diagram.js';
+import { withSpan, withSpanSync } from '../obs/trace.js';
+import { stages } from '../server/http.js';
 
 /**
  * The rendered diagram of one entity: one snapshot, the picture's data, and the format the client asked for. The
@@ -32,86 +34,115 @@ export const DIAGRAM_DEPTH = 1;
 export const DIAGRAM_AGGREGATE_ABOVE = 12;
 /** The answer's own bound: a picture past this many bytes is refused, never sent in part (section 5's TOO_LARGE). */
 export const DIAGRAM_MAX_BYTES = 2_000_000;
-/** How many nodes and edges a laid-out picture may hold: past it every neighbour kind is one node, and past that it is refused. */
-export const DIAGRAM_MAX_NODES = 80;
-export const DIAGRAM_MAX_EDGES = 160;
 /** How long a picture may take to lay out: the read API's own deadline, after which the drawing process is killed. */
 export const DIAGRAM_DEADLINE_MS = 2_000;
 
 /** The picture's data, folded so that a container with a thousand children is a handful of nodes with their counts. */
-export function boundedGraph(neighbourhood: Parameters<typeof diagramGraphOf>[0], depth: number, aggregateAbove: number): DiagramGraph[] {
-  const first = diagramGraphOf(neighbourhood, depth, aggregateAbove);
-  // A picture that is still too wide folds every neighbour kind into one node: a folder with 1 000 children of six kinds
-  // is six nodes, not 1 000, and the layout never sees the children at all.
-  const wide = first.nodes.length > DIAGRAM_MAX_NODES || first.edges.length > DIAGRAM_MAX_EDGES;
-  return wide ? [first, diagramGraphOf(neighbourhood, depth, 0)] : [first];
+export function boundedGraph(neighbourhood: Parameters<typeof diagramGraphOf>[0], depth: number, aggregateAbove: number): DiagramGraph {
+  // A group above the bound is folded by the read's own count, so the picture is small whatever the entity holds.
+  return diagramGraphOf(neighbourhood, depth, aggregateAbove);
 }
 
 export async function renderDiagram(product: KnowledgeProduct, request: DiagramRequest): Promise<DiagramAnswer> {
   const depth = request.depth ?? DIAGRAM_DEPTH;
   const aggregateAbove = request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE;
-  const neighbourhood = await product.diagramNeighbourhood(request.entity, depth, request.lang);
+  const neighbourhood = await withSpan('diagram.read', { 'diagram.depth': depth }, async () => {
+    stages.current?.stage('reading the neighbourhood');
+    return await product.diagramNeighbourhood(request.entity, depth, request.lang);
+  });
   if (neighbourhood === undefined) return { status: 404, error: `${import.meta.path}:1: the graph holds no entity "${request.entity}"`, code: 'FAILED' };
-  const graphs = boundedGraph(neighbourhood, depth, aggregateAbove);
-  const graph = graphs[graphs.length - 1]!;
-  const chosen = graph.nodes.length > DIAGRAM_MAX_NODES || graph.edges.length > DIAGRAM_MAX_EDGES ? undefined : graph;
-  if (chosen === undefined) {
-    return {
-      status: 200,
-      code: 'TOO_LARGE',
-      error: `this entity holds more than ${String(DIAGRAM_MAX_NODES)} neighbours of more than ${String(DIAGRAM_MAX_EDGES)} relations to draw: try depth 1, or open one of its children`,
-    };
-  }
-  return await drawn(chosen, request.format);
+  // Folding by kind keeps every picture small, so there is nothing to refuse: it is drawn, or its process says why not.
+  const graph = withSpanSync('diagram.fold', { 'diagram.groups': neighbourhood.groups.length }, () => {
+    stages.current?.stage('folding the neighbourhood');
+    return boundedGraph(neighbourhood, depth, aggregateAbove);
+  });
+  return await withSpan('diagram.layout', { 'diagram.format': request.format, 'diagram.nodes': graph.nodes.length, 'diagram.edges': graph.edges.length }, async () => {
+    stages.current?.stage(`laying out (${request.format})`);
+    return await layout(graph, request.format, DIAGRAM_DEADLINE_MS);
+  });
 }
 
-/** One picture, laid out in a process of its own: the server waits its deadline, then kills the drawing and says so. */
-async function drawn(graph: DiagramGraph, format: DiagramRequest['format']): Promise<DiagramAnswer> {
-  if (graph.nodes.length <= 2) {
-    // A picture of one entity and its fold needs no layout engine: the process boundary is for pictures that cost.
-    return await layout(graph, format, DIAGRAM_DEADLINE_MS);
-  }
-  return await layout(graph, format, DIAGRAM_DEADLINE_MS);
-}
+/** The drawing itself: one warm process, one line in and one out, the server's deadline over the wait. */
+let drawing: { child: ReturnType<typeof Bun.spawn>; queue: Promise<unknown>; waiting: ((line: string) => void) | undefined; ready: Promise<void>; markReady: () => void; ended: boolean } | undefined;
 
-/** The drawing itself: one child process, its stdin the picture and its stdout the answer. */
-async function layout(graph: DiagramGraph, format: DiagramRequest['format'], deadlineMs: number): Promise<DiagramAnswer> {
+function warm(): NonNullable<typeof drawing> {
+  if (drawing !== undefined && !drawing.ended) return drawing;
   const worker = new URL('./worker.ts', import.meta.url).pathname;
-  let child: ReturnType<typeof Bun.spawn> | undefined;
-  let deadline: ReturnType<typeof setTimeout> | undefined;
-  try {
-    child = Bun.spawn([process.execPath, worker], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
-    const input = child.stdin as import('bun').FileSink;
-    input.write(JSON.stringify({ format, graph }));
-    try { await input.end(); } catch { /* the child may have gone: its exit says why */ }
-    const timeout = new Promise<never>((_resolve, reject) => { deadline = setTimeout(() => { reject(new Error('timeout')); }, deadlineMs); });
-    const finished = (async (): Promise<string> => {
-      const out = await new Response(child!.stdout as ReadableStream<Uint8Array>).text();
-      await child!.exited;
-      return out;
-    })();
-    let text: string;
+  const child = Bun.spawn([process.execPath, worker], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  let markReady = (): void => undefined;
+  const ready = new Promise<void>((resolve) => { markReady = resolve; });
+  const held: NonNullable<typeof drawing> = { child, queue: Promise.resolve(), waiting: undefined, ready, markReady, ended: false };
+  void (async () => {
+    const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    let text = '';
     try {
-      text = await Promise.race([finished, timeout]);
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        let end = text.indexOf('\n');
+        while (end >= 0) {
+          const line = text.slice(0, end);
+          text = text.slice(end + 1);
+          end = text.indexOf('\n');
+          if (line.includes('"kind":"ready"')) { held.markReady(); continue; }
+          held.waiting?.(line);
+        }
+      }
     } catch {
-      child.kill(9);
-      try { await child.exited; } catch { /* already gone */ }
-      return { status: 200, code: 'TIMEOUT', error: `the picture did not draw within ${String(Math.round(deadlineMs / 100) / 10)} s: try depth 1, or a narrower entity` };
+      // The process went: the request waiting on it answers its own refusal.
+    } finally {
+      held.ended = true;
+      held.waiting?.('');
     }
-    const answer = JSON.parse(text.trim()) as Record<string, unknown>;
+  })();
+  drawing = held;
+  return held;
+}
+
+/** One line to the drawing process and the line it answers, or its death. */
+async function line(asked: string): Promise<string> {
+  const held = warm();
+  // The process's own start is not the picture's time: the deadline covers the drawing.
+  await Promise.race([held.ready, new Promise<void>((resolve) => setTimeout(resolve, 15_000))]);
+  const ask = (): Promise<string> => new Promise<string>((resolve) => {
+    held.waiting = (answered) => { held.waiting = undefined; resolve(answered); };
+    const sink = held.child.stdin as import('bun').FileSink;
+    sink.write(`${asked}\n`);
+  });
+  const next = held.queue.then(ask, ask);
+  held.queue = next.catch(() => undefined);
+  return next;
+}
+
+async function layout(graph: DiagramGraph, format: DiagramRequest['format'], deadlineMs: number): Promise<DiagramAnswer> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const deadline = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { reject(new Error('timeout')); }, deadlineMs); });
+    const answered = await Promise.race([line(JSON.stringify({ format, graph })), deadline]);
+    if (answered === '') return { status: 200, code: 'FAILED', error: 'the picture process stopped' };
+    const answer = JSON.parse(answered.trim()) as Record<string, unknown>;
+    if (answer['kind'] === 'archify-document') {
+      // The page's renderer is the vendored archify process: the server starts it and forwards the picture's presses.
+      const document = (answer['document'] ?? {}) as Record<string, unknown>;
+      const html = await renderArchify(document, graph);
+      return Buffer.byteLength(html, 'utf8') > DIAGRAM_MAX_BYTES ? { status: 200, code: 'FAILED', error: `the archify page is over ${String(DIAGRAM_MAX_BYTES)} bytes` } : { status: 200, html };
+    }
     if (answer['kind'] === 'html') {
       const html = String(answer['html'] ?? '');
-      return Buffer.byteLength(html, 'utf8') > DIAGRAM_MAX_BYTES ? { status: 200, code: 'TOO_LARGE', error: `the archify page is over ${String(DIAGRAM_MAX_BYTES)} bytes` } : { status: 200, html };
+      return Buffer.byteLength(html, 'utf8') > DIAGRAM_MAX_BYTES ? { status: 200, code: 'FAILED', error: `the archify page is over ${String(DIAGRAM_MAX_BYTES)} bytes` } : { status: 200, html };
     }
     if (answer['kind'] === 'json') {
       const body = (answer['body'] ?? {}) as Record<string, unknown>;
-      return Buffer.byteLength(JSON.stringify(body), 'utf8') > DIAGRAM_MAX_BYTES ? { status: 200, code: 'TOO_LARGE', error: `the diagram answer is over ${String(DIAGRAM_MAX_BYTES)} bytes` } : { status: 200, body };
+      return Buffer.byteLength(JSON.stringify(body), 'utf8') > DIAGRAM_MAX_BYTES ? { status: 200, code: 'FAILED', error: `the diagram answer is over ${String(DIAGRAM_MAX_BYTES)} bytes` } : { status: 200, body };
     }
     return { status: 200, code: 'FAILED', error: String(answer['message'] ?? 'the picture could not be drawn') };
-  } catch (error) {
-    child?.kill(9);
-    return { status: 200, code: 'FAILED', error: error instanceof Error ? error.message : String(error) };
+  } catch {
+    // The picture missed its deadline: the process is killed and the next picture starts a fresh one.
+    if (drawing !== undefined) { try { drawing.child.kill(9); } catch { /* already gone */ } drawing = undefined; }
+    return { status: 200, code: 'TIMEOUT', error: `the picture did not draw within ${String(Math.round(deadlineMs / 100) / 10)} s` };
   } finally {
-    if (deadline !== undefined) clearTimeout(deadline);
+    if (timer !== undefined) clearTimeout(timer);
   }
 }

@@ -1182,14 +1182,15 @@
     "countHistory": "Всего за историю",
     "authors": "Авторы",
     "retry": "Повторить",
-    "diagramTooLong": "Изображение не успело нарисоваться: попробуйте глубину 1 или страницу поуже",
+    "diagramTooLong": "Не удалось построить диаграмму: сервер не ответил за 2 секунды.",
     "catalogueFilter": "Фильтр по видам",
     "catalogueKinds": "Видов",
     "catalogueKind": "Вид",
     "catalogueWhat": "Что это",
     "catalogueCount": "Сущностей",
     "catalogueTaken": "В продукте",
-    "catalogueMore": "Показать ещё виды"
+    "catalogueMore": "Показать ещё виды",
+    "diagramFailed": "Не удалось построить диаграмму: {{message}}"
   },
   "loop": {
     "questionsTitle": "Вопросы",

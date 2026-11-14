@@ -277,12 +277,30 @@ export interface DiagramLink {
 }
 
 /** One entity's neighbourhood at a depth: the entity, the entities it reaches, and the relations between them. */
+/** One group of an entity's neighbours, read and counted in one statement: its relation, its kind and how many. */
+export interface DiagramGroup {
+  /** The edge kind the rows were read through (`code.contains`), and the direction they came from. */
+  readonly relation: string;
+  readonly side: 'in' | 'out';
+  readonly kind: string;
+  /** How many neighbours the group holds, of which at most `first` were read. */
+  readonly total: number;
+  /** The uids of the rows read for the group, when the group is within the fold bound. */
+  readonly nodes: readonly string[];
+}
+
 export interface DiagramNeighbourhood {
   readonly entity: EntityValue;
   readonly nodes: ReadonlyMap<string, EntityValue>;
   readonly links: readonly DiagramLink[];
   /** Each entity's label, as the field resolver answers it. */
   readonly labels: ReadonlyMap<string, string>;
+  /** The neighbour groups, counted in the query: a group above the fold is drawn as one node with its count. */
+  readonly groups: readonly DiagramGroup[];
+  /** Each kind's word in the reader's language, for the folded node's label. */
+  readonly kindWords: ReadonlyMap<string, string>;
+  /** Each kind's catalogue page, for the folded node's press (the list of the entities it stands for). */
+  readonly kindPages: ReadonlyMap<string, string>;
   /** Whether a level was read short of every relation, so the picture is a page of the neighbourhood, not all of it. */
   readonly truncated: boolean;
 }
@@ -883,45 +901,71 @@ export class ReadContext {
    * by kind above its bound; this step answers the whole neighbourhood it read, so the same graph revision gives the same
    * picture. A relation is read once per end and once per edge: the pair and its relation name decide the dedup.
    */
-  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 200): Promise<DiagramNeighbourhood | undefined> {
+  /**
+   * One entity's neighbourhood as a picture reads it (decision 0036, sections 7 and 8): the root, and its neighbours
+   * grouped by the relation and the kind they came through, counted in the query and sampled by a stable order. A group
+   * above the fold is one node with its count and the page that lists it, so a folder of 1 300 children is a handful of
+   * nodes and the layout never sees the children. Two statements: the root, and every group with its sample.
+   */
+  async diagramNeighbourhood(id: string, depth: number, lang: string | undefined, first = 12): Promise<DiagramNeighbourhood | undefined> {
     const root = entityOf(await this.root('entity', { id, ...(lang === undefined ? {} : { lang }) }));
     if (root === undefined) return undefined;
+    const groups = new Map<string, DiagramGroup>();
     const nodes = new Map<string, EntityValue>([[root.uid, root]]);
     const links: DiagramLink[] = [];
-    const seenEdges = new Set<string>();
-    const edgeKey = (from: string, to: string, relation: string): string => `${from}\u0000${to}\u0000${relation}`;
-    let truncated = false;
-    let frontier: EntityValue[] = [root];
-    for (let level = 0; level < Math.max(depth, 1); level += 1) {
-      const next: EntityValue[] = [];
-      for (const entity of frontier) {
-        for (const side of ['out', 'in'] as const) {
-          const answer = await this.links(entity, { first }, side) as { edges?: readonly { node?: { relation?: unknown; from?: unknown; to?: unknown } }[]; pageInfo?: { hasNextPage?: unknown }; totalCount?: unknown };
-          if (answer.pageInfo?.hasNextPage === true || (typeof answer.totalCount === 'number' && answer.totalCount > (answer.edges?.length ?? 0))) truncated = true;
-          for (const edge of answer.edges ?? []) {
-            const relation = typeof edge.node?.relation === 'string' ? edge.node.relation : '';
-            const other = entityOf(side === 'out' ? edge.node?.to : edge.node?.from);
-            if (other === undefined || relation === '') continue;
-            const from = side === 'out' ? entity.uid : other.uid;
-            const to = side === 'out' ? other.uid : entity.uid;
-            // The edge and its inverse are one row: the same pair and the same field, read from either end.
-            const key = edgeKey(from, to, relation);
-            if (seenEdges.has(key)) continue;
-            seenEdges.add(key);
-            links.push({ from, to, relation });
-            if (!nodes.has(other.uid)) {
-              nodes.set(other.uid, other);
-              next.push(other);
-            }
-          }
-        }
+    const kindWords = new Map<string, string>();
+    const kindPages = new Map<string, string>();
+    // The catalogue answers the folded nodes' page: the kind's entry lists every entity the node stands for.
+    const catalogue = await this.catalogueData().catch(() => undefined);
+    const found = await this.tx.query<Record<string, unknown>>(
+      `WITH around AS (
+         SELECT 'out' AS side, en.name AS relation, e.to_node AS other
+         FROM edge e JOIN entity en ON en.id = e.entity_id
+         WHERE e.from_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
+         UNION ALL
+         SELECT 'in' AS side, en.name AS relation, e.from_node AS other
+         FROM edge e JOIN entity en ON en.id = e.entity_id
+         WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
+       ), live AS (
+         SELECT around.side, around.relation, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
+         FROM around
+         JOIN node n2 ON n2.id = around.other AND n2.context_id = 1 AND NOT n2.removed
+         JOIN entity en2 ON en2.id = n2.entity_id
+       ), counted AS (
+         SELECT live.*, count(*) OVER (PARTITION BY side, relation, kind)::int AS total,
+                row_number() OVER (PARTITION BY side, relation, kind ORDER BY node_id::bigint) AS rn
+         FROM live
+       )
+       SELECT * FROM counted WHERE rn <= $2::int ORDER BY side, relation, kind, rn`,
+      [id, Math.max(1, first)],
+    );
+    const sample = new Map<string, Record<string, unknown>[]>();
+    for (const row of found.rows) {
+      const key = `${row['side']}\u0000${row['relation']}\u0000${row['kind']}`;
+      const held = sample.get(key) ?? [];
+      held.push(row);
+      sample.set(key, held);
+    }
+    for (const [key, rows] of sample) {
+      const [side, relation, kind] = key.split('\u0000') as ['in' | 'out', string, string];
+      const total = Number(rows[0]?.['total'] ?? rows.length);
+      groups.set(key, { relation, side, kind, total, nodes: rows.map((row) => String(row['uid'])) });
+      const entry = catalogue?.byName.get(kind);
+      if (entry !== undefined) kindPages.set(kind, `/e/catalogue/${encodeURIComponent(entry.uid)}`);
+      const label = this.kindWord(kind, lang);
+      kindWords.set(kind, label);
+      for (const row of rows) {
+        const node = this.entityFromRow(row, lang);
+        if (node === undefined) continue;
+        nodes.set(node.uid, node);
+        links.push(side === 'out' ? { from: root.uid, to: node.uid, relation } : { from: node.uid, to: root.uid, relation });
       }
-      frontier = next;
-      if (frontier.length === 0) break;
     }
     const labels = new Map<string, string>();
     for (const [uid, entity] of nodes) labels.set(uid, await this.labelOf(entity));
-    return { entity: root, nodes, links, labels, truncated };
+    void depth;
+    const truncated = [...groups.values()].some((group) => group.total > (sample.get(`${group.side}\u0000${group.relation}\u0000${group.kind}`)?.length ?? 0));
+    return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
   }
 
   // ---- links both ways ---------------------------------------------------------------------------------------

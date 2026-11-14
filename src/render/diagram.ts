@@ -8,6 +8,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type { DiagramNeighbourhood } from '../graph/graphql-read.js';
+import { relationWords } from '../knowledge/relation-labels.js';
 
 /** One node of a diagram: an entity, or the fold of several of one kind. */
 export interface DiagramNode {
@@ -40,79 +41,48 @@ export interface DiagramGraph {
   readonly truncated: boolean;
 }
 
-/** The relation an edge is labelled with: an inverse field is its edge's name, so the two directions read once. */
-export function relationBase(relation: string): string {
-  return relation.endsWith('Of') ? relation.slice(0, -2) : relation;
-}
-
 /** The entity's page address, as the app answers it (decision 0036, section 7). */
 export function pageOf(kind: string, id: string): string {
   return `/e/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
 }
 
 /**
- * The picture's data: an edge and its inverse are one line (the same pair of entities and the same relation, read from
- * either end), and neighbours of one kind above the bound are one node that says how many. A folded node keeps no page:
- * the count stands for several entities, and a press on it opens none of them.
+ * The picture's data: the root, and each group of its neighbours as the read counted it — a group within the fold bound
+ * is its entities, one edge each to the root; a group above it is one node with the count and the page that lists them,
+ * drawn as a single edge. The layout therefore never sees more nodes than the groups and the small groups' rows.
  */
 export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number): DiagramGraph {
   const entity = neighbourhood.entity;
   const labelOf = (uid: string): string => neighbourhood.labels.get(uid) ?? uid;
   const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: pageOf(entity.kind, entity.uid) };
-  const byUid = new Map([...neighbourhood.nodes.entries()].map(([uid, one]) => [uid, one]));
-  // The labels the read layer answers are read through the field resolver's own label; a node here carries its id when
-  // the label is not yet known, and `labelled` names them before the picture is written.
-  const nodes = new Map<string, DiagramNode>();
-  nodes.set(root.id, root);
-  for (const [uid, one] of byUid) {
-    if (uid === root.id) continue;
-    nodes.set(uid, { id: uid, kind: one.kind, label: labelOf(uid), href: pageOf(one.kind, uid) });
-  }
-  // Fold: one node per kind above the bound, in code point order of the kind.
-  const byKind = new Map<string, string[]>();
-  for (const node of nodes.values()) {
-    if (node.id === root.id) continue;
-    byKind.set(node.kind, [...(byKind.get(node.kind) ?? []), node.id]);
-  }
-  const folded = new Map<string, string>();
-  let foldedCount = 0;
-  for (const [kind, ids] of [...byKind.entries()].sort(([left], [right]) => byCodePoint(left, right))) {
-    if (ids.length <= aggregateAbove) continue;
-    const key = `kind:${kind}`;
-    foldedCount += ids.length;
-    for (const id of ids) {
-      folded.set(id, key);
-      nodes.delete(id);
-    }
-    nodes.set(key, { id: key, kind, label: kind, count: ids.length });
-  }
+  const nodes = new Map<string, DiagramNode>([[root.id, root]]);
   const edges: DiagramEdge[] = [];
-  const byKey = new Map<string, number>();
-  for (const link of neighbourhood.links) {
-    const from = folded.get(link.from) ?? link.from;
-    const to = folded.get(link.to) ?? link.to;
-    if (from === to) continue;
-    const label = relationBase(link.relation);
-    const key = byCodePoint(from, to) <= 0 ? `${from}\u0000${to}\u0000${label}` : `${to}\u0000${from}\u0000${label}`;
-    const at = byKey.get(key);
-    if (at === undefined) {
-      byKey.set(key, edges.length);
-      edges.push({ from, to, label, both: false });
+  let folded = 0;
+  for (const group of neighbourhood.groups) {
+    const word = relationWord(group.relation, group.side === 'in');
+    if (group.total > aggregateAbove) {
+      const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
+      const id = `fold:${group.side}:${group.relation}:${group.kind}`;
+      const href = neighbourhood.kindPages.get(group.kind);
+      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(href === undefined ? {} : { href }) });
+      folded += group.total;
+      edges.push(group.side === 'out' ? { from: root.id, to: id, label: word, both: false } : { from: id, to: root.id, label: word, both: false });
       continue;
     }
-    // The same pair and relation read from the other end: one line, drawn both ways.
-    const held = edges[at]!;
-    if (held.from !== from) edges[at] = { ...held, both: true };
+    for (const uid of group.nodes) {
+      const held = neighbourhood.nodes.get(uid);
+      if (held === undefined) continue;
+      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: pageOf(held.kind, uid) });
+      edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
+    }
   }
   edges.sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.label, right.label));
-  return {
-    entity: root,
-    depth,
-    nodes: [...nodes.values()].sort((left, right) => byCodePoint(left.id, right.id)),
-    edges,
-    folded: foldedCount,
-    truncated: neighbourhood.truncated,
-  };
+  return { entity: root, depth, nodes: [...nodes.values()].sort((left, right) => byCodePoint(left.id, right.id)), edges, folded, truncated: neighbourhood.truncated };
+}
+
+/** The wiki's word for one relation in the direction a picture draws it. */
+function relationWord(edge: string, inverse: boolean): string {
+  return relationWords(edge, 'ru', inverse);
 }
 
 /** The Mermaid source of one picture: one flowchart, one line per edge, a click per node that has a page. */
@@ -121,7 +91,8 @@ export function mermaidText(graph: DiagramGraph): string {
   const lines = ['%%{init: {"flowchart": {"curve": "linear"}}}%%', 'flowchart LR'];
   for (const node of graph.nodes) {
     const label = node.label === '' ? node.id : node.label;
-    lines.push(`  ${ids.get(node.id)!}["${escape(label)}${node.count === undefined ? '' : `<br/>× ${String(node.count)}`}"]`);
+    // A folded node's label already names its count («Файлы · 1 290»): the renderer adds no second one.
+    lines.push(`  ${ids.get(node.id)!}["${escape(label)}"]`);
   }
   for (const edge of graph.edges) {
     const arrow = edge.both ? '<-->' : '-->';
@@ -159,7 +130,7 @@ export function likec4Workspace(graph: DiagramGraph): string {
   lines.push('}', '', 'model {');
   for (const node of graph.nodes) {
     const label = node.label === '' ? node.id : node.label;
-    lines.push(`  ${ids.get(node.id)!} = ${likec4Name(node.kind)} "${quote(node.count === undefined ? label : `${label} × ${String(node.count)}`)}"`);
+    lines.push(`  ${ids.get(node.id)!} = ${likec4Name(node.kind)} "${quote(label)}"`);
   }
   for (const edge of graph.edges) {
     const label = edge.both ? `${edge.label} ⇄` : edge.label;

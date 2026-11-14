@@ -1,4 +1,16 @@
 /**
+ * The stage the request being handled stands in, for a route that can name it (the diagram names reading, folding and
+ * laying out): the watchdog's warning names it, so a slow request says where it was.
+ */
+export const stages: { current: { stage: (value: string) => void } | undefined } = { current: undefined };
+
+/** The watchdog's bound: two seconds, or the bound `MADARCH_WATCHDOG_MS` names for a test. */
+export function watchdogBound(env: NodeJS.ProcessEnv): number {
+  const named = Number(env.MADARCH_WATCHDOG_MS ?? '');
+  return Number.isFinite(named) && named > 0 ? named : 2_000;
+}
+
+/**
  * The server's HTTP layer: Bun's own server, no framework (decision 0008),
  * with the ways in (`POST /models`, `POST /views`, `POST /sources`,
  * `GET /sources`) held in one route table, so the next one slots in beside
@@ -26,6 +38,8 @@
 import { requestHistoryPreparation, requestHistoryRename } from '../product/store-preparation.js';
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
+import { watchRequest } from './watchdog.js';
+import { log as logEvent } from '../obs/log.js';
 import { traceKeepOf } from '../knowledge/settings.js';
 import { setPriority } from 'node:os';
 import { dirname, join as joinPath } from 'node:path';
@@ -1210,13 +1224,59 @@ export function createHandler(dependencies: {
   }
 
   const handle = async (request: Request): Promise<Response> => {
-    if (dependencies.trace === undefined) return await handleUnspanned(request);
     const pathname = new URL(request.url).pathname;
-    return await runInTrace(dependencies.trace, async () => await withSpan('http.request', { 'http.method': request.method, 'http.path': pathname }, async (span) => {
-      const answered = await handleUnspanned(request);
-      span.setAttribute('http.status', answered.status);
+    const requestId = crypto.randomUUID();
+    const started = performance.now();
+    const stage = watchRequest(
+      { requestId, httpMethod: request.method, httpPath: pathname },
+      (report) => logEvent.warn('http.request.slow', { ...report }),
+      { afterMs: watchdogBound(process.env) },
+    );
+    stages.current = stage;
+    const begin = (): void => { logEvent.info('http.request.start', { requestId, httpMethod: request.method, httpPath: pathname }); };
+    const finish = (answered: Response): Response => {
+      stage.done();
+      stages.current = undefined;
+      logEvent.info('http.request.end', { requestId, httpMethod: request.method, httpPath: pathname, status: answered.status, durationMs: Math.round(performance.now() - started) });
       return answered;
-    }));
+    };
+    try {
+      if (dependencies.trace === undefined) {
+        begin();
+        return finish(await handleUnspanned(request));
+      }
+      // The request's lines and spans belong to the server's run: begin inside it, so the log carries its trace id.
+      return await runInTrace(dependencies.trace, async () => {
+        begin();
+        return finish(await withSpan('http.request', {
+          'http.request.method': request.method,
+          'http.request_id': requestId,
+          'http.route': routeNameOf(pathname),
+          'url.path': pathname,
+          'http.method': request.method,
+          'http.path': pathname,
+        }, async (span) => {
+          const answered = await handleUnspanned(request);
+          span.setAttribute('http.response.status_code', answered.status);
+          span.setAttribute('http.status', answered.status);
+          return answered;
+        }));
+      });
+    } catch (error) {
+      stage.done();
+      stages.current = undefined;
+      logEvent.error('http.request.failed', { requestId, httpMethod: request.method, httpPath: pathname, durationMs: Math.round(performance.now() - started) }, error);
+      throw error;
+    }
+  };
+  /** The name a path is traced under: the registered route's own path, else the page family it belongs to. */
+  const routeNameOf = (pathname: string): string => {
+    const held = routes.find((each) => (each.match === undefined ? each.path === pathname : each.match(pathname)));
+    if (held !== undefined) return held.path;
+    if (pathname.startsWith('/products/')) return '/products/:product/*';
+    if (pathname.startsWith('/e/')) return '/e/:kind/:id';
+    if (pathname.startsWith('/p/')) return '/p/:template';
+    return pathname;
   };
   const handleUnspanned = async (request: Request): Promise<Response> => {
     const started = performance.now();

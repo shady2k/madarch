@@ -32,7 +32,7 @@ import { runGit } from './git.js';
 import { productsHome, type DraftEnv } from './home.js';
 import type { FinishedKnowledgeStore } from '../knowledge/fill-run.js';
 import type { FillOrchestratorService, FillRunResult } from '../fill/orchestrator-host.js';
-import { readTraceReport, renderTraceReport } from '../obs/trace-report.js';
+import { readSlowRequests, readTraceReport, renderTraceReport } from '../obs/trace-report.js';
 import { byCodePoint } from '../model/order.js';
 
 /** The compact command list shown after context-aware first-run guidance. */
@@ -145,7 +145,7 @@ interface CommandSpec {
   /** The positional words it takes, in order; a trailing ? marks an optional word. */
   positionals: readonly string[];
   /** The flags it takes, beside the ones they both share. */
-  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean; entity?: boolean; vertex?: boolean; template?: boolean };
+  flags: { home: boolean; product: boolean; port: boolean; open: boolean; branch: boolean; yes: boolean; source?: boolean; mode?: boolean; host?: boolean; run?: boolean; workers?: boolean; steps?: boolean; store?: boolean; probe?: boolean; agent?: boolean; entity?: boolean; vertex?: boolean; template?: boolean; slow?: boolean };
 }
 
 /** The specs the subcommands answer to, whole. */
@@ -162,7 +162,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // wiki's button starts, over the store the wiki reads. It serves nothing and takes no agent.
   fill: { positionals: [], flags: { home: true, product: true, port: false, open: false, branch: false, yes: false, workers: true, probe: true, agent: true, entity: true, vertex: true } },
   // Where the time went, read from a run's trace and nothing else (madarch-8bdc.2.5, item 2).
-  trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true } },
+  trace: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false, store: true, run: true, slow: true } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
   init: { positionals: ['folder?'], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, template: true } },
   serve: { positionals: [], flags: { home: false, product: true, port: true, open: true, branch: false, yes: false, host: true } },
@@ -203,6 +203,7 @@ interface Parsed {
   vertex?: string;
   /** `--template`: the starter template `init` makes the product from. */
   template?: string;
+  slow?: boolean | string;
   json: boolean;
 }
 
@@ -239,7 +240,7 @@ function flagNamesFor(flags: CommandSpec['flags']): readonly string[] {
  * Returns the parse, or the number of the exit a refusal needs.
  */
 function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
-  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, probe: false, agent: undefined, template: undefined, json: false };
+  const parsed: Parsed = { words: [], home: undefined, product: undefined, port: undefined, open: true, branch: undefined, yes: false, source: undefined, mode: undefined, host: undefined, run: undefined, workers: undefined, steps: undefined, store: undefined, probe: false, agent: undefined, template: undefined, slow: undefined, json: false };
   const seen = new Set<string>();
   const flags = flagNamesFor(spec.flags).map((name) => `${name}${name === '--no-open' ? '' : ' <value>'}`).join(', ');
   for (let i = 0; i < given.length; i++) {
@@ -355,6 +356,14 @@ function parse(spec: CommandSpec, given: readonly string[]): Parsed | number {
       const problem = valueProblem('--run', value);
       if (problem !== undefined) { console.error(problem); console.error('run madarch --help for help'); return 2; }
       parsed.run = value!.trim();
+      continue;
+    }
+    if (name === '--slow') {
+      // `--slow [ms]`: the threshold is optional; a bare `--slow` takes the default.
+      if (!spec.flags.slow) return unknownOption(arg, flags);
+      const inline = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : undefined;
+      const next = inline ?? (given[i + 1] !== undefined && !given[i + 1]!.startsWith('--') ? given[++i] : undefined);
+      parsed.slow = next === undefined ? true : next.trim();
       continue;
     }
     if (name === '--token-cap' && spec === COMMANDS['fill']) {
@@ -921,6 +930,18 @@ function traceCommand(parsed: Parsed, home: string | undefined): number {
     }
   }
   try {
+    if (parsed.slow !== undefined) {
+      // `--slow [ms]`: the requests over the threshold, with the stage that took the time.
+      const asked = parsed.slow === true || parsed.slow === '' ? 1_000 : Number(parsed.slow);
+      const overMs = Number.isFinite(asked) && asked >= 0 ? asked : 1_000;
+      const slow = readSlowRequests({ store, ...(parsed.run === undefined ? {} : { runId: parsed.run }), overMs });
+      if (slow.length === 0) console.log(`No request in the trace took ${String(overMs)} ms or more.`);
+      for (const request of slow) {
+        console.log(`${String(request.ms)} ms  ${request.method} ${request.path}  ${String(request.status)}`);
+        for (const stage of request.stages) console.log(`  ${String(stage.ms).padStart(9)} ms  ${stage.name}`);
+      }
+      return 0;
+    }
     const report = readTraceReport({ store, ...(parsed.run === undefined ? {} : { runId: parsed.run }) });
     process.stdout.write(renderTraceReport(report));
     return 0;

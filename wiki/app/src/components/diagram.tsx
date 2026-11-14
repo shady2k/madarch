@@ -60,8 +60,9 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     try {
       const answer = await fetch(address(format), { signal: stop.signal });
       if (!answer.ok) {
-        const said = (await answer.json().catch(() => ({}))) as { message?: string };
-        setAnswers((held) => ({ ...held, [format]: { failed: said.message ?? `the diagram answered ${String(answer.status)}` } }));
+        const said = (await answer.json().catch(() => ({}))) as { message?: string; code?: string };
+        const shown = said.code === 'TIMEOUT' ? t('knowledge.diagramTooLong') : t('knowledge.diagramFailed', { message: said.message ?? `the diagram answered ${String(answer.status)}` });
+        setAnswers((held) => ({ ...held, [format]: { failed: shown } }));
         return;
       }
       const body = (await answer.json()) as Record<string, unknown>;
