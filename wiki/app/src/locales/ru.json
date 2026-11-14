@@ -1247,7 +1247,8 @@
     "catalogueMore": "Показать ещё виды",
     "diagramFailed": "Не удалось построить диаграмму.",
     "diagramTooLarge": "Диаграмма слишком велика, чтобы её показать.",
-    "diagramBadRequest": "Сервер отклонил запрос диаграммы."
+    "diagramBadRequest": "Сервер отклонил запрос диаграммы.",
+    "diagramRenderer": "Отрисовка"
   },
   "loop": {
     "questionsTitle": "Вопросы",

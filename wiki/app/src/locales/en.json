@@ -1247,7 +1247,8 @@
     "catalogueMore": "Show more kinds",
     "diagramFailed": "The diagram could not be built.",
     "diagramTooLarge": "The diagram is too large to show.",
-    "diagramBadRequest": "The server refused the diagram request."
+    "diagramBadRequest": "The server refused the diagram request.",
+    "diagramRenderer": "Renderer"
   },
   "loop": {
     "questionsTitle": "Questions",

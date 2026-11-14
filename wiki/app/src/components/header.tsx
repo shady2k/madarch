@@ -42,7 +42,8 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   return (
     <PageHeader data-testid="page-header">
       <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind, trail)} />
-      {path === '' ? heading : <PageHeading path={path}>{heading}</PageHeading>}
+      {/* The trail already names the folders and the title the file: the path is not printed a second time (madarch-64o5.83). */}
+      {path === '' || trail !== null ? heading : <PageHeading path={path}>{heading}</PageHeading>}
       {kind === undefined || kind === CATALOGUE_KIND ? null : <InlineGroup><Badge data-testid="page-kind">{kindWord(kind, context)}</Badge></InlineGroup>}
       {provenance === undefined ? null : <Metadata>{provenance}</Metadata>}
     </PageHeader>
