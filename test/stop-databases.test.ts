@@ -14,7 +14,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
-import { stopDatabasesUnderSync } from '../src/adapters/postgres-cluster.js';
+import { postmasterOfDataDir, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
@@ -222,3 +222,42 @@ test('the synchronous sweep signals no pid it cannot verify is the data folder\'
   if (!existsSync(join(dataDir, 'postmaster.pid'))) throw new Error('the sweep removed a pid file without a stopped server');
   unrelated.kill('SIGKILL');
 }, 60_000);
+test('a stale pid of a postgres serving a sibling data folder is not its postmaster', async () => {
+  const base = mkdtempSync(join(root, 'decoy-'));
+  const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
+  const other = `${dataDir}-old`;
+  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(other, { recursive: true });
+  const script = join(base, 'postgres');
+  writeFileSync(script, '#!/bin/sh\nsleep 30\n');
+  execFileSync('chmod', ['755', script]);
+  const decoy = Bun.spawn([script, '-D', other], { stdout: 'ignore', stderr: 'ignore' });
+  children.push(decoy);
+  writeFileSync(join(dataDir, 'postmaster.pid'), `${String(decoy.pid)}\n`);
+  expect(postmasterOfDataDir(dataDir, decoy.pid)).toBe(false);
+  stopDatabasesUnderSync(join(base, 'knowledge'));
+  if (!alive(decoy.pid)) throw new Error('the sweep killed a decoy postgres of a sibling data folder');
+  if (!existsSync(join(dataDir, 'postmaster.pid'))) throw new Error('the sweep removed the decoy record');
+  decoy.kill('SIGKILL');
+}, 30_000);
+
+test('a non-postgres process whose arguments name the data folder is not its postmaster', async () => {
+  const base = mkdtempSync(join(root, 'decoy-args-'));
+  const dataDir = join(base, 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(dataDir, { recursive: true });
+  const decoy = Bun.spawn(['bun', '-e', 'setTimeout(() => {}, 30000)', dataDir], { stdout: 'ignore', stderr: 'ignore' });
+  children.push(decoy);
+  writeFileSync(join(dataDir, 'postmaster.pid'), `${String(decoy.pid)}\n`);
+  expect(postmasterOfDataDir(dataDir, decoy.pid)).toBe(false);
+  stopDatabasesUnderSync(join(base, 'knowledge'));
+  if (!alive(decoy.pid)) throw new Error('the sweep killed an unrelated process whose arguments held the path');
+  if (!existsSync(join(dataDir, 'postmaster.pid'))) throw new Error('the sweep removed the unrelated record');
+  decoy.kill('SIGKILL');
+}, 30_000);
+
+test('the fallback signal is decided by the platform, never by an unverified pid', () => {
+  expect(syncStopSignalPlan('win32', true)).toEqual({ signal: false });
+  expect(syncStopSignalPlan('win32', false)).toEqual({ signal: false });
+  expect(syncStopSignalPlan('linux', true)).toEqual({ signal: true });
+  expect(syncStopSignalPlan('linux', false)).toEqual({ signal: false });
+});

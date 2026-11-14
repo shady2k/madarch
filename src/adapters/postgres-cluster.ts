@@ -43,10 +43,10 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
@@ -626,17 +626,71 @@ export function runningServersUnder(knowledgeRoot: string): { readonly dataDir: 
   return found;
 }
 
-/** Whether a pid really is the postmaster of this data folder: the only pid a fallback signal may touch. */
-function postmasterOfDataDir(dataDir: string, pid: number): boolean {
-  if (process.platform === 'win32') return false;
-  if (process.platform === 'linux') {
-    try {
-      const command = readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8');
-      return command.includes('postgres') && command.includes(dataDir);
-    } catch { return false; }
+/** The real path of a folder, with a path that does not exist yet read as written. */
+function realPathOf(path: string): string {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+/** The program name of a command line: the file name of its first word, with Windows' `.exe` removed. */
+function programName(program: string): string {
+  return basename(program).replace(/\.exe$/iu, '').toLowerCase();
+}
+
+/** A command line's words, for a macOS `ps` text: quotes and backslashes are honoured, as `ps` prints them. */
+function commandWords(command: string): string[] {
+  const words: string[] = [];
+  let word = '';
+  let quote: string | undefined;
+  let escaped = false;
+  for (const character of command.trim()) {
+    if (escaped) { word += character; escaped = false; continue; }
+    if (character === '\\') { escaped = true; continue; }
+    if (quote !== undefined) { if (character === quote) quote = undefined; else word += character; continue; }
+    if (character === '"' || character === "'") { quote = character; continue; }
+    if (/\s/u.test(character)) { if (word !== '') { words.push(word); word = ''; } continue; }
+    word += character;
   }
-  const seen = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5_000 });
-  return seen.status === 0 && (seen.stdout ?? '').includes('postgres') && (seen.stdout ?? '').includes(dataDir);
+  if (word !== '') words.push(word);
+  return words;
+}
+
+/** The argv of a live process, or undefined when it cannot be read. */
+function argvOf(pid: number, platform: NodeJS.Platform): string[] | undefined {
+  if (platform === 'linux') {
+    try { return readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').split('\0').filter((word) => word !== ''); }
+    catch { return undefined; }
+  }
+  if (platform === 'darwin') {
+    const seen = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5_000 });
+    return seen.status === 0 ? commandWords(seen.stdout ?? '') : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a pid really is the postmaster of this data folder: the program must be postgres/postmaster, and the value of
+ * its `-D` argument, resolved, must be exactly this data folder. Windows has no verification here; its stop runs through
+ * `pg_ctl`, which reads `postmaster.pid` itself, and no fallback signal is sent there.
+ */
+export function postmasterOfDataDir(dataDir: string, pid: number, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform === 'win32') return false;
+  const argv = argvOf(pid, platform);
+  if (argv === undefined || argv.length === 0) return false;
+  const program = programName(argv[0]!);
+  if (program !== 'postgres' && program !== 'postmaster') return false;
+  let declared: string | undefined;
+  for (let index = 1; index < argv.length; index += 1) {
+    const word = argv[index]!;
+    if (word === '-D') { declared = argv[index + 1]; break; }
+    if (word.startsWith('-D') && word.length > 2) { declared = word.slice(2); break; }
+  }
+  if (declared === undefined) return false;
+  return realPathOf(declared) === realPathOf(dataDir);
+}
+
+/** The decision a failed `pg_ctl` leaves: the fallback signals only where the platform can verify the pid. */
+export function syncStopSignalPlan(platform: NodeJS.Platform, verified: boolean): { readonly signal: boolean } {
+  return { signal: platform !== 'win32' && verified };
 }
 
 /** Waits synchronously for one pid to end, without blocking the kernel's own timers forever. */
@@ -648,9 +702,9 @@ function waitGoneSync(pid: number, timeoutMs: number): boolean {
 /**
  * Stops every recorded server of a knowledge root without awaiting: `madarch stop`, whose call is a command's answer.
  * A server another live process of the binary holds (a standalone serve, an independent fill) is left alone by the same
- * users lock the asynchronous stop follows; a pid `postmaster.pid` names is signaled only after it is verified to be that
- * data folder's postmaster, and the pid file is removed only once the process is confirmed gone, under the cluster's start
- * lock.
+ * users lock the asynchronous stop follows. `pg_ctl` runs on every platform, because it reads `postmaster.pid` itself;
+ * only the fallback signal is limited to a pid verified to be this data folder's postmaster, and the pid file is removed
+ * only once the server is confirmed gone, under the cluster's start lock.
  */
 export function stopDatabasesUnderSync(knowledgeRoot: string): void {
   const bin = join(postgresInstallFolder(process.env), 'bin');
@@ -662,23 +716,23 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
     const users = openLock(usersLockPath(key));
     try {
       if (flock(users, LOCK_EX | LOCK_NB) !== 0) {
-        // A live process still uses this server: `madarch stop` of another daemon, or a service of the same home that
-        // is not the daemon. Its own stop is the one that may end it.
+        // A live process still uses this server: its own stop is the one that may end it.
         continue;
       }
       const start = openLock(startLockPath(key));
       try {
-        const got = flock(start, LOCK_EX | LOCK_NB) === 0;
-        if (!got) continue;
+        if (flock(start, LOCK_EX | LOCK_NB) !== 0) continue;
+        const pidFile = join(dataDir, 'postmaster.pid');
         const pid = holderOf(dataDir);
         if (pid === null) continue;
-        if (!alive(pid)) { rmSync(join(dataDir, 'postmaster.pid'), { force: true }); continue; }
-        if (!postmasterOfDataDir(dataDir, pid)) {
-          console.error(`${join(dataDir, 'postmaster.pid')}:1: the pid ${String(pid)} is not this data folder's postmaster; it is not signaled and its record stays`);
-          continue;
-        }
+        if (!alive(pid)) { rmSync(pidFile, { force: true }); continue; }
         const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
-        if (stopped.status !== 0 && alive(pid) && postmasterOfDataDir(dataDir, pid)) {
+        if (stopped.status !== 0) {
+          if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
+          if (!syncStopSignalPlan(process.platform, postmasterOfDataDir(dataDir, pid)).signal) {
+            console.error(`${pidFile}:1: pg_ctl could not stop the PostgreSQL server and pid ${String(pid)} is not verified as this data folder's postmaster; its record stays`);
+            continue;
+          }
           try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }
           waitGoneSync(pid, 10_000);
           if (alive(pid) && postmasterOfDataDir(dataDir, pid)) {
@@ -686,11 +740,14 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
           }
         }
         if (!waitGoneSync(pid, 10_000)) {
-          console.error(`${join(dataDir, 'postmaster.pid')}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
+          console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`);
           continue;
         }
+        if (existsSync(pidFile)) {
+          if (alive(pid)) { console.error(`${pidFile}:1: the PostgreSQL server pid ${String(pid)} is still running; its record stays`); continue; }
+          rmSync(pidFile, { force: true });
+        }
         removeSocketFiles(clusterPaths(folder).socketDir);
-        rmSync(join(dataDir, 'postmaster.pid'), { force: true });
       } finally {
         releaseLock(start);
       }
