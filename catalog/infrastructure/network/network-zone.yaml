@@ -1,7 +1,7 @@
 id: practice.network-zone
 purpose: structure
 audience: [operations, platform-devops, architect]
-definition: A part of the network with one level of trust, which traffic crosses at a controlled point.
+definition: A network zone is a part of the network with one level of trust, whose border traffic crosses at a controlled point.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сетевая зона
     many: Сетевые зоны
 description:
-  en: A part of the network with one level of trust, which traffic crosses at a controlled point.
-  ru: Часть сети с одним уровнем доверия, границу которой трафик пересекает в контролируемой точке.
+  en: A network zone groups addresses and machines that share a level of trust, such as a public zone, an internal zone or a management zone. Traffic between zones passes only through controlled points, where it can be filtered.
+  ru: 'Сетевая зона объединяет адреса и машины с одним уровнем доверия: внешняя зона, внутренняя зона или зона управления. Трафик между зонами идёт только через контролируемые точки, где его можно отфильтровать.'

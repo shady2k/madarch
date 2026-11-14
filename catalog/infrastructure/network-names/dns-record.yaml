@@ -1,7 +1,7 @@
 id: practice.dns-record
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A record in a DNS zone that maps a name to an address or to another name.
+definition: A DNS record maps a name in a zone to an address or to another name.
 sources:
 - https://www.rfc-editor.org/rfc/rfc1035.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Запись DNS
     many: Записи DNS
 description:
-  en: A record in a DNS zone that maps a name to an address or to another name.
-  ru: Запись в зоне DNS, которая сопоставляет имя адресу или другому имени.
+  en: 'A DNS record is one entry in a zone that answers a question about a name: which address belongs to it, which mail server handles it, or which other name is its alias. The record type says which kind of answer it gives.'
+  ru: 'Запись DNS — одна строка в зоне, которая отвечает на вопрос об имени: какой адрес ему принадлежит, какой почтовый сервер его обслуживает или какое другое имя является его псевдонимом. Тип записи говорит, какой это ответ.'

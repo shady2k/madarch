@@ -1,7 +1,7 @@
 id: kubernetes.job
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A Kubernetes workload that runs to completion once.
+definition: A Kubernetes job is a workload that runs to completion once.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Задача Kubernetes
     many: Задачи Kubernetes
 description:
-  en: A Kubernetes workload that runs to completion once.
-  ru: Рабочая нагрузка Kubernetes, которая выполняется до завершения один раз.
+  en: A Kubernetes job starts one or more pods, waits until they finish successfully and then stops, retrying failures up to a limit. It is for work with an end, such as a migration or a report, not for a service that keeps running.
+  ru: 'Задача Kubernetes запускает один или несколько подов, ждёт их успешного завершения и останавливается, повторяя неудачи до предела. Она нужна для работы с концом: миграции или отчёта, — а не для сервиса, который работает постоянно.'

@@ -1,7 +1,7 @@
 id: practice.waf
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
-definition: A filter in front of a service that refuses requests matching an attack pattern.
+definition: A WAF is a filter in front of a service that refuses requests matching an attack pattern.
 sources:
 - https://owasp.org/www-project-modsecurity-core-rule-set/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: WAF
     many: WAF
 description:
-  en: A filter in front of a service that refuses requests matching an attack pattern.
-  ru: Фильтр перед сервисом, который отклоняет запросы, совпадающие с образцом атаки.
+  en: 'A web application firewall inspects HTTP requests before they reach the service and blocks the ones that look like known attacks: injection, cross-site scripting, bad bots. Its rules must be tuned, or it blocks legitimate traffic as well.'
+  ru: 'WAF проверяет HTTP-запросы до того, как они дойдут до сервиса, и блокирует те, что похожи на известные атаки: внедрение кода, межсайтовые сценарии, вредных роботов. Его правила нужно настраивать, иначе он блокирует и законный трафик.'
