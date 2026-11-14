@@ -13,6 +13,7 @@
  */
 import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
+import { KindCountsCache } from './kind-counts-cache.js';
 import { cancelRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
@@ -275,7 +276,7 @@ export class KnowledgeProduct {
         if (this.reader !== undefined) this.reader.seq = this.generation;
         this.filesMemo = undefined;
         this.manifestMemo = undefined;
-        this.kindCountsMemo = undefined;
+        this.kindCountsCache.clear();
         this.notify();
       }
       return answer;
@@ -443,7 +444,7 @@ export class KnowledgeProduct {
   /** The manifest one graph revision was read as: the whole parse stands for the revision, not for a page. */
   private manifestMemo: { seq: number; folder: string; read: ReturnType<typeof readKindsFrom> } | undefined;
   /** The kind counts one graph revision answered: a poll reads them again only after a publication moves the revision. */
-  private kindCountsMemo: { seq: number; kinds: WikiStatus['kinds'] } | undefined;
+  private readonly kindCountsCache = new KindCountsCache();
 
   /** The product's kinds manifest and the declaration files beside it, read from the graph: absent when the graph holds none. */
   private async manifestRead(folder: string): Promise<ReturnType<typeof readKindsFrom>> {
@@ -602,7 +603,7 @@ export class KnowledgeProduct {
       if (this.closed) return;
       const owner = await this.open();
       this.generation += 1;
-      this.kindCountsMemo = undefined;
+      this.kindCountsCache.clear();
       this.reader = { owner, seq: this.generation };
       // What the repositories were filled to is read with the graph: a source is read at the commit the graph it is
       // shown beside was filled from.
@@ -1613,7 +1614,7 @@ export class KnowledgeProduct {
       this.countsMemo = undefined;
       this.filesMemo = undefined;
       this.manifestMemo = undefined;
-      this.kindCountsMemo = undefined;
+      this.kindCountsCache.clear();
       this.problemsCache = undefined;
       this.pins.clear();
       this.fill = { state: 'idle' };
@@ -1869,15 +1870,18 @@ export class KnowledgeProduct {
    */
   private async kindCounts(manifest: KindsManifest): Promise<WikiStatus['kinds']> {
     const seq = this.reader?.seq ?? 0;
-    if (this.kindCountsMemo?.seq === seq) return this.kindCountsMemo.kinds;
+    const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
     const owner = await this.open();
     const kinds = graphKindsOf(manifest);
     const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
-    const counts = new Map((await reader.kindCounts().catch(() => [])).map((one) => [one.kind, one.count] as const));
-    const names = manifest.catalog === undefined ? [...manifest.kinds.keys()] : [...manifest.catalog.kinds.keys()];
-    const counted = names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
-    this.kindCountsMemo = { seq, kinds: counted };
-    return counted;
+    try {
+      const rows = await this.kindCountsCache.counts(seq, async () => await reader.kindCounts());
+      const counts = new Map(rows.map((one) => [one.kind, one.count] as const));
+      return names.map((kind) => ({ kind, count: counts.get(kind) ?? 0 }));
+    } catch {
+      // A read that failed is no revision's answer: the poll says zero now, and the next poll reads again.
+      return names.map((kind) => ({ kind, count: 0 }));
+    }
   }
 
   /** The writer's state as the poll states it: what it does and the plan it holds, never the units it has done. */
@@ -1990,7 +1994,7 @@ export class KnowledgeProduct {
       if (this.storeStamp !== stamp) {
         this.storeStamp = stamp;
         this.generation += 1;
-        this.kindCountsMemo = undefined;
+        this.kindCountsCache.clear();
         this.reader = { owner: this.reader.owner, seq: this.generation };
         await this.loadPins(this.reader.owner).catch(() => undefined);
         // The graph a fill just published has a manifest and templates the worker has not opened yet: warm them beside
