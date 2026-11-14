@@ -690,6 +690,11 @@ export function syncStopSignalPlan(platform: NodeJS.Platform, verified: boolean)
   return { signal: platform !== 'win32' && verified };
 }
 
+/** Whether the fallback may signal now: the platform allows it and the verified process is still exactly that process. */
+export function fallbackSignalAllowed(dataDir: string, pid: number, startTime: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  return syncStopSignalPlan(platform, true).signal && postmasterStill(dataDir, pid, startTime, platform);
+}
+
 /** Waits synchronously for one pid to end, without blocking the kernel's own timers forever. */
 function waitGoneSync(pid: number, timeoutMs: number): boolean {
   for (let waited = 0; waited < timeoutMs && alive(pid); waited += 20) Bun.sleepSync(20);
@@ -733,8 +738,8 @@ export function stopDatabasesUnderSync(knowledgeRoot: string): void {
         const stopped = spawnSync(join(bin, postgresProgram('pg_ctl')), ['-D', dataDir, '-m', 'fast', '-w', '-t', '60', 'stop'], { stdio: 'ignore', timeout: 65_000, env: { ...process.env, LC_ALL: 'C' } });
         if (stopped.status !== 0) {
           if (!alive(pid)) { rmSync(pidFile, { force: true }); removeSocketFiles(clusterPaths(folder).socketDir); continue; }
-          if (!syncStopSignalPlan(process.platform, true).signal) {
-            console.error(`${pidFile}:1: pg_ctl could not stop the PostgreSQL server pid ${String(pid)}; its record stays`);
+          if (!fallbackSignalAllowed(dataDir, pid, verifiedStart)) {
+            console.error(`${dataDir}:1: the PostgreSQL server pid ${String(pid)} is no longer the verified process, or the platform cannot verify it; no signal is sent and its record stays`);
             continue;
           }
           try { process.kill(pid, 'SIGTERM'); } catch { /* it ended between the check and the signal */ }

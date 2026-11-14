@@ -14,7 +14,7 @@ import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { SAMPLE_IDENTITY, commitProduct } from './knowledge-fixture.js';
 import { gitEnv } from './git-env.js';
-import { postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
+import { fallbackSignalAllowed, postmasterOfDataDir, postmasterStill, processStartTime, stopDatabasesUnderSync, syncStopSignalPlan } from '../src/adapters/postgres-cluster.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
@@ -299,8 +299,13 @@ test('the escalation follows the verified pid and its start time, not a second s
   writeFileSync(pidFile, `${String(holder.pid)}\n`);
   const start = processStartTime(holder.pid);
   expect(postmasterStill(dataDir, holder.pid, start)).toBe(true);
+  expect(fallbackSignalAllowed(dataDir, holder.pid, start)).toBe(true);
+  // A different start time is a different process: no SIGTERM either.
+  expect(fallbackSignalAllowed(dataDir, holder.pid, '0')).toBe(false);
   // No stable identity without the captured start time, and none on macOS or Windows.
   expect(postmasterStill(dataDir, holder.pid, undefined)).toBe(false);
+  expect(fallbackSignalAllowed(dataDir, holder.pid, undefined)).toBe(false);
+  expect(fallbackSignalAllowed(dataDir, holder.pid, start, 'darwin')).toBe(false);
   expect(postmasterStill(dataDir, holder.pid, start, 'darwin')).toBe(false);
   expect(postmasterStill(dataDir, holder.pid, start, 'win32')).toBe(false);
   writeFileSync(pidFile, `${String(process.pid)}\n`);
