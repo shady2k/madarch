@@ -365,6 +365,8 @@
     "rebuilding": "This page is being rebuilt: the frame came back first, and its page follows in its own step.",
     "searchButton": "Search",
     "tableFilter": "Filter",
+    "tableEmpty": "No records yet",
+    "breadcrumb": "Breadcrumb",
     "tableSort": "Sort",
     "tableField": "Field",
     "previousPage": "Previous page",

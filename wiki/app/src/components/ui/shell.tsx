@@ -33,7 +33,6 @@ export function ShellBrandMark() { return <svg aria-hidden="true" className="siz
 export function ShellProductMenu(props: ComponentProps<typeof DropdownMenuContent>) { return <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]" {...props} />; }
 export function ShellProductLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="flex items-center gap-2 no-underline" {...props} />; }
 export function ShellLanguageButton(props: ButtonProps) { return <Button variant="ghost" size="icon" className="shell-language size-9" {...props} />; }
-export function ShellHomeLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="text-muted no-underline hover:text-ink" {...props} />; }
 export function ShellAnswersLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="answers-waiting no-underline" {...props} />; }
 export function ShellAnswersWords(props: HTMLAttributes<HTMLSpanElement>) { return <span className="answers-waiting-words" {...props} />; }
 export function ShellAnswersCount(props: HTMLAttributes<HTMLSpanElement>) { return <span className="answers-waiting-count" {...props} />; }

@@ -70,20 +70,21 @@
   }
 }
 
-/* The search stands in the top bar: its field beside the controls at a desk, its icon at a phone's width, where a press
-   brings the field over the bar and the results below it. */
+/* The search stands in the top bar and takes the free width between the bar's left edge and its controls, up to the
+   reading measure on very wide screens. At a phone's width its field opens over the bar (below). */
 .shell-search {
   position: relative;
   display: flex;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  max-inline-size: var(--measure);
   align-items: center;
   gap: 4px;
 }
 
-/* The search is the top bar's own field: a third of the bar at a desk, so a reader sees what they type and the kinds
-   their words answer with. At a phone's width the same field opens over the bar (below). */
 .shell-search .shell-search-input {
-  width: min(32rem, 40vw);
-  min-width: 18rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .shell-search-toggle {
@@ -93,6 +94,10 @@
 @media (max-width: 699px) {
   .shell-search-toggle {
     display: grid;
+  }
+
+  .shell-search {
+    flex: 0 1 auto;
   }
 
   .shell-search .shell-search-input {
@@ -123,9 +128,9 @@
   box-sizing: border-box;
   width: 100%;
   min-block-size: 100%;
-  /* The tab bar and the page's first line keep the side padding's rhythm: the title never stands farther from the
-     bar above it than the text stands from the page's side. */
-  padding: 48px 48px 2.5em;
+  /* The trail opens the page a token below the bar, and the title follows it a token later: the work area's own top
+     gap is the kit's, not the reading rhythm's. */
+  padding: var(--page-top) 48px 2.5em;
   overflow-wrap: break-word;
   background: var(--surface-page);
   font-size: var(--fs-body);
@@ -138,10 +143,25 @@
   margin-inline: auto;
 }
 
+/* The page's trail above its title: one line, and the middle of a long path gives way to the ellipsis. */
+.page-trail {
+  margin-block-end: var(--crumb-gap);
+}
+
+.page-trail ol {
+  flex-wrap: nowrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page-trail li {
+  margin-block: 0;
+}
+
 @media (max-width: 900px) {
   .shell-document {
     padding-inline: 32px;
-    padding-block-start: 32px;
   }
 }
 
@@ -162,11 +182,6 @@
     display: contents;
   }
 
-  .shell-toolbar > .shell-breadcrumb {
-    min-inline-size: 0;
-    flex: 1 1 auto;
-  }
-
   .shell-toolbar > span:last-child > * {
     flex: 0 1 auto;
     min-inline-size: 0;
@@ -174,7 +189,7 @@
 
   .shell-document {
     min-block-size: 100%;
-    padding: 20px 20px 2.5em;
+    padding: var(--page-top) 20px 2.5em;
   }
 
   .eyebrow {

@@ -134,7 +134,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           ) : null}
         </FilterBar>
       ) : null}
-      {rows.length === 0 ? <Paragraph data-testid="table-empty">{localized(section.params['emptyText'], language) ?? '—'}</Paragraph> : (
+      {rows.length === 0 ? <Paragraph data-testid="table-empty">{localized(section.params['emptyText'], language) ?? t('knowledge.tableEmpty')}</Paragraph> : (
         <Table data-testid="table">
           <TableHeader>
             <TableRow>{columns.map((column, index) => <TableHead key={String(index)}>{localized(column.label, language) ?? ''}</TableHead>)}</TableRow>
@@ -144,15 +144,17 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           </TableBody>
         </Table>
       )}
-      <PaginationBar>
-        <PaginationSummary>{`${String(rows.length === 0 ? 0 : page * pageSize + 1)}–${String(page * pageSize + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
-        {canPage ? (
-          <>
-            <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</Button>
-            <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>→</Button>
-          </>
-        ) : null}
-      </PaginationBar>
+      {rows.length === 0 ? null : (
+        <PaginationBar>
+          <PaginationSummary>{`${String(page * pageSize + 1)}–${String(page * pageSize + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
+          {canPage ? (
+            <>
+              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</Button>
+              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>→</Button>
+            </>
+          ) : null}
+        </PaginationBar>
+      )}
     </>
   );
 }
