@@ -71,6 +71,7 @@ export function App(): ReactElement {
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
   const alive = useRef(true);
+  const pageRequest = useRef(0);
 
   const address = useMemo(() => {
     const [pathname, search = ''] = path.split('?');
@@ -98,9 +99,9 @@ export function App(): ReactElement {
     return () => { alive.current = false; };
   }, []);
 
-  const loadBootstrap = useCallback(async (): Promise<Bootstrap | undefined> => {
+  const loadBootstrap = useCallback(async (current: () => boolean = () => alive.current): Promise<Bootstrap | undefined> => {
     const read = await readBootstrap(base, language);
-    if (!alive.current) return undefined;
+    if (!alive.current || !current()) return undefined;
     bootstrapVersion.current += 1;
     if (read.bootstrap === undefined) {
       setFailure(read.message ?? 'the bootstrap could not be read');
@@ -125,15 +126,17 @@ export function App(): ReactElement {
   }, [language, navigation?.product, t]);
 
   const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>): Promise<void> => {
+    const request = ++pageRequest.current;
+    const current = (): boolean => alive.current && request === pageRequest.current;
     setBusy(true);
     const answer = await postQuery<Record<string, unknown>>(base, composition.operation, variables);
-    if (!alive.current) return;
+    if (!current()) return;
     setBusy(false);
     const codes = codesOf(answer.errors);
     if (answer.errors.length > 0) {
       if (codes.includes(STALE_STRUCTURE) && bootstrap !== null) {
-        const read = await loadBootstrap();
-        if (read !== undefined) {
+        const read = await loadBootstrap(current);
+        if (current() && read !== undefined) {
           const again = composePage(read, { ...address.page, lang: language, role, ...(address.home ? { home: true } : {}) });
           if (again.findings.length === 0) await ask(again, again.variables);
         }
@@ -168,6 +171,7 @@ export function App(): ReactElement {
       return;
     }
     void ask(composition, composition.variables);
+    return () => { pageRequest.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionKey]);
 
