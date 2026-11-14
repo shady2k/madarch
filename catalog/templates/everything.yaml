@@ -8,6 +8,8 @@ description:
   ru: 'Весь стартовый каталог: код, история, документы, рабочий цикл и модель данных.'
 kinds: all
 default: true
+# The starter value sets the work kinds point at (owner 2026-11-14): each set names a closed list a field may take,
+# each entry is a value-set-entry entity with its labels, description and order.
 values:
   task-status:
     labels: { en: "Task status", ru: "Статус задачи" }
