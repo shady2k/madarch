@@ -156,10 +156,12 @@ test('a relation row names the relation and links to the entity at its other end
   }
 });
 
-test('an empty relation section says so', async () => {
+test('an empty relation section is not drawn at all, and its empty sentence is gone (madarch-64o5.83)', async () => {
+  // A relation with no rows is no relation: the page shows no box and no heading over nothing (the owner's fix (a) 5).
   const page = await renderPage([section('backlinks', 'relations', { path: 'backlinks', emptyText: { en: 'Nothing links to it yet.' } })], { backlinks: null });
   try {
-    expect(page.container.textContent).toContain('Nothing links to it yet.');
+    expect(page.container.textContent).not.toContain('Nothing links to it yet.');
+    expect(page.container.querySelector('[data-section="backlinks"]')).toBeNull();
   } finally {
     await page.close();
   }

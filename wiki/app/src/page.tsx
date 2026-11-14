@@ -6,6 +6,8 @@ import type { ReactElement } from 'react';
 import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
 import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
 import { HeaderSection } from './components/header.js';
+import { at } from './components/format.js';
+import { edgesOf } from './components/connection.js';
 import { FactsSection } from './components/facts.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
@@ -54,7 +56,12 @@ export function PageView({ composition, data, runtime }: { readonly composition:
     const ids = [...(Array.isArray(section.params['sections']) ? section.params['sections'] : []), ...groups.flatMap((group) => (Array.isArray(group.sections) ? group.sections : []))];
     for (const id of ids) if (typeof id === 'string') tabbed.add(id);
   }
-  const render = (section: ComposedSection): ReactElement => {
+  // A section the data leaves empty is not drawn at all: an entity with no relations shows no empty relation box, and
+  // no heading over nothing (madarch-64o5.83).
+  const drawsNothing = (section: ComposedSection): boolean =>
+    section.component === 'relations' && edgesOf(at(data[section.id], section.params['path'])).length === 0;
+  const render = (section: ComposedSection): ReactElement | null => {
+    if (drawsNothing(section)) return null;
     const context: SectionContext = {
       section,
       data: data[section.id],
