@@ -19,6 +19,8 @@ describe('the starter catalogue schema', () => {
     expect(schema.getQueryType()?.name).toBe('Query');
     expect(schema.getType('CodeFile')).toBeDefined();
     expect(schema.getType('CodeRepository')).toBeDefined();
+    // The structured page template went with the page layer: no product kind is named `Template`.
+    expect(schema.getType('Template')).toBeUndefined();
   });
 
   test('leaves out no kind: every starter kind encodes to a name the schema holds', () => {
