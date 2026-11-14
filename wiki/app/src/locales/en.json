@@ -1704,6 +1704,12 @@
     "stackedTitle": "Fill outcomes by day",
     "heatmapTitle": "Fills by weekday and week",
     "sparklineTitle": "Units a fill published",
-    "calendarTitle": "Fills in the last ninety days"
+    "calendarTitle": "Fills in the last ninety days",
+    "palettes": "Chart palettes, side by side",
+    "paletteNote": "The same figures in the kit's two palettes: magnitude in one ink, or categories told apart by the kit's chart-category tokens. The owner chooses.",
+    "magnitude": "One ink (magnitude, heat)",
+    "categorical": "Categorical (the --chart-cat tokens)",
+    "languagesTitle": "Kinds by language",
+    "outcomesTitle": "Fill outcomes by day"
   }
 }

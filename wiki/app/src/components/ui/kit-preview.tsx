@@ -42,3 +42,8 @@ export function KitNarrow({ children, className }: { children: ReactNode; classN
 export function KitFigureState({ label, children }: { label: string; children: ReactNode }) {
   return <KitState label={label} className="w-full">{children}</KitState>;
 }
+
+/** Two or more figures that stand as one state, one under another. */
+export function KitFigureStack({ children }: { children: ReactNode }) {
+  return <div className="grid gap-4">{children}</div>;
+}

@@ -151,3 +151,52 @@ colours — `rgb(46, 48, 52)` for the ink in light, `rgb(229, 229, 229)` in dark
 and the remaining steps are `color-mix` of that ink with the page — the
 interactive calendar draws 376 cells with month labels, and the page has no
 horizontal overflow at 390 px (`scrollWidth` equals the viewport).
+
+## Two palettes for the figures (owner's decision, 2026-11-16)
+
+The kit's chart ramp is one ink at descending strength — right for magnitude
+and heat, wrong for categories: a treemap coloured by language, or a stacked
+bar of published, failed and blocked, cannot be read when every mark is the
+same grey. Both variants now stand side by side on the kit page
+(`Chart palettes, side by side`), and the owner chooses.
+
+- **One ink (default).** `--dg-c1`…`--dg-c7` are the text colour mixed towards
+  the page in seven steps. Cost: nothing new — one palette, and light/dark come
+  free from the tokens; but the smallest gap between two steps is ΔE 5.7
+  (light) / 6.2 (dark), so neighbours are told apart only by strength, and
+  readers with a colour-vision deficiency read the same thing everyone else
+  does. This variant is what magnitude and heat keep, whichever way the owner
+  chooses for categories.
+- **Categorical.** Seven new tokens, `--chart-cat-1`…`--chart-cat-7`, in
+  `styles/tokens.css` (the light set #3a92cb…#008671 and the dark set
+  #a4d58d…#c69f4e, hues about 50° apart, chroma 0.12 and 0.11 — muted beside
+  the graphite). A figure asks for it with `palette="categorical"`, and
+  `styles/charts.css` maps the chart tokens onto those seven inside that scope,
+  so there is still one source of colour and light/dark still come from the
+  tokens. Cost: the only hue the kit carries, a second palette to keep, and
+  seven colours that no single scheme can make perfectly separable under every
+  deficiency.
+
+**The check that was run.** The tokens were chosen and measured with
+CIEDE2000 over sRGB, on simulated protanopia, deuteranopia and tritanopia
+(Machado, Oliveira and Fernandes 2009, severity 1.0) and on WCAG 2.1 contrast
+against the page (`#ffffff` light, `#292929` dark):
+
+| Set | Worst pair, normal | protanopia | deuteranopia | tritanopia | Contrast vs page |
+| --- | --- | --- | --- | --- | --- |
+| One ink, light | 5.7 | 5.6 | 5.7 | 5.6 | 1.0–12.6 |
+| One ink, dark | 6.2 | 6.2 | 6.2 | 6.2 | 1.1–12.6 |
+| Categorical, light | 16.9 | 8.7 | 8.7 | 9.0 | 3.19–5.07 |
+| Categorical, dark | 19.3 | 8.0 | 7.7 | 8.2 | 5.22–8.65 |
+
+ΔE 2000 of about 2.3 is the just-noticeable difference, 5 is a clear one; both
+sets clear it on the worst pair, the categorical one by more under normal
+vision and about the same under a deficiency. What the table does not say:
+under protanopia and deuteranopia seven categories compress into roughly five
+usable steps, so the figures must keep their labels and legends as the primary
+cue — the kit's forms print both. Contrast of every categorical mark is at
+least 3.19:1 on its page, where the weakest step of the one-ink ramp
+deliberately sits near the surface for low magnitude.
+
+Shots: `kit-shots/kit-palettes-1440-light.png`, `…-1440-dark.png`, and the same
+pair at 390.

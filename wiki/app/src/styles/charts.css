@@ -41,3 +41,25 @@
   --heat-step-3: color-mix(in oklab, var(--text) 62%, var(--bg-page));
   --heat-step-4: color-mix(in oklab, var(--text) 84%, var(--bg-page));
 }
+
+/**
+ * The categorical variant (task madarch-64o5.82): a chart asked for
+ * `palette="categorical"` is told apart by hue as well as strength, because a
+ * category is not a magnitude — a treemap coloured by language, a stacked bar
+ * of published, failed and blocked. The seven values are the kit's own
+ * `--chart-cat-*` tokens (styles/tokens.css), light and dark, so the variant
+ * still has one source of colour. Magnitude and heat do not take this variant:
+ * their ramp is the single ink above.
+ */
+[data-chart-palette='categorical'] [data-dg],
+[data-chart-palette='categorical'] [data-dg-legend] {
+  --dg-c1: var(--chart-cat-1);
+  --dg-c2: var(--chart-cat-2);
+  --dg-c3: var(--chart-cat-3);
+  --dg-c4: var(--chart-cat-4);
+  --dg-c5: var(--chart-cat-5);
+  --dg-c6: var(--chart-cat-6);
+  --dg-c7: var(--chart-cat-7);
+  --dg-pos: var(--chart-cat-1);
+  --dg-neg: var(--chart-cat-4);
+}

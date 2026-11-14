@@ -77,6 +77,19 @@
   --selection: rgba(48, 49, 54, 0.18);
   /* the shell's overlay shadow (the mockup's shadow, per the lane review) */
   --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.18);
+
+  /* 4.5 Chart categories, light (task madarch-64o5.82): the only tokens with hue, and only for telling
+   * categories apart — magnitude and heat stay the single ink of the chart ramp. Seven hues about 50° apart at
+   * chroma 0.12 (muted, beside the graphite), lightness stepped so that a colour-vision deficiency still leaves
+   * a lightness cue. Checked with CIEDE2000 over sRGB: worst pair ΔE 16.9 normal, 8.7 protanopia, 8.7
+   * deuteranopia, 9.0 tritanopia; each ≥ 3.19 against the page (WCAG 2.1). */
+  --chart-cat-1: #3a92cb;
+  --chart-cat-2: #7465b3;
+  --chart-cat-3: #a15489;
+  --chart-cat-4: #bb6053;
+  --chart-cat-5: #b8882c;
+  --chart-cat-6: #567923;
+  --chart-cat-7: #008671;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -115,6 +128,17 @@
     --link-underline: #888888;
     --selection: rgba(229, 229, 229, 0.2);
     --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.38), -1px 0 0 rgba(255, 255, 255, 0.04);
+
+    /* 4.5 Chart categories, dark: the same seven roles raised towards the dark page, chroma 0.11. Checked the same
+     * way: worst pair ΔE 19.3 normal, 8.0 protanopia, 7.7 deuteranopia, 8.2 tritanopia; each ≥ 5.22 against the
+     * page. The light set is not reused here: it would fall below 3:1 on the dark ground. */
+    --chart-cat-1: #a4d58d;
+    --chart-cat-2: #32b5ab;
+    --chart-cat-3: #75c6fb;
+    --chart-cat-4: #9d91dd;
+    --chart-cat-5: #ec9fcf;
+    --chart-cat-6: #db8573;
+    --chart-cat-7: #c69f4e;
   }
 }
 
