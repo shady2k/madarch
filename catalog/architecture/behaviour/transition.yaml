@@ -1,7 +1,7 @@
 id: uml.transition
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A change from one state to another, with the event that triggers it.
+definition: A transition is a move from one state to another, caused by an event and allowed by a condition.
 sources:
 - https://www.omg.org/spec/UML/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Переход
     many: Переходы
 description:
-  en: A change from one state to another, with the event that triggers it.
-  ru: Смена одного состояния на другое с событием, которое её вызывает.
+  en: A transition says that when a named event occurs and a guard holds, the thing leaves one state and enters another, often running an action on the way. It is the arrow between two states in a state machine.
+  ru: Переход говорит, что при наступлении названного события и выполнении условия вещь покидает одно состояние и входит в другое, часто выполняя действие по пути. Это стрелка между двумя состояниями в конечном автомате.

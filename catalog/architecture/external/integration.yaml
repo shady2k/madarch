@@ -1,7 +1,7 @@
 id: practice.integration
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A configured link between two systems, with the protocol and the data it carries.
+definition: An integration is a configured link between two systems, with the protocol and the data it carries.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Интеграция
     many: Интеграции
 description:
-  en: A configured link between two systems, with the protocol and the data it carries.
-  ru: Настроенная связь двух систем с протоколом и данными, которые она передаёт.
+  en: 'An integration is the working connection between the product and another system: which protocol is used, which address, which credentials and which data crosses. It is the concrete arrangement behind an external interface.'
+  ru: 'Интеграция — работающее соединение продукта с другой системой: какой протокол, какой адрес, какие учётные данные и какие данные через него идут. Это конкретное устройство за внешним интерфейсом.'
