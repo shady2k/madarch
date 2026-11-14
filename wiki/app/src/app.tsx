@@ -23,13 +23,14 @@ import {
 import { Skeleton } from './components/ui/skeleton.js';
 import { PageSection, Paragraph, Stack } from './components/ui/typography.js';
 import { TooltipProvider } from './components/ui/tooltip.js';
+import { RoleFirstVisit } from './components/role-first.js';
 import { STALE_STRUCTURE } from './stale.js';
 
 const ROLE_KEY = 'madarch-wiki-role';
 
 function storedRole(): string {
   try {
-    return window.localStorage.getItem(ROLE_KEY) ?? 'all';
+    return window.localStorage.getItem(ROLE_KEY) ?? 'everything';
   } catch {
     return 'all';
   }
@@ -220,6 +221,7 @@ export function App(): ReactElement {
   const page = section === null ? null : section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
+      <RoleFirstVisit base={base} onChosen={(next) => { setRole(next); keepRole(next); }} />
       <Stack layout="shell" data-testid="wiki-app">
         <ShellSidebar id="app-nav" aria-label={t('navigation.aria')}>
           <Stack layout="navigation">{navigationPanel(() => undefined)}</Stack>

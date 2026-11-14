@@ -256,7 +256,9 @@ sections:
   `problem-actions`, `sources` (the Sources page's documents and repositories); they call the command
   API and read what they show from the graph or the retained command reads. The app names no kind.
   The top bar's «Заполнить…» entry opens the catalogue in selection mode while no run is live; a live
-  run replaces it with its progress. The old `/p/fill` address opens the same selection mode.
+  run replaces it with its progress. The old `/p/fill` address opens the same selection mode. The first
+  visit asks the reader's role once, through `/api/settings`; on an empty product the home page offers a
+  first-run card whose preparation is the same `prepare` panel with a recommended editable set.
 - **Component parameters** (all optional unless marked; `path` is a dot path into the section's
   data; texts are `{ en, ru }`): `header { titlePath*, kindPath, provenancePath }`;
   `facts { rows*: [{ label*, path*, format: text|number|date|bytes|link }] }`;

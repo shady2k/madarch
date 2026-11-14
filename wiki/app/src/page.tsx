@@ -20,6 +20,7 @@ import { CatalogueSection } from './components/catalogue.js';
 import { PrepareSection } from './components/prepare.js';
 import { RunsSection } from './components/runs.js';
 import { FillKindSection } from './components/fill-kind.js';
+import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
 import { SettingsSection } from './components/settings.js';
@@ -89,6 +90,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'catalogue': return <CatalogueSection context={context} />;
     case 'prepare': return <PrepareSection context={context} />;
     case 'runs': return <RunsSection context={context} />;
+    case 'first-run': return <FirstRunSection context={context} />;
     case 'fill-kind': return <FillKindSection context={context} />;
     case 'run': return <RunSection context={context} />;
     case 'problem-actions': return <ProblemsSection context={context} />;

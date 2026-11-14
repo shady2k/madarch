@@ -24,6 +24,9 @@ sections:
     params:
       titlePath: label
       kindPath: kind
+  - id: firstRun
+    component: first-run
+    after: header
   - id: search
     component: search
     title: { en: Search, ru: Поиск }

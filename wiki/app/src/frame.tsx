@@ -209,7 +209,7 @@ function RoleMenu({ role, roles, onRole }: { readonly role: string; readonly rol
       <DropdownMenuTrigger asChild>
         <ShellRoleButton aria-label={t('knowledge.roles.menu')} title={t('knowledge.roles.menuTitle')} data-testid="role-menu">
           <UserRoundIcon aria-hidden="true" size={18} />
-          <ShellRoleLabel>{role === 'all' ? name('everything') : name(role)}</ShellRoleLabel>
+          <ShellRoleLabel>{role === 'everything' ? name('everything') : name(role)}</ShellRoleLabel>
         </ShellRoleButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={7}>

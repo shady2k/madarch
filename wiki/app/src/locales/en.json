@@ -1549,8 +1549,15 @@
     "taken": "In the product",
     "errorPlugin": "The plugin {{plugin}} is missing"
   },
+  "firstRun": {
+    "title": "First run",
+    "intro": "The graph is empty. This is a recommended set of {{count}} kinds; change it if you need to, then start the fill.",
+    "start": "Prepare the first fill",
+    "manual": "Choose in the catalogue"
+  },
   "prepare": {
-    "title": "Prepare the fill",
+    "title": "Preparing the fill",
+    "wizardIntro": "First run on this product: this is a recommended set of kinds. Change the set if you need to, then start the fill.",
     "intro": "The final set, what each plugin and the agent will fill, and one press that starts the run.",
     "change": "Change the set",
     "product": "Product and repositories",

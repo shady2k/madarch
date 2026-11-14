@@ -40,6 +40,14 @@ async function textOf(page: Page): Promise<string> {
   return await page.evaluate(() => document.body.textContent ?? '');
 }
 
+/** Answers the first-visit role question when this run opens a page on a fresh machine. */
+async function settleRole(page: Page): Promise<void> {
+  const dialog = await page.waitForSelector('[data-testid="role-first"]', { timeout: 8_000 }).catch(() => null);
+  if (dialog === null) return;
+  await page.click('[data-testid="role-first-continue"]');
+  await page.waitForSelector('[data-testid="role-first"]', { hidden: true, timeout: 30_000 });
+}
+
 run('the fill flow on a product filled with disk and git', () => {
   beforeAll(async () => {
     if (!existsSync(join(APP, 'index.html'))) throw new Error(`the built app is missing: ${join(APP, 'index.html')}`);
@@ -105,6 +113,14 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
       await page.goto(`${server!.url}/p/catalogue`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      const roleDialog = await page.waitForSelector('[data-testid="role-first"]', { timeout: 15_000 }).catch(() => null);
+      if (roleDialog !== null) {
+        await shotAt('role-first', 1440, 900);
+        await shotAt('role-first', 390, 844);
+        await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+        await page.click('[data-testid="role-first-skip"]');
+        await page.waitForSelector('[data-testid="role-first"]', { hidden: true, timeout: 30_000 });
+      }
       await page.waitForSelector('[data-testid="catalogue-page"]', { timeout: 60_000 });
       await page.waitForSelector('[data-testid="catalogue-kind"]', { timeout: 60_000 });
       const reading = await textOf(page);
@@ -199,6 +215,17 @@ run('the fill flow on a product filled with disk and git', () => {
     try {
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
+      await page.goto(`${planServer!.url}/`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await settleRole(page);
+      await page.waitForSelector('[data-testid="first-run"]', { timeout: 60_000 });
+      await shotAt('first-run', 1440, 900);
+      await shotAt('first-run', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.click('[data-testid="first-run-start"]');
+      await page.waitForSelector('[data-testid="prepare-wizard"]', { timeout: 60_000 });
+      await shotAt('wizard-prepare', 1440, 900);
+      await shotAt('wizard-prepare', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.goto(`${planServer!.url}/p/catalogue?select=1`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="catalogue-kind-check-doc.decision"]', { timeout: 60_000 });
       await page.$eval('[data-testid="catalogue-kind-check-doc.decision"]', (element) => (element as HTMLInputElement).click());
@@ -259,6 +286,11 @@ run('the fill flow on a product filled with disk and git', () => {
     try {
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
+      // The old fill address is the catalogue's selection mode, never the «being rebuilt» stub.
+      await page.goto(`${emptyServer!.url}/p/fill`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await settleRole(page);
+      await page.waitForSelector('[data-testid="catalogue-bottom"]', { timeout: 30_000 });
+      expect(await textOf(page)).not.toContain('перестраивается');
       // The owner's first page: the top bar's «Заполнить…» opens the catalogue's selection mode.
       await page.goto(`${emptyServer!.url}/`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="fill-entry"]', { timeout: 60_000 });
@@ -282,6 +314,13 @@ run('the fill flow on a product filled with disk and git', () => {
       expect(await textOf(page)).toContain('Только плагины');
       await shotAt('empty-prepare', 1440, 900);
       await shotAt('empty-prepare', 390, 844);
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.evaluate(() => { document.querySelector('[data-testid="prepare-agent"]')?.scrollIntoView({ block: 'center' }); });
+      await shotAt('empty-prepare-controls', 1440, 900);
+      await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+      await page.evaluate(() => { document.querySelector('[data-testid="prepare-cap"]')?.scrollIntoView({ block: 'center' }); });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await page.screenshot({ path: join(SHOTS, 'empty-prepare-controls-390.png') });
 
       // The plugins-only press: the agent's fields stay unfilled, and the fill runs to its end.
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });

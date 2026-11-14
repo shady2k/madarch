@@ -33,9 +33,10 @@ export const PAGE_ADDRESSES = {
 export const RUNS_PAGE = '/p/runs';
 
 /** The preparation panel for a set of kinds; `pluginsOnly` leaves the agent's fields unfilled. */
-export function prepareAddress(kinds: readonly string[], pluginsOnly = false): string {
+export function prepareAddress(kinds: readonly string[], pluginsOnly = false, wizard = false): string {
   const query = new URLSearchParams({ kinds: [...new Set(kinds)].sort().join(',') });
   if (pluginsOnly) query.set('pluginsOnly', '1');
+  if (wizard) query.set('wizard', '1');
   return `/p/prepare?${query.toString()}`;
 }
 

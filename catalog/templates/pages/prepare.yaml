@@ -8,10 +8,12 @@ variables:
     required: true
   pluginsOnly:
     type: String
+  wizard:
+    type: String
 sections:
   - id: header
     component: header
-    title: { en: Prepare the fill, ru: Настройка запуска }
+    title: { en: Preparing the fill, ru: Подготовка запуска }
     params:
       titlePath: label
   - id: prepare

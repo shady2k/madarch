@@ -36,6 +36,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const navigation = context.navigation;
   const base = context.base;
   const requested = (typeof context.variables['kinds'] === 'string' ? context.variables['kinds'] : '').split(',').filter((kind) => kind !== '').sort();
+  const wizard = context.variables['wizard'] === '1';
   const [pluginsOnly, setPluginsOnly] = useState(context.variables['pluginsOnly'] === '1');
   const lastVars = useRef(`${String(context.variables['kinds'] ?? '')}\u0000${String(context.variables['pluginsOnly'] ?? '')}`);
   const [agent, setAgent] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const added = new Map(plan.added.map((entry) => [entry.kind, entry.neededBy]));
   return (
     <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
+      {wizard ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro', { count: plan.selectedKinds.length })}</AlertDescription></Alert> : null}
       <Stack className="flex flex-wrap items-center justify-between gap-3">
         <Paragraph className="m-0 text-secondary">{t('prepare.intro')}</Paragraph>
         <TextLink href={base + catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)} onClick={(event) => { event.preventDefault(); context.open(catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)); }} data-testid="prepare-change">
