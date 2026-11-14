@@ -1,55 +1,32 @@
 id: spdx.package
 purpose: structure
 audience: [developer, architect]
-definition: The folder a service's manifest sits in, with its tests and its frameworks.
+definition: A package a repository's files import from outside it, named as its ecosystem names it.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Software/Classes/Package/
 acquisition:
-- extractor code
+- extractor imports
 status: implemented
 relation-constraints:
-  out:
-  - contains
-  - hasDependencyManifest
+  out: []
   in:
-  - partOf
+  - dependsOn
 template-policy: page
 source: graph
 fields:
-- name: repository
+- name: ecosystem
   type: text
-  nullable: true
-  binding:
-    agent: 'Read the declared repositories: repository name, or null for the product repository.'
-- name: path
+  binding: imports@1.ecosystem
+- name: name
   type: text
-  binding:
-    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-- name: state_machines
-  type: json
-  nullable: true
-  binding:
-    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
-      use [] when none exist and preserve source positions.'
+  binding: imports@1.name
 key:
-- repository
-- path
+- ecosystem
+- name
 card: true
-history: membership
-views:
-- state
 details:
 - ecosystem
 - name
-- version
-- external
-- frameworks
-- hasTests
-- sourceFiles
-- testFiles
-- tests
-- versionStatus
-- standardLibrary
 labels:
   en:
     one: Package
@@ -58,5 +35,5 @@ labels:
     one: Пакет
     many: Пакеты
 description:
-  en: The folder a service's manifest sits in, with its tests and frameworks.
-  ru: Папка с манифестом сервиса, его тесты и фреймворки.
+  en: A package a repository's files import from outside it, named as its ecosystem names it.
+  ru: Пакет, который импортируют файлы репозитория, названный так, как его называет экосистема.

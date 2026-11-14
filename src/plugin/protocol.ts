@@ -94,6 +94,18 @@ export const PluginRemoval = Type.Object(
   { additionalProperties: false, description: 'An entity the plugin produced before that the unit\'s input no longer holds.' },
 );
 
+/** One place a unit could not read, named so a person can open it: a file, the line and the parser's or reader's words. */
+export const PluginUnitProblem = Type.Object(
+  {
+    repository: Type.Optional(Type.String({ minLength: 1, description: 'The repository the file belongs to, when the product spans several.' })),
+    path: Type.String({ minLength: 1, description: 'The repository-relative path of the file the problem stands in.' }),
+    line: Type.Integer({ minimum: 1, description: 'The line the problem opens at, 1-based.' }),
+    column: Type.Optional(Type.Integer({ minimum: 1, description: 'The column the problem opens at, 1-based, when the reader has one.' })),
+    message: Type.String({ minLength: 1, description: 'What could not be read, in words a person can act on.' }),
+  },
+  { additionalProperties: false, description: 'One place a unit could not read: the file, its line and the cause. The unit states the rest it read.' },
+);
+
 /** How a unit ended: complete, or partial with the cause. */
 export const PluginUnitEnd = Type.Union(
   [
@@ -111,9 +123,10 @@ export const PluginUnitResult = Type.Object(
     vertices: Type.Optional(Type.Array(PluginVertexResult)),
     edges: Type.Optional(Type.Array(PluginEdgeResult)),
     removals: Type.Optional(Type.Array(PluginRemoval)),
+    problems: Type.Optional(Type.Array(PluginUnitProblem)),
     end: PluginUnitEnd,
   },
-  { additionalProperties: false, description: 'One unit\'s answer: vertices, edges, removals and its end.' },
+  { additionalProperties: false, description: 'One unit\'s answer: vertices, edges, removals, the places it could not read and its end.' },
 );
 
 /**
@@ -459,6 +472,7 @@ export const PluginProtocolMessage = Type.Union(
 
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;
+export type PluginUnitProblem = Static<typeof PluginUnitProblem>;
 export type PluginUnitResult = Static<typeof PluginUnitResult>;
 export type PluginOutputPlan = Static<typeof PluginOutputPlan>;
 export type PluginUnitEnd = Static<typeof PluginUnitEnd>;

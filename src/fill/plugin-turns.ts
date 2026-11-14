@@ -316,10 +316,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
+  // An edge is published in the turn of the later of its ends' kinds; an edge between two kinds the plugin reads rather
+  // than produces — a file imports a file — belongs to the plugin's last output turn, the turn in which it reads them.
+  // The plugin's reads, not the catalogue's derives-from, is what makes a file the source of such an edge.
+  const edgeOwner = (from: string, to: string): string | undefined =>
+    outputOrder.filter((kind) => kind === from || kind === to).at(-1) ?? outputOrder.at(-1);
   const edgeOutputs = (unit.plugin.contract?.edges ?? []).flatMap((edge) => {
     const fromKinds = typeof edge.from === 'string' ? [edge.from] : edge.from;
     const toKinds = typeof edge.to === 'string' ? [edge.to] : edge.to;
-    return fromKinds.flatMap((from) => toKinds.filter((to) => outputOrder.filter((kind) => kind === from || kind === to).at(-1) === unit.kind.name)
+    return fromKinds.flatMap((from) => toKinds.filter((to) => edgeOwner(from, to) === unit.kind.name)
       .map((to) => ({ kind: edge.kind, from, to })));
   });
   const ownsEdge = (edge: { readonly kind: string; readonly from: { readonly kind: string }; readonly to: { readonly kind: string } }): boolean =>
@@ -427,18 +432,24 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         for (const vertex of [...outcome.result.vertices, ...outcome.result.removals]) if (!partitionKeys.has(canonicalKey(vertex.key))) throw new Error(`${location}: output outside selected partition keys`);
         for (const edge of outcome.result.edges) if (!partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) throw new Error(`${location}: edge outside selected partition keys`);
       }
+      // The places the unit could not read are its problems, with their file, line and cause: one unreadable file never
+      // makes the rest of the answer a silence, and the reason is where a person finds what was left out. A partial unit
+      // keeps its cause and its places alike, so a file-specific problem is never hidden under the general cause.
+      const problems = outcome.result.problems;
+      const problemsText = problems.length === 0 ? undefined : `${String(problems.length)} place${problems.length === 1 ? '' : 's'} could not be read: ${problems.map((problem) => `${problem.repository === undefined ? '' : `${problem.repository}/`}${problem.path}:${String(problem.line)}${problem.column === undefined ? '' : `:${String(problem.column)}`} ${problem.message}`).join('; ')}`;
       if (outcome.result.end.state === 'partial') {
-        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: outcome.result.end.cause } });
+        const reason = problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`;
+        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason } });
         draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
         journaled = true;
-        progress?.(`the plugin ${unit.plugin.id} abstained: ${outcome.result.end.cause}`);
+        progress?.(`the plugin ${unit.plugin.id} abstained: ${reason}`);
         await meter?.flush();
         const stop = meter?.stop();
         if (stop !== undefined) throw new Error(stop.message);
         return;
       }
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
-      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length } });
+      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length, ...(problemsText === undefined ? {} : { reason: problemsText }) } });
       const only = selectedVertex(wiring, unit.kind.name);
       // Publish this kind's unit; other declared results belong to their own units.
       const selectedKinds = new Set([unit.kind.name]);

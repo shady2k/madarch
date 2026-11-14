@@ -50,5 +50,3 @@ description:
   en: A term of the product's language, defined in a glossary.
   ru: Слово из языка продукта с определением из глоссария.
 key: []
-derives-from:
-- code.file

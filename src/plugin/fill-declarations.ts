@@ -30,6 +30,29 @@ interface ExpandedOutput {
   fields: readonly string[];
   declaration: PluginManifest['produces'][number];
 }
+/**
+ * The kinds a kind's producers read, over the outputs that actually run: an output fully covered by another producer's
+ * claims is suppressed, and the reads of a suppressed producer are not inputs of the turn. This is the one gap-coverage
+ * rule the fill plans by, and the one a selective fill lists its added kinds by.
+ */
+export function effectiveReadsOf(input: FillDeclarationInput, kind: string): FillRead[] {
+  const fieldsOf = (name: string): readonly string[] => input.kinds.find((entry) => entry.name === name)?.fields ?? [];
+  const expanded: { declaration: FillPluginDeclaration['manifest']['produces'][number]; fields: readonly string[] }[] = [];
+  for (const plugin of input.plugins) {
+    for (const declaration of plugin.manifest.produces) {
+      if (declaration.kind !== '*' && declaration.kind !== kind) continue;
+      expanded.push({ declaration, fields: declaration.fields === '*' ? fieldsOf(kind) : declaration.fields });
+    }
+  }
+  const claims = expanded.filter((entry) => entry.declaration.coverage !== 'gaps');
+  const effective = expanded.filter((entry) => {
+    if (entry.declaration.coverage !== 'gaps') return true;
+    const remaining = entry.fields.filter((field) => !claims.some((claim) => claim.fields.includes(field)));
+    return remaining.length > 0 || (entry.fields.length === 0 && claims.length === 0);
+  });
+  return effective.flatMap((entry) => entry.declaration.reads ?? []);
+}
+
 export function planFillDeclarations(input: FillDeclarationInput) {
   const kinds = new Map(input.kinds.map((kind) => [kind.name, kind]));
   const plugins = new Map(input.plugins.map((plugin) => [plugin.manifest.name, plugin]));
@@ -152,13 +175,12 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     }
   }
   for (const entry of entries) {
-    const name = entry.plugin.manifest.name;
     for (const [i, read] of (entry.declaration.reads ?? []).entries()) {
       const kind = typeof read === 'string' ? read : read.kind;
       const path = ['produces', entry.index, 'reads', i];
       if (!kinds.has(kind)) refuse(entry.plugin, path, `${kind} is not a declared kind in produces, reads or derives-from`);
-      const earlierSelf = typeof read !== 'string' && kind === entry.kind && (entry.declaration.refines ?? []).includes(read.producer);
-      if (!prerequisites(entry.kind).has(kind) && !earlierSelf) refuse(entry.plugin, path, `plugin ${name} reads ${kind} for output ${entry.kind}, outside that output's prerequisite closure; add ${kind} to ${entry.kind}.derives-from or declare an earlier version of the producer being refined`);
+      // A plugin's own reads are its inputs, whatever the catalogue says a kind rests on: an output kind need not declare a
+      // derives-from for each source its producer reads, and the unit's turn is ordered after the producers of those reads.
       if (typeof read !== 'string' && !allOutputs.get(read.producer)?.has(kind)) refuse(entry.plugin, path, `earlier read of ${kind} names producer ${read.producer} without an enabled output of that kind`);
     }
   }
@@ -178,11 +200,20 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   }
   const requested = input.selectedKinds ?? [...kinds.keys()];
   const selected = new Set<string>();
-  for (const name of requested) {
-    const kind = kinds.get(name);
-    if (kind === undefined) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml'));
-    for (const prerequisite of prerequisites(name)) selected.add(prerequisite);
+  // A kind's turn needs the kinds its concept rests on and the kinds its producers read: a plugin's reads is the source
+  // tie, so the selected set follows both, recursively, and stands in that order — every dependency before its dependant.
+  const collecting = new Set<string>();
+  const collect = (name: string): void => {
+    if (selected.has(name) || collecting.has(name)) return;
+    collecting.add(name);
+    for (const prerequisite of kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
+    for (const read of effectiveReadsOf(input, name)) collect(typeof read === 'string' ? read : read.kind);
+    collecting.delete(name);
     selected.add(name);
+  };
+  for (const name of requested) {
+    if (!kinds.has(name)) throw new ClosureRefusal('fill-declaration', `${resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml')}:1: ${name} is not a declared kind in produces, reads or derives-from`, resolve(input.kinds[0]?.file ?? 'madarch/catalog.yaml'));
+    collect(name);
   }
   for (const name of selected) if (![...allOutputs.values()].some((output) => output.has(name))) kindRefusal(kinds.get(name)!, `selected kind ${name} has no enabled producer; enable its producer`);
   const sortedUnits: string[] = [];
