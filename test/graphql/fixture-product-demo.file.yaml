@@ -19,5 +19,8 @@ fields:
   - { name: lines, type: integer, nullable: true, producers: [agent] }
   - { name: language, type: text, nullable: true, producers: [agent] }
   - { name: primary, type: json, nullable: true, reference: demo.repository, producers: [agent] }
+  # A reference declared text holds the reference as JSON text: the inverse of such a field is a plain join, and a reader
+  # of it once met a database error instead (madarch-64o5.83).
+  - { name: preferred, type: text, nullable: true, reference: demo.repository, producers: [agent] }
 key: [repository, path]
 derives-from: [demo.repository]

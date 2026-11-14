@@ -865,9 +865,13 @@ export class ReadContext {
       const rankOrder = order.keys.length === 0 ? 'rows.node_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
       const table = this.vertexTable.get(source.name)!;
       // A reference in the key lives in `node.key`; one stated as a field is the value its opinions agree on.
+      // A reference in the key is jsonb; one stated as a field is jsonb when the field is declared json and the JSON
+      // text of `{kind, key}` when it is declared text — a comment on the cast: a text column of a reference holds the
+      // reference, not a bare key (madarch-64o5.83: a `type: text` + `reference:` field made every such inverse a
+      // database error, `operator does not exist: text -> unknown`).
       const reference = source.key.includes(field.name)
         ? `(n.key->'${field.name}')`
-        : `(SELECT CASE WHEN count(DISTINCT o."${field.name}") = 1 THEN (array_agg(o."${field.name}") FILTER (WHERE o."${field.name}" IS NOT NULL))[1] END FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1)`;
+        : `(SELECT CASE WHEN count(DISTINCT o."${field.name}") = 1 THEN (array_agg(o."${field.name}") FILTER (WHERE o."${field.name}" IS NOT NULL))[1] END FROM "${table}" o WHERE o.node_id = n.id AND o.state = 'open' AND o.context_id = 1)::jsonb`;
       const answer = await this.tx.query<Record<string, unknown>>(
         `WITH filtered AS (
            SELECT tn.id::text AS target, n.id::text AS node_id, n.uid::text AS uid, n.key, en.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
@@ -1074,7 +1078,7 @@ export class ReadContext {
             JOIN entity en ON en.id = n.entity_id AND en.name = ${sourceKind}
             JOIN node tn ON tn.id = ANY(${ids}) AND tn.context_id = 1 AND NOT tn.removed
                         AND tn.entity_id = (SELECT id FROM entity WHERE name = ${targetKind})
-                        AND tn.key = ${agreed}->'key' AND t."${inverse.field.name}"->>'kind' = ${targetKind}
+                        AND tn.key = (${agreed})::jsonb->'key' AND (t."${inverse.field.name}")::jsonb->>'kind' = ${targetKind}
             WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
         }
       }

@@ -100,7 +100,7 @@ beforeAll(async () => {
     await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'demo.repository', key: { name: 'r1' }, values: { url: 'https://one.test', size: 2, archived: true }, producer: 'one', producerVersion: '1' },
-        { kind: 'demo.file', key: file('a.ts').key, values: { lines: 10, language: 'TypeScript', primary: repository('r1') }, producer: 'one', producerVersion: '1' },
+        { kind: 'demo.file', key: file('a.ts').key, values: { lines: 10, language: 'TypeScript', primary: repository('r1'), preferred: repository('r1') }, producer: 'one', producerVersion: '1' },
         { kind: 'demo.file', key: file('b.ts').key, values: { lines: 20, primary: repository('r1') }, producer: 'one', producerVersion: '1' },
         { kind: 'demo.file', key: file('c.ts').key, values: {}, producer: 'one', producerVersion: '1' },
       ],
@@ -283,6 +283,14 @@ describe('the GraphQL executor', () => {
     expect(r1.backlinks.edges.filter((edge: any) => edge.node.relation === 'primaryOfDemoFile')).toHaveLength(1);
     expect(r1.backlinks.edges.map((edge: any) => edge.node.relation)).toContain('repositoryOfDemoFile');
     expect((agreed['r2'] as Record<string, any>).primaryOfDemoFile.totalCount).toBe(0);
+  });
+
+  test('a reference declared text answers its inverse and its backlink, not a database error (madarch-64o5.83)', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { preferredOfDemoFile(first: 10) { totalCount edges { node { path } } } backlinks(first: 20) { edges { node { relation } } } } } }`, { id: repositoryId });
+    const repository = data['entity'] as Record<string, any>;
+    expect(repository.preferredOfDemoFile.totalCount).toBe(1);
+    expect(repository.preferredOfDemoFile.edges.map((edge: any) => edge.node.path)).toEqual(['a.ts']);
+    expect(repository.backlinks.edges.map((edge: any) => edge.node.relation)).toContain('preferredOfDemoFile');
   });
 
   test('pagination over a null order value neither skips nor repeats a row (#6)', async () => {
