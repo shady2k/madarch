@@ -1,7 +1,7 @@
 id: practice.mutation-report
 purpose: quality
 audience: [tester, developer]
-definition: The record of which mutants a test suite killed and which survived.
+definition: A mutation report is the record of which mutants a test suite killed and which survived.
 sources:
 - https://stryker-mutator.io/docs/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Отчёт о мутациях
     many: Отчёты о мутациях
 description:
-  en: The record of which mutants a test suite killed and which survived.
-  ru: Запись того, каких мутантов набор тестов убил, а какие выжили.
+  en: A mutation report lists the mutants created, whether the tests failed on each and therefore which survived, and groups the survivors by the code they touched. It shows where the tests check too little.
+  ru: Отчёт о мутациях перечисляет созданных мутантов, упали ли тесты на каждом и какие поэтому выжили, и группирует выживших по затронутому коду. Он показывает, где тесты проверяют слишком мало.

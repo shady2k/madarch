@@ -1,7 +1,7 @@
 id: archimate.value-stream-stage
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: One step of a value stream, with the capabilities that enable it.
+definition: A value stream stage is one step of a value stream, with the capabilities that make it possible.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Этап потока ценности
     many: Этапы потока ценности
 description:
-  en: One step of a value stream, with the capabilities that enable it.
-  ru: Один шаг потока создания ценности с обеспечивающими его способностями.
+  en: A value stream stage is one link in the chain that turns a need into something a customer values, such as take the order, assemble it and deliver it. Capabilities enable the stage, and each stage passes its result to the next.
+  ru: 'Этап потока ценности — одно звено в цепочке, которая превращает потребность в то, что ценно для клиента: принять заказ, собрать и доставить. Способности делают этап возможным, и каждый этап передаёт результат следующему.'

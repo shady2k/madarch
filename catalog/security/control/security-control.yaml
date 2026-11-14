@@ -1,7 +1,7 @@
 id: asvs.requirement
 purpose: quality
 audience: [security-engineer, architect]
-definition: A requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.
+definition: A security control is a requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.
 sources:
 - https://github.com/OWASP/ASVS/tree/master/5.0/en
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Контроль безопасности
     many: Контроли безопасности
 description:
-  en: A requirement that reduces a security risk, as OWASP ASVS states them in chapters and levels.
-  ru: Требование, снижающее риск безопасности, как OWASP ASVS излагает их главами и уровнями.
+  en: 'A security control states one thing a system should do or check to reduce a risk: verify authentication, validate input, protect data in storage. OWASP ASVS groups such controls by chapter and gives each a level that says how strict it is.'
+  ru: 'Контроль безопасности формулирует, что система должна делать или проверять, чтобы снизить риск: подтверждать вход, проверять входные данные, защищать данные в хранилище. OWASP ASVS группирует такие контроли по главам и даёт каждому уровень строгости.'

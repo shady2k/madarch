@@ -1,7 +1,7 @@
 id: openfeature.flag
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A switch that changes the product's behaviour without a new deployment.
+definition: A feature flag is a switch that changes the product's behaviour without a new deployment.
 sources:
 - https://openfeature.dev/specification/glossary
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Флаг функции
     many: Флаги функций
 description:
-  en: A switch that changes the product's behaviour without a new deployment.
-  ru: Переключатель, который меняет поведение продукта без нового развёртывания.
+  en: A feature flag decides at run time whether a feature is on or off, or which version of it a caller gets. Teams use it to release code before showing it, to turn a feature off in an incident or to try a change on a small group.
+  ru: Флаг функции решает во время работы, включена возможность или нет и какой её вариант получит вызывающий. Команды используют его, чтобы выпустить код раньше показа, отключить возможность при сбое или проверить изменение на небольшой группе.

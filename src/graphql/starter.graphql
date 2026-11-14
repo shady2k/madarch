@@ -522,6 +522,47 @@ type CodeContractEdge {
   node: CodeContract!
 }
 
+type CodeConvention implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  rule: String
+  ruleOpinions: [Opinion!]!
+  ruleOpinionsCount: Int!
+  example: String
+  exampleOpinions: [Opinion!]!
+  exampleOpinionsCount: Int!
+  paths: JSON
+  pathsOpinions: [Opinion!]!
+  pathsOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CodeConventionConnection {
+  edges: [CodeConventionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CodeConventionEdge {
+  cursor: String!
+  node: CodeConvention!
+}
+
 type CodeCycle implements Entity {
   id: ID!
   kind: String!
@@ -2245,6 +2286,82 @@ type CodeTouchedEdge {
   node: Entity!
 }
 
+type Comment implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  author: String
+  authorOpinions: [Opinion!]!
+  authorOpinionsCount: Int!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  about: JSON
+  aboutOpinions: [Opinion!]!
+  aboutOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  editedAt: DateTime
+  editedAtOpinions: [Opinion!]!
+  editedAtOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type CommentConnection {
+  edges: [CommentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type CommentEdge {
+  cursor: String!
+  node: Comment!
+}
+
+type Constitution implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  body: String
+  bodyOpinions: [Opinion!]!
+  bodyOpinionsCount: Int!
+  precedence: JSON
+  precedenceOpinions: [Opinion!]!
+  precedenceOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type ConstitutionConnection {
+  edges: [ConstitutionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ConstitutionEdge {
+  cursor: String!
+  node: Constitution!
+}
+
 type Correction implements Entity {
   id: ID!
   kind: String!
@@ -2737,6 +2854,50 @@ type GroundsEdge {
   node: Entity!
 }
 
+type Link implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  relation: ValueSetEntry
+  relationOpinions: [Opinion!]!
+  relationOpinionsCount: Int!
+  source: JSON
+  sourceOpinions: [Opinion!]!
+  sourceOpinionsCount: Int!
+  target: JSON
+  targetOpinions: [Opinion!]!
+  targetOpinionsCount: Int!
+  note: String
+  noteOpinions: [Opinion!]!
+  noteOpinionsCount: Int!
+  createdBy: String
+  createdByOpinions: [Opinion!]!
+  createdByOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type LinkConnection {
+  edges: [LinkEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type LinkEdge {
+  cursor: String!
+  node: Link!
+}
+
 type LinksToConnection {
   edges: [LinksToConnectionEdge!]!
   pageInfo: PageInfo!
@@ -2790,6 +2951,50 @@ type PageInfo {
 type PageTemplate {
   name: String!
   body: String!
+}
+
+type Practice implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  rule: String
+  ruleOpinions: [Opinion!]!
+  ruleOpinionsCount: Int!
+  why: String
+  whyOpinions: [Opinion!]!
+  whyOpinionsCount: Int!
+  appliesTo: JSON
+  appliesToOpinions: [Opinion!]!
+  appliesToOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  sinceDate: DateTime
+  sinceDateOpinions: [Opinion!]!
+  sinceDateOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type PracticeConnection {
+  edges: [PracticeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PracticeEdge {
+  cursor: String!
+  node: Practice!
 }
 
 type ProblemDismissal implements Entity {
@@ -2941,6 +3146,33 @@ type Question implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  priority: ValueSetEntry
+  priorityOpinions: [Opinion!]!
+  priorityOpinionsCount: Int!
+  labels: JSON
+  labelsOpinions: [Opinion!]!
+  labelsOpinionsCount: Int!
+  assignee: String
+  assigneeOpinions: [Opinion!]!
+  assigneeOpinionsCount: Int!
+  owner: String
+  ownerOpinions: [Opinion!]!
+  ownerOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  updatedAt: DateTime
+  updatedAtOpinions: [Opinion!]!
+  updatedAtOpinionsCount: Int!
+  closedAt: DateTime
+  closedAtOpinions: [Opinion!]!
+  closedAtOpinionsCount: Int!
+  closeReason: String
+  closeReasonOpinions: [Opinion!]!
+  closeReasonOpinionsCount: Int!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2958,6 +3190,47 @@ type QuestionConnection {
 type QuestionEdge {
   cursor: String!
   node: Question!
+}
+
+type Skill implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  when: String
+  whenOpinions: [Opinion!]!
+  whenOpinionsCount: Int!
+  instructions: String
+  instructionsOpinions: [Opinion!]!
+  instructionsOpinionsCount: Int!
+  checks: JSON
+  checksOpinions: [Opinion!]!
+  checksOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type SkillConnection {
+  edges: [SkillEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type SkillEdge {
+  cursor: String!
+  node: Skill!
 }
 
 type Source implements Entity {
@@ -3017,6 +3290,42 @@ type Task implements Entity {
   front: JSON
   frontOpinions: [Opinion!]!
   frontOpinionsCount: Int!
+  status: ValueSetEntry
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  priority: ValueSetEntry
+  priorityOpinions: [Opinion!]!
+  priorityOpinionsCount: Int!
+  issueType: ValueSetEntry
+  issueTypeOpinions: [Opinion!]!
+  issueTypeOpinionsCount: Int!
+  labels: JSON
+  labelsOpinions: [Opinion!]!
+  labelsOpinionsCount: Int!
+  assignee: String
+  assigneeOpinions: [Opinion!]!
+  assigneeOpinionsCount: Int!
+  owner: String
+  ownerOpinions: [Opinion!]!
+  ownerOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  updatedAt: DateTime
+  updatedAtOpinions: [Opinion!]!
+  updatedAtOpinionsCount: Int!
+  closedAt: DateTime
+  closedAtOpinions: [Opinion!]!
+  closedAtOpinionsCount: Int!
+  closeReason: String
+  closeReasonOpinions: [Opinion!]!
+  closeReasonOpinionsCount: Int!
+  dependencies: JSON
+  dependenciesOpinions: [Opinion!]!
+  dependenciesOpinionsCount: Int!
+  comments: JSON
+  commentsOpinions: [Opinion!]!
+  commentsOpinionsCount: Int!
   fixedByOf(first: Int, after: String): FixedByConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -3036,6 +3345,62 @@ type TaskConnection {
 type TaskEdge {
   cursor: String!
   node: Task!
+}
+
+type TimeCost implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  entity: JSON
+  entityOpinions: [Opinion!]!
+  entityOpinionsCount: Int!
+  step: String
+  stepOpinions: [Opinion!]!
+  stepOpinionsCount: Int!
+  who: String
+  whoOpinions: [Opinion!]!
+  whoOpinionsCount: Int!
+  executorType: ValueSetEntry
+  executorTypeOpinions: [Opinion!]!
+  executorTypeOpinionsCount: Int!
+  model: String
+  modelOpinions: [Opinion!]!
+  modelOpinionsCount: Int!
+  startedAt: DateTime
+  startedAtOpinions: [Opinion!]!
+  startedAtOpinionsCount: Int!
+  duration: Int
+  durationOpinions: [Opinion!]!
+  durationOpinionsCount: Int!
+  tokens: Int
+  tokensOpinions: [Opinion!]!
+  tokensOpinionsCount: Int!
+  cost: String
+  costOpinions: [Opinion!]!
+  costOpinionsCount: Int!
+  outcome: String
+  outcomeOpinions: [Opinion!]!
+  outcomeOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type TimeCostConnection {
+  edges: [TimeCostEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TimeCostEdge {
+  cursor: String!
+  node: TimeCost!
 }
 
 type UserGuide implements Entity {
@@ -3103,6 +3468,106 @@ type UserGuideEdge {
   node: UserGuide!
 }
 
+type ValueSet implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  labelEn: String
+  labelEnOpinions: [Opinion!]!
+  labelEnOpinionsCount: Int!
+  labelRu: String
+  labelRuOpinions: [Opinion!]!
+  labelRuOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
+  purpose: String
+  purposeOpinions: [Opinion!]!
+  purposeOpinionsCount: Int!
+  order: Int
+  orderOpinions: [Opinion!]!
+  orderOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  setOfValueSetEntry(where: ValueSetEntryWhere, orderBy: [ValueSetEntryOrder!], first: Int, after: String): ValueSetEntryConnection!
+}
+
+type ValueSetConnection {
+  edges: [ValueSetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ValueSetEdge {
+  cursor: String!
+  node: ValueSet!
+}
+
+type ValueSetEntry implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  set: ValueSet
+  setOpinions: [Opinion!]!
+  setOpinionsCount: Int!
+  value: String
+  valueOpinions: [Opinion!]!
+  valueOpinionsCount: Int!
+  labelEn: String
+  labelEnOpinions: [Opinion!]!
+  labelEnOpinionsCount: Int!
+  labelRu: String
+  labelRuOpinions: [Opinion!]!
+  labelRuOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
+  order: Int
+  orderOpinions: [Opinion!]!
+  orderOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  executorTypeOfTimeCost(where: TimeCostWhere, orderBy: [TimeCostOrder!], first: Int, after: String): TimeCostConnection!
+  issueTypeOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+  priorityOfQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String): QuestionConnection!
+  priorityOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+  relationOfLink(where: LinkWhere, orderBy: [LinkOrder!], first: Int, after: String): LinkConnection!
+  statusOfCodeConvention(where: CodeConventionWhere, orderBy: [CodeConventionOrder!], first: Int, after: String): CodeConventionConnection!
+  statusOfConstitution(where: ConstitutionWhere, orderBy: [ConstitutionOrder!], first: Int, after: String): ConstitutionConnection!
+  statusOfPractice(where: PracticeWhere, orderBy: [PracticeOrder!], first: Int, after: String): PracticeConnection!
+  statusOfQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String): QuestionConnection!
+  statusOfSkill(where: SkillWhere, orderBy: [SkillOrder!], first: Int, after: String): SkillConnection!
+  statusOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+}
+
+type ValueSetEntryConnection {
+  edges: [ValueSetEntryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ValueSetEntryEdge {
+  cursor: String!
+  node: ValueSetEntry!
+}
+
 type Query {
   entity(id: ID!, lang: String): Entity
   allAdministratorGuide(where: AdministratorGuideWhere, orderBy: [AdministratorGuideOrder!], first: Int, after: String, lang: String): AdministratorGuideConnection!
@@ -3115,6 +3580,7 @@ type Query {
   allCodeCommit(where: CodeCommitWhere, orderBy: [CodeCommitOrder!], first: Int, after: String, lang: String): CodeCommitConnection!
   allCodeComposeService(first: Int, after: String, lang: String): CodeComposeServiceConnection!
   allCodeContract(where: CodeContractWhere, orderBy: [CodeContractOrder!], first: Int, after: String, lang: String): CodeContractConnection!
+  allCodeConvention(where: CodeConventionWhere, orderBy: [CodeConventionOrder!], first: Int, after: String, lang: String): CodeConventionConnection!
   allCodeCycle(first: Int, after: String, lang: String): CodeCycleConnection!
   allCodeDatabase(where: CodeDatabaseWhere, orderBy: [CodeDatabaseOrder!], first: Int, after: String, lang: String): CodeDatabaseConnection!
   allCodeDebt(first: Int, after: String, lang: String): CodeDebtConnection!
@@ -3164,6 +3630,8 @@ type Query {
   allCodeTask(first: Int, after: String, lang: String): CodeTaskConnection!
   allCodeTestCase(first: Int, after: String, lang: String): CodeTestCaseConnection!
   allCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String, lang: String): CodeTestQuarantineConnection!
+  allComment(where: CommentWhere, orderBy: [CommentOrder!], first: Int, after: String, lang: String): CommentConnection!
+  allConstitution(where: ConstitutionWhere, orderBy: [ConstitutionOrder!], first: Int, after: String, lang: String): ConstitutionConnection!
   allCorrection(where: CorrectionWhere, orderBy: [CorrectionOrder!], first: Int, after: String, lang: String): CorrectionConnection!
   allDocDecision(where: DocDecisionWhere, orderBy: [DocDecisionOrder!], first: Int, after: String, lang: String): DocDecisionConnection!
   allDocRequirement(where: DocRequirementWhere, orderBy: [DocRequirementOrder!], first: Int, after: String, lang: String): DocRequirementConnection!
@@ -3173,12 +3641,18 @@ type Query {
   allDocument(where: DocumentWhere, orderBy: [DocumentOrder!], first: Int, after: String, lang: String): DocumentConnection!
   allDomain(where: DomainWhere, orderBy: [DomainOrder!], first: Int, after: String, lang: String): DomainConnection!
   allEnrichment(where: EnrichmentWhere, orderBy: [EnrichmentOrder!], first: Int, after: String, lang: String): EnrichmentConnection!
+  allLink(where: LinkWhere, orderBy: [LinkOrder!], first: Int, after: String, lang: String): LinkConnection!
+  allPractice(where: PracticeWhere, orderBy: [PracticeOrder!], first: Int, after: String, lang: String): PracticeConnection!
   allProblemDismissal(where: ProblemDismissalWhere, orderBy: [ProblemDismissalOrder!], first: Int, after: String, lang: String): ProblemDismissalConnection!
   allProduct(where: ProductWhere, orderBy: [ProductOrder!], first: Int, after: String, lang: String): ProductConnection!
   allQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String, lang: String): QuestionConnection!
+  allSkill(where: SkillWhere, orderBy: [SkillOrder!], first: Int, after: String, lang: String): SkillConnection!
   allSource(where: SourceWhere, orderBy: [SourceOrder!], first: Int, after: String, lang: String): SourceConnection!
   allTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String, lang: String): TaskConnection!
+  allTimeCost(where: TimeCostWhere, orderBy: [TimeCostOrder!], first: Int, after: String, lang: String): TimeCostConnection!
   allUserGuide(where: UserGuideWhere, orderBy: [UserGuideOrder!], first: Int, after: String, lang: String): UserGuideConnection!
+  allValueSet(where: ValueSetWhere, orderBy: [ValueSetOrder!], first: Int, after: String, lang: String): ValueSetConnection!
+  allValueSetEntry(where: ValueSetEntryWhere, orderBy: [ValueSetEntryOrder!], first: Int, after: String, lang: String): ValueSetEntryConnection!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   home(lang: String): Entity
@@ -3830,6 +4304,67 @@ input CodeContractWhere {
   repository: CodeContractRepositoryFilter
   path: CodeContractPathFilter
   definition: CodeContractDefinitionFilter
+}
+
+input CodeConventionExampleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeConventionNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeConventionOrder {
+  field: CodeConventionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeConventionPathsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CodeConventionRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeConventionWhere {
+  name: CodeConventionNameFilter
+  rule: CodeConventionRuleFilter
+  example: CodeConventionExampleFilter
+  paths: CodeConventionPathsFilter
 }
 
 input CodeDatabaseNameFilter {
@@ -5056,6 +5591,109 @@ input CodeTouchedEdgeWhere {
   removed: CodeTouchedEdgeRemovedFilter
 }
 
+input CommentAboutFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input CommentAuthorFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CommentBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CommentCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CommentEditedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input CommentOrder {
+  field: CommentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CommentWhere {
+  author: CommentAuthorFilter
+  body: CommentBodyFilter
+  about: CommentAboutFilter
+  createdAt: CommentCreatedAtFilter
+  editedAt: CommentEditedAtFilter
+}
+
+input ConstitutionBodyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ConstitutionOrder {
+  field: ConstitutionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ConstitutionPrecedenceFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ConstitutionWhere {
+  body: ConstitutionBodyFilter
+  precedence: ConstitutionPrecedenceFilter
+}
+
 input CorrectionBodyFilter {
   _eq: String
   _neq: String
@@ -5864,6 +6502,146 @@ input EnrichmentWhere {
   ungrounded: EnrichmentUngroundedFilter
 }
 
+input LinkCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input LinkCreatedByFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input LinkNoteFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input LinkOrder {
+  field: LinkOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input LinkSourceFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input LinkTargetFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input LinkWhere {
+  source: LinkSourceFilter
+  target: LinkTargetFilter
+  note: LinkNoteFilter
+  createdBy: LinkCreatedByFilter
+  createdAt: LinkCreatedAtFilter
+}
+
+input PracticeAppliesToFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input PracticeNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PracticeOrder {
+  field: PracticeOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input PracticeRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PracticeSinceDateFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input PracticeWhere {
+  name: PracticeNameFilter
+  rule: PracticeRuleFilter
+  why: PracticeWhyFilter
+  appliesTo: PracticeAppliesToFilter
+  sinceDate: PracticeSinceDateFilter
+}
+
+input PracticeWhyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input ProblemDismissalAtFilter {
   _eq: DateTime
   _neq: DateTime
@@ -6122,6 +6900,20 @@ input ProductWhere {
   ungrounded: ProductUngroundedFilter
 }
 
+input QuestionAssigneeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input QuestionBodyFilter {
   _eq: String
   _neq: String
@@ -6136,7 +6928,51 @@ input QuestionBodyFilter {
   _is_null: Boolean
 }
 
+input QuestionCloseReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input QuestionClosedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input QuestionCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
 input QuestionFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input QuestionLabelsFilter {
   _eq: JSON
   _neq: JSON
   _is_null: Boolean
@@ -6162,6 +6998,20 @@ input QuestionOrder {
   nulls: NullsOrder
 }
 
+input QuestionOwnerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input QuestionTitleFilter {
   _eq: String
   _neq: String
@@ -6176,11 +7026,91 @@ input QuestionTitleFilter {
   _is_null: Boolean
 }
 
+input QuestionUpdatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
 input QuestionWhere {
   legacyId: QuestionLegacyIdFilter
   title: QuestionTitleFilter
   body: QuestionBodyFilter
   front: QuestionFrontFilter
+  labels: QuestionLabelsFilter
+  assignee: QuestionAssigneeFilter
+  owner: QuestionOwnerFilter
+  createdAt: QuestionCreatedAtFilter
+  updatedAt: QuestionUpdatedAtFilter
+  closedAt: QuestionClosedAtFilter
+  closeReason: QuestionCloseReasonFilter
+}
+
+input SkillChecksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input SkillInstructionsFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SkillNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SkillOrder {
+  field: SkillOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SkillWhenFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SkillWhere {
+  name: SkillNameFilter
+  when: SkillWhenFilter
+  instructions: SkillInstructionsFilter
+  checks: SkillChecksFilter
 }
 
 input SourceCommitFilter {
@@ -6252,6 +7182,20 @@ input SourceWhere {
   commit: SourceCommitFilter
 }
 
+input TaskAssigneeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input TaskBodyFilter {
   _eq: String
   _neq: String
@@ -6266,7 +7210,63 @@ input TaskBodyFilter {
   _is_null: Boolean
 }
 
+input TaskCloseReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TaskClosedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input TaskCommentsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TaskCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input TaskDependenciesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input TaskFrontFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TaskLabelsFilter {
   _eq: JSON
   _neq: JSON
   _is_null: Boolean
@@ -6292,6 +7292,20 @@ input TaskOrder {
   nulls: NullsOrder
 }
 
+input TaskOwnerFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input TaskTitleFilter {
   _eq: String
   _neq: String
@@ -6306,11 +7320,162 @@ input TaskTitleFilter {
   _is_null: Boolean
 }
 
+input TaskUpdatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
 input TaskWhere {
   legacyId: TaskLegacyIdFilter
   title: TaskTitleFilter
   body: TaskBodyFilter
   front: TaskFrontFilter
+  labels: TaskLabelsFilter
+  assignee: TaskAssigneeFilter
+  owner: TaskOwnerFilter
+  createdAt: TaskCreatedAtFilter
+  updatedAt: TaskUpdatedAtFilter
+  closedAt: TaskClosedAtFilter
+  closeReason: TaskCloseReasonFilter
+  dependencies: TaskDependenciesFilter
+  comments: TaskCommentsFilter
+}
+
+input TimeCostCostFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostDurationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input TimeCostEntityFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input TimeCostModelFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostOrder {
+  field: TimeCostOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input TimeCostOutcomeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostStartedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input TimeCostStepFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input TimeCostTokensFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input TimeCostWhere {
+  entity: TimeCostEntityFilter
+  step: TimeCostStepFilter
+  who: TimeCostWhoFilter
+  model: TimeCostModelFilter
+  startedAt: TimeCostStartedAtFilter
+  duration: TimeCostDurationFilter
+  tokens: TimeCostTokensFilter
+  cost: TimeCostCostFilter
+  outcome: TimeCostOutcomeFilter
+}
+
+input TimeCostWhoFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
 }
 
 input UserGuideBodyFilter {
@@ -6467,6 +7632,185 @@ input UserGuideWhere {
   ungrounded: UserGuideUngroundedFilter
 }
 
+input ValueSetDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryLabelEnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryLabelRuFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryOrder {
+  field: ValueSetEntryOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ValueSetEntryOrderFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input ValueSetEntryValueFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetEntryWhere {
+  value: ValueSetEntryValueFilter
+  labelEn: ValueSetEntryLabelEnFilter
+  labelRu: ValueSetEntryLabelRuFilter
+  description: ValueSetEntryDescriptionFilter
+  order: ValueSetEntryOrderFilter
+}
+
+input ValueSetLabelEnFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetLabelRuFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetOrder {
+  field: ValueSetOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ValueSetOrderFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input ValueSetPurposeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ValueSetWhere {
+  name: ValueSetNameFilter
+  labelEn: ValueSetLabelEnFilter
+  labelRu: ValueSetLabelRuFilter
+  description: ValueSetDescriptionFilter
+  purpose: ValueSetPurposeFilter
+  order: ValueSetOrderFilter
+}
+
 enum AdministratorGuideOrderField {
   title
   slug
@@ -6533,6 +7877,13 @@ enum CodeContractOrderField {
   repository
   path
   definition
+}
+
+enum CodeConventionOrderField {
+  name
+  rule
+  example
+  paths
 }
 
 enum CodeDatabaseOrderField {
@@ -6671,6 +8022,19 @@ enum CodeTouchedEdgeOrderField {
   removed
 }
 
+enum CommentOrderField {
+  author
+  body
+  about
+  createdAt
+  editedAt
+}
+
+enum ConstitutionOrderField {
+  body
+  precedence
+}
+
 enum CorrectionOrderField {
   legacyId
   title
@@ -6759,6 +8123,14 @@ enum EnrichmentOrderField {
   ungrounded
 }
 
+enum LinkOrderField {
+  source
+  target
+  note
+  createdBy
+  createdAt
+}
+
 enum NullsOrder {
   FIRST
   LAST
@@ -6767,6 +8139,14 @@ enum NullsOrder {
 enum OrderDirection {
   ASC
   DESC
+}
+
+enum PracticeOrderField {
+  name
+  rule
+  why
+  appliesTo
+  sinceDate
 }
 
 enum ProblemDismissalOrderField {
@@ -6800,6 +8180,20 @@ enum QuestionOrderField {
   title
   body
   front
+  labels
+  assignee
+  owner
+  createdAt
+  updatedAt
+  closedAt
+  closeReason
+}
+
+enum SkillOrderField {
+  name
+  when
+  instructions
+  checks
 }
 
 enum SourceOrderField {
@@ -6814,6 +8208,27 @@ enum TaskOrderField {
   title
   body
   front
+  labels
+  assignee
+  owner
+  createdAt
+  updatedAt
+  closedAt
+  closeReason
+  dependencies
+  comments
+}
+
+enum TimeCostOrderField {
+  entity
+  step
+  who
+  model
+  startedAt
+  duration
+  tokens
+  cost
+  outcome
 }
 
 enum UserGuideOrderField {
@@ -6830,4 +8245,21 @@ enum UserGuideOrderField {
   links
   findings
   ungrounded
+}
+
+enum ValueSetEntryOrderField {
+  value
+  labelEn
+  labelRu
+  description
+  order
+}
+
+enum ValueSetOrderField {
+  name
+  labelEn
+  labelRu
+  description
+  purpose
+  order
 }

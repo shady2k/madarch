@@ -1,7 +1,7 @@
 id: practice.research-finding
 purpose: understand
 audience: [product, analyst, designer]
-definition: What the research established, with the evidence it rests on.
+definition: A research finding is what a piece of research established, with the evidence it rests on.
 sources:
 - https://www.nngroup.com/articles/ux-research-cheat-sheet/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Результат исследования
     many: Результаты исследования
 description:
-  en: What the research established, with the evidence it rests on.
-  ru: То, что установило исследование, с доказательствами, на которых оно держится.
+  en: A research finding states something the research showed about users, their needs or their difficulties, and names the interviews, observations or answers it rests on. A finding is a claim a team can act on, not a summary of everything that was said.
+  ru: Результат исследования утверждает то, что исследование показало о пользователях, их нуждах или трудностях, и называет интервью, наблюдения или ответы, на которых он держится. Это утверждение, на которое команда может опереться, а не пересказ всего сказанного.

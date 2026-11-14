@@ -1,7 +1,7 @@
 id: practice.faq
 purpose: understand
 audience: [operations, product, developer]
-definition: A question people often ask, with the answer that resolves it.
+definition: A frequently asked question is a question people often ask, with the answer that resolves it.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Частый вопрос
     many: Частые вопросы
 description:
-  en: A question people often ask, with the answer that resolves it.
-  ru: Вопрос, который люди часто задают, и ответ, который его разрешает.
+  en: A frequently asked question is one that users, customers or colleagues keep raising, written with an answer that ends the need to ask. The answers are short and point to the full document where one exists.
+  ru: Частый вопрос — тот, который постоянно задают пользователи, клиенты или коллеги, вместе с ответом, после которого спрашивать больше не нужно. Ответы короткие и указывают на полный документ, если он есть.

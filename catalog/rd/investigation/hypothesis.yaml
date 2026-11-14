@@ -1,7 +1,7 @@
 id: practice.hypothesis
 purpose: understand
 audience: [product, analyst, designer]
-definition: A stated expectation about a benefit, which an experiment is meant to confirm or refute.
+definition: A hypothesis is a stated expectation about a benefit, which an experiment is meant to confirm or refute.
 sources:
 - https://en.wikipedia.org/wiki/Hypothesis
 - https://scrumguides.org/scrum-guide.html
@@ -24,5 +24,5 @@ labels:
     one: Гипотеза
     many: Гипотезы
 description:
-  en: A stated expectation about a benefit, which an experiment is meant to confirm or refute.
-  ru: Заявленное ожидание выгоды, которое эксперимент должен подтвердить или опровергнуть.
+  en: A hypothesis says what the team expects to be true and why it would matter, for example that a shorter form will be completed more often. It must be worded so that an experiment can prove it wrong.
+  ru: 'Гипотеза говорит, что команда ожидает увидеть и почему это важно: например, что короткую форму чаще доводят до конца. Её формулируют так, чтобы эксперимент мог её опровергнуть.'

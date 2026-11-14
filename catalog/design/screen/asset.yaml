@@ -1,7 +1,7 @@
 id: practice.asset
 purpose: structure
 audience: [designer, developer]
-definition: A file a screen shows, such as an image, an icon or a font.
+definition: An asset is a file a screen shows, such as an image, an icon or a font.
 sources:
 - https://www.w3.org/Graphics/SVG/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Медиафайл
     many: Медиафайлы
 description:
-  en: A file a screen shows, such as an image, an icon or a font.
-  ru: 'Файл, который показывает экран: изображение, значок или шрифт.'
+  en: 'An asset is a media file the interface uses: a picture, an icon, a font, a video or a sound. Its size and format matter because the person''s device must download it.'
+  ru: 'Медиафайл — файл, который использует интерфейс: изображение, значок, шрифт, видео или звук. Его размер и формат важны, потому что устройство человека должно его скачать.'

@@ -1,7 +1,7 @@
 id: c4.external-system
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A software system outside the product's scope that the product communicates with.
+definition: An external system is a software system outside the product's scope that the product communicates with.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Внешняя система
     many: Внешние системы
 description:
-  en: A software system outside the product's scope that the product communicates with.
-  ru: Программная система вне границ продукта, с которой продукт взаимодействует.
+  en: 'An external system is another organisation''s or team''s software that the product depends on or serves: a payment provider, a tax service, a customer''s own system. The product does not control it, so its behaviour is a given constraint.'
+  ru: 'Внешняя система — программа другой организации или команды, от которой продукт зависит или которую обслуживает: платёжный провайдер, налоговая служба или система клиента. Продукт ею не управляет, поэтому её поведение — заданное ограничение.'

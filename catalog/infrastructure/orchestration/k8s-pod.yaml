@@ -1,7 +1,7 @@
 id: kubernetes.pod
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: 'The smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'
+definition: 'A pod is the smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Под
     many: Поды
 description:
-  en: 'The smallest deployable unit Kubernetes runs: one or more containers sharing a network and storage.'
-  ru: 'Наименьшая развёртываемая единица Kubernetes: один или несколько контейнеров с общей сетью и хранилищем.'
+  en: A Kubernetes pod holds one or more containers that are started and stopped together, share an address and can share volumes. It is the unit the cluster schedules onto a node, and pods are usually replaced rather than repaired.
+  ru: 'Под — наименьшая развёртываемая единица Kubernetes: один или несколько контейнеров, которые запускаются и останавливаются вместе, делят адрес и могут делить хранилище. Кластер ставит под на узел, а поды обычно заменяют, а не чинят.'

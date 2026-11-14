@@ -1,7 +1,7 @@
 id: scim.directory
 purpose: structure
 audience: [security-engineer, architect]
-definition: The accounts and groups a service keeps in step with an identity provider over SCIM.
+definition: A SCIM directory is the set of accounts and groups a service keeps in step with an identity provider.
 sources:
 - https://www.rfc-editor.org/rfc/rfc7644.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Каталог SCIM
     many: Каталоги SCIM
 description:
-  en: The accounts and groups a service keeps in step with an identity provider over SCIM.
-  ru: Учётные записи и группы, которые сервис держит в согласии с поставщиком идентичности по SCIM.
+  en: A SCIM directory mirrors the users and groups of an identity provider inside a service, updated automatically over the SCIM protocol. Creating, changing or removing a person at the provider changes their account in the service.
+  ru: Каталог SCIM повторяет пользователей и группы поставщика идентичности внутри сервиса и обновляется автоматически по протоколу SCIM. Создание, изменение или удаление человека у поставщика меняет его учётную запись в сервисе.

@@ -1,7 +1,7 @@
 id: practice.commit
 purpose: history
 audience: [developer, architect, product-lead]
-definition: A change in the repository's history, with its author and the files it touched.
+definition: A commit is one recorded change to a repository, with its author, its message and the files it touched.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -69,8 +69,8 @@ labels:
     one: Коммит
     many: Коммиты
 description:
-  en: A change in the repository's history, with its author and the files it touched.
-  ru: Изменение в истории репозитория, его автор и затронутые файлы.
+  en: 'A commit records one change to the files of a repository: who made it, when, what changed and usually why, in the commit message. Git identifies each commit by a hash and lets a reader see the state of the whole repository at that moment.'
+  ru: 'Коммит фиксирует одно изменение файлов репозитория: кто и когда его сделал, что изменилось и обычно почему — в сообщении коммита. Git обозначает каждый коммит хешем и позволяет увидеть состояние всего репозитория на этот момент.'
 derives-from:
 - code.repository
 - code.file

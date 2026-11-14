@@ -1,7 +1,7 @@
 id: kubernetes.horizontal-pod-autoscaler
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A Kubernetes rule that changes the number of pods within limits as the load changes.
+definition: A Kubernetes autoscaler changes the number of pods within limits as the load changes.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Автомасштабирование Kubernetes
     many: Автомасштабирование Kubernetes
 description:
-  en: A Kubernetes rule that changes the number of pods within limits as the load changes.
-  ru: Правило Kubernetes, которое меняет число подов в пределах при изменении нагрузки.
+  en: A Kubernetes autoscaler watches a measure of load, such as processor use or a queue length, and adds or removes replicas between a minimum and a maximum. It keeps capacity close to demand without a person adjusting it.
+  ru: Автомасштабирование Kubernetes следит за мерой нагрузки — загрузкой процессора или длиной очереди — и добавляет или убирает реплики между минимумом и максимумом. Оно держит мощность близкой к спросу без участия человека.

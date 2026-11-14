@@ -40,7 +40,7 @@ interface CatalogMetadata {
 const CATALOG_METADATA = parseCatalogYaml(CATALOG_FILES['catalog.yaml']!) as CatalogMetadata;
 
 /** The metadata a starter selection uses, read from the catalogue's data, not an engine-owned declaration. */
-function catalogMetadata(kinds: readonly CatalogKindData[]): string {
+function catalogMetadata(kinds: readonly CatalogKindData[], values?: Readonly<Record<string, unknown>>): string {
   const names = new Set(kinds.map((kind) => kind.name));
   const used = new Set<string>();
   for (const kind of kinds) {
@@ -65,6 +65,7 @@ function catalogMetadata(kinds: readonly CatalogKindData[]): string {
       .filter(([name, role]) => role.lead.length > 0 || audiences.has(name))),
     // An edge with an `any` end stands on every entity, so the starter set keeps it whatever kinds it holds.
     edges: CATALOG_METADATA.edges?.filter((edge) => [...edge.from, ...edge.to].some((name) => name === 'any' || names.has(name))),
+    ...(values === undefined || Object.keys(values).length === 0 ? {} : { values }),
   });
 }
 
@@ -169,7 +170,7 @@ export function starterFilesFor(template: StarterTemplate): readonly StarterFile
   // A workflow is the fill's stage set; only a kind read from a code repository needs one, and a tracker needs none.
   const workflows = chosen.some((kind) => kind.source === 'graph');
   return [
-    { path: 'madarch/catalog.yaml', content: catalogMetadata(chosen) + (plugins.length === 0 ? '' : stringify({ plugins: pluginManifest(chosen) })) },
+    { path: 'madarch/catalog.yaml', content: catalogMetadata(chosen, template.values) + (plugins.length === 0 ? '' : stringify({ plugins: pluginManifest(chosen) })) },
     ...chosen.map((kind) => ({ path: `madarch/kinds/${CATALOG_KIND_FILES[kind.name]}`, content: CATALOG_FILES[CATALOG_KIND_FILES[kind.name]!]! })),
     ...(plugins.length === 0 ? [] : [{ path: 'madarch/plugins.lock', content: pluginLockText(plugins) }]),
     ...(workflows ? [{ path: WORKFLOWS_FILE, content: workflowsManifest() }] : []),

@@ -1,7 +1,7 @@
 id: practice.iam-policy
 purpose: operations
 audience: [security-engineer, architect]
-definition: A written rule that says who may do what with which resources.
+definition: An IAM policy is a written rule that says who may do what with which resources.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/207/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Политика IAM
     many: Политики IAM
 description:
-  en: A written rule that says who may do what with which resources.
-  ru: Письменное правило о том, кто что может делать с какими ресурсами.
+  en: An IAM policy collects statements that allow or deny actions on resources for subjects, often with conditions such as a network or a time. The provider evaluates the policies that apply and answers yes or no.
+  ru: 'Политика IAM собирает утверждения, которые разрешают или запрещают действия с ресурсами для субъектов, часто с условиями: сетью или временем. Поставщик оценивает применимые политики и отвечает да или нет.'

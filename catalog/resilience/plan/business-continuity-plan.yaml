@@ -1,7 +1,7 @@
 id: nist800-34.business-continuity-plan
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The plan that keeps the business running while the systems are recovered.
+definition: A business continuity plan keeps the business running while its systems are recovered.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: План непрерывности бизнеса
     many: Планы непрерывности бизнеса
 description:
-  en: The plan that keeps the business running while the systems are recovered.
-  ru: План, который держит бизнес работающим, пока восстанавливают системы.
+  en: 'A business continuity plan says how the organisation keeps serving its customers during a disruption: which processes run by hand, which people take over, which suppliers help and how decisions are made. It covers the time between the failure and the return to normal.'
+  ru: 'План непрерывности бизнеса говорит, как организация продолжает обслуживать клиентов во время сбоя: какие процессы идут вручную, кто берёт на себя работу, какие поставщики помогают и как принимают решения. Он покрывает время от отказа до возврата к обычной работе.'

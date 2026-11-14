@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
+import type { GraphContract, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
 import { MANIFEST_CONTRACT } from '../graph/manifest-contract.js';
 import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
@@ -13,6 +13,7 @@ import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { SchemaRefusal } from '../graphql/names.js';
 
@@ -20,6 +21,8 @@ export interface ValidatedManifests {
   readonly folder: string;
   readonly manifest: KindsManifest;
   readonly vertices: readonly VertexDraft[];
+  /** The starter value sets, written as their own entities beside the catalogue's declarations. */
+  readonly starterValues: readonly VertexDraft[];
   readonly templatePaths: readonly string[];
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
@@ -97,7 +100,47 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     for (const edge of graph) add('dependency', JSON.stringify(['workflow', name, edge.from, edge.to, edge.via]), { workflow: name, ...edge }, WORKFLOWS_FILE, entry.stageLines.get(edge.to) ?? entry.line);
   }
   vertices.sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(JSON.stringify(left.key), JSON.stringify(right.key)));
-  return { ok: true, value: { folder, manifest, vertices, templatePaths } };
+  const starterValues: VertexDraft[] = [];
+  // The kinds that hold value sets are the manifest's own declaration, never a name this engine knows: a product may
+  // rename them and keep publishing its sets.
+  const setKind = [...manifest.kinds.values()].find((kind) => kind.referenceSet !== undefined);
+  const entryKind = [...manifest.kinds.values()].find((kind) => kind.referenceSetEntry !== undefined);
+  if (setKind?.referenceSet !== undefined && entryKind?.referenceSetEntry !== undefined) {
+    const setRoles = setKind.referenceSet!;
+    const entryRoles = entryKind.referenceSetEntry!;
+    const roleValue = (roles: Readonly<Record<string, string>>, role: string, value: string | number | undefined): Record<string, string | number> => value === undefined || roles[role] === undefined ? {} : { [roles[role]!]: value };
+    const evidenceAt = (line: number): { repository: string; path: string; lineStart: number; lineEnd: number; commit: string }[] => [{ repository: folder, path: KINDS_FILE, lineStart: line, lineEnd: line, commit: head.commit }];
+    for (const [name, set] of manifest.values ?? []) {
+      starterValues.push({
+        kind: setKind.name,
+        key: { [setRoles['name']!]: name },
+        values: {
+          ...roleValue(setRoles, 'label-en', set.labels['en']),
+          ...roleValue(setRoles, 'label-ru', set.labels['ru']),
+          ...roleValue(setRoles, 'description', set.description),
+          ...roleValue(setRoles, 'order', set.order),
+        },
+        evidence: evidenceAt(set.line), producer: 'manifest', producerVersion: '1',
+      });
+      for (const entry of set.entries) {
+        starterValues.push({
+          kind: entryKind.name,
+          key: {
+            [entryRoles['set']!]: { kind: setKind.name, key: { [setRoles['name']!]: name } },
+            [entryRoles['value']!]: entry.value,
+          },
+          values: {
+            ...roleValue(entryRoles, 'label-en', entry.labels['en']),
+            ...roleValue(entryRoles, 'label-ru', entry.labels['ru']),
+            ...roleValue(entryRoles, 'description', entry.description),
+            ...roleValue(entryRoles, 'order', entry.order),
+          },
+          evidence: evidenceAt(entry.line), producer: 'manifest', producerVersion: '1',
+        });
+      }
+    }
+  }
+  return { ok: true, value: { folder, manifest, vertices, starterValues, templatePaths } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -109,7 +152,7 @@ function workflowDependencies(stages: readonly string[]): readonly { from: strin
 }
 
 /** One transaction closes removed declarations and states the entire valid catalogue atomically. */
-export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests): Promise<number> {
+export async function publishValidatedManifests(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
   return await owner.transaction('write', async (tx) => {
     const identity = (kind: string, key: unknown): string => JSON.stringify([kind, key]);
     const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
@@ -132,7 +175,13 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
       const values = Object.fromEntries(Object.entries(one.values ?? {}).filter(([name]) => !fields.key.includes(name)));
       return held === undefined || !isDeepStrictEqual(held.values, values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
     });
-    return await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
+    let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges: [], removals }, 1, { author: 'manifest' });
+    const valueContract = authored ?? graphContractOf(validated.manifest);
+    const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
+    if (valueKinds.size > 0 && [...valueKinds].every((kind) => valueContract.vertex.some((vertex) => vertex.name === kind))) {
+      written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+    }
+    return written;
   });
 }
 

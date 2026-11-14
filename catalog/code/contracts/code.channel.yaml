@@ -1,7 +1,7 @@
 id: practice.channel
 purpose: structure
 audience: [developer, architect, analyst, tester]
-definition: A topic or a queue services publish to and read from.
+definition: A channel is a topic or a queue that services publish messages to and read them from.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
@@ -68,5 +68,5 @@ labels:
     one: Канал событий
     many: Каналы событий
 description:
-  en: A topic or queue that services publish to and read from.
-  ru: Топик или очередь, в которую сервисы пишут и из которой читают.
+  en: 'A channel is a named path for messages between services: a topic that several readers subscribe to, or a queue that one consumer works through. Its name and its message shape are the agreement between the sending and the reading side.'
+  ru: 'Канал — именованный путь сообщений между сервисами: тема, на которую подписываются несколько читателей, или очередь, которую разбирает один потребитель. Его имя и форма сообщений — договорённость между отправляющей и читающей стороной.'

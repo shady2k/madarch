@@ -1,7 +1,7 @@
 id: arc42.runtime-scenario
 purpose: understand
 audience: [architect, analyst, developer]
-definition: 'arc42''s view of one runtime situation: the participants and the steps between them.'
+definition: 'A runtime scenario is arc42''s picture of one situation at run time: the participants and the steps between them.'
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Сценарий выполнения
     many: Сценарии выполнения
 description:
-  en: 'arc42''s view of one runtime situation: the participants and the steps between them.'
-  ru: 'Представление arc42 одной ситуации выполнения: участники и шаги между ними.'
+  en: 'A runtime scenario follows one important situation step by step: which parts take part, what each does and in which order, as arc42''s chapter 6 asks. It shows the system moving, where the static views show it standing still.'
+  ru: 'Сценарий выполнения шаг за шагом прослеживает одну важную ситуацию: какие части участвуют, что делает каждая и в каком порядке, как требует глава 6 arc42. Он показывает систему в движении там, где статические представления показывают её неподвижной.'

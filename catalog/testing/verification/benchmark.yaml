@@ -1,7 +1,7 @@
 id: practice.benchmark
 purpose: quality
 audience: [tester, developer]
-definition: A repeatable measurement of the product's speed or cost, kept so a change can be compared.
+definition: A benchmark is a repeatable measurement of the product's speed or cost, kept so a change can be compared.
 sources:
 - https://web.dev/articles/vitals
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Замер
     many: Замеры
 description:
-  en: A repeatable measurement of the product's speed or cost, kept so a change can be compared.
-  ru: Повторяемое измерение скорости или стоимости продукта, хранимое для сравнения изменений.
+  en: A benchmark runs a fixed task on a fixed set of inputs and measures time, memory or cost, under conditions written down with it. Comparing a new measurement with the stored one shows whether a change helped or hurt.
+  ru: Замер выполняет одну и ту же работу на одном и том же наборе входных данных и измеряет время, память или стоимость в записанных условиях. Сравнив новый замер с сохранённым, видно, помогло изменение или навредило.

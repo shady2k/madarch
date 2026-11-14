@@ -1,7 +1,7 @@
 id: practice.llm-usage
 purpose: operations
 audience: [product-lead, developer, operations]
-definition: The tokens and the money one model use cost, with the model and the purpose it served.
+definition: Model usage is the tokens and the money one use of a model cost, with the model and the purpose it served.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Использование модели
     many: Использования модели
 description:
-  en: The tokens and the money one model use cost, with the model and the purpose it served.
-  ru: Токены и деньги, которые стоило одно использование модели, с моделью и целью.
+  en: 'Model usage records one call or one session with a language model: how many input and output tokens it took, which model answered, what it cost and what the work was for. It lets a team see which tasks the spending goes to.'
+  ru: 'Использование модели фиксирует один вызов или одну сессию с языковой моделью: сколько было входных и выходных токенов, какая модель отвечала, сколько это стоило и для какой работы. Так видно, на какие задачи уходят деньги.'

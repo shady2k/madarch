@@ -1,7 +1,7 @@
 id: nist800-88.destruction
 purpose: operations
 audience: [operations, platform-devops, product-lead]
-definition: The method by which data is made unrecoverable when its medium is retired.
+definition: Data destruction is the method that makes data on a retiring medium unrecoverable, such as overwriting, degaussing or physical shredding.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/88/r1/final
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Уничтожение данных
     many: Уничтожения данных
 description:
-  en: The method by which data is made unrecoverable when its medium is retired.
-  ru: Способ сделать данные невосстановимыми при выводе их носителя из эксплуатации.
+  en: Data destruction is the way data is made unreadable for good when the medium that holds it leaves service. Overwriting, degaussing and physical shredding are common methods; the choice depends on the medium and on how sensitive the data is.
+  ru: Уничтожение данных — способ сделать данные нечитаемыми навсегда, когда носитель, на котором они лежат, выходит из эксплуатации. Обычные методы — перезапись, размагничивание и физическое измельчение; выбор зависит от носителя и от чувствительности данных.

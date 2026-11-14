@@ -1,7 +1,7 @@
 id: practice.api-reference
 purpose: structure
 audience: [developer, analyst, architect, tester]
-definition: The generated description of an interface's operations and their payloads.
+definition: An API reference describes an interface's operations and the data they take and return.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Справочник API
     many: Справочники API
 description:
-  en: The generated description of an interface's operations and their payloads.
-  ru: Создаваемое описание операций интерфейса и их полезных нагрузок.
+  en: An API reference lists the operations an interface offers — their names, parameters, answers and errors — so a developer can call them correctly. Much of it is generated from the interface definition and should stay in step with it.
+  ru: 'Справочник API перечисляет операции, которые даёт интерфейс: их имена, параметры, ответы и ошибки, — чтобы разработчик мог вызывать их правильно. Большая часть справочника строится по описанию интерфейса и должна с ним совпадать.'

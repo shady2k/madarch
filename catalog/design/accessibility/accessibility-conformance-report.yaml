@@ -1,7 +1,7 @@
 id: practice.accessibility-conformance-report
 purpose: quality
 audience: [designer, tester, developer]
-definition: The report that states which success criteria a product meets and which it does not.
+definition: An accessibility conformance report states which success criteria a product meets and which it does not.
 sources:
 - https://www.w3.org/TR/WCAG22/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Отчёт о соответствии доступности
     many: Отчёты о соответствии доступности
 description:
-  en: The report that states which success criteria a product meets and which it does not.
-  ru: Отчёт о том, какие критерии успеха продукт выполняет, а какие нет.
+  en: An accessibility conformance report goes through the WCAG success criteria that apply to a product and records, for each, whether it conforms and what evidence shows that. It lets buyers and auditors see the accessibility of the product without testing it themselves.
+  ru: Отчёт о соответствии доступности проходит по критериям успеха WCAG, применимым к продукту, и по каждому записывает, выполняется ли он и какие доказательства это показывают. По нему покупатели и аудиторы видят доступность продукта, не проверяя его сами.

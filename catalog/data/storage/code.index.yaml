@@ -1,7 +1,7 @@
 id: practice.database-index
 purpose: structure
 audience: [analyst, architect, developer]
-definition: A database index, with the columns it covers.
+definition: An index is a structure a database keeps aside to find rows faster, with the columns it covers.
 sources:
 - https://www.postgresql.org/docs/
 acquisition:
@@ -49,7 +49,7 @@ labels:
     one: Индекс
     many: Индексы
 description:
-  en: A database index.
-  ru: Индекс базы данных.
+  en: An index is a separate structure a database keeps so it can find rows without reading a whole table, built over one or more columns. It makes reads faster and writes slower, and its definition should match how the table is queried.
+  ru: Индекс — отдельная структура, которую база данных держит, чтобы находить строки, не читая всю таблицу; он построен по одному или нескольким столбцам. Он ускоряет чтение и замедляет запись, и его состав должен соответствовать тому, как таблицу запрашивают.
 derives-from:
 - code.table

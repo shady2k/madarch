@@ -1,7 +1,7 @@
 id: practice.external-interface
 purpose: structure
 audience: [architect, developer, analyst]
-definition: The interface a supplier or an outside system offers to the product, as arc42's context view states it.
+definition: An external interface is an interface that a supplier or an outside system offers to the product, as arc42's context view states it.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Внешний интерфейс
     many: Внешние интерфейсы
 description:
-  en: The interface a supplier or an outside system offers to the product, as arc42's context view states it.
-  ru: Интерфейс, который поставщик или внешняя система предлагает продукту, как его описывает контекст arc42.
+  en: 'An external interface is one point where the product and an outside system exchange something: a called API, a received webhook, a shared file, a message queue. The context view names each interface and what crosses it.'
+  ru: 'Внешний интерфейс — точка, где продукт и внешняя система обмениваются чем-то: вызываемый API, полученный вебхук, общий файл или очередь сообщений. Контекстное представление называет каждый интерфейс и то, что через него проходит.'

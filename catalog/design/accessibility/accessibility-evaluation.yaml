@@ -1,7 +1,7 @@
 id: earl.evaluation
 purpose: quality
 audience: [designer, tester, developer]
-definition: A recorded evaluation of a resource against a criterion, with its result and the tool that made it.
+definition: An accessibility evaluation records the result of checking a resource against one accessibility criterion, with the tool that made it.
 sources:
 - https://www.w3.org/TR/EARL10-Schema/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Оценка доступности
     many: Оценки доступности
 description:
-  en: A recorded evaluation of a resource against a criterion, with its result and the tool that made it.
-  ru: Записанная оценка ресурса по критерию с результатом и инструментом, который её сделал.
+  en: An accessibility evaluation is one check of a screen, a component or a document against one criterion, made by a person or by a tool. It records whether the criterion passed, the evidence seen and what has to change.
+  ru: Оценка доступности — одна проверка экрана, компонента или документа по одному критерию, сделанная человеком или инструментом. В ней записано, пройден ли критерий, какие доказательства видели и что нужно исправить.

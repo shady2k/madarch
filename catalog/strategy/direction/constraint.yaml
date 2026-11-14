@@ -1,7 +1,7 @@
 id: archimate.constraint
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A limit on what the product may do, as arc42 section 2 and ArchiMate state it.
+definition: A constraint is a limit on what the product may do, as arc42 section 2 and ArchiMate state it.
 sources:
 - https://arc42.org/overview
 - https://pubs.opengroup.org/architecture/archimate32-doc/
@@ -24,5 +24,5 @@ labels:
     one: Ограничение
     many: Ограничения
 description:
-  en: A limit on what the product may do, as arc42 section 2 and ArchiMate state it.
-  ru: Предел того, что продукт может делать, как его излагают раздел 2 arc42 и ArchiMate.
+  en: 'A constraint is a condition the product must respect that cannot be chosen away: a law, a standard, an agreed budget, an existing technology, a deadline. arc42 collects them in section 2 so later decisions know their bounds.'
+  ru: 'Ограничение — условие, которое продукт должен соблюдать и которое нельзя просто отменить: закон, стандарт, согласованный бюджет, уже выбранная технология, срок. arc42 собирает их в разделе 2, чтобы позднее решения знали свои рамки.'

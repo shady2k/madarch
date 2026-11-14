@@ -1,7 +1,7 @@
 id: gdpr.personal-data
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: Information about an identified or identifiable person, as the GDPR defines it.
+definition: Personal data is information about an identified or identifiable person, as the GDPR defines it.
 sources:
 - https://gdpr-info.eu/art-4-gdpr/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Персональные данные
     many: Персональные данные
 description:
-  en: Information about an identified or identifiable person, as the GDPR defines it.
-  ru: Информация об определённом или определимом человеке, как её определяет GDPR.
+  en: Personal data is any information that relates to a person who is identified or can be identified, such as a name, an address, a phone number or an online identifier. The GDPR sets the rules for handling it.
+  ru: 'Персональные данные — любые сведения, которые относятся к определённому или определимому человеку: имя, адрес, номер телефона, сетевой идентификатор. Правила обращения с ними задаёт GDPR.'

@@ -1,8 +1,7 @@
 id: practice.question
 purpose: understand
 audience: [developer, product, analyst, product-lead]
-definition: The agent's clarification to the responsible person about an entity; while it is open the entity is blocked, and
-  "awaiting clarification" is not a status of its own.
+definition: A question is a point in the work that cannot be settled from the product itself, put to the person who can answer it; an open question makes the work it concerns blocked without becoming a status of its own.
 sources:
 - https://arc42.org/overview
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
@@ -37,6 +36,52 @@ fields:
   nullable: true
   producers:
   - person
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
 origin: person
 import-folder: docs/questions
 nav: loop
@@ -62,6 +107,6 @@ labels:
     one: Вопрос
     many: Вопросы
 description:
-  en: Something the agent could not settle from the code and the documents; a person answers it.
-  ru: То, что агент не смог решить по коду и документам; отвечает человек.
+  en: A question records something the person doing the work could not settle from the product's code and documents, addressed to the responsible person who can answer. The work it concerns waits for the answer instead of guessing.
+  ru: Вопрос — то, что исполнитель работы не смог решить по коду и документам продукта и адресовал ответственному человеку, который может ответить. Работа, к которой относится вопрос, ждёт ответа, а не догадки.
 key: []

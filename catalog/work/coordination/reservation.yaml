@@ -1,7 +1,7 @@
 id: practice.reservation
 purpose: operations
 audience: [developer, product, analyst, product-lead]
-definition: A responsible person's hold over a subtree of work, so no one else changes it until the hold is released.
+definition: A reservation is a responsible person's hold on a part of the work, which keeps everyone else from changing it until the hold is released.
 sources:
 - https://svnbook.red-bean.com/en/1.8/svn.advanced.locking.html
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
@@ -17,6 +17,53 @@ relation-constraints:
   in:
   - assigns
 template-policy: none
+fields:
+- name: status
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: priority
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - person
+- name: assignee
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: owner
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: updated_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: closed_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: close_reason
+  type: text
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Reservation
@@ -25,5 +72,5 @@ labels:
     one: Резервирование
     many: Резервирования
 description:
-  en: A responsible person's hold over a subtree of work until it is released.
-  ru: Удержание ответственным человеком поддерева работы до его снятия.
+  en: A reservation marks a part of the work as taken by one responsible person, so nobody else changes it at the same time. The hold lasts until that person releases it.
+  ru: Резервирование — отметка о том, что часть работы взял один ответственный человек, и больше никто её одновременно не меняет. Удержание длится, пока этот человек его не снимет.

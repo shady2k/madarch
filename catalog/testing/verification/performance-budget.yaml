@@ -1,7 +1,7 @@
 id: practice.performance-budget
 purpose: quality
 audience: [tester, developer]
-definition: A limit a screen or a route must stay within, which a performance test checks.
+definition: A performance budget is a limit a screen or a route must stay within, which a performance test checks.
 sources:
 - https://web.dev/articles/performance-budgets-101
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Бюджет производительности
     many: Бюджеты производительности
 description:
-  en: A limit a screen or a route must stay within, which a performance test checks.
-  ru: Предел, в который должен укладываться экран или маршрут и который проверяет тест производительности.
+  en: 'A performance budget sets a number a screen, a view or a route may not exceed: load time, size, frame time or the number of requests. A test that crosses the budget fails, so slowness is caught as a defect.'
+  ru: 'Бюджет производительности задаёт число, которое экран, вид или маршрут не должны превышать: время загрузки, размер, время кадра или число запросов. Тест, вышедший за бюджет, падает, поэтому медленность ловится как дефект.'

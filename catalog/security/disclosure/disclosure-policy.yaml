@@ -1,7 +1,7 @@
 id: practice.disclosure-policy
 purpose: quality
 audience: [security-engineer, architect]
-definition: The published rules by which a researcher tells the product team about a vulnerability.
+definition: A disclosure policy is the published rules by which a researcher tells the product team about a vulnerability.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9116.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Политика раскрытия
     many: Политики раскрытия
 description:
-  en: The published rules by which a researcher tells the product team about a vulnerability.
-  ru: Опубликованные правила, по которым исследователь сообщает команде продукта об уязвимости.
+  en: A disclosure policy states how a security researcher should report a weakness, what the team promises in return and when the details may be published. It sets the timetable between the report, the fix and the public note.
+  ru: Политика раскрытия говорит, как исследователю безопасности сообщать о слабости, что команда обещает взамен и когда подробности можно публиковать. Она задаёт сроки между сообщением, исправлением и публичным извещением.

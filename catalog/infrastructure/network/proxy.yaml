@@ -1,7 +1,7 @@
 id: practice.proxy
 purpose: structure
 audience: [operations, platform-devops, architect]
-definition: A component that forwards traffic and may change, cache or refuse it on the way.
+definition: A proxy forwards traffic and may change, cache or refuse it on the way.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9110.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Прокси
     many: Прокси
 description:
-  en: A component that forwards traffic and may change, cache or refuse it on the way.
-  ru: Компонент, который пересылает трафик и может изменить, закэшировать или отклонить его по пути.
+  en: A proxy stands between a client and a server and passes requests and answers through itself. On the way it can add headers, cache answers, hide addresses, limit requests or refuse traffic it does not allow.
+  ru: Прокси стоит между клиентом и сервером и пропускает запросы и ответы через себя. По пути он может добавлять заголовки, кэшировать ответы, скрывать адреса, ограничивать запросы или отклонять недопустимый трафик.

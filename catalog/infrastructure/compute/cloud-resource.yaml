@@ -1,7 +1,7 @@
 id: practice.cloud-resource
 purpose: structure
 audience: [operations, platform-devops, architect]
-definition: A resource a cloud provider offers and the product uses, named by its provider type.
+definition: A cloud resource is a resource a cloud provider offers and the product uses, such as a virtual machine, a bucket or a managed database.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/resource/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Облачный ресурс
     many: Облачные ресурсы
 description:
-  en: A resource a cloud provider offers and the product uses, named by its provider type.
-  ru: Ресурс, который предлагает облачный провайдер и использует продукт, названный типом провайдера.
+  en: 'A cloud resource is one unit of capacity a cloud provider supplies to the product, named by the provider''s own type: an instance, a bucket, a load balancer, a managed queue. The product pays for it while it exists and depends on the provider''s rules for it.'
+  ru: 'Облачный ресурс — единица мощности, которую облачный провайдер даёт продукту, под именем типа самого провайдера: виртуальная машина, бакет, балансировщик, управляемая очередь. Продукт платит за неё, пока она существует, и зависит от правил провайдера для неё.'

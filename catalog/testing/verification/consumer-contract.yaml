@@ -1,7 +1,7 @@
 id: pact.consumer-contract
 purpose: quality
 audience: [tester, developer]
-definition: The expectations one consumer records about a provider's interface.
+definition: A consumer contract is the set of expectations one consumer records about a provider's interface.
 sources:
 - https://docs.pact.io/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Контракт потребителя
     many: Контракты потребителей
 description:
-  en: The expectations one consumer records about a provider's interface.
-  ru: Ожидания, которые один потребитель записывает об интерфейсе поставщика.
+  en: 'A consumer contract states what one client needs from an interface: which calls it makes, with which inputs, and what it expects back. The provider can then check that it still gives those answers.'
+  ru: 'Контракт потребителя говорит, что нужно одному клиенту от интерфейса: какие вызовы он делает, с какими данными и что ждёт в ответ. Поставщик может проверить, что по-прежнему даёт эти ответы.'
