@@ -1,7 +1,7 @@
 id: c4.software-system
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A system that delivers value to its users, described from outside, as C4 defines it.
+definition: A software system is a system that delivers value to its users, described from outside, as C4 defines it.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Программная система
     many: Программные системы
 description:
-  en: A system that delivers value to its users, described from outside, as C4 defines it.
-  ru: Система, приносящая пользу пользователям и описанная снаружи, как её определяет C4.
+  en: 'A software system is the whole product or service a person or another system uses, seen from outside: what it does for them, not how it is built. C4 places it at the top, with its users and the other systems it talks to around it.'
+  ru: 'Программная система — весь продукт или сервис, которым пользуется человек или другая система, увиденный снаружи: что он для них делает, а не как устроен. C4 ставит её наверх, а вокруг неё — пользователей и другие системы, с которыми она общается.'

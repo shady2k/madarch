@@ -1,7 +1,7 @@
 id: practice.requirement-baseline
 purpose: history
 audience: [product, analyst, tester, architect, product-lead]
-definition: The agreed set of requirements at a point in time, which changes are measured against.
+definition: A requirements baseline is the agreed set of requirements at one point in time, against which changes are measured.
 sources:
 - https://www.omg.org/spec/SACM/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Базовая линия требований
     many: Базовые линии требований
 description:
-  en: The agreed set of requirements at a point in time, which changes are measured against.
-  ru: Согласованный набор требований на момент времени, с которым сравнивают изменения.
+  en: A requirements baseline fixes the set of requirements as everyone agreed them on a stated date. A later change is described as a difference from the baseline, so the team can see how far the product has moved.
+  ru: Базовая линия требований закрепляет набор требований в том виде, в каком его согласовали на определённую дату. Позднее изменение описывают как отличие от базовой линии, так что видно, насколько продукт ушёл от неё.

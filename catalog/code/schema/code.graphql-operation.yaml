@@ -1,7 +1,7 @@
 id: graphql.operation
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A GraphQL query, mutation or subscription, with the types it reads and returns.
+definition: A GraphQL operation is a query, a mutation or a subscription, with the types it reads and returns.
 sources:
 - https://spec.graphql.org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Операция GraphQL
     many: Операции GraphQL
 description:
-  en: A GraphQL query, mutation or subscription, with the types it reads and returns.
-  ru: Запрос, мутация или подписка GraphQL с типами, которые она читает и возвращает.
+  en: A GraphQL operation asks a GraphQL service for data (a query), changes it (a mutation) or listens for changes (a subscription). Its selection says which fields it needs, and its result follows the schema's types.
+  ru: Операция GraphQL запрашивает данные (запрос), меняет их (мутация) или слушает изменения (подписка). Её выбор полей говорит, что нужно, а результат следует типам схемы.

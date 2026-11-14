@@ -1,7 +1,7 @@
 id: practice.job-to-be-done
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: The job a person hires the product to do, stated apart from any feature.
+definition: A job to be done is the job a person takes the product up for, stated apart from any feature.
 sources:
 - https://en.wikipedia.org/wiki/Jobs_to_be_done
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Работа, для которой берут продукт
     many: Работы, для которых берут продукт
 description:
-  en: The job a person hires the product to do, stated apart from any feature.
-  ru: Работа, для которой человек берёт продукт, изложенная отдельно от любой функции.
+  en: A job to be done describes what a person is trying to get done in their life or work — send money to a friend, prove a payment — and why, without naming a product feature. Products are chosen because they do that job better than the alternatives.
+  ru: 'Работа, для которой берут продукт, описывает, что человек пытается сделать в своей жизни или работе: перевести деньги другу, подтвердить платёж, — и зачем, не называя функции продукта. Продукт выбирают потому, что он делает эту работу лучше других вариантов.'

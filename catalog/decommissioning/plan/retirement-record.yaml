@@ -1,7 +1,7 @@
 id: practice.retirement-record
 purpose: history
 audience: [operations, platform-devops, product-lead]
-definition: 'The record that a system was retired: when, by whom and what is left of its data.'
+definition: 'A retirement record states that a system was retired: when, by whom and what happened to its data.'
 sources:
 - https://csrc.nist.gov/pubs/sp/800/88/r1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Запись о выводе
     many: Записи о выводе
 description:
-  en: 'The record that a system was retired: when, by whom and what is left of its data.'
-  ru: 'Запись о том, что система выведена: когда, кем и что осталось от её данных.'
+  en: 'A retirement record closes the life of a system: the date it stopped, who carried out the retirement, what data was migrated, archived or destroyed, and where the remaining records are. It is the evidence that nothing was left running by accident.'
+  ru: 'Запись о выводе закрывает жизнь системы: когда она остановилась, кто выполнил вывод, какие данные перенесли, сохранили или уничтожили и где лежат оставшиеся записи. Она служит доказательством, что ничего не осталось работать по недосмотру.'

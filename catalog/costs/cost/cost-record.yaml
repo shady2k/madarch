@@ -1,7 +1,7 @@
 id: focus.cost-record
 purpose: operations
 audience: [product-lead, operations, platform-devops]
-definition: One measured cost of a resource over a period, in one currency, as FinOps FOCUS describes it.
+definition: A cost record is one measured cost of a resource over a period, in one currency, as FinOps FOCUS describes it.
 sources:
 - https://focus.finops.org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Запись затрат
     many: Записи затрат
 description:
-  en: One measured cost of a resource over a period, in one currency, as FinOps FOCUS describes it.
-  ru: Одна измеренная стоимость ресурса за период в одной валюте, как её описывает FinOps FOCUS.
+  en: A cost record states what one resource cost over one period in one currency, as the FinOps FOCUS specification lays it out. It is the smallest unit of a bill that can be summed, compared and charged back.
+  ru: Запись затрат говорит, сколько стоил один ресурс за один период в одной валюте, как это описывает спецификация FinOps FOCUS. Это наименьшая единица счёта, которую можно складывать, сравнивать и относить на подразделения.

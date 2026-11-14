@@ -108,7 +108,7 @@ async function render(component: string, params: Record<string, unknown> = {}): 
     root.render(createElement(PageView, {
       composition: { template: 'probe', operation: '', variables: {}, sections: [section('body', component, params)], findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables: {}, navigation: null, open: () => undefined, reload: () => undefined },
+      runtime: { base: '', language: 'ru', busy: false, variables: {}, product: null, navigation: null, open: () => undefined, reload: () => undefined },
     }));
   });
   await settle();

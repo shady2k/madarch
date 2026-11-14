@@ -1,7 +1,7 @@
 id: practice.dependency
 purpose: structure
 audience: [developer, architect, platform-devops, security-engineer]
-definition: A library a service declares, with its version and where it is used.
+definition: A dependency is a library a service declares, with its version and where it is used.
 sources:
 - https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/
 acquisition:
@@ -26,5 +26,5 @@ labels:
     one: Зависимость
     many: Зависимости
 description:
-  en: A library a service declares, with its version and where it is used.
-  ru: Библиотека, которую объявляет сервис, её версия и где она используется.
+  en: A dependency is an outside library or package that a service's code uses, declared in its manifest with a version range. Its version decides which fixes and which weaknesses the service carries.
+  ru: Зависимость — внешняя библиотека или пакет, которые использует код сервиса и которые объявлены в его манифесте с диапазоном версий. От её версии зависит, какие исправления и какие слабости несёт сервис.

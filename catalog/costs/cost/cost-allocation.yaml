@@ -1,7 +1,7 @@
 id: focus.allocation
 purpose: operations
 audience: [product-lead, operations, platform-devops]
-definition: How a cost is split over the products, the teams or the services that caused it.
+definition: A cost allocation is the way a cost is split over the products, teams or services that caused it.
 sources:
 - https://focus.finops.org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Распределение затрат
     many: Распределения затрат
 description:
-  en: How a cost is split over the products, the teams or the services that caused it.
-  ru: То, как затраты распределяются по продуктам, командам или сервисам, которые их вызвали.
+  en: A cost allocation divides one bill among the products, teams or services that caused the spending, by a stated rule such as usage, headcount or a fixed share. It lets each part see what it costs and answer for its own spending.
+  ru: 'Распределение затрат делит один счёт между продуктами, командами или сервисами, которые вызвали траты, по определённому правилу: по потреблению, числу людей или фиксированной доле. Так каждая часть видит, чего она стоит, и отвечает за свои расходы.'

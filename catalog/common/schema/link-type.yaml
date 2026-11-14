@@ -1,8 +1,7 @@
 id: manifest.link-types
 purpose: structure
 audience: [architect, product-lead]
-definition: 'A declared kind of link between entities: its name, the kinds it may join and the labels it shows at each end;
-  its id is its key under link-types.'
+definition: 'A link type declares a kind of connection between entities: its name, the kinds it may join and the labels at each end.'
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/link-issues/
 - https://doc.anytype.io/anytype/create/links
@@ -25,5 +24,5 @@ labels:
     one: Тип связи
     many: Типы связей
 description:
-  en: A declared kind of link, its ends and the labels each end shows.
-  ru: Объявленный тип связи, её концы и подписи, которые показывает каждый конец.
+  en: A link type names a relationship that entities may have, such as uses, contains or depends on, and states which kinds may stand at each end and what the ends are called. Every link of that relationship follows the type's declaration.
+  ru: 'Тип связи называет отношение, которое может быть между сущностями: использует, содержит или зависит от, — и говорит, какие виды могут стоять на каждом конце и как эти концы называются. Каждая связь такого отношения следует объявлению типа.'

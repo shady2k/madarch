@@ -1,7 +1,7 @@
 id: oscal.control
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: One control of a catalog, with its statements, its parameters and its assessment methods.
+definition: A control is one requirement of a catalog, with its statements, its parameters and the methods of assessing it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Контроль
     many: Контроли
 description:
-  en: One control of a catalog, with its statements, its parameters and its assessment methods.
-  ru: Один контроль каталога с его утверждениями, параметрами и методами оценки.
+  en: A control states one safeguard or one requirement, such as who may access data or how it is encrypted, and splits it into statements and parameters that a system can meet and an assessor can check. Assessment methods say what evidence counts.
+  ru: 'Контроль формулирует одну меру защиты или одно требование: кто имеет доступ к данным или как их шифруют, — и делит его на утверждения и параметры, которым система может соответствовать, а оценщик — проверить. Методы оценки говорят, какие доказательства считаются.'

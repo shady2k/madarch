@@ -1,7 +1,7 @@
 id: openfeature.evaluation-context
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The facts about a caller that the rules of a feature flag are evaluated against.
+definition: A flag evaluation context is the set of facts about a caller that a feature flag's rules are judged against.
 sources:
 - https://openfeature.dev/specification/glossary
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Контекст оценки флага
     many: Контексты оценки флага
 description:
-  en: The facts about a caller that the rules of a feature flag are evaluated against.
-  ru: Факты о вызывающем, по которым вычисляют правила флага функции.
+  en: 'A flag evaluation context carries what the rules of a feature flag need to know about the caller: a user or account identifier, a country, a plan, a device, a percentage bucket. The same flag can serve different variants to different contexts.'
+  ru: 'Контекст оценки флага несёт то, что правилам флага нужно знать о вызывающем: идентификатор пользователя или учётной записи, страну, тариф, устройство, номер процентной группы. Один флаг может давать разные варианты разным контекстам.'

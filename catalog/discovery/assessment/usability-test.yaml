@@ -1,7 +1,7 @@
 id: practice.usability-test
 purpose: quality
 audience: [designer, tester, product, analyst]
-definition: A session in which people use the product while their success and trouble are recorded.
+definition: A usability test is a session in which people use the product while their success and their difficulties are recorded.
 sources:
 - https://www.nngroup.com/articles/usability-testing-101/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Тест удобства
     many: Тесты удобства
 description:
-  en: A session in which people use the product while their success and trouble are recorded.
-  ru: Сессия, в которой люди пользуются продуктом, а их успехи и трудности записывают.
+  en: A usability test puts a person in front of the product with a task to do and watches how it goes. The session records what the person succeeded at, where they hesitated or failed, and what they said aloud.
+  ru: Тест удобства — занятие, на котором человек получает задачу и работает с продуктом, а наблюдатели записывают, как это идёт. В записи сессии остаётся, что человек сделал, где замялся или не справился и что сказал вслух.

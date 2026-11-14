@@ -16,6 +16,9 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
+import { ReadContext } from '../src/graph/graphql-read.js';
+import { publishedManifestOf } from '../src/graphql/manifest.js';
+import { readProductTemplates } from '../src/graph/product-templates.js';
 import { composePage, type Bootstrap } from '../src/page-contract/index.js';
 import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
@@ -70,8 +73,9 @@ beforeAll(async () => {
   mkdirSync(join(folder, 'madarch/kinds/demo/core'), { recursive: true });
   mkdirSync(join(folder, 'templates'), { recursive: true });
   writeFileSync(join(folder, 'templates/entity.yaml'), 'template: entity\nsections: []\n');
-  // The starter's own home template: the page composes into one operation over the catalogue (decision 0036, section 6).
-  writeFileSync(join(folder, 'templates/home.yaml'), readFileSync(join(import.meta.dir, '..', 'catalog/templates/pages/home.yaml'), 'utf8'));
+  // The starter's catalogue template composes into one operation over the catalogue (decision 0036, section 6).
+  writeFileSync(join(folder, 'templates/catalogue.yaml'), readFileSync(join(import.meta.dir, '..', 'catalog/templates/pages/catalogue.yaml'), 'utf8'));
+  writeFileSync(join(folder, 'templates/home.yaml'), 'template: home\nsections: []\n');
   // A record template and an entity's own template: the bootstrap names both, and an entity answers the one it opens.
   writeFileSync(join(folder, 'templates/record.yaml'), 'template: record\nextends: entity\nrecords: [demo.file]\nsections:\n  - id: files\n    component: table\n    after: header\n    query: |\n      id\n      label\n    params:\n      path: .\n      columns: [{ label: { en: Label }, path: label }]\n');
   writeFileSync(join(folder, 'templates/own.yaml'), 'template: own\nextends: entity\nentities: [own-entity]\nsections: []\n');
@@ -153,6 +157,11 @@ beforeAll(async () => {
   }
 }, 120_000);
 
+test('diagram neighbourhood refuses a deeper traversal of the real graph', async () => {
+  const templates = readProductTemplates(folder);
+  await expect(owner.transaction('snapshot', (tx) => new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'test', templates).diagramNeighbourhood(repositoryId, 2, 'en'))).rejects.toThrow('deeper diagram neighbourhoods are not supported');
+});
+
 afterAll(async () => {
   await owner?.close();
   if (root !== '') rmSync(root, { recursive: true, force: true });
@@ -224,10 +233,10 @@ describe('the GraphQL executor', () => {
     expect((all['allCatalogueEntity'] as Record<string, any>).totalCount).toBe(2);
   });
 
-  test('a query deeper than six levels is refused with LIMIT_DEPTH', async () => {
+  test('a query deeper than seven levels is refused with LIMIT_DEPTH', async () => {
     const answer = await refusal(`{ allDemoRepository { edges { node { demoContains { edges { node { demoContainsOf { edges { node { node { ... on DemoFile { path } } } } } } } } } } } }`);
     expect(answer.code).toBe('LIMIT_DEPTH');
-    expect(answer.message).toContain('the limit is 6');
+    expect(answer.message).toContain('the limit is 7');
   });
 
   test('a list of fifty entities with one edge each costs a small constant number of statements', async () => {
@@ -305,22 +314,22 @@ describe('the GraphQL executor', () => {
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
   });
 
-  test('the starter home template composes into one operation that reads the catalogue', async () => {
+  test('the starter catalogue template composes into one operation that reads the catalogue', async () => {
     const bootstrap: Bootstrap = {
       structureRevision: 'r',
       home: null,
       catalogueTemplate: 'entity',
-      templates: ['home', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
+      templates: ['catalogue', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
       recordTemplates: [], ownTemplates: [], roles: [],
     };
-    const page = composePage(bootstrap, { home: true });
+    const page = composePage(bootstrap, { template: 'catalogue' });
     expect(page.findings).toEqual([]);
     const data = await graphql(page.operation, page.variables);
     // A root section's data is the value of its own root field: the table's path is the section's own data.
     const kinds = data['s_kinds'] as Record<string, any>;
     expect(kinds.totalCount).toBe(2);
     expect(kinds.edges.map((edge: any) => edge.node.name).sort()).toEqual(['demo.file', 'demo.repository']);
-    expect(kinds.edges[0].node.kind).toBe('catalogue');
+    expect(kinds.edges[0].node.label).toBeTruthy();
   });
 
   test('the bootstrap names the templates, the pages they open and the roles', async () => {
@@ -330,7 +339,7 @@ describe('the GraphQL executor', () => {
     // This fixture holds no home kind: the home is null, and the mechanisms's other names stand.
     expect(held.home).toBeNull();
     expect(held.catalogueTemplate).toBe('entity');
-    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['entity', 'home', 'own', 'record']);
+    expect(held.templates.map((one: any) => one.name).sort()).toEqual(['catalogue', 'entity', 'home', 'own', 'record']);
     expect(held.recordTemplates).toEqual([{ kind: 'demo.file', template: 'record' }]);
     expect(held.ownTemplates).toEqual([{ id: 'own-entity', template: 'own' }]);
     expect(Array.isArray(held.roles)).toBe(true);
@@ -488,4 +497,91 @@ describe('the GraphQL executor', () => {
       expect(connection.totalCount).toBe(3);
     }
   });
+
+  test('an undeclared storage kind stops its field batch instead of requeuing forever', async () => {
+    const counted = countingOwner();
+    const label = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', readProductTemplates(folder));
+      return await read.resolve(
+        { nodeId: '1', uid: 'missing', kind: 'undeclared', key: { name: 'Fallback' }, typeName: 'Undeclared' },
+        {}, read, { parentType: { name: 'Undeclared' }, fieldName: 'label' } as never,
+      );
+    });
+    expect(label).toBe('Fallback');
+    expect(counted.statements()).toBe(0);
+  });
+
+  test('catalogue diagram labels use the translated catalogue title', async () => {
+    const data = await graphql(`{ catalogueEntity(name: "demo.file") { id } }`);
+    const id = (data['catalogueEntity'] as { id: string }).id;
+    const counted = countingOwner();
+    const hood = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'ru', 'fixture', readProductTemplates(folder));
+      return await read.diagramNeighbourhood(id, 1, 'ru');
+    });
+    expect(hood).toBeDefined();
+    expect(hood!.labels.get(id)).toBe('Файл');
+    expect(counted.statements()).toBeLessThan(10);
+  });
+
+  test('a diagram counts 1 324 children but reads only the bounded sample', async () => {
+    const repository = { kind: 'demo.repository', key: { name: 'diagram-budget' } };
+    await owner.transaction('write', async (tx) => {
+      const files = Array.from({ length: 1324 }, (_, at) => ({ kind: 'demo.file', key: { repository, path: `budget-${String(at)}.ts` } }));
+      await publishGraphDrafts(tx, contract, {
+        vertices: [{ ...repository, values: {}, producer: 'budget', producerVersion: '1' }, ...files.map((file) => ({ ...file, values: {}, producer: 'budget', producerVersion: '1' }))],
+        edges: files.map((file) => ({ kind: 'demo.contains', from: repository, to: file, values: {}, producer: 'budget', producerVersion: '1' })),
+        removals: [],
+      }, 1, { author: 'budget@1' });
+    });
+    const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "diagram-budget" } }) { edges { node { id } } } }`);
+    const id = (data['allDemoRepository'] as { edges: { node: { id: string } }[] }).edges[0]!.node.id;
+    const counted = countingOwner();
+    const started = performance.now();
+    const hood = await counted.owner.transaction('snapshot', async (tx) => {
+      const read = new ReadContext(tx, manifest, publishedManifestOf(manifest), folder, 'en', 'fixture', readProductTemplates(folder));
+      return await read.diagramNeighbourhood(id, 1, 'en');
+    });
+    const elapsed = performance.now() - started;
+    expect(hood).toBeDefined();
+    expect(hood!.groups).toMatchObject([{ relation: 'demo.contains', side: 'out', kind: 'demo.file', total: 1324 }]);
+    expect(hood!.groups[0]!.nodes).toHaveLength(12);
+    expect(hood!.nodes.size).toBe(13);
+    expect(hood!.labels.size).toBe(13);
+    expect(hood!.truncated).toBe(true);
+    expect(counted.statements()).toBeLessThan(10);
+    console.log(`diagram read budget: ${elapsed.toFixed(1)} ms, ${String(counted.statements())} statements, ${String(hood!.nodes.size)} nodes`);
+    expect(elapsed).toBeLessThan(2000);
+  }, 60_000);
 });
+
+test('search transfers only requested SQL rows while keeping exact distinct totals', async () => {
+  const repository = { kind: 'demo.repository', key: { name: 'search-bound' } };
+  await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
+    vertices: [{ ...repository, values: {}, producer: 'search', producerVersion: '1' }, ...Array.from({ length: 60 }, (_, at) => ({ kind: 'demo.file', key: { repository, path: `search-bound-${String(at)}.ts` }, values: {}, producer: 'search', producerVersion: '1' }))], edges: [], removals: [],
+  }, 1, { author: 'search@1' }));
+  const transferred: number[] = [];
+  const wrapped: DatabaseOwner = { ...owner, transaction: (kind, work) => owner.transaction(kind, (tx) => work({ ...tx, query: async (sql: string, values?: readonly unknown[]) => {
+    const answer = await tx.query(sql, values);
+    if (sql.startsWith('WITH hits AS')) transferred.push(answer.rows.length);
+    return answer;
+  } } as OuterTransaction)) };
+  const run = async (query: string) => {
+    const result = await executeGraphql(wrapped, { manifest, folder }, { query });
+    const body = result.body as MessageBody;
+    expect(body.errors).toBeUndefined();
+    return body.data as Record<string, unknown>;
+  };
+  const flat = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 2) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
+  expect(flat['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true } });
+  expect((flat['search'] as { edges: unknown[] }).edges).toHaveLength(2);
+  expect(transferred.pop()).toBeLessThanOrEqual(2);
+  const empty = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 0) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
+  expect(empty['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true }, edges: [] });
+  expect(transferred.pop()).toBeLessThanOrEqual(1);
+  const grouped = await run('{ searchGroups(text: "search-bound", kinds: ["demo.file"], perKind: 2) { kind count results { node { id } } } }');
+  expect(grouped['searchGroups']).toMatchObject([{ kind: 'demo.file', count: 60 }]);
+  expect((grouped['searchGroups'] as { results: unknown[] }[])[0]!.results).toHaveLength(2);
+  expect(transferred.pop()).toBeLessThanOrEqual(40);
+});
+

@@ -1,7 +1,7 @@
 id: practice.assessment-finding
 purpose: quality
 audience: [security-engineer, tester, developer]
-definition: What one security assessment concluded, with its severity and the ground it rests on.
+definition: A security assessment finding is what one assessment concluded, with its severity and the ground it rests on.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Находка оценки безопасности
     many: Находки оценки безопасности
 description:
-  en: What one security assessment concluded, with its severity and the ground it rests on.
-  ru: То, к чему пришла одна оценка безопасности, с важностью и основанием.
+  en: 'An assessment finding records one conclusion of a security assessment: what was observed, how serious it is and which requirement or expectation it breaks. It points to the evidence so someone can confirm or dispute it.'
+  ru: 'Находка оценки безопасности записывает один вывод оценки: что обнаружили, насколько это серьёзно и какое требование или ожидание нарушено. Она указывает на доказательства, чтобы кто-то мог подтвердить или оспорить её.'

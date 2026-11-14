@@ -562,3 +562,45 @@ export function renderTraceReport(report: TraceReport): string {
   }
   return `${lines.join('\n')}\n`;
 }
+
+/** One request over a threshold, as `madarch trace --slow` lists it, with the work its trace names it took. */
+export interface SlowRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly ms: number;
+  readonly stages: readonly { readonly name: string; readonly ms: number }[];
+}
+
+/**
+ * Every request of one run that took longer than the threshold, latest first, with its child spans: the stage that took
+ * the time a hung request's reader looks for (`madarch trace --slow`).
+ */
+export function readSlowRequests(options: { readonly store: string; readonly runId?: string; readonly overMs?: number }): SlowRequest[] {
+  const files = traceFiles(options.store);
+  const runId = options.runId;
+  const chosen = runId === undefined ? files[0] : files.find((one) => one.runId === runId || one.file.endsWith(`/${traceFileNameOf(runId)}`));
+  if (chosen === undefined) return [];
+  const spans = readTraceSpans(chosen.file);
+  const overMs = options.overMs ?? 1_000;
+  const requests = spans.filter((span) => span.name === 'http.request' && span.end - span.start >= overMs).sort((left, right) => (right.end - right.start) - (left.end - left.start));
+  return requests.map((request) => {
+    const children = spans.filter((span) => span.parentSpanId === request.spanId);
+    const stages: { name: string; ms: number }[] = [];
+    const walk = (parent: string): void => {
+      for (const span of spans.filter((one) => one.parentSpanId === parent)) {
+        stages.push({ name: span.name, ms: Math.round((span.end - span.start) * 10) / 10 });
+        walk(span.spanId);
+      }
+    };
+    walk(request.spanId);
+    void children;
+    return {
+      method: String(request.attributes['http.request.method'] ?? request.attributes['http.method'] ?? ''),
+      path: String(request.attributes['url.path'] ?? request.attributes['http.path'] ?? ''),
+      status: Number(request.attributes['http.response.status_code'] ?? request.attributes['http.status'] ?? 0),
+      ms: Math.round((request.end - request.start) * 10) / 10,
+      stages,
+    };
+  });
+}

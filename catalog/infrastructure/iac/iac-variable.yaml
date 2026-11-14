@@ -1,7 +1,7 @@
 id: terraform.variable
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A named value an infrastructure definition takes from its surroundings.
+definition: An infrastructure variable is a named value that an infrastructure definition takes from its surroundings.
 sources:
 - https://developer.hashicorp.com/terraform/language/values/variables
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Переменная IaC
     many: Переменные IaC
 description:
-  en: A named value an infrastructure definition takes from its surroundings.
-  ru: Именованное значение, которое определение инфраструктуры берёт из окружения.
+  en: An infrastructure variable is a placeholder in a definition of infrastructure whose value comes from a file, a command line or the environment, such as a region, a size or an account. Values that differ between environments stay out of the definition and are supplied when it is applied.
+  ru: 'Переменная IaC — место в описании инфраструктуры, значение которого берут из файла, командной строки или окружения: регион, размер или учётная запись. То, что различается между средами, не входит в описание, а задаётся при его применении.'

@@ -1,7 +1,7 @@
 id: practice.http-route
 purpose: structure
 audience: [developer, architect, analyst, tester]
-definition: An HTTP route a service serves, read from its code.
+definition: An HTTP route is the address and method a service answers, such as GET /orders/{id}.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -33,5 +33,5 @@ labels:
     one: HTTP-маршрут
     many: HTTP-маршруты
 description:
-  en: An HTTP route a service serves, read from its code.
-  ru: HTTP-маршрут, который обслуживает сервис, прочитанный из кода.
+  en: An HTTP route is one path and method a service listens on, such as GET /orders/{id}, together with the handler that answers it. Its parameters and its answers are what a client relies on.
+  ru: HTTP-маршрут — путь и метод, которые обслуживает сервис, например GET /orders/{id}, вместе с обработчиком, который отвечает. На его параметры и ответы опирается клиент.

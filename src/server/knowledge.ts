@@ -216,8 +216,8 @@ export function createKnowledgePart(
       }
       const askedDepth = url.searchParams.get('depth');
       const depth = askedDepth === null ? undefined : Number(askedDepth);
-      if (depth !== undefined && (!Number.isInteger(depth) || depth < 1)) {
-        return refused(400, { field: 'depth', message: `${here()}: "depth" is a whole number of levels, 1 or more; it was ${JSON.stringify(askedDepth)}` });
+      if (depth !== undefined && (!Number.isInteger(depth) || depth !== 1)) {
+        return refused(400, { field: 'depth', message: `${here()}: "depth" is a whole number of levels, 1 or more, but only 1 is supported; it was ${JSON.stringify(askedDepth)}` });
       }
       const askedAbove = url.searchParams.get('aggregateAbove');
       const aggregateAbove = askedAbove === null ? undefined : Number(askedAbove);
@@ -226,7 +226,12 @@ export function createKnowledgePart(
       }
       const lang = url.searchParams.get('lang') ?? undefined;
       const answer = await renderDiagram(product, { entity: entity.trim(), format, ...(depth === undefined ? {} : { depth }), ...(aggregateAbove === undefined ? {} : { aggregateAbove }), ...(lang === undefined ? {} : { lang }) });
-      if ('error' in answer) return refused(answer.status, { message: answer.error });
+      if ('error' in answer) {
+        // A picture that could not be drawn answers its own words and the depth a reader may try, not a server wait.
+        const held = answer as { status: number; error: string; code?: string };
+        // A picture that could not be drawn is a failed answer (the app shows it with a retry), never a partial page.
+        return refused(held.code === 'BAD_INPUT' ? 400 : held.code === 'TIMEOUT' ? 504 : 500, { message: held.error, ...(held.code === undefined ? {} : { code: held.code }) });
+      }
       if ('html' in answer) {
         const response = new Response(answer.html, { status: answer.status, headers: { 'content-type': 'text/html; charset=utf-8' } });
         response.headers.set('cache-control', 'no-store');

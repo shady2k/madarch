@@ -1,16 +1,9 @@
-# The product's home page (decision 0036, section 6): the page every product opens at `/`. Its sections ask the graph
-# through the roots: the home entity when the product has one, and the catalogue of the kinds it declares.
+# The product's home page (decision 0036, section 6): the page every product opens at `/`. It shows the product the
+# graph holds, the code repositories it spans, the main facts of the graph and what it holds of each kind.
 template: home
 variables:
   q:
     type: String
-  kinds_where:
-    type: CatalogueEntityWhere
-  kinds_orderBy:
-    type: '[CatalogueEntityOrder!]'
-    default:
-      - { field: group, direction: ASC }
-        # the order the catalogue reads in: the area, then the subgroup, then the kind
 sections:
   - id: header
     component: header
@@ -21,59 +14,94 @@ sections:
         id
         kind
         label
-        template
       }
     params:
       titlePath: label
-      kindPath: kind
   - id: firstRun
     component: first-run
     after: header
   - id: search
     component: search
     title: { en: Search, ru: Поиск }
-  - id: kinds
+  - id: body
+    component: text
+    on: root
+    title: { en: What it is, ru: Что это }
+    query: |
+      home(lang: $lang) {
+        id
+        ... on Product {
+          body
+        }
+      }
+    params:
+      path: body
+  - id: repositories
     component: table
     on: root
-    title: { en: Kinds, ru: Виды }
+    title: { en: Repositories, ru: Репозитории }
     query: |
-      allCatalogueEntity(first: $kinds_first, after: $kinds_after, where: $kinds_where, orderBy: $kinds_orderBy) {
+      allCodeRepository(first: 20) {
         edges {
           node {
             id
             kind
             label
-            name
-            group
-            subgroup
-            taken
+            ... on CodeRepository {
+              name
+              url
+              defaultBranch
+            }
           }
-        }
-        pageInfo {
-          hasNextPage
-          endCursor
         }
         totalCount
       }
     params:
       path: .
-      pageSize: 50
+      emptyText: { en: No code repository is connected yet, ru: Ни один репозиторий кода пока не подключён }
       columns:
-        - label: { en: Kind, ru: Вид }
-          path: node.label
-          sortField: label
-        - label: { en: Area, ru: Область }
-          path: node.group
-          sortField: group
-        - label: { en: Subgroup, ru: Подгруппа }
-          path: node.subgroup
-          sortField: subgroup
-        - label: { en: Taken, ru: Взят }
-          path: node.taken
-      filterFields:
-        - label: { en: Kind, ru: Вид }
-          field: label
-          operator: _contains
-        - label: { en: Area, ru: Область }
-          field: group
-          operator: _contains
+        - { label: { en: Repository, ru: Репозиторий }, path: node.label }
+        - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
+        - { label: { en: What it is, ru: Что это }, path: node.url, format: repository }
+  - id: files
+    component: facts
+    on: root
+    title: { en: The graph, ru: Что в графе }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        count
+      }
+    params:
+      rows:
+        - { label: { en: Files, ru: Файлы }, path: count, format: number }
+  - id: byLanguage
+    component: bars
+    on: root
+    title: { en: By language, ru: По языку }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "language", limit: 10) { key count }
+      }
+    params:
+      path: groupBy
+      valuePath: count
+  - id: byRepository
+    component: bars
+    on: root
+    title: { en: Files by repository, ru: Файлы по репозиторию }
+    query: |
+      allCodeFileAggregate(where: { removedAt: { _is_null: true } }) {
+        groupBy(field: "repository", limit: 20) { key count }
+      }
+    params:
+      path: groupBy
+      valuePath: count
+  - id: kinds
+    component: kinds
+    on: root
+    title: { en: What the graph holds, ru: Что держит граф }
+    query: |
+      navigation(lang: $lang) {
+        kinds { kind one many count entryId }
+      }
+    params: {}

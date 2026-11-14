@@ -1,7 +1,7 @@
 id: practice.dockerfile
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A recipe that builds a container image.
+definition: A Dockerfile is a recipe that builds a container image.
 sources:
 - https://github.com/opencontainers/image-spec
 acquisition:
@@ -21,5 +21,5 @@ labels:
     one: Dockerfile
     many: Dockerfile
 description:
-  en: A recipe that builds a container image.
-  ru: Рецепт сборки образа контейнера.
+  en: 'A Dockerfile lists, step by step, how to build a container image: the base image, the files to copy, the commands to run and the command that starts the program. Building it again from the same inputs gives the same image.'
+  ru: 'Dockerfile перечисляет шаг за шагом, как собрать образ контейнера: базовый образ, копируемые файлы, выполняемые команды и команду запуска программы. Повторная сборка из тех же входных данных даёт тот же образ.'

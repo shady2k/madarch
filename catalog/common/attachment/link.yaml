@@ -1,7 +1,7 @@
 id: practice.link
 purpose: structure
 audience: [architect, analyst, developer]
-definition: A typed connection between two entities with its own id, attributes and history; its type is declared in the manifest.
+definition: A link is a typed connection between two entities, with its own identity, attributes and history.
 sources:
 - https://doc.anytype.io/anytype/create/links
 - https://support.atlassian.com/jira-software-cloud/docs/link-issues/
@@ -14,7 +14,47 @@ relation-constraints:
   - linksTo
   in:
   - linksTo
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: relation
+  type: json
+  reference: value-set-entry
+  producers:
+  - person
+- name: source
+  type: json
+  producers:
+  - person
+- name: target
+  type: json
+  producers:
+  - person
+- name: note
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_by
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: created_at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+key: []
+origin: person
+nav: own-page
+details:
+- relation
+- source
+- target
+- note
+- created_by
+- created_at
 labels:
   en:
     one: Link
@@ -23,5 +63,5 @@ labels:
     one: Связь
     many: Связи
 description:
-  en: A typed connection between two entities, with its own id, attributes and history.
-  ru: Типизированная связь между двумя сущностями со своим идентификатором, атрибутами и историей.
+  en: A link joins two entities under a declared type, such as a service using a database or a task belonging to a stage. It can carry its own attributes and history, so the connection itself is a thing that can change.
+  ru: 'Связь соединяет две сущности под объявленным типом: сервис использует базу данных или задача входит в этап. У неё могут быть свои атрибуты и история, поэтому сама связь — вещь, которая меняется.'

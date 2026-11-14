@@ -1,7 +1,7 @@
 id: opengitops.source
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The repository, path and revision a GitOps agent reads the desired state from.
+definition: A GitOps source is the repository, path and revision that a GitOps agent reads the desired state from.
 sources:
 - https://opengitops.dev/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Источник GitOps
     many: Источники GitOps
 description:
-  en: The repository, path and revision a GitOps agent reads the desired state from.
-  ru: Репозиторий, путь и ревизия, откуда агент GitOps читает желаемое состояние.
+  en: 'A GitOps source names where the desired state lives: which repository, which folder in it and which branch, tag or commit. Changing the source changes what the agent will apply.'
+  ru: 'Источник GitOps называет, где лежит желаемое состояние: какой репозиторий, какая папка в нём и какая ветка, тег или коммит. Смена источника меняет то, что применит агент.'

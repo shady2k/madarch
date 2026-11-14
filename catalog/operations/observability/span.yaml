@@ -1,7 +1,7 @@
 id: otel.span
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: One operation in a trace, with its start, its duration and the parent it belongs to.
+definition: A span is one operation in a trace, with its start, its duration and the parent it belongs to.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/traces/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Интервал трассы
     many: Интервалы трассы
 description:
-  en: One operation in a trace, with its start, its duration and the parent it belongs to.
-  ru: Одна операция в трассе с началом, длительностью и родителем.
+  en: 'A span records one operation inside a request: when it started, how long it took, which service ran it and what it called next. Spans linked by parents form a trace that shows where time went.'
+  ru: 'Интервал трассы записывает одну операцию внутри запроса: когда началась, сколько заняла, какой сервис её выполнил и что она вызвала дальше. Связанные родителями интервалы образуют трассу, по которой видно, куда ушло время.'

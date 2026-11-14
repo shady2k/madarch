@@ -1,7 +1,7 @@
 id: practice.observation
 purpose: understand
 audience: [product, analyst, designer]
-definition: A record of how a person works with the product, made where the work happens.
+definition: An observation is a record of how a person works with the product, made where the work happens.
 sources:
 - https://www.nngroup.com/articles/contextual-inquiry/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Наблюдение
     many: Наблюдения
 description:
-  en: A record of how a person works with the product, made where the work happens.
-  ru: Запись того, как человек работает с продуктом, сделанная там, где идёт работа.
+  en: An observation records a person doing real work in their own surroundings, such as an office or a shop, while a researcher watches and notes what happens. It shows the product in use, with the interruptions and workarounds that a test session often hides.
+  ru: Наблюдение — запись того, как человек выполняет настоящую работу в привычной обстановке, например в офисе или магазине, пока исследователь смотрит и отмечает происходящее. Оно показывает продукт в деле, вместе с помехами и обходными путями, которых не видно на тестовой сессии.

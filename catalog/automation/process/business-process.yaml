@@ -1,7 +1,7 @@
 id: practice.business-process
 purpose: operations
 audience: [analyst, platform-devops, operations]
-definition: A sequence of steps the organisation follows to reach an outcome.
+definition: A business process is a sequence of steps an organisation follows to reach a defined outcome, such as onboarding a customer or paying an invoice.
 sources:
 - https://www.omg.org/spec/BPMN/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Бизнес-процесс
     many: Бизнес-процессы
 description:
-  en: A sequence of steps the organisation follows to reach an outcome.
-  ru: Последовательность шагов, которые организация выполняет для достижения результата.
+  en: A business process is an ordered set of steps an organisation carries out to reach a defined outcome, such as onboarding a customer or paying an invoice. Each step has an owner and a result, and together they turn an input into something the organisation or its customer needs.
+  ru: 'Бизнес-процесс — упорядоченный набор шагов, которые организация выполняет, чтобы прийти к определённому результату: например, подключить клиента или оплатить счёт. У каждого шага есть исполнитель и результат, а вместе они превращают исходные данные в то, что нужно организации или её клиенту.'

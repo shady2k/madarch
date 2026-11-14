@@ -1,7 +1,7 @@
 id: terraform.provider
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The plugin that lets Terraform manage the resources of one platform.
+definition: A Terraform provider is the extension through which Terraform manages the resources of one platform.
 sources:
 - https://developer.hashicorp.com/terraform/language/providers
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Провайдер Terraform
     many: Провайдеры Terraform
 description:
-  en: The plugin that lets Terraform manage the resources of one platform.
-  ru: Плагин, который позволяет Terraform управлять ресурсами одной платформы.
+  en: A Terraform provider is a program that teaches Terraform the resources of one platform — its cloud, its database service or its DNS — and how to create, read, change and delete them. Each provider has its own version, and its upgrades can change what a definition does.
+  ru: 'Провайдер Terraform — программа, которая учит Terraform ресурсам одной платформы: облака, службы баз данных или DNS, — и тому, как их создавать, читать, менять и удалять. У каждого провайдера своя версия, а обновление может изменить поведение описания.'

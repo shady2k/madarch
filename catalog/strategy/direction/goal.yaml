@@ -1,8 +1,7 @@
 id: archimate.goal
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: A state or condition the organisation wants to reach, as ArchiMate motivation elements and the Business Motivation
-  Model state it.
+definition: A goal is a state or condition the organisation wants to reach, as ArchiMate motivation elements and the Business Motivation Model state it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 - https://www.omg.org/spec/BMM/
@@ -25,6 +24,5 @@ labels:
     one: Цель
     many: Цели
 description:
-  en: A state or condition the organisation wants to reach, as ArchiMate motivation elements and the Business Motivation Model
-    state it.
-  ru: Состояние, которого организация хочет достичь, как его излагают элементы мотивации ArchiMate и модель бизнес-мотивации.
+  en: A goal states a state the organisation wants to be in, such as lower cost per order or coverage of a new country, without saying how to reach it. Objectives break it into measurable steps, and a course of action says what will be done.
+  ru: 'Цель называет состояние, в котором организация хочет оказаться: ниже стоимость заказа или присутствие в новой стране, — и не говорит, как этого достичь. Задачи делят её на измеримые шаги, а курс действий говорит, что будет делаться.'

@@ -1,7 +1,7 @@
 id: practice.evaluation-run
 purpose: quality
 audience: [developer, tester, product-lead]
-definition: One evaluation of a model against a dataset and the metric it was judged by.
+definition: An evaluation run is one evaluation of a model against a dataset, judged by a stated metric.
 sources:
 - https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd
 - https://mlflow.org/docs/latest/index.html
@@ -23,5 +23,5 @@ labels:
     one: Запуск оценки
     many: Запуски оценки
 description:
-  en: One evaluation of a model against a dataset and the metric it was judged by.
-  ru: Одна оценка модели на наборе данных и метрика, по которой её судили.
+  en: An evaluation run applies one version of a model to a dataset and measures the result with a chosen metric. It fixes the model, the data and the metric, so two runs can be compared.
+  ru: Запуск оценки применяет одну версию модели к набору данных и измеряет результат выбранной метрикой. Он закрепляет модель, данные и метрику, поэтому два запуска можно сравнивать.

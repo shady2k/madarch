@@ -1,7 +1,7 @@
 id: json-schema.schema
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A JSON Schema that fixes the shape of a payload, a configuration or a message.
+definition: 'A JSON Schema is a document that fixes the shape of JSON data: its fields, their types and their rules.'
 sources:
 - https://json-schema.org/specification
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Схема JSON
     many: Схемы JSON
 description:
-  en: A JSON Schema that fixes the shape of a payload, a configuration or a message.
-  ru: Схема JSON, которая фиксирует форму полезной нагрузки, настройки или сообщения.
+  en: 'A JSON Schema states what a JSON document may contain: which properties exist, what type each has, which are required and which values are allowed. Payloads, configuration files and messages can then be checked against it.'
+  ru: 'Схема JSON задаёт, что может содержать документ JSON: какие в нём свойства, какого они типа, какие обязательны и какие значения допустимы. По ней можно проверять полезные нагрузки, файлы настроек и сообщения.'

@@ -1,7 +1,7 @@
 id: kubernetes.daemonset
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A Kubernetes workload that runs one pod on every node it selects.
+definition: A DaemonSet is a Kubernetes workload that runs one pod on every node it selects.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: DaemonSet
     many: DaemonSet
 description:
-  en: A Kubernetes workload that runs one pod on every node it selects.
-  ru: Рабочая нагрузка Kubernetes, которая запускает один под на каждом выбранном узле.
+  en: A DaemonSet places one copy of a pod on each node that matches its selector, so the number of copies follows the number of nodes. It suits a job that must run everywhere, such as a log collector or a network agent.
+  ru: 'DaemonSet ставит одну копию пода на каждый узел, подходящий под его отбор, поэтому число копий следует за числом узлов. Он подходит для работы, которая нужна повсюду: сборщика журналов или сетевого агента.'

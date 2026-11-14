@@ -1,7 +1,7 @@
 id: practice.maintenance-window
 purpose: operations
 audience: [operations, platform-devops]
-definition: A period in which the service may be unavailable while work is done on it.
+definition: A maintenance window is a period in which the service may be unavailable while work is done on it.
 sources:
 - https://www.rfc-editor.org/rfc/rfc8594.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Окно обслуживания
     many: Окна обслуживания
 description:
-  en: A period in which the service may be unavailable while work is done on it.
-  ru: Период, в который сервис может быть недоступен, пока с ним работают.
+  en: A maintenance window is an agreed time when a service may be stopped or degraded, announced in advance to the people who use it. Work that cannot be done without a pause is planned into it.
+  ru: Окно обслуживания — согласованное время, когда сервис можно остановить или ухудшить, о котором заранее сообщают пользователям. В него планируют работу, которую нельзя сделать без паузы.

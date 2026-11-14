@@ -69,6 +69,8 @@ beforeAll(() => {
   mkdirSync(join(product, 'docs', 'ideas'), { recursive: true });
   mkdirSync(join(product, 'docs', 'tasks'), { recursive: true });
   writeFolderManifest(product, MANIFEST);
+  // This product replaces the starter's code kinds, so it also replaces their record page.
+  rmSync(join(product, 'templates', 'code-file.yaml'));
   writeFileSync(join(product, 'docs', 'ideas', 'one.md'), '---\nid: idea:one\nkind: idea\ntitle: One idea\n---\n\nAn idea.\n');
   writeFileSync(join(product, 'docs', 'tasks', 'one.md'), '---\nid: task:one\nkind: task\ntitle: One task\n---\n\nA task.\n');
   git(product, 'add', '-A');

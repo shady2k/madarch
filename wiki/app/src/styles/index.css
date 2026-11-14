@@ -79,6 +79,13 @@
   gap: 4px;
 }
 
+/* The search is the top bar's own field: a third of the bar at a desk, so a reader sees what they type and the kinds
+   their words answer with. At a phone's width the same field opens over the bar (below). */
+.shell-search .shell-search-input {
+  width: min(32rem, 40vw);
+  min-width: 18rem;
+}
+
 .shell-search-toggle {
   display: none;
 }

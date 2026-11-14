@@ -1,7 +1,7 @@
 id: nist800-34.recovery-objective
 purpose: operations
 audience: [operations, product-lead, analyst, architect]
-definition: A stated recovery time or recovery point for a system; the RTO and RPO values themselves are attributes.
+definition: A recovery objective states a recovery time or a recovery point for a system.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Цель восстановления
     many: Цели восстановления
 description:
-  en: A stated recovery time or recovery point for a system; the RTO and RPO values themselves are attributes.
-  ru: Заявленное время или точка восстановления системы; сами значения RTO и RPO — атрибуты.
+  en: 'A recovery objective fixes how quickly a system must be working again and how much recent data may be lost: a recovery time objective and a recovery point objective. The values decide which backups, replicas and drills a system needs.'
+  ru: 'Цель восстановления задаёт, как быстро система должна снова работать и какую часть свежих данных можно потерять: цель по времени восстановления и цель по точке восстановления. От этих значений зависит, какие резервные копии, реплики и учения нужны системе.'

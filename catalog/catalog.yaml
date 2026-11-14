@@ -188,8 +188,10 @@ groups:
   work.execution: { en: "Execution", ru: "Исполнение", short: { en: "Execution", ru: "Исполнение" }, parent: work }
   work.coordination: { en: "Coordination", ru: "Координация", short: { en: "Coordination", ru: "Координация" }, parent: work }
   work.sync: { en: "Sync", ru: "Синхронизация", short: { en: "Sync", ru: "Синхронизация" }, parent: work }
+  work.ways: { en: "Ways of working", ru: "Способы работы", short: { en: "Ways of working", ru: "Способы работы" }, parent: work }
   common.attachment: { en: "Attached records", ru: "Приложенные записи", short: { en: "Attached", ru: "Записи" }, parent: common }
   common.schema: { en: "Schema", ru: "Схема", short: { en: "Schema", ru: "Схема" }, parent: common }
+  common.values: { en: "Values", ru: "Справочники", short: { en: "Values", ru: "Справочники" }, parent: common }
   automation.process: { en: "Processes", ru: "Процессы", short: { en: "Processes", ru: "Процессы" }, parent: automation }
   decommissioning.plan: { en: "Retirement", ru: "Вывод", short: { en: "Retirement", ru: "Вывод" }, parent: decommissioning }
   infrastructure.network-names: { en: "Names and addresses", ru: "Имена и адреса", short: { en: "Names", ru: "Имена" }, parent: infrastructure }
@@ -396,6 +398,40 @@ properties:
   middleware: { en: "Middleware", ru: "Промежуточные обработчики", format: "list" }
   model: { en: "Model", ru: "Модель", format: "text" }
   timeout: { en: "Timeout", ru: "Таймаут", format: "text" }
+  set: { en: "Value set", ru: "Справочник", format: "text" }
+  label_en: { en: "Label (English)", ru: "Подпись (английский)", format: "text" }
+  label_ru: { en: "Label (Russian)", ru: "Подпись (русский)", format: "text" }
+  applies_to: { en: "Applies to", ru: "Где действует", format: "list" }
+  since_date: { en: "In force since", ru: "Действует с", format: "date" }
+  example: { en: "Example", ru: "Пример", format: "text" }
+  paths: { en: "Paths", ru: "Пути", format: "list" }
+  when: { en: "When to use it", ru: "Когда применять", format: "text" }
+  instructions: { en: "Instructions", ru: "Указания", format: "text" }
+  checks: { en: "Checks", ru: "Проверки", format: "list" }
+  body: { en: "Body", ru: "Текст", format: "text" }
+  precedence: { en: "Order of precedence", ru: "Порядок старшинства", format: "list" }
+  relation: { en: "Relation", ru: "Отношение", format: "text" }
+  target: { en: "Target", ru: "Цель связи", format: "text" }
+  note: { en: "Note", ru: "Примечание", format: "text" }
+  created_by: { en: "Created by", ru: "Создал", format: "text" }
+  created_at: { en: "Created at", ru: "Время создания", format: "date" }
+  edited_at: { en: "Edited at", ru: "Время правки", format: "date" }
+  priority: { en: "Priority", ru: "Приоритет", format: "text" }
+  issue_type: { en: "Issue type", ru: "Тип задачи", format: "text" }
+  assignee: { en: "Assignee", ru: "Исполнитель", format: "text" }
+  owner: { en: "Owner", ru: "Владелец", format: "text" }
+  updated_at: { en: "Updated at", ru: "Время изменения", format: "date" }
+  close_reason: { en: "Close reason", ru: "Причина закрытия", format: "text" }
+  dependencies: { en: "Dependencies", ru: "Зависимости", format: "list" }
+  comments: { en: "Comments", ru: "Комментарии", format: "list" }
+  step: { en: "Step", ru: "Шаг", format: "text" }
+  who: { en: "Who did it", ru: "Кто выполнил", format: "text" }
+  executor_type: { en: "Executor type", ru: "Тип исполнителя", format: "text" }
+  duration: { en: "Duration", ru: "Длительность", format: "text" }
+  tokens: { en: "Tokens", ru: "Токены", format: "number" }
+  cost: { en: "Cost", ru: "Стоимость", format: "text" }
+  outcome: { en: "Outcome", ru: "Результат", format: "text" }
+  entity: { en: "Entity", ru: "Сущность", format: "text" }
 documents:
   exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, "**/AGENTS.md", "**/CLAUDE.md", "**/GEMINI.md"]
   expect: []
@@ -448,67 +484,118 @@ catalog:
   extractor-mark: extractor
   template-policies: [page, member, none]
   relations:
-    affects: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    allocates:
-    appliesTo:
-    approves:
-    assigns:
-    c4.uses: "https://c4model.com/abstractions"
-    childOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    configures: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    constrains:
-    consumesApi: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    contains: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    defines:
-    dependsOn: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    derivesFrom:
-    documents:
-    evidences:
-    fixedBy:
-    fixedIn: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    foundBy: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    generates: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    grants:
-    handles:
-    hasAcceptanceCriterion:
-    hasDeclaredLicense: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasDependencyManifest: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasDistributionArtifact: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasDocumentation: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasHost: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasInput: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasMember: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    hasOutput: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasPart: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    hasRequirement: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasTest: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    hasTestCase: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    implements:
-    linksTo:
-    measures:
-    memberOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    mitigates:
-    monitors:
-    ownedBy: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    parentOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    partOf: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    providesApi: "https://backstage.io/docs/features/software-catalog/well-known-relations"
-    publishes:
-    quarantines:
-    realises:
-    refines:
-    replicates:
-    restores:
-    reviews:
-    routesTo:
-    satisfies:
-    subscribes:
-    supersedes:
-    threatens:
-    triggers:
-    uses:
-    usesTool: "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/"
-    verifies:
+    affects: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "affects", "in": "affects"}, "ru": {"out": "влияет на", "in": "affects"}}}
+    allocates: {"labels": {"en": {"out": "allocates", "in": "allocates"}, "ru": {"out": "выделяет", "in": "allocates"}}}
+    appliesTo: {"labels": {"en": {"out": "applies to", "in": "appliesTo"}, "ru": {"out": "применяется к", "in": "appliesTo"}}}
+    approves: {"labels": {"en": {"out": "approves", "in": "approves"}, "ru": {"out": "одобряет", "in": "approves"}}}
+    assigns: {"labels": {"en": {"out": "assigns", "in": "assigns"}, "ru": {"out": "назначает", "in": "assigns"}}}
+    c4.uses: {"source": "https://c4model.com/abstractions", "labels": {"en": {"out": "uses", "in": "c4.uses"}, "ru": {"out": "использует", "in": "c4.uses"}}}
+    childOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "child of", "in": "childOf"}, "ru": {"out": "потомок", "in": "childOf"}}}
+    configures: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "configures", "in": "configures"}, "ru": {"out": "настраивает", "in": "configures"}}}
+    constrains: {"labels": {"en": {"out": "constrains", "in": "constrains"}, "ru": {"out": "ограничивает", "in": "constrains"}}}
+    consumesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "consumes API", "in": "consumesApi"}, "ru": {"out": "использует API", "in": "consumesApi"}}}
+    contains: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    defines: {"labels": {"en": {"out": "defines", "in": "defines"}, "ru": {"out": "определяет", "in": "defines"}}}
+    dependsOn: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "depends on", "in": "dependsOn"}, "ru": {"out": "зависит от", "in": "dependsOn"}}}
+    derivesFrom: {"labels": {"en": {"out": "derives from", "in": "derivesFrom"}, "ru": {"out": "происходит от", "in": "derivesFrom"}}}
+    documents: {"labels": {"en": {"out": "documents", "in": "documents"}, "ru": {"out": "документирует", "in": "documents"}}}
+    evidences: {"labels": {"en": {"out": "evidences", "in": "evidences"}, "ru": {"out": "обосновывает", "in": "evidences"}}}
+    fixedBy: {"labels": {"en": {"out": "fixed by", "in": "fixedBy"}, "ru": {"out": "исправляется", "in": "fixedBy"}}}
+    fixedIn: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "fixed in", "in": "fixedIn"}, "ru": {"out": "исправлено в", "in": "fixedIn"}}}
+    foundBy: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "found by", "in": "foundBy"}, "ru": {"out": "обнаружено", "in": "foundBy"}}}
+    generates: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "generates", "in": "generates"}, "ru": {"out": "порождает", "in": "generates"}}}
+    grants: {"labels": {"en": {"out": "grants", "in": "grants"}, "ru": {"out": "предоставляет", "in": "grants"}}}
+    handles: {"labels": {"en": {"out": "handles", "in": "handles"}, "ru": {"out": "обрабатывает", "in": "handles"}}}
+    hasAcceptanceCriterion: {"labels": {"en": {"out": "has acceptance criterion", "in": "hasAcceptanceCriterion"}, "ru": {"out": "имеет критерий приёмки", "in": "hasAcceptanceCriterion"}}}
+    hasDeclaredLicense: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has declared license", "in": "hasDeclaredLicense"}, "ru": {"out": "имеет заявленную лицензию", "in": "hasDeclaredLicense"}}}
+    hasDependencyManifest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has dependency manifest", "in": "hasDependencyManifest"}, "ru": {"out": "имеет манифест зависимостей", "in": "hasDependencyManifest"}}}
+    hasDistributionArtifact: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has distribution artifact", "in": "hasDistributionArtifact"}, "ru": {"out": "имеет артефакт поставки", "in": "hasDistributionArtifact"}}}
+    hasDocumentation: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has documentation", "in": "hasDocumentation"}, "ru": {"out": "имеет документацию", "in": "hasDocumentation"}}}
+    hasHost: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has host", "in": "hasHost"}, "ru": {"out": "имеет хост", "in": "hasHost"}}}
+    hasInput: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has input", "in": "hasInput"}, "ru": {"out": "имеет вход", "in": "hasInput"}}}
+    hasMember: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "has member", "in": "hasMember"}, "ru": {"out": "имеет участника", "in": "hasMember"}}}
+    hasOutput: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has output", "in": "hasOutput"}, "ru": {"out": "имеет выход", "in": "hasOutput"}}}
+    hasPart: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "has part", "in": "hasPart"}, "ru": {"out": "имеет часть", "in": "hasPart"}}}
+    hasRequirement: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has requirement", "in": "hasRequirement"}, "ru": {"out": "имеет требование", "in": "hasRequirement"}}}
+    hasTest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has test", "in": "hasTest"}, "ru": {"out": "имеет тест", "in": "hasTest"}}}
+    hasTestCase: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has test case", "in": "hasTestCase"}, "ru": {"out": "имеет тестовый случай", "in": "hasTestCase"}}}
+    implements: {"labels": {"en": {"out": "implements", "in": "implements"}, "ru": {"out": "реализует", "in": "implements"}}}
+    linksTo: {"labels": {"en": {"out": "links to", "in": "linked from"}, "ru": {"out": "ссылается на", "in": "ссылаются на"}}}
+    measures: {"labels": {"en": {"out": "measures", "in": "measures"}, "ru": {"out": "измеряет", "in": "measures"}}}
+    memberOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "member of", "in": "memberOf"}, "ru": {"out": "участник", "in": "memberOf"}}}
+    mitigates: {"labels": {"en": {"out": "mitigates", "in": "mitigates"}, "ru": {"out": "снижает риск", "in": "mitigates"}}}
+    monitors: {"labels": {"en": {"out": "monitors", "in": "monitors"}, "ru": {"out": "наблюдает за", "in": "monitors"}}}
+    ownedBy: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "owned by", "in": "ownedBy"}, "ru": {"out": "принадлежит", "in": "ownedBy"}}}
+    parentOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "parent of", "in": "parentOf"}, "ru": {"out": "родитель", "in": "parentOf"}}}
+    partOf: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "part of", "in": "part of"}, "ru": {"out": "часть", "in": "часть"}}}
+    providesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "provides API", "in": "providesApi"}, "ru": {"out": "предоставляет API", "in": "providesApi"}}}
+    publishes: {"labels": {"en": {"out": "publishes", "in": "publishes"}, "ru": {"out": "публикует", "in": "publishes"}}}
+    quarantines: {"labels": {"en": {"out": "quarantines", "in": "quarantines"}, "ru": {"out": "помещает в карантин", "in": "quarantines"}}}
+    realises: {"labels": {"en": {"out": "realises", "in": "realises"}, "ru": {"out": "осуществляет", "in": "realises"}}}
+    refines: {"labels": {"en": {"out": "refines", "in": "refines"}, "ru": {"out": "уточняет", "in": "refines"}}}
+    replicates: {"labels": {"en": {"out": "replicates", "in": "replicates"}, "ru": {"out": "реплицирует", "in": "replicates"}}}
+    restores: {"labels": {"en": {"out": "restores", "in": "restores"}, "ru": {"out": "восстанавливает", "in": "restores"}}}
+    reviews: {"labels": {"en": {"out": "reviews", "in": "reviews"}, "ru": {"out": "проверяет", "in": "reviews"}}}
+    routesTo: {"labels": {"en": {"out": "routes to", "in": "routesTo"}, "ru": {"out": "направляет в", "in": "routesTo"}}}
+    satisfies: {"labels": {"en": {"out": "satisfies", "in": "satisfies"}, "ru": {"out": "удовлетворяет", "in": "satisfies"}}}
+    subscribes: {"labels": {"en": {"out": "subscribes", "in": "subscribes"}, "ru": {"out": "подписывается", "in": "subscribes"}}}
+    supersedes: {"labels": {"en": {"out": "supersedes", "in": "supersedes"}, "ru": {"out": "заменяет", "in": "supersedes"}}}
+    threatens: {"labels": {"en": {"out": "threatens", "in": "threatens"}, "ru": {"out": "угрожает", "in": "threatens"}}}
+    triggers: {"labels": {"en": {"out": "triggers", "in": "triggers"}, "ru": {"out": "запускает", "in": "triggers"}}}
+    uses: {"labels": {"en": {"out": "uses", "in": "uses"}, "ru": {"out": "использует", "in": "uses"}}}
+    usesTool: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "uses tool", "in": "usesTool"}, "ru": {"out": "использует инструмент", "in": "usesTool"}}}
+    verifies: {"labels": {"en": {"out": "verifies", "in": "verifies"}, "ru": {"out": "верифицирует", "in": "verifies"}}}
+    as-is: {"labels": {"en": {"out": "as is", "in": "as-is"}, "ru": {"out": "текущее состояние", "in": "as-is"}}}
+    history: {"labels": {"en": {"out": "history", "in": "history"}, "ru": {"out": "история", "in": "history"}}}
+    parent: {"labels": {"en": {"out": "parent", "in": "parent"}, "ru": {"out": "родитель", "in": "parent"}}}
+    touched: {"labels": {"en": {"out": "touched", "in": "touched"}, "ru": {"out": "затронул", "in": "touched"}}}
+    authored: {"labels": {"en": {"out": "authored", "in": "authored"}, "ru": {"out": "автор", "in": "authored"}}}
+    renamed-from: {"labels": {"en": {"out": "renamed from", "in": "renamed-from"}, "ru": {"out": "переименовано из", "in": "renamed-from"}}}
+    renamed-to: {"labels": {"en": {"out": "renamed to", "in": "renamed-to"}, "ru": {"out": "переименовано в", "in": "renamed-to"}}}
+    code.manifest-of: {"labels": {"en": {"out": "manifest of", "in": "code.manifest-of"}, "ru": {"out": "манифест", "in": "code.manifest-of"}}}
+    code.tests: {"labels": {"en": {"out": "tests", "in": "code.tests"}, "ru": {"out": "тестирует", "in": "code.tests"}}}
+    code.inherits: {"labels": {"en": {"out": "inherits", "in": "code.inherits"}, "ru": {"out": "наследует", "in": "code.inherits"}}}
+    code.facet-of: {"labels": {"en": {"out": "facet of", "in": "code.facet-of"}, "ru": {"out": "грань", "in": "code.facet-of"}}}
+    code.tasks: {"labels": {"en": {"out": "tasks", "in": "code.tasks"}, "ru": {"out": "ставит задачу", "in": "code.tasks"}}}
+    code.carries: {"labels": {"en": {"out": "carries", "in": "code.carries"}, "ru": {"out": "содержит", "in": "code.carries"}}}
+    code.contains: {"labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    code.as-is: {"labels": {"en": {"out": "as is", "in": "snapshot of"}, "ru": {"out": "текущее состояние", "in": "снимок"}}}
+    code.history: {"labels": {"en": {"out": "history", "in": "history of"}, "ru": {"out": "история", "in": "история"}}}
+    code.parent: {"labels": {"en": {"out": "parent", "in": "parent of"}, "ru": {"out": "родитель", "in": "родитель для"}}}
+    code.touched: {"labels": {"en": {"out": "touched", "in": "changed by"}, "ru": {"out": "затронул", "in": "изменён коммитами"}}}
+    code.authored: {"labels": {"en": {"out": "authored", "in": "authored by"}, "ru": {"out": "автор", "in": "автор"}}}
+    code.renamed-from: {"labels": {"en": {"out": "renamed from", "in": "renamed to"}, "ru": {"out": "переименовано из", "in": "переименовано в"}}}
+    code.renamed-to: {"labels": {"en": {"out": "renamed to", "in": "renamed from"}, "ru": {"out": "переименовано в", "in": "переименовано из"}}}
+    code.has-column: {"labels": {"en": {"out": "has column", "in": "column of"}, "ru": {"out": "имеет столбец", "in": "столбец таблицы"}}}
+    code.has-index: {"labels": {"en": {"out": "has index", "in": "index of"}, "ru": {"out": "имеет индекс", "in": "индекс таблицы"}}}
+    code.foreign-key: {"labels": {"en": {"out": "foreign key", "in": "referenced by"}, "ru": {"out": "внешний ключ", "in": "ссылается на"}}}
+    code.declared-in: {"labels": {"en": {"out": "declared in", "in": "declares"}, "ru": {"out": "объявлено в", "in": "объявлена в"}}}
+    relates: {"labels": {"en": {"out": "relates", "in": "relates"}, "ru": {"out": "связано с", "in": "relates"}}}
+    stated-in: {"labels": {"en": {"out": "stated in", "in": "stated-in"}, "ru": {"out": "сказано в", "in": "stated-in"}}}
+    code.calls: {"labels": {"en": {"out": "calls", "in": "code.calls"}, "ru": {"out": "вызывает", "in": "code.calls"}}}
+    code.calls-remote: {"labels": {"en": {"out": "calls remote", "in": "code.calls-remote"}, "ru": {"out": "вызывает удалённо", "in": "code.calls-remote"}}}
+    code.consumes: {"labels": {"en": {"out": "consumes", "in": "code.consumes"}, "ru": {"out": "получает", "in": "code.consumes"}}}
+    code.depends-on: {"labels": {"en": {"out": "depends on", "in": "code.depends-on"}, "ru": {"out": "зависит от", "in": "code.depends-on"}}}
+    code.handled-by: {"labels": {"en": {"out": "handled by", "in": "code.handled-by"}, "ru": {"out": "обрабатывается", "in": "code.handled-by"}}}
+    code.references: {"labels": {"en": {"out": "references", "in": "code.references"}, "ru": {"out": "ссылается на", "in": "code.references"}}}
+    code.serves: {"labels": {"en": {"out": "serves", "in": "code.serves"}, "ru": {"out": "обслуживает", "in": "code.serves"}}}
+    code.reads-table: {"labels": {"en": {"out": "reads table", "in": "code.reads-table"}, "ru": {"out": "читает таблицу", "in": "code.reads-table"}}}
+    code.writes-table: {"labels": {"en": {"out": "writes table", "in": "code.writes-table"}, "ru": {"out": "пишет в таблицу", "in": "code.writes-table"}}}
+    code.cycle-member: {"labels": {"en": {"out": "cycle member", "in": "code.cycle-member"}, "ru": {"out": "участник цикла", "in": "code.cycle-member"}}}
+    code.builds: {"labels": {"en": {"out": "builds", "in": "code.builds"}, "ru": {"out": "собирает", "in": "code.builds"}}}
+    code.built-by: {"labels": {"en": {"out": "built by", "in": "code.built-by"}, "ru": {"out": "собирается", "in": "code.built-by"}}}
+    code.exposes: {"labels": {"en": {"out": "exposes", "in": "code.exposes"}, "ru": {"out": "открывает", "in": "code.exposes"}}}
+    code.runs: {"labels": {"en": {"out": "runs", "in": "code.runs"}, "ru": {"out": "запускает", "in": "code.runs"}}}
+    code.targets: {"labels": {"en": {"out": "targets", "in": "code.targets"}, "ru": {"out": "нацелено на", "in": "code.targets"}}}
+    code.declares: {"labels": {"en": {"out": "declares", "in": "code.declares"}, "ru": {"out": "объявляет", "in": "code.declares"}}}
+    code.implements: {"labels": {"en": {"out": "implements", "in": "code.implements"}, "ru": {"out": "реализует", "in": "code.implements"}}}
+    code.publishes: {"labels": {"en": {"out": "publishes", "in": "code.publishes"}, "ru": {"out": "публикует", "in": "code.publishes"}}}
+    code.reads: {"labels": {"en": {"out": "reads", "in": "code.reads"}, "ru": {"out": "читает", "in": "code.reads"}}}
+    code.imports: {"labels": {"en": {"out": "imports", "in": "imported by"}, "ru": {"out": "импортирует", "in": "импортируется из"}}}
+    code.imports-package: {"labels": {"en": {"out": "imports a package", "in": "imported by"}, "ru": {"out": "импортирует пакет", "in": "импортируется из"}}}
+    code.writes: {"labels": {"en": {"out": "writes", "in": "code.writes"}, "ru": {"out": "пишет", "in": "code.writes"}}}
+    mentions: {"labels": {"en": {"out": "mentions", "in": "mentioned by"}, "ru": {"out": "mentions", "in": "упомянут в"}}}
+    grounds: {"labels": {"en": {"out": "grounds", "in": "grounds"}, "ru": {"out": "grounds", "in": "основание"}}}
 # The edge kinds the product declares: their ends, whether repeats are allowed and what tells them apart, and
 # the capability that fills them. A kind with a capability takes that capability's contract for its fields.
 edges:

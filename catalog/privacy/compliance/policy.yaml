@@ -1,7 +1,7 @@
 id: oscal.policy
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: An organisational rule that says what must be done, and who may deviate from it.
+definition: A policy is an organisational rule that says what must be done, and who may depart from it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Правило
     many: Правила
 description:
-  en: An organisational rule that says what must be done, and who may deviate from it.
-  ru: Правило организации о том, что должно быть сделано и кто может от него отступить.
+  en: A policy states a rule the organisation expects everyone to follow, such as how data is classified or how access is granted. It names who is bound by it, who may grant an exception and what happens when someone breaks it.
+  ru: 'Правило организации формулирует то, что должны соблюдать все: как классифицируют данные или как выдают доступ. В нём сказано, кого оно связывает, кто может сделать исключение и что будет при нарушении.'

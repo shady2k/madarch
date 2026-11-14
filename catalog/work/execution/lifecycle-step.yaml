@@ -1,7 +1,7 @@
 id: practice.lifecycle-step
 purpose: history
 audience: [developer, product, product-lead, tester]
-definition: 'The record one step of an agent''s task writes as it ends: its duration, tokens, cost, model and outcome.'
+definition: 'A lifecycle step is the record of one step of a task: how long it took, what it cost, which model did it and how it ended.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
 - https://openai.github.io/openai-agents-python/tracing/
@@ -18,6 +18,53 @@ relation-constraints:
   - hasPart
   - measures
 template-policy: none
+fields:
+- name: step
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: who
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: executor_type
+  type: json
+  nullable: true
+  reference: value-set-entry
+  producers:
+  - person
+- name: model
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: at
+  type: timestamp
+  nullable: true
+  producers:
+  - person
+- name: duration
+  type: integer
+  nullable: true
+  producers:
+  - person
+- name: tokens
+  type: integer
+  nullable: true
+  producers:
+  - person
+- name: cost
+  type: text
+  nullable: true
+  producers:
+  - person
+- name: outcome
+  type: text
+  nullable: true
+  producers:
+  - person
 labels:
   en:
     one: Lifecycle step
@@ -26,5 +73,5 @@ labels:
     one: Шаг жизненного цикла
     many: Шаги жизненного цикла
 description:
-  en: One step of an agent's task, with its duration, tokens, cost, model and outcome.
-  ru: Один шаг задачи агента с длительностью, токенами, стоимостью, моделью и результатом.
+  en: 'A lifecycle step records one step of a task performed by an agent: when it started and ended, which model did it, how many tokens and how much money it used, and its outcome. A sequence of such records shows how the task went.'
+  ru: 'Шаг жизненного цикла — запись об одном шаге задачи, который выполнил агент: когда он начался и закончился, какая модель его выполняла, сколько токенов и денег он стоил и чем закончился. Последовательность таких записей показывает, как шла работа над задачей.'

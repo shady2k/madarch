@@ -1,7 +1,7 @@
 id: nist800-34.backup-policy
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: How often a backup is taken, how long it is kept and where it is stored.
+definition: A backup policy sets how often a backup is taken, how long it is kept and where it is stored.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Политика резервного копирования
     many: Политики резервного копирования
 description:
-  en: How often a backup is taken, how long it is kept and where it is stored.
-  ru: Как часто делают резервную копию, сколько её хранят и где.
+  en: A backup policy decides the rhythm of copies, their retention and the places they are kept, including a copy away from the original. It also says who may restore and how a restore is tested.
+  ru: Политика резервного копирования задаёт, как часто делают копии, сколько их хранят и где держат, включая копию вдали от оригинала. В ней также сказано, кто может восстанавливать и как проверяют восстановление.

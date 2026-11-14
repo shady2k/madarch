@@ -1,7 +1,7 @@
 id: practice.cache
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: A store that keeps values where they are cheaper to read, with the rule that decides how long they live.
+definition: A cache is a store that keeps values where they are quicker to read, with the rule that decides how long they stay.
 sources:
 - https://www.rfc-editor.org/rfc/rfc9111.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Кэш
     many: Кэши
 description:
-  en: A store that keeps values where they are cheaper to read, with the rule that decides how long they live.
-  ru: Хранилище значений там, где их читать дешевле, с правилом, определяющим время их жизни.
+  en: A cache keeps a copy of data closer to where it is needed, in memory or on a faster medium, so a repeated read does not go back to the slow source. A policy decides what is kept, for how long and when a stale copy is dropped.
+  ru: Кэш держит копию данных ближе к тому месту, где она нужна, — в памяти или на более быстром носителе, — чтобы повторное чтение не шло к медленному источнику. Правило решает, что хранить, как долго и когда выбрасывать устаревшую копию.

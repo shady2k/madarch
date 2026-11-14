@@ -1,7 +1,7 @@
 id: practice.support-request
 purpose: quality
 audience: [operations, product, developer]
-definition: A question or a problem a person raises with the support of the product.
+definition: A support request is a question or a problem a person raises with the support of the product.
 sources:
 - https://www.atlassian.com/software/jira/service-management
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Обращение в поддержку
     many: Обращения в поддержку
 description:
-  en: A question or a problem a person raises with the support of the product.
-  ru: Вопрос или проблема, с которыми человек обращается в поддержку продукта.
+  en: 'A support request is a message in which a user, a customer or a colleague asks for help with the product: something does not work, is unclear or is missing. It carries the situation, what was tried and what the person expected.'
+  ru: 'Обращение в поддержку — сообщение, в котором пользователь, клиент или коллега просит помочь с продуктом: что-то не работает, непонятно или отсутствует. В нём описаны обстановка, что уже пробовали и чего человек ожидал.'

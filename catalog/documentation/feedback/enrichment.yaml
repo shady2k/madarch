@@ -1,7 +1,7 @@
 id: practice.enrichment
 purpose: quality
 audience: [product, analyst, developer, tester]
-definition: What the agent established about a use case, a rule or a decision from the code and the graph.
+definition: An enrichment is what a person or an agent established about a use case, a rule or a decision from the code and the documents.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -79,7 +79,5 @@ labels:
     one: Обогащение
     many: Обогащения
 description:
-  en: 'What the agent established about a use case, a rule or a decision of the documents: its parts in their own order, the
-    code that carries it out, and the chain from its route — written beside the person''s text, never over it.'
-  ru: 'То, что агент установил о сценарии, правиле или решении из документов: их части в своём порядке, код, который их выполняет,
-    и цепочка от маршрута — записано рядом с текстом человека, а не поверх него.'
+  en: 'An enrichment adds explanation to a statement in the product''s documents: the parts in their order, the code that carries them out and the path from an entry point to them. It sits beside the person''s text, which it explains without replacing.'
+  ru: 'Обогащение добавляет к утверждению в документах продукта объяснение: его части в нужном порядке, код, который их выполняет, и путь от точки входа до них. Оно лежит рядом с текстом человека, поясняет его и не заменяет.'

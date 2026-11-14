@@ -1,7 +1,7 @@
 id: practice.debt-marker
 purpose: quality
 audience: [developer, architect]
-definition: A TODO or FIXME a comment left in the code, which names a debt rather than being one.
+definition: A debt marker is a TODO or FIXME comment left in the code, which points at work that was knowingly postponed.
 sources:
 - https://arc42.org/overview
 acquisition:
@@ -26,5 +26,5 @@ labels:
     one: Маркер долга
     many: Маркеры долга
 description:
-  en: A TODO or FIXME a comment left in the code.
-  ru: TODO или FIXME, оставленный комментарием в коде.
+  en: 'A debt marker is a comment such as TODO or FIXME in which a developer records something left undone: a shortcut, a missing case or a known weakness. The marker names the debt; the debt itself is the weakness it points at.'
+  ru: 'Маркер долга — комментарий вида TODO или FIXME, в котором разработчик записывает недоделанное: упрощение, пропущенный случай или известную слабость. Маркер называет долг, а сам долг — та слабость, на которую он указывает.'

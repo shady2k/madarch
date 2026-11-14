@@ -1,7 +1,7 @@
 id: istqb.test-suite
 purpose: quality
 audience: [tester, developer]
-definition: A set of test cases run together, with the environment they need.
+definition: A test suite is a set of test cases run together, with the environment they need.
 sources:
 - https://glossary.istqb.org/en_US/term/test-suite
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Набор тестов
     many: Наборы тестов
 description:
-  en: A set of test cases run together, with the environment they need.
-  ru: Набор тестовых случаев, выполняемых вместе, с нужной им средой.
+  en: 'A test suite groups test cases that are run as one: all unit tests, the smoke tests, the payment tests. It states the environment and the setup they expect, so one command can run them all.'
+  ru: 'Набор тестов объединяет тесты, которые запускают вместе: все модульные, дымовые или тесты оплаты. В нём указаны ожидаемые среда и подготовка, чтобы все они запускались одной командой.'

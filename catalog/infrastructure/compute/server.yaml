@@ -1,7 +1,7 @@
 id: practice.server
 purpose: structure
 audience: [operations, platform-devops, architect]
-definition: A machine the product runs on, physical or virtual, with the resources it offers.
+definition: A server is a machine the product runs on, physical or virtual, with the resources it offers.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/resource/host/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сервер
     many: Серверы
 description:
-  en: A machine the product runs on, physical or virtual, with the resources it offers.
-  ru: Машина, на которой работает продукт, физическая или виртуальная, с её ресурсами.
+  en: 'A server is one computer, real or virtual, that runs the product''s software: its processor, memory, disks and network addresses. What it offers decides how much work it can carry and what it costs.'
+  ru: 'Сервер — один компьютер, настоящий или виртуальный, на котором работает программа продукта: его процессор, память, диски и сетевые адреса. От того, что он даёт, зависит, сколько работы он выдержит и сколько стоит.'

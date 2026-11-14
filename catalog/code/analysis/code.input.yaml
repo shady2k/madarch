@@ -1,7 +1,7 @@
 id: practice.code-input
 purpose: structure
 audience: [developer, architect]
-definition: A value that enters the code from outside, such as a query parameter.
+definition: An input is a value that enters the code from outside, such as a query parameter, a header or a message field.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Входные данные
     many: Входные данные
 description:
-  en: A value that enters the code from outside, such as a query parameter.
-  ru: Значение, которое попадает в код снаружи, например параметр запроса.
+  en: 'An input is a value the code receives from beyond its own boundary: a request parameter, a header, a field of a message, a line of a file. Its source decides how far it can be trusted and which checks it needs.'
+  ru: 'Входные данные — значение, которое код получает извне своей границы: параметр запроса, заголовок, поле сообщения или строка файла. От источника зависит, насколько ему можно доверять и какие проверки нужны.'

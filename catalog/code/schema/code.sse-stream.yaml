@@ -1,7 +1,7 @@
 id: practice.sse-stream
 purpose: structure
 audience: [developer, architect, analyst]
-definition: A server-sent event stream a service offers to its clients.
+definition: An SSE stream is a server-sent event stream that a service keeps open to push updates to a client.
 sources:
 - https://html.spec.whatwg.org/multipage/server-sent-events.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Поток SSE
     many: Потоки SSE
 description:
-  en: A server-sent event stream a service offers to its clients.
-  ru: Поток событий, который сервис отправляет клиентам.
+  en: A server-sent event stream is one HTTP response the server keeps open and writes events into, so a browser receives updates without asking again. It goes one way, from the service to the client.
+  ru: 'Поток SSE — один HTTP-ответ, который сервер держит открытым и пишет в него события, чтобы браузер получал обновления, не спрашивая снова. Он идёт в одну сторону: от сервиса к клиенту.'

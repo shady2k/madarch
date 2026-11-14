@@ -1,7 +1,7 @@
 id: oscal.component-definition
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: How one component implements the controls a profile selects, as OSCAL defines it.
+definition: A component definition says how one component implements the controls a profile selects, as OSCAL defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Определение компонента
     many: Определения компонента
 description:
-  en: How one component implements the controls a profile selects, as OSCAL defines it.
-  ru: То, как один компонент выполняет контроли, выбранные профилем, как определяет OSCAL.
+  en: A component definition describes a piece of software once and states which controls it can satisfy and how. Several systems can then reuse it instead of describing the same component again.
+  ru: Определение компонента один раз описывает программную часть и говорит, каким контролям она соответствует и как. Разные системы могут затем ссылаться на него, а не описывать тот же компонент заново.

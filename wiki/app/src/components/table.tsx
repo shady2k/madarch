@@ -1,7 +1,9 @@
 /**
  * A connection as a table (decision 0036, section 7): the columns the template names, the page it asked for, and the
  * presses the page acts on — the next page and the previous one through `$<sectionId>_after`, and the filter and the
- * sort through `$<sectionId>_where` and `$<sectionId>_orderBy` when the section's query declares them.
+ * sort through `$<sectionId>_where` and `$<sectionId>_orderBy` when the section's query declares them. A column no row
+ * holds a value for is not drawn, so a template that asks fields some of its records lack reads as the records' own
+ * shape.
  */
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +13,8 @@ import { Input } from './ui/input.js';
 import { Select } from './ui/select.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
-import { at, formatValue, localized } from './format.js';
+import { at, dateOf, formatValue, hostOf, localized } from './format.js';
+import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import { edgesOf, entityHref, nextOf, totalOf } from './connection.js';
 import { follow } from './relations.js';
 import type { SectionContext } from './types.js';
@@ -43,7 +46,12 @@ export function TableSection({ context }: { readonly context: SectionContext }):
   const total = totalOf(connection);
   const rows = edgesOf(connection);
   const next = nextOf(connection);
-  const columns = (Array.isArray(section.params['columns']) ? section.params['columns'] : []) as Column[];
+  const declared = (Array.isArray(section.params['columns']) ? section.params['columns'] : []) as Column[];
+  // A column every row leaves empty is not this list's shape: the template asks the fields its records may hold.
+  const columns = rows.length === 0 ? declared : declared.filter((column) => rows.some((row) => {
+    const value = at(row, column.path);
+    return value !== null && value !== undefined && value !== '';
+  }));
   const filters = (Array.isArray(section.params['filterFields']) ? section.params['filterFields'] : []) as FilterFieldDecl[];
   const [filterField, setFilterField] = useState(filters[0] === undefined ? '' : String(filters[0].field ?? ''));
   const [filterText, setFilterText] = useState('');
@@ -74,14 +82,23 @@ export function TableSection({ context }: { readonly context: SectionContext }):
     setCursors([undefined]);
   };
 
-  const body: ReactNode[][] = rows.map((edge) => {
-    const node = (edge['node'] ?? {}) as Record<string, unknown>;
+  const body: ReactNode[][] = rows.map((row) => {
+    const node = (row['node'] ?? row) as Record<string, unknown>;
     const href = entityHref(node);
     return columns.map((column, index) => {
-      const value = at(edge, column.path);
+      const value = at(row, column.path);
       const format = typeof column.format === 'string' ? column.format : 'text';
-      const written = Array.isArray(value) ? value.map((one) => formatValue(one, format, language)).join(', ') : formatValue(value, format, language);
-      // A row that is an entity reads as a link: a list of records is where a reader goes next.
+      if (format === 'commit' && isCommit(value)) {
+        return <CommitLine commit={value as CommitNode} base={context.base} open={context.open} language={language} withDate={false} withAuthor={false} />;
+      }
+      if (format === 'repository') {
+        const url = typeof value === 'string' ? value : '';
+        return url === '' ? t('knowledge.productRepository') : hostOf(url);
+      }
+      const written = format === 'date'
+        ? (dateOf(value, language) ?? '')
+        : Array.isArray(value) ? value.map((one) => formatValue(one, format, language)).join(', ') : formatValue(value, format, language);
+      // The first column of a row that is an entity reads as the link to it: a list is where a reader goes next.
       return index === 0 && href !== undefined ? <TextLink href={context.base + href} onClick={follow(context.open, context.base + href)}>{written}</TextLink> : written;
     });
   });

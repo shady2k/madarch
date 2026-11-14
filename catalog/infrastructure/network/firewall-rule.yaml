@@ -1,7 +1,7 @@
 id: practice.firewall-rule
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
-definition: A rule that allows or refuses traffic between addresses, ports and protocols.
+definition: A firewall rule allows or refuses traffic between addresses, ports and protocols.
 sources:
 - https://www.rfc-editor.org/rfc/rfc4949.html
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Правило брандмауэра
     many: Правила брандмауэра
 description:
-  en: A rule that allows or refuses traffic between addresses, ports and protocols.
-  ru: Правило, которое разрешает или запрещает трафик между адресами, портами и протоколами.
+  en: 'A firewall rule states which traffic may pass and which may not: from which addresses to which, on which ports and protocols, in which direction. Together the rules decide what can reach a service and what it can reach.'
+  ru: 'Правило брандмауэра говорит, какой трафик можно пропустить, а какой нельзя: от каких адресов к каким, по каким портам и протоколам, в каком направлении. Вместе правила решают, что может дойти до сервиса и куда он сам может обратиться.'

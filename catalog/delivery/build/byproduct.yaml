@@ -1,7 +1,7 @@
 id: slsa.byproduct
 purpose: history
 audience: [developer, platform-devops, operations]
-definition: Something a build emitted besides its artifacts, such as a log or a scan result.
+definition: A byproduct is something a build emitted besides its artifacts, such as a log or a scan result.
 sources:
 - https://slsa.dev/spec/v1.0/provenance
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Побочный результат
     many: Побочные результаты
 description:
-  en: Something a build emitted besides its artifacts, such as a log or a scan result.
-  ru: 'То, что сборка выдала помимо артефактов: журнал или результат проверки.'
+  en: 'A byproduct is output of a build that is not the artifact itself: a build log, a test report, a vulnerability scan or a package listing. It is kept because it explains and supports the artifact.'
+  ru: 'Побочный результат — то, что сборка выдала помимо самого артефакта: журнал сборки, отчёт тестов, результат проверки уязвимостей или список пакетов. Его хранят, потому что он объясняет артефакт и подтверждает его.'

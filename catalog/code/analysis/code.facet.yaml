@@ -1,7 +1,7 @@
 id: practice.file-facet
 purpose: structure
 audience: [developer, architect]
-definition: What the code reader found out about one file, such as its role and its language.
+definition: A code facet is one thing the code reading found out about a file, such as its role, its language or its test status.
 sources:
 - https://c4model.com/abstractions
 acquisition:
@@ -31,5 +31,5 @@ labels:
     one: Срез файла
     many: Срезы файлов
 description:
-  en: 'What the code reader found out about a file: its role and language.'
-  ru: 'Что читатель кода выяснил о файле: его роль и язык.'
+  en: 'A code facet is one property of a file that a code analysis records: its language, whether it is source, test or documentation, which symbol it defines, what it imports. Facets let files be searched and counted by what they are.'
+  ru: 'Срез файла — одно свойство файла, которое записывает анализ кода: язык, роль (исходный код, тест или документация), какой символ он объявляет, что импортирует. По срезам файлы можно искать и считать по тому, что они собой представляют.'

@@ -1,7 +1,7 @@
 id: practice.interface-contract
 purpose: structure
 audience: [developer, architect, analyst, tester]
-definition: An OpenAPI, gRPC or AsyncAPI file that fixes an interface.
+definition: A contract is an OpenAPI, gRPC or AsyncAPI file that fixes an interface between systems.
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
@@ -49,5 +49,5 @@ labels:
     one: Контракт
     many: Контракты
 description:
-  en: An OpenAPI, gRPC or AsyncAPI file that fixes an interface.
-  ru: Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.
+  en: 'A contract is a machine-readable description of an interface: what operations it offers, what they take and return, and which errors they produce. OpenAPI covers HTTP, gRPC covers remote procedure calls and AsyncAPI covers messages; each lets both sides build and check against the same agreement.'
+  ru: 'Контракт — машиночитаемое описание интерфейса: какие операции он предлагает, что они принимают и возвращают и какие дают ошибки. OpenAPI описывает HTTP, gRPC — удалённые вызовы, AsyncAPI — сообщения; по каждому обе стороны могут строить и проверять одну договорённость.'

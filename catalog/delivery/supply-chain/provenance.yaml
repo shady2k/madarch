@@ -1,7 +1,7 @@
 id: slsa.provenance
 purpose: history
 audience: [developer, platform-devops, operations]
-definition: The record of how, where and from what an artifact was built, kept so it can be verified.
+definition: Provenance is the record of how, where and from what an artifact was built, kept so it can be verified.
 sources:
 - https://slsa.dev/spec/v1.0/provenance
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Происхождение
     many: Происхождения
 description:
-  en: The record of how, where and from what an artifact was built, kept so it can be verified.
-  ru: Запись о том, как, где и из чего собран артефакт, хранимая для проверки.
+  en: Build provenance states which source revision, which build definition and which builder produced an artifact, and when. A verifier can replay or compare the record to decide whether the artifact is what it claims to be.
+  ru: Происхождение сборки говорит, какая ревизия исходников, какое описание сборки и какой сборщик создали артефакт и когда. Проверяющий может повторить или сравнить запись и решить, тот ли это артефакт, за который его выдают.

@@ -1,0 +1,40 @@
+# The page of the search's answers (the top bar's field): the entities whose label or text holds the words the address
+# names. The query is the graph's `search` root; the page groups its answers by kind, in the reader's language.
+template: search
+variables:
+  text:
+    type: String!
+    default: ''
+sections:
+  - id: header
+    component: header
+    on: root
+    title: { en: Search, ru: Поиск }
+    query: |
+      home(lang: $lang) {
+        id
+        kind
+        label
+      }
+    params:
+      titlePath: label
+  - id: results
+    component: search
+    on: root
+    title: { en: Results, ru: Результаты }
+    query: |
+      searchGroups(text: $text, perKind: 20, lang: $lang) {
+        kind
+        label
+        count
+        results {
+          node {
+            id
+            kind
+            label
+            template
+          }
+          line
+        }
+      }
+    params: {}

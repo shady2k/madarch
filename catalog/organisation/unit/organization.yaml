@@ -1,7 +1,7 @@
 id: org.organization
 purpose: history
 audience: [product-lead, product, architect]
-definition: A body of people with a purpose, which holds its units and its members, as W3C ORG defines it.
+definition: An organisation is a body of people with a common purpose, which holds its units and its members.
 sources:
 - https://www.w3.org/TR/vocab-org/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Организация
     many: Организации
 description:
-  en: A body of people with a purpose, which holds its units and its members, as W3C ORG defines it.
-  ru: Общность людей с целью, которая держит свои подразделения и участников, как её определяет W3C ORG.
+  en: An organisation is a group of people working towards a common purpose under a name, with its units, roles and members. A company, a public body or a non-profit is an organisation, as W3C ORG defines it.
+  ru: Организация — объединение людей с общей целью и названием, у которого есть подразделения, роли и участники. Компания, государственный орган или некоммерческое объединение — всё это организации, как определяет W3C ORG.

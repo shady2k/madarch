@@ -1,7 +1,7 @@
 id: practice.capacity-test
 purpose: quality
 audience: [tester, developer]
-definition: A test that finds how much load the product can take before it degrades.
+definition: A capacity test finds how much load the product can take before it degrades.
 sources:
 - https://glossary.istqb.org/en_US/term/capacity-testing
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Тест ёмкости
     many: Тесты ёмкости
 description:
-  en: A test that finds how much load the product can take before it degrades.
-  ru: Тест, который выясняет, какую нагрузку продукт выдерживает до деградации.
+  en: A capacity test raises the load step by step until response times or errors cross an agreed limit, and records where that happened. The result says how many users, requests or messages the current setup can carry.
+  ru: Тест ёмкости поднимает нагрузку шаг за шагом, пока время ответа или ошибки не перейдут согласованный предел, и записывает, где это случилось. Результат говорит, сколько пользователей, запросов или сообщений выдерживает нынешняя установка.

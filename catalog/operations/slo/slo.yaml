@@ -1,7 +1,7 @@
 id: sre.slo
 purpose: operations
 audience: [operations, developer, platform-devops, product-lead]
-definition: A target value or range for an SLI over a period, which the service is held to.
+definition: An SLO is a target value or range for an SLI over a period, which the service is held to.
 sources:
 - https://sre.google/sre-book/service-level-objectives/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: SLO
     many: SLO
 description:
-  en: A target value or range for an SLI over a period, which the service is held to.
-  ru: Целевое значение или диапазон SLI за период, которых сервис обязан держаться.
+  en: A service level objective sets the value an indicator should reach over a period, such as 99.9 percent of requests answered within a second in a month. The gap between the target and the ideal is the error budget.
+  ru: 'SLO задаёт значение, которого показатель должен достичь за период: например, 99,9 процента запросов, отвеченных за секунду, за месяц. Разница между целью и идеалом и есть бюджет ошибок.'

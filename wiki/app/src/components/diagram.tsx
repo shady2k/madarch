@@ -9,8 +9,10 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import { useTranslation } from 'react-i18next';
 import { valueAt } from '../../../../src/page-contract/index.js';
 import { Alert, AlertDescription } from './ui/alert.js';
+import { Button } from './ui/button.js';
+import { InlineGroup } from './ui/typography.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.js';
-import { Paragraph } from './ui/typography.js';
+import { Paragraph, Stack } from './ui/typography.js';
 import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
 import { ArchifyPane } from './diagram-panes/archify-pane.js';
@@ -25,7 +27,7 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'archify', label: 'archify' },
 ];
 
-/** The format the reader opened last; the first visit draws nothing until the reader asks, because each picture costs a render. */
+/** The format the reader opened last; the first visit draws the server's own LikeC4 picture until the reader picks another. */
 const PREFERRED_KEY = 'madarch-wiki-diagram';
 
 function preferredTab(): Tab | null {
@@ -35,7 +37,7 @@ function preferredTab(): Tab | null {
   } catch {
     // A browser that refuses storage keeps the choice for this page only.
   }
-  return null;
+  return 'likec4';
 }
 
 export function DiagramSection({ context }: { readonly context: SectionContext }): ReactElement {
@@ -43,46 +45,59 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   const id = typeof valueAt(context.data, 'id') === 'string' ? String(valueAt(context.data, 'id')) : '';
   const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
-  const [tab, setTab] = useState<Tab | null>(() => preferredTab());
+  const [tab, setTab] = useState<Tab>(() => preferredTab() ?? 'likec4');
   const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
   const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
   const address = useMemo(() => {
-    const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove) });
+    const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove), lang: context.language });
     return (format: Tab): string => `${context.base}/render/diagram?${query.toString()}&format=${format}`;
-  }, [id, depth, aggregateAbove, context.base]);
+  }, [id, depth, aggregateAbove, context.base, context.language]);
   const ask = useCallback(async (format: Tab): Promise<void> => {
-    if (id === '' || answers[format] !== undefined) return;
+    const key = address(format);
+    if (id === '' || answers[key] !== undefined) return;
+    const stop = new AbortController();
+    const timer = setTimeout(() => { stop.abort(); }, 15000);
     try {
-      const answer = await fetch(address(format));
+      const answer = await fetch(key, { signal: stop.signal });
       if (!answer.ok) {
-        const said = (await answer.json().catch(() => ({}))) as { message?: string };
-        setAnswers((held) => ({ ...held, [format]: { failed: said.message ?? `the diagram answered ${String(answer.status)}` } }));
+        const said = (await answer.json().catch(() => ({}))) as { message?: string; code?: string };
+        const shown = said.code === 'TIMEOUT' ? t('knowledge.diagramTooLong') : t('knowledge.diagramFailed', { message: said.message ?? `the diagram answered ${String(answer.status)}` });
+        setAnswers((held) => ({ ...held, [key]: { failed: shown } }));
         return;
       }
       const body = (await answer.json()) as Record<string, unknown>;
-      setAnswers((held) => ({ ...held, [format]: body as unknown as LikeC4Answer | MermaidAnswer }));
+      setAnswers((held) => ({ ...held, [key]: body as unknown as LikeC4Answer | MermaidAnswer }));
     } catch (error) {
-      setAnswers((held) => ({ ...held, [format]: { failed: error instanceof Error ? error.message : String(error) } }));
+      const message = error instanceof Error && error.name === 'AbortError' ? t('knowledge.diagramTooLong') : error instanceof Error ? error.message : String(error);
+      setAnswers((held) => ({ ...held, [key]: { failed: message } }));
+    } finally {
+      clearTimeout(timer);
     }
-  }, [address, answers, id]);
-  useEffect(() => { if (tab !== null) void ask(tab); }, [tab, ask]);
-  const held = tab === null ? undefined : answers[tab];
+  }, [address, answers, id, t]);
+  useEffect(() => { void ask(tab); }, [tab, ask]);
+  const held = answers[address(tab)];
   return (
-    <Tabs value={tab ?? ''} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
+    <Tabs value={tab} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
       <TabsList aria-label="diagram">
         {TABS.map((one) => <TabsTrigger key={one.id} value={one.id}>{one.label}</TabsTrigger>)}
       </TabsList>
-      {tab === null ? (
-        <Paragraph>{t('knowledge.choosePicture')}</Paragraph>
-      ) : (
+      {(
         <TabsContent value={tab}>
           {tab === 'archify' ? (
             <ArchifyPane src={address('archify')} root={root} open={context.open} />
           ) : held === undefined ? (
             <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
           ) : 'failed' in held ? (
-            <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+            <Stack>
+              <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+              <InlineGroup>
+                <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
+                  setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
+                  void ask(tab);
+                }}>{t('knowledge.retry')}</Button>
+              </InlineGroup>
+            </Stack>
           ) : tab === 'likec4' ? (
             <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
           ) : (

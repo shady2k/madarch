@@ -1,7 +1,7 @@
 id: practice.metrics-endpoint
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: The route that serves a service's metrics.
+definition: A metrics endpoint is the route that serves a service's metrics.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/metrics/
 acquisition:
@@ -28,5 +28,5 @@ labels:
     one: Выдача метрик
     many: Выдачи метрик
 description:
-  en: The route that serves a service's metrics.
-  ru: Маршрут, по которому сервис отдаёт метрики.
+  en: A metrics endpoint exposes the service's current metric values in a form a collector can read, usually on an internal port. It is scraped at intervals, so each reading is a point in the service's history.
+  ru: Выдача метрик открывает текущие значения метрик сервиса в виде, который может прочитать сборщик, обычно на внутреннем порту. Её опрашивают через промежутки, поэтому каждое чтение — точка в истории сервиса.

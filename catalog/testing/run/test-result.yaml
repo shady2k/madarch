@@ -1,7 +1,7 @@
 id: istqb.test-result
 purpose: quality
 audience: [tester, developer]
-definition: The outcome of one test case in one run, with the time it took and the failure it reported.
+definition: A test result is the outcome of one test case in one run, with the time it took and the failure it reported.
 sources:
 - https://glossary.istqb.org/en_US/term/test-result
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Результат теста
     many: Результаты тестов
 description:
-  en: The outcome of one test case in one run, with the time it took and the failure it reported.
-  ru: Итог одного тестового случая в одном запуске с затраченным временем и сообщённым сбоем.
+  en: A test result states whether one test case passed, failed or was skipped, how long it took and, on failure, what went wrong and where. Results put side by side across runs show what changed.
+  ru: Результат теста говорит, прошёл ли один тест, упал или был пропущен, сколько он занял и при сбое — что и где пошло не так. Сравнив результаты разных запусков, видно, что изменилось.

@@ -1,7 +1,7 @@
 id: protobuf.rpc
 purpose: structure
 audience: [developer, architect, analyst]
-definition: One remote call of a Protocol Buffers service, with its request and response messages.
+definition: A gRPC method is one remote call of a Protocol Buffers service, with its request and response messages.
 sources:
 - https://protobuf.dev/reference/protobuf/proto3-spec/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Метод gRPC
     many: Методы gRPC
 description:
-  en: One remote call of a Protocol Buffers service, with its request and response messages.
-  ru: Один удалённый вызов службы Protocol Buffers с сообщениями запроса и ответа.
+  en: A gRPC method is one call a client can make on a service, with the message it sends and the message it gets back, or with a stream in either direction. The Protocol Buffers file defines both the method and its messages.
+  ru: Метод gRPC — один вызов, который клиент может сделать у службы, с отправляемым и получаемым сообщением или с потоком в одну из сторон. Файл Protocol Buffers задаёт и метод, и его сообщения.

@@ -1,7 +1,7 @@
 id: practice.bug-bounty-program
 purpose: quality
 audience: [security-engineer, tester, developer]
-definition: An arrangement in which outside researchers are paid for the vulnerabilities they report.
+definition: A bug bounty programme pays outside researchers for the vulnerabilities they report, under stated rules.
 sources:
 - https://www.hackerone.com/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Программа поиска уязвимостей
     many: Программы поиска уязвимостей
 description:
-  en: An arrangement in which outside researchers are paid for the vulnerabilities they report.
-  ru: Договорённость, по которой внешним исследователям платят за сообщённые уязвимости.
+  en: A bug bounty programme invites independent researchers to look for weaknesses in the product and pays for valid reports, by severity. Its scope, its rules and its response times are published, so researchers know what is in play.
+  ru: Программа поиска уязвимостей приглашает независимых исследователей искать слабости в продукте и платит за действительные сообщения по их важности. Её область, правила и сроки ответа публикуют, чтобы исследователи знали, что в игре.

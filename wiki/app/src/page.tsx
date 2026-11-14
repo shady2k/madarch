@@ -16,6 +16,7 @@ import { SourceSection } from './components/source.js';
 import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
 import { RunSection } from './components/run.js';
+import { KindsSection } from './components/kinds.js';
 import { CatalogueSection } from './components/catalogue.js';
 import { PrepareSection } from './components/prepare.js';
 import { RunsSection } from './components/runs.js';
@@ -33,10 +34,11 @@ export interface PageRuntime {
   readonly busy: boolean;
   /** The page's variables as the composition bound them (a `run` component reads its run from one). */
   readonly variables: Readonly<Record<string, unknown>>;
-  /** The product's navigation, so a command page names kinds and groups the catalogue's way. */
-  readonly navigation: Navigation | null;
   readonly open: (path: string) => void;
   readonly reload: (variables: Record<string, unknown>) => void;
+  /** The frame's own reading: the product's name and the kinds the sidebar lists. */
+  readonly product: string | null;
+  readonly navigation: Navigation | null;
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
@@ -44,7 +46,8 @@ export function PageView({ composition, data, runtime }: { readonly composition:
   const tabbed = new Set<string>();
   for (const section of composition.sections) {
     if (section.component !== 'tabs') continue;
-    const ids = Array.isArray(section.params['sections']) ? section.params['sections'] : [];
+    const groups = Array.isArray(section.params['groups']) ? (section.params['groups'] as { sections?: unknown }[]) : [];
+    const ids = [...(Array.isArray(section.params['sections']) ? section.params['sections'] : []), ...groups.flatMap((group) => (Array.isArray(group.sections) ? group.sections : []))];
     for (const id of ids) if (typeof id === 'string') tabbed.add(id);
   }
   const render = (section: ComposedSection): ReactElement => {
@@ -55,13 +58,14 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       base: runtime.base,
       busy: runtime.busy,
       variables: runtime.variables,
-      navigation: runtime.navigation,
       open: runtime.open,
       reload: runtime.reload,
       renderSection: (id) => {
         const held = composition.sections.find((one) => one.id === id);
         return held === undefined ? null : render(held);
       },
+      product: runtime.product,
+      navigation: runtime.navigation,
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
@@ -87,6 +91,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'source': return <SourceSection context={context} />;
     case 'tabs': return <TabsSection context={context} sections={sections} />;
     case 'search': return <SearchSection context={context} />;
+    case 'kinds': return <KindsSection context={context} />;
     case 'catalogue': return <CatalogueSection context={context} />;
     case 'prepare': return <PrepareSection context={context} />;
     case 'runs': return <RunsSection context={context} />;

@@ -1,7 +1,7 @@
 id: ddd.subdomain
 purpose: structure
 audience: [architect, developer, analyst]
-definition: A part of the business the model is divided into, classified as core, supporting or generic.
+definition: A subdomain is a part of the business that the model is divided into, classified as core, supporting or generic.
 sources:
 - https://www.domainlanguage.com/ddd/reference/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Подобласть
     many: Подобласти
 description:
-  en: A part of the business the model is divided into, classified as core, supporting or generic.
-  ru: 'Часть бизнеса, на которую делится модель: основная, поддерживающая или общая.'
+  en: A subdomain is one area of the business with its own problems, such as pricing, fulfilment or identity, and domain-driven design marks it as core, supporting or generic. The mark says how much the organisation should invest in a model of its own.
+  ru: 'Подобласть — участок бизнеса со своими задачами: ценообразование, исполнение заказов или идентификация, — и предметно-ориентированное проектирование помечает его как основную, поддерживающую или общую. Пометка говорит, сколько стоит вкладывать в собственную модель.'

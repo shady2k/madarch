@@ -1,7 +1,7 @@
 id: practice.information-item
 purpose: structure
 audience: [analyst, architect, security-engineer]
-definition: One item carried by an information flow, linked to the glossary term that names it.
+definition: An information item is one piece of information carried by an information flow, named by a glossary term.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Элемент информации
     many: Элементы информации
 description:
-  en: One item carried by an information flow, linked to the glossary term that names it.
-  ru: Один элемент, который несёт поток информации, связанный с термином глоссария, который его называет.
+  en: An information item is one piece of data a flow carries, such as a customer's name, an order number or a payment amount. A glossary term names it, so the same item is called the same way wherever it appears.
+  ru: 'Элемент информации — отдельная единица сведений, которую несёт поток: имя клиента, номер заказа или сумма платежа. Его называет термин глоссария, поэтому один и тот же элемент всюду называется одинаково.'

@@ -10,7 +10,13 @@ variables:
 sections:
   - id: header
     component: header
+    on: root
     title: { en: Entity catalogue, ru: Каталог сущностей }
+    query: |
+      home(lang: $lang) {
+        id
+        label
+      }
     params:
       titlePath: label
   - id: catalogue

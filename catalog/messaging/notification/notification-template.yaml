@@ -1,7 +1,7 @@
 id: practice.notification-template
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: The text of a notification with its placeholders, kept apart from the code that sends it.
+definition: A notification template is the text of a notification with its placeholders, kept apart from the code that sends it.
 sources:
 - https://www.rfc-editor.org/rfc/rfc5322.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Шаблон уведомления
     many: Шаблоны уведомлений
 description:
-  en: The text of a notification with its placeholders, kept apart from the code that sends it.
-  ru: Текст уведомления с подстановками, хранимый отдельно от кода, который его отправляет.
+  en: A notification template holds the wording of a message with named places for the values that change, such as a name or an order number. Keeping it separate lets people edit the text without touching the code.
+  ru: 'Шаблон уведомления хранит текст сообщения с именованными местами для меняющихся значений: имени или номера заказа. Отдельное хранение позволяет править текст, не трогая код.'

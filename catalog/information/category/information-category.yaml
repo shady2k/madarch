@@ -1,7 +1,7 @@
 id: practice.information-category
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A class of information the product handles, which decides how it may be stored, shown and shared.
+definition: An information category is a class of information the product handles, which decides how it may be stored, shown and shared.
 sources:
 - https://cyclonedx.org/docs/1.6/json/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Категория информации
     many: Категории информации
 description:
-  en: A class of information the product handles, which decides how it may be stored, shown and shared.
-  ru: Класс информации, с которой работает продукт, определяющий, как её можно хранить, показывать и передавать.
+  en: An information category groups information of one kind — personal data, trade secrets, public material — and sets the rules for handling it. The category decides who may see the information, where it may be kept and to whom it may be sent.
+  ru: Категория информации объединяет сведения одного рода — персональные данные, коммерческую тайну, открытые материалы — и задаёт правила обращения с ними. От категории зависит, кому сведения можно показывать, где их можно хранить и кому передавать.

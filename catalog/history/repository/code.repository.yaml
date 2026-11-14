@@ -1,7 +1,7 @@
 id: practice.vcs-repository
 purpose: structure
 audience: [developer, architect, platform-devops]
-definition: 'A version control repository: the history and the tree the extractors read; it is not a domain repository.'
+definition: A version control repository holds the source files and folders of a product together with the full history of their changes.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -46,6 +46,6 @@ labels:
     one: Репозиторий
     many: Репозитории
 description:
-  en: 'A version control repository: the history and the tree the extractors read; it is not a domain repository.'
-  ru: 'Репозиторий системы контроля версий: история и дерево, которые читают извлекатели; это не репозиторий предметной области.'
+  en: A version control repository holds the source files and folders of a product, and every commit records who changed what and when. A product may keep everything in one repository or spread it over several, for example one per service.
+  ru: Репозиторий — хранилище исходного кода продукта вместе с полной историей его изменений в системе контроля версий (например, git). В нём лежат файлы и папки продукта, а каждый коммит фиксирует, кто, когда и что изменил. У продукта может быть один или несколько репозиториев.
 derives-from: []

@@ -1,7 +1,7 @@
 id: in-toto.attestation
 purpose: quality
 audience: [developer, platform-devops, operations]
-definition: A signed statement about an artifact, such as its provenance or a scan result, in an in-toto envelope.
+definition: An attestation is a signed statement about an artifact, such as its provenance or a scan result, in an in-toto envelope.
 sources:
 - https://github.com/in-toto/attestation/blob/main/spec/README.md
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Аттестация
     many: Аттестации
 description:
-  en: A signed statement about an artifact, such as its provenance or a scan result, in an in-toto envelope.
-  ru: Подписанное утверждение об артефакте, например о происхождении или результате проверки, в конверте in-toto.
+  en: 'An attestation wraps a statement about an artifact in a signature that a verifier can check: who made the claim, about which artifact and what it says. It lets another party trust the artifact without trusting the person who handed it over.'
+  ru: 'Аттестация оборачивает утверждение об артефакте в подпись, которую может проверить проверяющий: кто сделал заявление, о каком артефакте и что именно сказано. Она позволяет другой стороне доверять артефакту, не доверяя тому, кто его передал.'

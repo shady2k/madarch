@@ -3,26 +3,25 @@
  * template bound to no entity. A query parameter binds a variable the template declares, and `lang` and `role` are the
  * reader's own: they are passed to the page's operation, never stored in it.
  *
- * The glossary and the kit are still the frame's own placeholders. The catalogue, the problems, the sources, the product's
- * settings, the runs and the preparation panel are product templates at their own addresses (`/p/catalogue`,
- * `/p/problems`, `/p/sources`, `/p/settings`, `/p/runs`, `/p/prepare`), and one fill run is another
- * (`/p/run?run=<id>`).
+ * The catalogue, the glossary, the problems, the sources, the product's settings, the runs and the preparation panel are
+ * product templates at their own addresses (`/p/catalogue`, `/p/glossary`, `/p/problems`, `/p/sources`, `/p/settings`,
+ * `/p/runs`, `/p/prepare`), and one fill run is another (`/p/run?run=<id>`). The kit is the frame's own placeholder.
  */
 import type { PageAddress } from '../../../src/page-contract/index.js';
 
 /**
- * The frame's sections, by the address each stands at. The app answers `/`, `/e/` and `/p/` (decision 0036, section 7),
- * so a section of the frame stands at a template address of its own name until its page is a template from the product.
+ * The frame's own sections, by the address each stands at. The app answers `/`, `/e/` and `/p/` (decision 0036, section
+ * 7); only the kit is still a frame page, and every other address is a template the product's files hold.
  */
 export const FRAME_PAGES = {
-  glossary: '/p/glossary',
   kit: '/p/kit',
 } as const;
 
-/** Every page the frame's sidebar links to: the placeholders above and the product templates the frame draws. */
+/** Every page the frame's sidebar links to: the placeholder above and the product templates the frame draws. */
 export const PAGE_ADDRESSES = {
   ...FRAME_PAGES,
   catalogue: '/p/catalogue',
+  glossary: '/p/glossary',
   problems: '/p/problems',
   sources: '/p/sources',
   settings: '/p/settings',

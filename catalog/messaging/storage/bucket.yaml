@@ -1,7 +1,7 @@
 id: practice.bucket
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A named container of objects in an object store, with its access rules.
+definition: A bucket is a named container of objects in an object store, with its access rules.
 sources:
 - https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Бакет
     many: Бакеты
 description:
-  en: A named container of objects in an object store, with its access rules.
-  ru: Именованный контейнер объектов в объектном хранилище с правилами доступа.
+  en: A bucket groups objects under one name inside an object store and carries the rules for who may read, write or delete them. Its name is unique within the store's namespace, and its objects are reached by key.
+  ru: Бакет объединяет объекты под одним именем в объектном хранилище и несёт правила о том, кому можно их читать, записывать и удалять. Его имя уникально в пространстве имён хранилища, а к объектам обращаются по ключу.

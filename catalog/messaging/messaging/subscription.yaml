@@ -1,7 +1,7 @@
 id: practice.subscription
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: A consumer's standing interest in a topic or a queue, with the delivery rules it asks for.
+definition: A subscription is a consumer's standing interest in a topic or a queue, with the delivery rules it asks for.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Подписка
     many: Подписки
 description:
-  en: A consumer's standing interest in a topic or a queue, with the delivery rules it asks for.
-  ru: Постоянный интерес потребителя к топику или очереди с запрошенными правилами доставки.
+  en: 'A subscription records that a consumer wants the messages of a topic or a queue and how they should reach it: how many times a failed message is retried, whether order matters and what happens to undelivered messages.'
+  ru: 'Подписка фиксирует, что потребитель хочет получать сообщения темы или очереди и как их ему доставлять: сколько раз повторять неудачную доставку, важен ли порядок и что делать с недоставленными сообщениями.'

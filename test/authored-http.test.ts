@@ -19,6 +19,7 @@ let base: string;
 let home: string;
 let folder: string;
 let closePreparationOwner: (() => Promise<void>) | undefined;
+const errors: string[] = [];
 
 beforeAll(async () => {
   closePreparationOwner = await retainTestStorePreparationOwner();
@@ -30,7 +31,7 @@ beforeAll(async () => {
   await activateTestProduct(empty, home);
   const app = join(work, 'app');
   mkdirSync(app); writeFileSync(join(app, 'index.html'), '<!doctype html><title>Fixture</title>');
-  server = await startServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: () => {} });
+  server = await startServer({ productHome: home, appFolder: app, knowledgeRoot: knowledgeRootOf(home), port: 0, env: authoredEnv, log: () => {}, errorLog: (line) => errors.push(line) });
   base = `${server.url}/products/authored/api/authored?kind=note`;
 }, 60_000);
 
@@ -60,7 +61,7 @@ const readNote = async (uid: string): Promise<{ id: string; title: string; count
 
 test('the authored entity is created, updated and deleted through the command API, and read through GraphQL', async () => {
   const invalid = await send('POST', { values: { title: 3 } });
-  expect(invalid.status).toBe(400);
+  expect(invalid.status, JSON.stringify({ body: await invalid.clone().text(), errors })).toBe(400);
   expect(await invalid.json()).toMatchObject({ error: { field: 'title' } });
   const created = await send('POST', { values: { title: 'A person said this', count: 1 }, words: '  exact words\r\n' });
   expect(created.status).toBe(201);

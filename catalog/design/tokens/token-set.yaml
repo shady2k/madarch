@@ -1,7 +1,7 @@
 id: dtcg.token-set
 purpose: structure
 audience: [designer, developer]
-definition: A named set of design tokens that a theme or a context selects.
+definition: A token set is a named set of design tokens that a theme or a context selects.
 sources:
 - https://www.designtokens.org/TR/2025.10/resolver/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Набор токенов
     many: Наборы токенов
 description:
-  en: A named set of design tokens that a theme or a context selects.
-  ru: Именованный набор токенов дизайна, который выбирает тема или контекст.
+  en: A token set is one complete selection of design token values, for example the light theme or the compact density. A product switches sets to change the look, while the names the components use stay the same.
+  ru: 'Набор токенов — один полный выбор значений токенов дизайна: например, светлая тема или компактная плотность. Продукт переключает наборы, чтобы изменить вид, а имена, которыми пользуются компоненты, остаются прежними.'

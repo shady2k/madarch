@@ -1,7 +1,7 @@
 id: archimate.driver
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: An external or internal condition that motivates the organisation to change.
+definition: A driver is an external or internal condition that motivates the organisation to change.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Движущая сила
     many: Движущие силы
 description:
-  en: An external or internal condition that motivates the organisation to change.
-  ru: Внешнее или внутреннее условие, которое побуждает организацию меняться.
+  en: 'A driver is a circumstance that makes the organisation act: a new regulation, a competitor, a cost rise, a customer complaint, an internal ambition. It is the why behind goals, and it needs no solution of its own.'
+  ru: 'Движущая сила — обстоятельство, которое заставляет организацию действовать: новый закон, конкурент, рост затрат, жалоба клиента или внутреннее стремление. Это причина за целями; собственного решения у неё нет.'

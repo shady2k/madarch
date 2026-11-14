@@ -1,7 +1,7 @@
 id: otel.cicd-pipeline
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A continuous integration workflow file and the triggers it runs on.
+definition: A CI workflow is a continuous integration process file and the triggers it runs on.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Процесс CI
     many: Процессы CI
 description:
-  en: A continuous-integration workflow file.
-  ru: Файл процесса непрерывной интеграции.
+  en: 'A CI workflow declares what runs when a change arrives: which jobs, in what order, on which events such as a push or a pull request. It is defined in a file in the repository, so the checks live with the code.'
+  ru: 'Процесс CI объявляет, что запускается при появлении изменения: какие задачи, в каком порядке и на какие события — push или запрос на слияние. Он задан файлом в репозитории, поэтому проверки живут вместе с кодом.'

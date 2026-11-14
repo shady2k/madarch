@@ -1,7 +1,7 @@
 id: practice.tutorial
 purpose: understand
 audience: [product, analyst, developer, operations]
-definition: A lesson that teaches by making a person complete a small piece of work.
+definition: A tutorial is a lesson that teaches by making a person complete a small piece of work.
 sources:
 - https://diataxis.fr/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Учебник
     many: Учебники
 description:
-  en: A lesson that teaches by making a person complete a small piece of work.
-  ru: Урок, который учит, заставляя человека выполнить небольшую работу.
+  en: A tutorial starts with a person who knows nothing and leads them to a finished small result, teaching one thing at a time. Every step is meant to work, so the learner gains confidence as well as knowledge.
+  ru: Учебник начинает с человека, который ничего не знает, и ведёт его к небольшому законченному результату, уча одному за раз. Каждый шаг должен работать, чтобы учащийся получил и уверенность, и знания.

@@ -1,7 +1,7 @@
 id: istqb.test-basis
 purpose: quality
 audience: [tester, developer]
-definition: The body of knowledge a test condition is derived from, such as a requirement or a story.
+definition: A test basis is the body of knowledge a test condition is derived from, such as a requirement or a story.
 sources:
 - https://glossary.istqb.org/en_US/term/test-basis
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Основа тестирования
     many: Основы тестирования
 description:
-  en: The body of knowledge a test condition is derived from, such as a requirement or a story.
-  ru: 'Знания, из которых выводят условие тестирования: требование или история.'
+  en: 'A test basis is the source a tester reads to decide what must be checked: a requirement, a user story, a design, a regulation or the code. Every test condition should point back to the basis that asked for it.'
+  ru: 'Основа тестирования — источник, по которому проверяющий решает, что надо проверить: требование, история пользователя, проект, правило закона или код. Каждое условие тестирования должно указывать на основу, которая его потребовала.'

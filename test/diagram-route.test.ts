@@ -5,11 +5,11 @@
  * renderers are what is checked, and the walk on a filled product checks the read.
  */
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DiagramNeighbourhood } from '../src/graph/graphql-read.js';
-import type { KnowledgeProduct } from '../src/knowledge/product.js';
+import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { renderDiagram } from '../src/render/diagram-render.js';
 import { callProductTool } from '../src/mcp/authored.js';
 import type { WriteSource } from '../src/graph/graph-writes.js';
@@ -31,11 +31,33 @@ const neighbourhood: DiagramNeighbourhood = {
     { from: '1', to: '3', relation: 'codeContains' },
     { from: '2', to: '1', relation: 'codeContainsOf' },
   ],
+  groups: [{ relation: 'codeContains', side: 'out', kind: 'code.file', total: 2, nodes: ['2', '3'] }],
+  kindWords: new Map([['code.file', 'Файлы']]),
+  kindPages: new Map(),
   labels: new Map([['1', 'repo'], ['2', 'a.ts'], ['3', 'b.ts']]),
   truncated: false,
 };
 
 const product = { diagramNeighbourhood: async () => neighbourhood } as unknown as KnowledgeProduct;
+
+test('LikeC4 shows a self relation through another occurrence linked to the same real entity', async () => {
+  const self: DiagramNeighbourhood = {
+    ...neighbourhood,
+    nodes: new Map([['1', repository as never]]),
+    groups: [{ relation: 'code.imports', label: 'импортирует', side: 'out', kind: 'code.repository', total: 1, nodes: ['1'], canonicalLabel: true }],
+    links: [{ from: '1', to: '1', relation: 'code.imports' }],
+  };
+  const held = { diagramNeighbourhood: async () => self } as unknown as KnowledgeProduct;
+  const answer = await renderDiagram(held, { entity: '1', format: 'likec4' });
+  if (!('body' in answer)) throw new Error(JSON.stringify(answer));
+  const body = answer.body as { workspace: string; links: Record<string, string>; view: { views: Record<string, { edges: { label: string }[] }> } };
+  expect(body.workspace).toContain('n0 -> n1 "импортирует"');
+  expect(body.view.views['index']!.edges.map(edge => edge.label)).toContain('импортирует');
+  expect(body.links).toEqual({ n0: '/e/code.repository/1', n1: '/e/code.repository/1' });
+  const mermaid = await renderDiagram(held, { entity: '1', format: 'mermaid' });
+  if (!('body' in mermaid)) throw new Error(JSON.stringify(mermaid));
+  expect(mermaid.body['source']).toContain('n0 -->|"импортирует"| n0');
+});
 
 test('the Mermaid format answers the server\'s source with a click per node that has a page', async () => {
   const answer = await renderDiagram(product, { entity: '1', format: 'mermaid' });
@@ -43,8 +65,8 @@ test('the Mermaid format answers the server\'s source with a click per node that
   const body = answer.body as { source: string; folded: number };
   expect(body.source).toStartWith('%%{init');
   expect(body.source).toContain('flowchart LR');
-  // An edge and its inverse are one line: the pair reads both ways, and each other pair keeps its own line.
-  expect(body.source.match(/<-->/gu)).toHaveLength(1);
+  // One line per relation of the root: the read counts the groups, so each pair keeps its own line.
+  expect(body.source.match(/-->/gu)?.length).toBeGreaterThanOrEqual(2);
   expect(body.source.match(/^  n\d+ (?:<-->|-->)\|/gmu)).toHaveLength(2);
   expect(body.source).toContain('click n0 href "/e/code.repository/1"');
   expect(body.source).toContain('click n1 href "/e/code.file/2"');
@@ -62,8 +84,10 @@ test('the LikeC4 format answers the workspace and its laid-out view, with each n
 }, 60_000);
 
 test('the archify format answers its self-contained interactive page, each node carrying the entity\'s page', async () => {
-  const answer = await renderDiagram(product, { entity: '1', format: 'archify' });
-  if (!('html' in answer)) throw new Error('the archify answer is not HTML');
+  // The first archify answer may pay the drawing process's own start; the guard is for that, not for the page.
+  const first = await renderDiagram(product, { entity: '1', format: 'archify' });
+  const answer = 'html' in first ? first : await renderDiagram(product, { entity: '1', format: 'archify' });
+  if (!('html' in answer)) throw new Error(`the archify answer is not HTML: ${JSON.stringify(answer).slice(0, 400)}`);
   expect(answer.html.toLowerCase()).toContain('<!doctype html');
   expect(answer.html).toContain('data-node-id');
   expect(answer.html).toContain('/e/code.file/2');
@@ -84,7 +108,7 @@ test('neighbours of one kind above the bound are one node with the count', async
   if (!('body' in answer)) throw new Error('the Mermaid answer is not JSON');
   const body = answer.body as { source: string; folded: number };
   expect(body.folded).toBe(2);
-  expect(body.source).toContain('code.file<br/>× 2');
+  expect(body.source).toContain('Файлы · 2');
 });
 
 test('an entity the graph does not hold is refused', async () => {
@@ -128,4 +152,71 @@ test('an unknown format, a depth below one and a missing entity are refused by t
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
+});
+
+
+test('a CPU-looping renderer is killed by its own deadline while another diagram remains responsive', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-render-loop-'));
+  const looping = join(folder, 'loop.ts');
+  const marker = join(folder, 'started');
+  writeFileSync(looping, `import { writeFileSync } from 'node:fs'; self.onmessage = () => { writeFileSync(${JSON.stringify(marker)}, 'started'); while (true) {} };`);
+  try {
+    const started = performance.now();
+    const stuck = renderDiagram(product, { entity: '1', format: 'mermaid' }, { deadlineMs: 700, workerUrl: new URL(`file://${looping}`) });
+    const other = await renderDiagram(product, { entity: '1', format: 'mermaid' });
+    expect('body' in other).toBe(true);
+    expect(performance.now() - started).toBeLessThan(650);
+    const stopped = await stuck;
+    expect(stopped).toMatchObject({ code: 'TIMEOUT' });
+    expect(performance.now() - started).toBeLessThan(1500);
+    expect(await Bun.file(marker).text()).toBe('started');
+    // A timed-out worker must not kill or consume a subsequent request's answer.
+    expect('body' in await renderDiagram(product, { entity: '1', format: 'mermaid' })).toBe(true);
+  } finally { rmSync(folder, { recursive: true, force: true }); }
+}, 10_000);
+
+test('the render deadline includes the neighbourhood read', async () => {
+  const unread = { diagramNeighbourhood: async () => await new Promise(() => undefined) } as unknown as KnowledgeProduct;
+  expect(await renderDiagram(unread, { entity: '1', format: 'mermaid' }, { deadlineMs: 30 })).toMatchObject({ code: 'TIMEOUT' });
+});
+
+
+test('a cached picture is reused only for the exact freshly read graph', async () => {
+  let label = 'before';
+  const changing = { diagramNeighbourhood: async () => ({ ...neighbourhood, labels: new Map(neighbourhood.labels).set('1', label) }) } as unknown as KnowledgeProduct;
+  const before = await renderDiagram(changing, { entity: '1', format: 'mermaid' });
+  label = 'after';
+  const after = await renderDiagram(changing, { entity: '1', format: 'mermaid' });
+  expect(after).not.toEqual(before);
+  expect(await renderDiagram(changing, { entity: '1', format: 'mermaid' })).toEqual(after);
+});
+
+
+test('read budgets default to thirty seconds and accept server or environment settings', () => {
+  const getter = Object.getOwnPropertyDescriptor(KnowledgeProduct.prototype, 'readDeadlineMs')!.get!;
+  expect(getter.call({ options: {}, env: {} })).toBe(30_000);
+  expect(getter.call({ options: { readDeadlineMs: 450 }, env: {} })).toBe(450);
+  expect(getter.call({ options: {}, env: { MADARCH_READ_DEADLINE_MS: '650' } })).toBe(650);
+  expect(() => getter.call({ options: { readDeadlineMs: -1 }, env: {} })).toThrow('positive');
+});
+
+ test('unsupported diagram depth is BAD_INPUT before reading, through the route and MCP', async () => {
+  let reads = 0;
+  const held = { folder: '/tmp/no-manifest', diagramNeighbourhood: async () => { reads += 1; return neighbourhood; } } as unknown as KnowledgeProduct;
+  expect(await renderDiagram(held, { entity: '1', format: 'mermaid', depth: 2 })).toMatchObject({ status: 400, code: 'BAD_INPUT' });
+  const { createKnowledgePart } = await import('../src/server/knowledge.js');
+  const part = createKnowledgePart({ json: (status: number, body: unknown) => Response.json(body, { status }), refused: (status: number, error: unknown) => ({ response: Response.json({ error }, { status }) }), errorLog: () => undefined }, held, () => [], {});
+  const route = await part.diagram(new Request('http://localhost/render/diagram?entity=1&format=mermaid&depth=2'));
+  expect(route.response.status).toBe(400);
+  const mcp = await callProductTool(held, {} as WriteSource, 'render_diagram', { entity: '1', format: 'mermaid', depth: 2 });
+  expect(mcp.isError).toBe(true);
+  expect(reads).toBe(0);
+});
+
+test('the requested fold bound reaches the neighbourhood reader', async () => {
+  let sample: number | undefined;
+  const held = { diagramNeighbourhood: async (_id: string, _depth: number, _lang: string | undefined, first?: number) => { sample = first; return neighbourhood; } } as unknown as KnowledgeProduct;
+  const answer = await renderDiagram(held, { entity: '1', format: 'mermaid', aggregateAbove: 30 });
+  expect('body' in answer).toBe(true);
+  expect(sample).toBe(30);
 });

@@ -1,7 +1,7 @@
 id: mlmd.execution
 purpose: history
 audience: [developer, architect, product-lead]
-definition: One training of a model, with its parameters, its data and its output.
+definition: A training run is one training of a model, with its parameters, its data and its output.
 sources:
 - https://www.tensorflow.org/tfx/ml_metadata/api_docs/python/mlmd
 - https://mlflow.org/docs/latest/index.html
@@ -23,5 +23,5 @@ labels:
     one: Запуск обучения
     many: Запуски обучения
 description:
-  en: One training of a model, with its parameters, its data and its output.
-  ru: Одно обучение модели с его параметрами, данными и результатом.
+  en: 'A training run records one execution that produced a model: the data it read, the settings it used, the hardware and time it took, and the model it wrote. Repeating the same run should give a comparable model.'
+  ru: 'Запуск обучения описывает один прогон, который создал модель: какие данные он читал, какие настройки использовал, сколько занял и какую модель записал. Повторение того же прогона должно дать сопоставимую модель.'

@@ -1,7 +1,7 @@
 id: gdpr.purpose
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: The reason a processing activity handles personal data.
+definition: A processing purpose is the reason a processing activity handles personal data.
 sources:
 - https://gdpr-info.eu/art-5-gdpr/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Назначение обработки
     many: Назначения обработки
 description:
-  en: The reason a processing activity handles personal data.
-  ru: Причина, по которой действие обработки работает с персональными данными.
+  en: A processing purpose states why personal data is used, such as delivering an order, paying salaries or preventing fraud. Every activity needs a lawful purpose, and data may not be used for another one without a new ground.
+  ru: 'Назначение обработки говорит, зачем используют персональные данные: чтобы доставить заказ, выплатить зарплату или предотвратить мошенничество. У каждого действия должна быть законная цель, и использовать данные для другой нельзя без нового основания.'

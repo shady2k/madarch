@@ -1,7 +1,7 @@
 id: practice.chaos-experiment
 purpose: quality
 audience: [tester, developer]
-definition: A controlled fault injected into a running system to see whether it keeps its promises.
+definition: A chaos experiment injects a controlled fault into a running system to see whether it keeps its promises.
 sources:
 - https://principlesofchaos.org/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Эксперимент с отказами
     many: Эксперименты с отказами
 description:
-  en: A controlled fault injected into a running system to see whether it keeps its promises.
-  ru: Управляемый сбой, внесённый в работающую систему, чтобы увидеть, держит ли она обещания.
+  en: A chaos experiment deliberately breaks something in a running system — stops a server, delays a network, kills a pod — and watches whether the service still meets its stated steady state. It tests resilience against real failure rather than a prediction of it.
+  ru: 'Эксперимент с отказами намеренно ломает что-то в работающей системе: останавливает сервер, задерживает сеть, убивает под, — и смотрит, соблюдает ли сервис заявленное устойчивое состояние. Он проверяет стойкость настоящим сбоем, а не его предсказанием.'

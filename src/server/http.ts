@@ -1,3 +1,9 @@
+/** The bound after which a request still running is reported. */
+export function watchdogBound(env: Readonly<Record<string, string | undefined>>): number {
+  const named = Number(env.MADARCH_WATCHDOG_MS ?? '');
+  return Number.isFinite(named) && named > 0 ? named : 5_000;
+}
+
 /**
  * The server's HTTP layer: Bun's own server, no framework (decision 0008),
  * with the ways in (`POST /models`, `POST /views`, `POST /sources`,
@@ -26,6 +32,9 @@
 import { requestHistoryPreparation, requestHistoryRename } from '../product/store-preparation.js';
 import { existsSync, statSync } from 'node:fs';
 import { closeTrace, openTrace, runInTrace, withSpan, type TraceRun } from '../obs/trace.js';
+import { watchRequest } from './watchdog.js';
+import { requestStage } from './stage.js';
+import { log as logEvent } from '../obs/log.js';
 import { traceKeepOf } from '../knowledge/settings.js';
 import { setPriority } from 'node:os';
 import { dirname, join as joinPath } from 'node:path';
@@ -44,7 +53,6 @@ import { createSourceStores, sourceNameProblem } from './sources.js';
 import { API } from '../knowledge/addresses.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { MANIFEST_FILE, readProduct } from '../product/manifest.js';
-import { productTemplateRefusal } from '../graph/template-check.js';
 import { isExistingDirectoryWithoutManifest } from '../product-wiki/manifestless.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
@@ -77,6 +85,8 @@ const DEPTH_ACCEPTED = 'a whole number from 1';
 const SEND_COMMAND = "bun scripts/send-model.ts <repository> --server <this server's address>";
 
 export interface ServerOptions {
+  /** Each render or GraphQL request's own budget in milliseconds; 30 seconds by default. */
+  readDeadlineMs?: number;
   /** The machine-local state folder for the per-source histories and sidecars, outside the product repository; required with the model routes, left out when only a product wiki is served. */
   dataFolder?: string;
   /** Shared owner of the server's graph-query database. Required with `dataFolder`; the caller opens it — a store's own server, or a server a connection string names. `startServer` owns and closes it. */
@@ -278,9 +288,6 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       else if (options.allowNoManifest === true && isExistingDirectoryWithoutManifest(options.productFolder)) {
         product = { name: basename(options.productFolder), folder: options.productFolder };
       } else throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: ${read.message} (${read.file}, line ${read.line})`);
-      // A page is the product's template (decision 0036, section 6): a template neither side can run refuses the start.
-      const templates = productTemplateRefusal(options.productFolder);
-      if (templates !== undefined) throw new Error(`the product ${JSON.stringify(options.productFolder)} cannot be served as a wiki: its page templates cannot be used\n${templates}`);
     }
     if ((options.productFolder !== undefined || options.productHome !== undefined) && appFolder === undefined) {
       const candidate = joinPath(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wiki', 'app', 'dist');
@@ -328,7 +335,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    * watched a home nothing served).
    */
   const serveHome = options.productHome ?? (options.productFolder === undefined ? productsHome(env as Record<string, string | undefined>) : dirname(options.productFolder));
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(serveHome, '.madarch', 'knowledge'), undefined, { env, errorLog, fillQueued: true, ...(options.readDeadlineMs === undefined ? {} : { readDeadlineMs: options.readDeadlineMs }), ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (product === undefined ? [] : [{ name: product.name, folder: basename(product.folder) }]);
@@ -401,11 +408,6 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       const opened = readProduct(item.folder);
       if (!opened.ok) {
         errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: ${opened.message}`);
-        continue;
-      }
-      const templates = productTemplateRefusal(item.folder);
-      if (templates !== undefined) {
-        errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: its page templates cannot be used\n${templates}`);
         continue;
       }
       next.set(name, {
@@ -1213,13 +1215,63 @@ export function createHandler(dependencies: {
   }
 
   const handle = async (request: Request): Promise<Response> => {
-    if (dependencies.trace === undefined) return await handleUnspanned(request);
     const pathname = new URL(request.url).pathname;
-    return await runInTrace(dependencies.trace, async () => await withSpan('http.request', { 'http.method': request.method, 'http.path': pathname }, async (span) => {
-      const answered = await handleUnspanned(request);
-      span.setAttribute('http.status', answered.status);
+    const requestId = crypto.randomUUID();
+    const started = performance.now();
+    const record = (message: string, fields: Record<string, unknown>, warning = false): void => {
+      (warning ? errorLog : log)(JSON.stringify({ message, ...fields }));
+      if (warning) logEvent.warn(message, fields);
+      else logEvent.info(message, fields);
+    };
+    const stage = watchRequest(
+      { requestId, httpMethod: request.method, httpPath: pathname },
+      (report) => record('http.request.slow', { ...report }, true),
+      { afterMs: watchdogBound(dependencies.env ?? process.env) },
+    );
+    const begin = (): void => { record('http.request.start', { requestId, httpMethod: request.method, httpPath: pathname }); };
+    const finish = (answered: Response): Response => {
+      stage.done();
+      record('http.request.end', { requestId, httpMethod: request.method, httpPath: pathname, status: answered.status, durationMs: Math.round(performance.now() - started) });
       return answered;
-    }));
+    };
+    return await requestStage.run(stage, async () => {
+      try {
+        if (dependencies.trace === undefined) {
+          begin();
+          return finish(await handleUnspanned(request));
+        }
+        return await runInTrace(dependencies.trace, async () => {
+          begin();
+          return finish(await withSpan('http.request', {
+            'http.request.method': request.method,
+            'http.request_id': requestId,
+            'http.route': routeNameOf(pathname),
+            'url.path': pathname,
+            'http.method': request.method,
+            'http.path': pathname,
+          }, async (span) => {
+            const answered = await handleUnspanned(request);
+            span.setAttribute('http.response.status_code', answered.status);
+            span.setAttribute('http.status', answered.status);
+            return answered;
+          }));
+        });
+      } catch (error) {
+        stage.done();
+        record('http.request.end', { requestId, httpMethod: request.method, httpPath: pathname, status: 500, durationMs: Math.round(performance.now() - started) });
+        logEvent.error('http.request.failed', { requestId, httpMethod: request.method, httpPath: pathname }, error);
+        throw error;
+      }
+    });
+  };
+  /** The name a path is traced under: the registered route's own path, else the page family it belongs to. */
+  const routeNameOf = (pathname: string): string => {
+    const held = routes.find((each) => (each.match === undefined ? each.path === pathname : each.match(pathname)));
+    if (held !== undefined) return held.path;
+    if (pathname.startsWith('/products/')) return '/products/:product/*';
+    if (pathname.startsWith('/e/')) return '/e/:kind/:id';
+    if (pathname.startsWith('/p/')) return '/p/:template';
+    return pathname;
   };
   const handleUnspanned = async (request: Request): Promise<Response> => {
     const started = performance.now();

@@ -20,21 +20,21 @@
     "reload": "Reload",
     "missingEntity": "The entity was not returned.",
     "conflict": "{{field}} is now {{current}} ({{author}}).",
-      "new": "New",
-      "edit": "Edit",
-      "delete": "Delete",
-      "save": "Save",
-      "saving": "Saving…",
-      "cancel": "Cancel",
-      "loading": "Loading…",
-      "true": "Yes",
-      "false": "No",
-      "invalidJson": "Enter valid JSON.",
-      "invalidInteger": "Enter a whole number within the supported range.",
-      "confirmDelete": "Delete “{{title}}”? This closes its open opinions.",
-      "confirm": "Delete entity",
-      "deleted": "Entity deleted",
-      "back": "List"
+    "new": "New",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "true": "Yes",
+    "false": "No",
+    "invalidJson": "Enter valid JSON.",
+    "invalidInteger": "Enter a whole number within the supported range.",
+    "confirmDelete": "Delete “{{title}}”? This closes its open opinions.",
+    "confirm": "Delete entity",
+    "deleted": "Entity deleted",
+    "back": "List"
   },
   "brand": {
     "product": "Madarch",
@@ -130,18 +130,11 @@
         "stale": "Out of date",
         "superseded": "Superseded",
         "unplanned": "Not planned",
-
         "planned": "Planned",
         "leased": "Claimed",
         "published": "Published",
         "blocked": "Blocked",
         "stopped": "Stopped",
-
-        "created": "Created",
-        "planning": "Planning",
-        "succeeded": "Completed",
-        "completed_partial": "Partly completed",
-
         "created": "Created",
         "planning": "Planning",
         "succeeded": "Completed",
@@ -157,13 +150,18 @@
         "pending": "Queued"
       }
     },
-    "prefill": {"created": "Product created", "connected": "Code connected", "noCode": "No code repository connected", "empty": "The graph is empty. Choose what to fill next.", "open": "Fill…"},
+    "prefill": {
+      "created": "Product created",
+      "connected": "Code connected",
+      "noCode": "No code repository connected",
+      "empty": "The graph is empty. Choose what to fill next.",
+      "open": "Fill…"
+    },
     "dependencies": {
       "search": "Find a kind",
       "overview": "All sections",
       "oneStep": "1 step",
       "twoSteps": "2 steps",
-
       "title": "Dependency graph",
       "intro": "The entities that take part in a dependency, one column per depth in the dependency order their declarations give: an entity stands after the entities it needs. The state is what the last fill left: filled, partial, or never filled. The entities that take part in no dependency are grouped by section below.",
       "count": "{{kinds}} entities in {{layers}} columns.",
@@ -416,7 +414,7 @@
     },
     "more": "Show more",
     "sourceMissing": "The source cannot be shown",
-    "productRepository": "product repository",
+    "productRepository": "the product repository",
     "lines_one": "{{count}} line",
     "lines_few": "{{count}} lines",
     "lines_many": "{{count}} lines",
@@ -1187,7 +1185,19 @@
       "planError": "{{kind}}: {{message}}",
       "missingPlugin": "the plugin {{plugin}} is missing"
     },
-    "kindDetails": {"noFieldMeaning": "No meaning is published for this property.", "unavailable": "The kind declaration is unavailable. Records are shown below.", "fields": "Fields", "relations": "Relations", "noFields": "No fields are declared.", "noRelations": "No relations are declared.", "records": "Records", "untranslatedField": "Untranslated field", "untranslatedKind": "Untranslated kind", "noProducer": "No producer is declared", "untranslatedDescription": "The kind description is not translated."},
+    "kindDetails": {
+      "noFieldMeaning": "No meaning is published for this property.",
+      "unavailable": "The kind declaration is unavailable. Records are shown below.",
+      "fields": "Fields",
+      "relations": "Relations",
+      "noFields": "No fields are declared.",
+      "noRelations": "No relations are declared.",
+      "records": "Records",
+      "untranslatedField": "Untranslated field",
+      "untranslatedKind": "Untranslated kind",
+      "noProducer": "No producer is declared",
+      "untranslatedDescription": "The kind description is not translated."
+    },
     "kindSources": {
       "standards": "Standards and practices",
       "producer": "Filled by"
@@ -1201,7 +1211,36 @@
       "choose": "Show dependencies and dependents of {{kind}}",
       "contents": "On this page"
     },
-    "catalogueNoPlugin": "No enabled producer plugin"
+    "catalogueNoPlugin": "No enabled producer plugin",
+    "yes": "Yes",
+    "no": "No",
+    "contested": "disputed",
+    "bucket": {
+      "under": "under {{to}} days",
+      "between": "{{from}}–{{to}} days",
+      "over": "{{from}}+ days"
+    },
+    "class": {
+      "code": "code",
+      "test": "test",
+      "documentation": "documentation",
+      "dependency": "dependency",
+      "generated": "generated"
+    },
+    "searchAll": "All results ({{count}})",
+    "countNow": "In the repositories now",
+    "countHistory": "Over the whole history",
+    "authors": "Authors",
+    "retry": "Try again",
+    "diagramTooLong": "The diagram could not be built: the server did not answer within 2 seconds.",
+    "catalogueFilter": "Filter the kinds",
+    "catalogueKinds": "Kinds",
+    "catalogueKind": "Kind",
+    "catalogueWhat": "What it is",
+    "catalogueCount": "Entities",
+    "catalogueTaken": "In the product",
+    "catalogueMore": "Show more kinds",
+    "diagramFailed": "The diagram could not be built: {{message}}"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -1740,6 +1779,11 @@
       "repositories": "The writer reads one code repository and this product has a different number of them.",
       "note": "The run left notes."
     }
+  },
+  "problems": {
+    "templateFindings": "Template findings",
+    "loadingTemplates": "Checking templates…",
+    "noTemplateFindings": "No template findings."
   },
   "kit": {
     "title": "UI kit",

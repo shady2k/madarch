@@ -1,7 +1,7 @@
 id: practice.process-step
 purpose: operations
 audience: [analyst, platform-devops, operations]
-definition: One step of a business process; whether it is done by hand, automated or by an agent is an attribute.
+definition: A process step is one action in a business process, done by a person, by a program or by an agent.
 sources:
 - https://www.omg.org/spec/BPMN/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Шаг процесса
     many: Шаги процесса
 description:
-  en: One step of a business process; whether it is done by hand, automated or by an agent is an attribute.
-  ru: Один шаг бизнес-процесса; выполняется ли он вручную, автоматически или агентом — это атрибут.
+  en: A process step is one action inside a business process, such as checking a document or sending a notification. A person, a program or an agent can carry it out, and it takes defined inputs and produces a defined result for the steps that follow.
+  ru: Шаг процесса — одно действие внутри бизнес-процесса, например проверить документ или отправить уведомление. Его может выполнять человек, программа или агент; шаг получает определённые входные данные и даёт определённый результат следующим шагам.

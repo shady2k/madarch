@@ -1,7 +1,7 @@
 id: nist800-34.contingency-plan
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: The plan that says how a system is brought back after a disruption, and by whom.
+definition: A contingency plan says how a system is brought back after a disruption, and by whom.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: План на случай сбоя
     many: Планы на случай сбоя
 description:
-  en: The plan that says how a system is brought back after a disruption, and by whom.
-  ru: План того, как и кем систему возвращают после сбоя.
+  en: 'A contingency plan sets out the response to a disruption of a system: who is called, what is checked first, which steps restore service and what to do if they fail. It is the practical counterpart of the impact analysis.'
+  ru: 'План на случай сбоя описывает ответ на отказ системы: кого вызывают, что проверяют первым, какие шаги возвращают сервис и что делать, если они не сработали. Это практическая пара к анализу влияния.'

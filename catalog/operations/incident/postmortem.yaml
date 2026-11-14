@@ -1,7 +1,7 @@
 id: sre.postmortem
 purpose: history
 audience: [operations, platform-devops]
-definition: 'The written account of an incident: its impact, its causes, its timeline and what follows from it.'
+definition: 'A postmortem is the written account of an incident: its impact, its causes, its timeline and what follows from it.'
 sources:
 - https://sre.google/workbook/postmortem-culture/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Разбор инцидента
     many: Разборы инцидентов
 description:
-  en: 'The written account of an incident: its impact, its causes, its timeline and what follows from it.'
-  ru: 'Письменный отчёт об инциденте: влияние, причины, хронология и выводы.'
+  en: 'A postmortem explains an incident after it is over: what users experienced, how it happened, which conditions allowed it and what will be changed. It is written to learn, not to blame a person.'
+  ru: 'Разбор инцидента объясняет его после окончания: что пережили пользователи, как это произошло, какие условия это допустили и что будет изменено. Его пишут, чтобы учиться, а не искать виноватого.'

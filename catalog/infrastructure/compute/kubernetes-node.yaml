@@ -1,7 +1,7 @@
 id: kubernetes.node
 purpose: structure
 audience: [operations, platform-devops, architect]
-definition: One machine of a Kubernetes cluster that runs pods.
+definition: A Kubernetes node is one machine of a cluster that runs pods.
 sources:
 - https://kubernetes.io/docs/reference/kubernetes-api/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Узел Kubernetes
     many: Узлы Kubernetes
 description:
-  en: One machine of a Kubernetes cluster that runs pods.
-  ru: Одна машина кластера Kubernetes, на которой работают поды.
+  en: A Kubernetes node is one machine — a server, a virtual machine or a managed instance — that the cluster schedules pods onto and that runs the container runtime. Its capacity and its labels decide which pods it can take.
+  ru: 'Узел Kubernetes — одна машина кластера: сервер, виртуальная машина или управляемый экземпляр, — на которую кластер ставит поды и которая запускает среду контейнеров. От её мощности и меток зависит, какие поды она примет.'

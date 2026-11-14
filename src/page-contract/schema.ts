@@ -19,13 +19,13 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search',
+  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
-const FORMATS = ['text', 'number', 'date', 'bytes', 'link'] as const;
+const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
 const OPERATORS = ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'] as const;
 
 /**
@@ -35,7 +35,17 @@ const OPERATORS = ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_
  */
 export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parameters: Record<string, unknown>; readonly required: readonly string[] }>> = {
   header: {
-    parameters: { titlePath: { type: 'string' }, kindPath: { type: 'string' }, provenancePath: { type: 'string' } },
+    parameters: {
+      titlePath: { type: 'string' },
+      kindPath: { type: 'string' },
+      provenancePath: { type: 'string' },
+      /** The way up: the field holding the repository and the field holding the path, whose folders the trail names. */
+      trail: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { repository: { type: 'string' }, path: { type: 'string' } },
+      },
+    },
     required: ['titlePath'],
   },
   facts: {
@@ -51,6 +61,15 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
             label: LOCALIZED_TEXT_SCHEMA,
             path: { type: 'string' },
             format: { type: 'string', enum: FORMATS },
+            /** A value drawn beside the first: a commit beside its date, an end date beside a start. */
+            then: {
+              type: 'object',
+              required: ['path'],
+              additionalProperties: false,
+              properties: { path: { type: 'string' }, format: { type: 'string', enum: FORMATS } },
+            },
+            /** Keep the row when its value is empty, drawn as a dash. */
+            keep: { type: 'boolean' },
           },
         },
       },
@@ -63,6 +82,11 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       path: { type: 'string' },
       labelPath: { type: 'string' },
       emptyText: LOCALIZED_TEXT_SCHEMA,
+      /** A section that asks one relation of its own names the edge and the direction it was read in. */
+      edge: { type: 'string' },
+      inverse: { type: 'boolean' },
+      /** How many rows a relation shows on one page, when its query pages through `$<section>_first`. */
+      pageSize: { type: 'integer' },
     },
     required: ['path'],
   },
@@ -98,17 +122,46 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
         },
       },
       pageSize: { type: 'integer' },
+      emptyText: LOCALIZED_TEXT_SCHEMA,
     },
     required: ['path', 'columns'],
   },
   bars: {
-    parameters: { path: { type: 'string' }, labelPath: { type: 'string' }, valuePath: { type: 'string' } },
+    parameters: {
+      path: { type: 'string' },
+      labelPath: { type: 'string' },
+      valuePath: { type: 'string' },
+      /** The rows are a histogram's buckets, each named by the days it covers. */
+      buckets: { type: 'boolean' },
+      display: { type: 'string', enum: ['bar', 'treemap', 'timeline'] },
+    },
     required: ['path'],
   },
-  diagram: { parameters: { depth: { type: 'integer' }, aggregateAbove: { type: 'integer' } }, required: [] },
+  diagram: { parameters: { depth: { type: 'integer', enum: [1] }, aggregateAbove: { type: 'integer' } }, required: [] },
   source: { parameters: { path: { type: 'string' } }, required: ['path'] },
-  tabs: { parameters: { sections: { type: 'array', minItems: 1, items: { type: 'string' } } }, required: ['sections'] },
+  tabs: {
+    parameters: {
+      sections: { type: 'array', items: { type: 'string' } },
+      /** A tab that holds several sections: the overview a page opens with, and its picture. */
+      groups: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          required: ['title', 'sections'],
+          additionalProperties: false,
+          properties: {
+            title: LOCALIZED_TEXT_SCHEMA,
+            sections: { type: 'array', minItems: 1, items: { type: 'string' } },
+          },
+        },
+      },
+    },
+    required: [],
+  },
   search: { parameters: { kinds: { type: 'array', items: { type: 'string' } } }, required: [] },
+  /** What the graph holds of each kind, the fullest first, each row opening the kind's catalogue page. */
+  kinds: { parameters: {}, required: [] },
   catalogue: { parameters: {}, required: [] },
   prepare: { parameters: {}, required: [] },
   runs: { parameters: {}, required: [] },
@@ -170,8 +223,9 @@ export const SECTION_SCHEMA = {
 
 /**
  * A template file (section 6): its name, the base it extends, the kinds and entities that open it, the variables it
- * declares and its sections. `records` and `entities` are how a product says which pages this template draws: the
- * bootstrap's `recordTemplates` and `ownTemplates` are read from them.
+ * declares and its sections. `records`, `entities` and `catalogue` are how a product says which pages this template
+ * draws: the bootstrap's `recordTemplates` and `ownTemplates` are read from them (a catalogue entry's page is its kind's
+ * `catalogue` template, when the product names one, and the catalogue template otherwise).
  */
 export const TEMPLATE_SCHEMA = {
   type: 'object',
@@ -182,6 +236,8 @@ export const TEMPLATE_SCHEMA = {
     extends: { type: 'string', pattern: '^[^\\s]+$' },
     records: { type: 'array', items: { type: 'string', pattern: '^[^\\s]+$' } },
     entities: { type: 'array', items: { type: 'string', pattern: '^[^\\s]+$' } },
+    /** The kinds whose catalogue page is this template (a product's own page of the catalogue entry of that kind). */
+    catalogue: { type: 'array', items: { type: 'string', pattern: '^[^\\s]+$' } },
     variables: { type: 'object', additionalProperties: VARIABLE_SCHEMA },
     sections: { type: 'array', minItems: 0, items: SECTION_SCHEMA },
   },

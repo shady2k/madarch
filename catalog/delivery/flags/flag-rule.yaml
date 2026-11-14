@@ -1,7 +1,7 @@
 id: openfeature.targeting-rule
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: The condition under which one variant of a feature flag is served.
+definition: A flag rule is the condition under which one variant of a feature flag is served.
 sources:
 - https://openfeature.dev/specification/glossary
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Правило флага
     many: Правила флага
 description:
-  en: The condition under which one variant of a feature flag is served.
-  ru: Условие, при котором выдаётся один вариант флага функции.
+  en: 'A flag rule says which callers receive a variant: for example, all users in a country, a share of accounts, or people on a named list. Rules are checked in order, and the first that matches decides.'
+  ru: 'Правило флага говорит, какие вызывающие получат вариант: все пользователи страны, доля учётных записей или люди из названного списка. Правила проверяют по порядку, и решает первое подошедшее.'

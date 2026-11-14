@@ -1,7 +1,7 @@
 id: prov.entity
 purpose: history
 audience: [analyst, architect, security-engineer]
-definition: A piece of data whose origin is recorded, as PROV-O defines an entity.
+definition: A provenance entity is a piece of data whose origin is recorded, as PROV-O defines an entity.
 sources:
 - https://www.w3.org/TR/prov-o/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Объект происхождения
     many: Объекты происхождения
 description:
-  en: A piece of data whose origin is recorded, as PROV-O defines an entity.
-  ru: Часть данных, чьё происхождение записано, как сущность в PROV-O.
+  en: A provenance entity is a dataset, a table, a file or a single value whose history is being followed. It is produced by activities and used by other activities, which is how a chain of origin is built.
+  ru: Объект происхождения — набор данных, таблица, файл или отдельное значение, чью историю прослеживают. Его создают одни действия и используют другие, из этого и складывается цепочка происхождения.

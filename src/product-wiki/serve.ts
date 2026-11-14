@@ -26,13 +26,15 @@ import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import type { StartedServer } from '../server/http.js';
 import { knowledgeRootOf } from '../product/store.js';
-import { productTemplateRefusal } from '../graph/template-check.js';
 import { readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from './manifestless.js';
 import { ensureBuilt, type AppBuildOptions } from './app.js';
 
 /** The port the command serves on when none is named; the model server's own default. */
-const DEFAULT_PORT = 4180;
+export const DEFAULT_PORT = 4180;
+
+/** The address a start binds when the command names none: this machine only. */
+export const DEFAULT_HOST = '127.0.0.1';
 
 /** The environment the opener's choice is read from, or the process's. */
 export type ServeEnv = Readonly<Record<string, string | undefined>>;
@@ -128,6 +130,38 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
     });
 }
 
+/**
+ * What a start that could not take its address ended as: a taken port is the person's option to change, any other
+ * failure is the machine's. Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the words, so the
+ * code is checked beside the message's own text.
+ */
+function startFailure(error: unknown, port: number): { outcome: 'refused' | 'failed'; message: string } {
+  const message = (error as Error).message;
+  if ((error as { code?: string }).code === 'EADDRINUSE' || message.includes('EADDRINUSE') || message.toLowerCase().includes('address already in use')) {
+    return { outcome: 'refused', message: `the port ${port} is already in use: nothing else can serve there — name another with --port <n>` };
+  }
+  return { outcome: 'failed', message: `the server could not be started on port ${port}: ${message}` };
+}
+
+/**
+ * Asks whether the address can be taken, before the work a start needs. One `madarch serve` prepares the product's
+ * store and reads its manifests whole before the server takes the port, and that is seconds of startup; a port the
+ * environment refuses, or one another process holds, is answered at once instead of after them (madarch-64o5.68).
+ * The start takes the port itself once more: this is a look, not the start, and a port taken in between is still
+ * the start's own refusal.
+ */
+export function portRefusal(port: number, host: string): { outcome: 'refused' | 'failed'; message: string } | undefined {
+  let probe: ReturnType<typeof Bun.serve> | undefined;
+  try {
+    probe = Bun.serve({ hostname: host, port, fetch: () => new Response(null, { status: 503 }) });
+  } catch (error) {
+    return startFailure(error, port);
+  } finally {
+    probe?.stop(true);
+  }
+  return undefined;
+}
+
 /** Serves one product's wiki; the command's own serving, to be stopped by the one who ran it. */
 export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult> {
   const print = options.print ?? ((line: string) => console.log(line));
@@ -139,25 +173,15 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   if (!read.ok && !noManifest) {
     return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: ${read.message} (${read.file}, line ${read.line})` };
   }
-  const templates = productTemplateRefusal(folder);
-  if (templates !== undefined) {
-    return { outcome: 'refused', message: `the folder ${folder} cannot be served as a product's wiki: its page templates cannot be used\n${templates}` };
-  }
   const built = ensureBuilt({ appFolder: options.appFolder, buildCommand: options.buildCommand, env: options.env }, print);
   if (!built.ok) return { outcome: 'refused', message: built.message };
   const port = options.port ?? DEFAULT_PORT;
   let server: StartedServer;
   try {
     const { startServer } = await import('../server/http.js');
-    server = await startServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(dirname(folder)), appFolder: built.dist, port, host: options.host ?? '127.0.0.1', allowNoManifest: noManifest });
+    server = await startServer({ productFolder: folder, knowledgeRoot: knowledgeRootOf(dirname(folder)), appFolder: built.dist, port, host: options.host ?? DEFAULT_HOST, allowNoManifest: noManifest });
   } catch (error) {
-    const message = (error as Error).message;
-    // Bun's thrown error carries the POSIX code ("EADDRINUSE") rather than the
-    // words, so the code is checked beside the message's own text.
-    if ((error as { code?: string }).code === 'EADDRINUSE' || message.includes('EADDRINUSE') || message.toLowerCase().includes('address already in use')) {
-      return { outcome: 'refused', message: `the port ${port} is already in use: nothing else can serve there — name another with --port <n>` };
-    }
-    return { outcome: 'failed', message: `the server could not be started on port ${port}: ${message}` };
+    return startFailure(error, port);
   }
   // The address first; the opener's outcome is never the address's.
   const networkBound = options.host !== undefined && !['127.0.0.1', 'localhost', '::1'].includes(options.host);

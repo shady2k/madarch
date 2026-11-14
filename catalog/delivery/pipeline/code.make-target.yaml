@@ -1,7 +1,7 @@
 id: practice.make-target
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A target of a Makefile and the commands it runs.
+definition: A make target is a named target of a Makefile and the commands it runs.
 sources:
 - https://www.gnu.org/software/make/manual/make.html
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Цель make
     many: Цели make
 description:
-  en: A target of a Makefile and the commands it runs.
-  ru: Цель Makefile и команды, которые она выполняет.
+  en: A make target is a name in a Makefile that runs a list of commands, often producing or updating a file, such as build, test or clean. Targets may depend on other targets, so one command can bring a whole chain into date.
+  ru: 'Цель make — имя в Makefile, которое выполняет список команд и часто создаёт или обновляет файл: build, test или clean. Цели могут зависеть от других целей, поэтому одна команда обновляет целую цепочку.'

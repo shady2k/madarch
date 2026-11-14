@@ -1,7 +1,7 @@
 id: practice.file-share
 purpose: operations
 audience: [operations, platform-devops, architect]
-definition: A network file system a service mounts and reads as a folder.
+definition: A file share is a network file system that a service mounts and reads as a folder.
 sources:
 - https://www.rfc-editor.org/rfc/rfc7530.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сетевая папка
     many: Сетевые папки
 description:
-  en: A network file system a service mounts and reads as a folder.
-  ru: Сетевая файловая система, которую сервис монтирует и читает как папку.
+  en: A file share is storage on another machine that a server mounts and then uses like a local folder. Several servers can mount the same share, so they see the same files.
+  ru: Сетевая папка — хранилище на другой машине, которое сервер монтирует и дальше использует как обычную папку. Несколько серверов могут смонтировать одну папку и видеть одни и те же файлы.

@@ -135,13 +135,14 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       const { withManifestContract } = await import('../graph/manifest-contract.js');
       const { publishValidatedManifests } = await import('../graph/manifest-publication.js');
       const folder = storeFolderOfProduct(validated.folder);
-      await requestStorePreparation(storeDatabasePath(folder), graphContractOf(validated.manifest));
+      const contract = graphContractOf(validated.manifest);
+      await requestStorePreparation(storeDatabasePath(folder), contract);
       const held = await store(validated.folder);
       await createFillStateSchema(held.owner);
       await createOrchestratorSchema(held.owner);
-      await createOneGraphSchema(held.owner, withManifestContract(graphContractOf(validated.manifest)));
+      await createOneGraphSchema(held.owner, withManifestContract(contract));
       const started = performance.now();
-      try { await publishValidatedManifests(held.owner, validated); }
+      try { await publishValidatedManifests(held.owner, validated, withManifestContract(contract)); }
       finally { if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup catalogue.transaction ${(performance.now() - started).toFixed(1)} ms ${validated.folder} (${validated.vertices.length} declarations)`); }
     },
     async run(request: FillRunRequest): Promise<FillRunResult | RefusedFillRun> {

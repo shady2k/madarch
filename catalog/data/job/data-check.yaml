@@ -1,7 +1,7 @@
 id: practice.data-check
 purpose: quality
 audience: [analyst, tester, developer]
-definition: A rule a dataset is checked against, such as referential integrity or a value range.
+definition: A data check is a rule that a dataset is checked against, such as referential integrity or a value range.
 sources:
 - https://www.w3.org/TR/vocab-dqv/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Проверка данных
     many: Проверки данных
 description:
-  en: A rule a dataset is checked against, such as referential integrity or a value range.
-  ru: 'Правило, по которому проверяют набор данных: ссылочная целостность или диапазон значений.'
+  en: A data check states a condition a dataset should satisfy, such as a column that must never be empty, a value within a range or a reference that must exist elsewhere. Each run of the check says whether the data passed.
+  ru: 'Проверка данных формулирует условие, которому должен соответствовать набор данных: столбец, который не должен быть пустым, значение в заданном диапазоне или ссылка, которая должна существовать в другом месте. Каждый прогон проверки говорит, прошли ли данные.'

@@ -1,7 +1,7 @@
 id: practice.logger
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: Where a service sets up its logging.
+definition: A logger is the place where a service sets up its logging.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/logs/
 acquisition:
@@ -26,5 +26,5 @@ labels:
     one: Логгер
     many: Логгеры
 description:
-  en: Where a service sets up its logging.
-  ru: Место, где сервис настраивает журнал.
+  en: 'A logger is the configuration and the object through which a service writes log records: its level, its format, its destination and its context. It decides what the service tells about itself.'
+  ru: 'Логгер — настройка и объект, через которые сервис пишет записи журнала: уровень, формат, назначение и контекст. Он решает, что сервис рассказывает о себе.'

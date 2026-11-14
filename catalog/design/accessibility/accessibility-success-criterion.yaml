@@ -1,7 +1,7 @@
 id: wcag.success-criterion
 purpose: quality
 audience: [designer, tester, developer]
-definition: A numbered criterion of WCAG that a screen or a component is judged against, at a level A, AA or AAA.
+definition: An accessibility success criterion is a numbered WCAG criterion that a screen or a component is judged against, at level A, AA or AAA.
 sources:
 - https://www.w3.org/TR/WCAG22/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Критерий успеха
     many: Критерии успеха
 description:
-  en: A numbered criterion of WCAG that a screen or a component is judged against, at a level A, AA or AAA.
-  ru: Нумерованный критерий WCAG, по которому судят экран или компонент, уровня A, AA или AAA.
+  en: A success criterion is one requirement of the Web Content Accessibility Guidelines, such as a minimum contrast or a text alternative for an image. The levels A, AA and AAA say how strict the criterion is and which level a product claims to meet.
+  ru: 'Критерий успеха — одно требование Руководства по доступности веб-содержимого: минимальный контраст или текстовая альтернатива для изображения. Уровни A, AA и AAA говорят, насколько критерий строг и какой уровень заявляет продукт.'

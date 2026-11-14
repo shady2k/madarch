@@ -1,7 +1,7 @@
 id: sacm.argument
 purpose: quality
 audience: [product, analyst, tester, architect]
-definition: The reasoning that links an assurance claim to its evidence.
+definition: An assurance argument is the reasoning that links an assurance claim to its evidence.
 sources:
 - https://www.omg.org/spec/SACM/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Аргумент обеспечения
     many: Аргументы обеспечения
 description:
-  en: The reasoning that links an assurance claim to its evidence.
-  ru: Рассуждение, которое связывает утверждение обеспечения с его доказательствами.
+  en: An assurance argument shows step by step why the evidence supports a claim, for example why the tests and the analysis together make the safety goal credible. Each step names what it rests on, so a reader can find the weak place.
+  ru: 'Аргумент обеспечения шаг за шагом показывает, почему доказательства подкрепляют утверждение: например, почему тесты и анализ вместе делают цель безопасности правдоподобной. Каждый шаг называет свою опору, чтобы читатель нашёл слабое место.'

@@ -1,7 +1,7 @@
 id: practice.release
 purpose: operations
 audience: [developer, platform-devops, operations]
-definition: A version of the product made available to its users, with the changes it carries.
+definition: A release is a version of the product made available to its users, with the changes it carries.
 sources:
 - https://helm.sh/docs/topics/charts/
 - https://dora.dev/guides/dora-metrics/
@@ -24,5 +24,5 @@ labels:
     one: Выпуск
     many: Выпуски
 description:
-  en: A version of the product made available to its users, with the changes it carries.
-  ru: Версия продукта, сделанная доступной пользователям, с её изменениями.
+  en: A release is one version of the product handed to its users, marked by a number and carrying a stated set of changes. It may reach everyone at once or gradually, and its notes say what is new.
+  ru: Выпуск — одна версия продукта, переданная пользователям, отмеченная номером и несущая определённый набор изменений. Он может дойти до всех сразу или постепенно, а его заметки говорят, что нового.

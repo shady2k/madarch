@@ -1,7 +1,7 @@
 id: practice.broker
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: A message broker declared by a deployment or by connection settings.
+definition: A message broker is an intermediary that receives messages from sending programs and delivers them to the programs that asked for their topics or queues.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
@@ -25,5 +25,5 @@ labels:
     one: Брокер сообщений
     many: Брокеры сообщений
 description:
-  en: A broker declared by deployment or connection settings.
-  ru: Брокер, объявленный в развёртывании или настройках подключения.
+  en: 'A message broker receives messages from sending programs and delivers each one to the programs that asked for its topic or queue. It decouples the two sides: a sender does not need to know who reads a message or whether that reader is running at the moment.'
+  ru: 'Брокер сообщений принимает сообщения от отправляющих программ и доставляет каждое тем программам, которые подписались на соответствующую тему или очередь. Он развязывает две стороны: отправителю не нужно знать, кто прочитает сообщение и работает ли этот получатель прямо сейчас.'

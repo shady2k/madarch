@@ -1,7 +1,7 @@
 id: practice.commit-author
 purpose: history
 audience: [developer, architect, product-lead]
-definition: A person who made commits.
+definition: An author is the person named as having made a commit.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -35,7 +35,7 @@ labels:
     one: Автор
     many: Авторы
 description:
-  en: A person who made commits.
-  ru: Человек, который делал коммиты.
+  en: An author is the person a commit names as the one who wrote the change, with an address and a date. The author is not always the person who submitted the commit, so both are recorded.
+  ru: Автор — человек, которого коммит называет сделавшим изменение, с адресом и датой. Автор не всегда тот, кто отправил коммит, поэтому записывают обоих.
 derives-from:
 - code.commit

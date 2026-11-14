@@ -1,7 +1,7 @@
 id: practice.decommission-plan
 purpose: operations
 audience: [operations, platform-devops, product-lead]
-definition: The plan that says how a system is taken out of service without losing what it holds.
+definition: A decommission plan says how a system is taken out of service without losing the data and knowledge it holds.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/88/r1/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: План вывода из эксплуатации
     many: Планы вывода из эксплуатации
 description:
-  en: The plan that says how a system is taken out of service without losing what it holds.
-  ru: План того, как систему выводят из обслуживания, не теряя того, что она хранит.
+  en: 'A decommission plan sets out how a system is shut down for good: what must be migrated, archived or destroyed, who does each step, and when the system stops serving its users. It also names what depends on the system and must move first.'
+  ru: 'План вывода из эксплуатации описывает, как систему окончательно отключают: что нужно перенести, сохранить в архиве или уничтожить, кто выполняет каждый шаг и когда система перестаёт обслуживать пользователей. В нём также перечислено, что зависит от системы и должно переехать раньше.'

@@ -1,7 +1,7 @@
 id: practice.push-message
 purpose: structure
 audience: [developer, architect, operations, platform-devops]
-definition: A notification a service pushes to a device or a browser.
+definition: A push message is a notification a service sends to a device or a browser.
 sources:
 - https://www.rfc-editor.org/rfc/rfc8030.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Push-сообщение
     many: Push-сообщения
 description:
-  en: A notification a service pushes to a device or a browser.
-  ru: Уведомление, которое сервис отправляет на устройство или в браузер.
+  en: A push message is a short notification delivered to a phone or a browser through the platform's push service, often when the app is not open. It carries a title, a body and sometimes a link to open.
+  ru: Push-сообщение — короткое уведомление, которое доставляют на телефон или в браузер через службу push-уведомлений платформы, часто когда приложение закрыто. В нём есть заголовок, текст и иногда ссылка, которую нужно открыть.

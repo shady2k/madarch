@@ -1,7 +1,7 @@
 id: practice.repository-landmark
 purpose: history
 audience: [developer, architect, product-lead]
-definition: A repository landmark read from Git, with its commit and the files of that tree.
+definition: 'A repository landmark is a point in a repository''s history: one commit together with the files as they stood at that moment.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Ориентир репозитория
     many: Ориентиры репозитория
 description:
-  en: A repository landmark read from Git, with its commit and the files held by that tree.
-  ru: Ориентир из Git с его коммитом и файлами этого дерева репозитория.
+  en: 'A repository landmark fixes a point in a repository''s history: one commit and the tree of files it holds. Comparing two landmarks shows what changed between them.'
+  ru: 'Ориентир репозитория закрепляет точку в его истории: один коммит и дерево файлов, которые в нём лежат. Сравнив два ориентира, видно, что изменилось между ними.'

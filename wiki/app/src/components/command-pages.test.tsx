@@ -34,6 +34,7 @@ const NAVIGATION = {
     { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', count: 0, entryId: 'e2' },
     { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', count: 3, entryId: 'e3' },
   ],
+  purposes: [],
 };
 
 const ALPHA = { kind: 'demo.alpha', fields: [{ field: 'path', producers: ['disk'] }], agentFields: [] };
@@ -115,7 +116,7 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
     root.render(createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables, navigation: NAVIGATION, open: (path: string) => { opened.push(path); }, reload: () => undefined },
+      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, open: (path: string) => { opened.push(path); }, reload: () => undefined },
     }));
   });
   await settle();

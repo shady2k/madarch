@@ -1,7 +1,7 @@
 id: iso29148.information-item
 purpose: understand
 audience: [product, analyst, tester, architect]
-definition: A document that states the requirements in the form ISO/IEC/IEEE 29148 prescribes.
+definition: A requirements specification states the requirements of a product in the form ISO/IEC/IEEE 29148 prescribes.
 sources:
 - https://standards.ieee.org/ieee/29148/6937/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Спецификация требований
     many: Спецификации требований
 description:
-  en: A document that states the requirements in the form ISO/IEC/IEEE 29148 prescribes.
-  ru: Документ, который излагает требования в форме, предписанной ISO/IEC/IEEE 29148.
+  en: A requirements specification collects what the product must do and how well, in a structure that separates purpose, stakeholders, functions, qualities and constraints. ISO/IEC/IEEE 29148 describes what such a document should hold and how each requirement should be written.
+  ru: Спецификация требований собирает то, что продукт должен делать и насколько хорошо, в структуре, которая отделяет назначение, заинтересованные стороны, функции, качества и ограничения. ISO/IEC/IEEE 29148 описывает, что должен содержать такой документ и как формулировать каждое требование.

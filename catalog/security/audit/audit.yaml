@@ -1,7 +1,7 @@
 id: practice.audit
 purpose: quality
 audience: [security-engineer, architect]
-definition: A recorded examination of the product or its process against a standard, with its findings.
+definition: An audit is a recorded examination of the product or its process against a standard, with its findings.
 sources:
 - https://csrc.nist.gov/pubs/sp/800/53/a/final
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Аудит
     many: Аудиты
 description:
-  en: A recorded examination of the product or its process against a standard, with its findings.
-  ru: Записанная проверка продукта или его процесса по стандарту с её находками.
+  en: An audit compares what the organisation does with what a standard, a law or its own policy requires, by reading records and asking people. Its findings and evidence are kept so a later reader can see how the conclusion was reached.
+  ru: Аудит сравнивает, что организация делает, с тем, что требует стандарт, закон или её собственное правило, по записям и разговорам с людьми. Его находки и доказательства хранят, чтобы позднее было видно, как пришли к выводу.

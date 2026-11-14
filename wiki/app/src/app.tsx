@@ -7,15 +7,17 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
 import { readProblemsCount, readProduct, useChangeStream, useCommandRead, type ProblemsCount } from './components/command.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
+import { ProblemsPage } from './problems.js';
 import { parseAddress, type FramePage } from './address.js';
 import { PageView, type PageRuntime } from './page.js';
-import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
+import { Alert, AlertDescription } from './components/ui/alert.js';
 import {
   ShellDocument, ShellError, ShellFixed, ShellMain, ShellNavigationLoading, ShellRow, ShellScroll, ShellSidebar,
   ShellToolbarLoading,
@@ -27,6 +29,20 @@ import { RoleFirstVisit } from './components/role-first.js';
 import { STALE_STRUCTURE } from './stale.js';
 
 const ROLE_KEY = 'madarch-wiki-role';
+
+/** The section a template-bound address stands for, when the page has a name of the frame's own. */
+function templateTask(template: string | undefined, t: TFunction): string | null {
+  if (template === 'catalogue') return t('navigation.catalogue');
+  if (template === 'glossary') return t('knowledge.glossary.title');
+  if (template === 'search') return t('knowledge.searchResults');
+  if (template === 'prepare') return t('prepare.title');
+  if (template === 'runs') return t('navigation.runs');
+  if (template === 'run') return t('knowledge.fillRun.title');
+  if (template === 'problems') return t('loop.problemsTitle');
+  if (template === 'sources') return t('navigation.documents');
+  if (template === 'settings') return t('settings.title');
+  return null;
+}
 
 function storedRole(): string {
   try {
@@ -70,6 +86,7 @@ export function App(): ReactElement {
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
   const alive = useRef(true);
+  const pageRequest = useRef(0);
 
   const address = useMemo(() => {
     const [pathname, search = ''] = path.split('?');
@@ -97,9 +114,9 @@ export function App(): ReactElement {
     return () => { alive.current = false; };
   }, []);
 
-  const loadBootstrap = useCallback(async (): Promise<Bootstrap | undefined> => {
+  const loadBootstrap = useCallback(async (current: () => boolean = () => alive.current): Promise<Bootstrap | undefined> => {
     const read = await readBootstrap(base, language);
-    if (!alive.current) return undefined;
+    if (!alive.current || !current()) return undefined;
     bootstrapVersion.current += 1;
     if (read.bootstrap === undefined) {
       setFailure(read.message ?? 'the bootstrap could not be read');
@@ -124,15 +141,17 @@ export function App(): ReactElement {
   }, [language, navigation?.product, t]);
 
   const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>): Promise<void> => {
+    const request = ++pageRequest.current;
+    const current = (): boolean => alive.current && request === pageRequest.current;
     setBusy(true);
     const answer = await postQuery<Record<string, unknown>>(base, composition.operation, variables);
-    if (!alive.current) return;
+    if (!current()) return;
     setBusy(false);
     const codes = codesOf(answer.errors);
     if (answer.errors.length > 0) {
       if (codes.includes(STALE_STRUCTURE) && bootstrap !== null) {
-        const read = await loadBootstrap();
-        if (read !== undefined) {
+        const read = await loadBootstrap(current);
+        if (current() && read !== undefined) {
           const again = composePage(read, { ...address.page, lang: language, role, ...(address.home ? { home: true } : {}) });
           if (again.findings.length === 0) await ask(again, again.variables);
         }
@@ -160,6 +179,13 @@ export function App(): ReactElement {
       setLoaded(null);
       return;
     }
+    // An older product may have no `problems` template: its Problems page is the frame's template-findings page, not a
+    // composition finding. A product with the template draws its own listing.
+    if (address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')) {
+      setFailure(null);
+      setLoaded(null);
+      return;
+    }
     const composition = composePage(bootstrap, { ...address.page, lang: language, role });
     if (composition.findings.length > 0) {
       setFailure(composition.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('\n'));
@@ -175,6 +201,7 @@ export function App(): ReactElement {
       return;
     }
     void ask(composition, composition.variables);
+    return () => { pageRequest.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionKey]);
 
@@ -186,7 +213,7 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, navigation, open, reload };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: navigation?.product ?? null, navigation, open, reload };
   const section: FramePage | null = address.frame;
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
@@ -217,8 +244,13 @@ export function App(): ReactElement {
       </Stack>
     );
   }
-  // The kit's own review surface stands at `/kit`; every other section of the frame waits for its page.
-  const page = section === null ? null : section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />;
+  // The kit and template findings have frame pages; other sections wait for their pages. A product without a
+  // `problems` template still has the frame's template-findings page at the same address.
+  const page = section !== null
+    ? section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />
+    : address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')
+      ? <ProblemsPage base={base} />
+      : null;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <RoleFirstVisit base={base} onChosen={(next) => { setRole(next); keepRole(next); }} />
@@ -231,10 +263,11 @@ export function App(): ReactElement {
             <FrameToolbar
               product={navigation?.product ?? identity.data?.name ?? null}
               base={base}
-              task={address.home ? t('knowledge.home') : section === null ? (address.page.template === 'catalogue' ? t('navigation.catalogue') : address.page.template === 'prepare' ? t('prepare.title') : address.page.template === 'runs' ? t('navigation.runs') : address.page.template === 'run' ? t('knowledge.fillRun.title') : address.page.template === 'problems' ? t('loop.problemsTitle') : address.page.template === 'sources' ? t('navigation.documents') : address.page.template === 'settings' ? t('settings.title') : null) : frameWord(section, t)}
+              task={address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t)}
               language={language}
               role={role}
               roles={bootstrap.roles}
+              navigation={navigation}
               busy={busy}
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
@@ -249,7 +282,6 @@ export function App(): ReactElement {
                 <main data-testid="wiki-main">
                   {failure === null ? null : (
                     <Alert variant="problem" className="mb-4" data-testid="wiki-error">
-                      <AlertTitle>{t('knowledge.noSuchPage')}</AlertTitle>
                       <AlertDescription>{failure}</AlertDescription>
                     </Alert>
                   )}

@@ -1,7 +1,7 @@
 id: oscal.assessment-plan
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: What is to be assessed, how and by whom, as OSCAL's assessment layer defines it.
+definition: An assessment plan says what is to be assessed, how and by whom, as OSCAL's assessment layer defines it.
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: План оценки
     many: Планы оценки
 description:
-  en: What is to be assessed, how and by whom, as OSCAL's assessment layer defines it.
-  ru: Что оценивают, как и кем, как определяет слой оценки OSCAL.
+  en: 'An assessment plan sets out the checks a system will undergo: which controls are examined, which methods are used, who carries them out and when. It is the agreement that makes an assessment repeatable and comparable.'
+  ru: 'План оценки задаёт проверки, которые пройдёт система: какие контроли рассматривают, какими методами, кто их выполняет и когда. Это договорённость, благодаря которой оценка становится повторимой и сравнимой.'

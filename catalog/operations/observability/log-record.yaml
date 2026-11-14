@@ -1,7 +1,7 @@
 id: otel.log-record
 purpose: operations
 audience: [developer, operations, platform-devops]
-definition: One record of what a service did, with its time, its severity and its attributes.
+definition: A log record is one entry of what a service did, with its time, its severity and its attributes.
 sources:
 - https://opentelemetry.io/docs/concepts/signals/logs/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Запись журнала
     many: Записи журнала
 description:
-  en: One record of what a service did, with its time, its severity and its attributes.
-  ru: Одна запись того, что сделал сервис, с временем, уровнем и атрибутами.
+  en: 'A log record is one line a service writes about an event: when it happened, how serious it was, what happened and the context around it. Records are searched together to explain a failure.'
+  ru: 'Запись журнала — одна строка, которую сервис пишет о событии: когда оно произошло, насколько серьёзно, что случилось и в каком окружении. Записи ищут вместе, чтобы объяснить сбой.'

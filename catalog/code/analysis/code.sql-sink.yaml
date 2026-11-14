@@ -1,7 +1,7 @@
 id: practice.sql-sink
 purpose: structure
 audience: [developer, architect]
-definition: A call that runs SQL text as it is.
+definition: An SQL sink is a call that sends SQL text to a database for execution.
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
@@ -21,5 +21,5 @@ labels:
     one: Выполнение SQL
     many: Места выполнения SQL
 description:
-  en: A call that runs SQL text as it is.
-  ru: Вызов, который выполняет текст SQL как есть.
+  en: An SQL sink is a place where SQL text is handed to a database to run, such as a query function or an execution call. It is where an unsafe build becomes an actual risk.
+  ru: 'Выполнение SQL — место, где текст SQL передают базе данных на исполнение: функция запроса или вызов выполнения. Здесь небезопасная сборка становится настоящим риском.'

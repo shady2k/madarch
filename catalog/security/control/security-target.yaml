@@ -1,8 +1,7 @@
 id: iso15408.security-target
 purpose: quality
 audience: [security-engineer, architect]
-definition: The document that states the security problem of a product and the measures that answer it, as ISO/IEC 15408 defines
-  it.
+definition: A security target is the document that states the security problem of a product and the measures that answer it, as ISO/IEC 15408 defines it.
 sources:
 - https://www.iso.org/standard/72891.html
 acquisition:
@@ -23,6 +22,5 @@ labels:
     one: Цель безопасности
     many: Цели безопасности
 description:
-  en: The document that states the security problem of a product and the measures that answer it, as ISO/IEC 15408 defines
-    it.
-  ru: Документ, который излагает проблему безопасности продукта и отвечающие ей меры, как определяет ISO/IEC 15408.
+  en: 'A security target is the vendor''s statement about one product: the security problem it faces, the requirements it claims to meet and the evidence that it does. An evaluator judges the product against this statement.'
+  ru: 'Цель безопасности — заявление изготовителя об одном продукте: какую проблему безопасности он решает, каким требованиям, по его утверждению, соответствует и какие есть доказательства. Оценщик судит продукт по этому заявлению.'

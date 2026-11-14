@@ -1,7 +1,7 @@
 id: practice.ai-incident
 purpose: operations
 audience: [security-engineer, product-lead, analyst]
-definition: A harm or a near miss an AI system caused, kept so it can be answered and learned from.
+definition: An AI incident is a harm or a near miss that an AI system caused, kept so it can be answered and learned from.
 sources:
 - https://www.nist.gov/itl/ai-risk-management-framework
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Инцидент ИИ
     many: Инциденты ИИ
 description:
-  en: A harm or a near miss an AI system caused, kept so it can be answered and learned from.
-  ru: Вред или его предотвращение, вызванные системой ИИ, сохранённые, чтобы на них ответить и извлечь урок.
+  en: 'An AI incident records a case where an AI system harmed someone or almost did: a wrong decision, a biased output, a leak or a model that was misused. It is kept with what happened, what was done and what should change.'
+  ru: 'Инцидент ИИ фиксирует случай, когда система ИИ навредила человеку или едва не навредила: неверное решение, предвзятый ответ, утечку или неправильное использование модели. В нём записано, что произошло, что сделали и что стоит изменить.'

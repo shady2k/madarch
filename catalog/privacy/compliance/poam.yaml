@@ -1,7 +1,7 @@
 id: oscal.poam
 purpose: quality
 audience: [security-engineer, analyst, product-lead]
-definition: A plan of action and milestones for the weaknesses an assessment found.
+definition: 'A plan of action and milestones is the plan for the weaknesses an assessment found: what will be fixed, by whom and by when.'
 sources:
 - https://pages.nist.gov/OSCAL/learn/concepts/layer/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: План действий и вех
     many: Планы действий и вех
 description:
-  en: A plan of action and milestones for the weaknesses an assessment found.
-  ru: План действий и вех для слабостей, найденных оценкой.
+  en: A plan of action and milestones lists each weakness an assessment found, the fix planned for it, the person responsible and the date. It is how an organisation tracks the gap between what a control requires and what the system does.
+  ru: План действий и вех перечисляет каждую слабость, найденную оценкой, запланированное исправление, ответственного и срок. По нему организация следит за разрывом между тем, что требует контроль, и тем, что делает система.

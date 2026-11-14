@@ -33,7 +33,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>): P
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, variables: {}, navigation: null, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); } },
+      runtime: { base: '', language: 'en', busy: false, variables: {}, product: 'Madarch', navigation: null, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); } },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -83,11 +83,11 @@ test('facts show each row at its path, and a number is written for the reader', 
 test('a relation row names the relation and links to the entity at its other end', async () => {
   const page = await renderPage(
     [section('backlinks', 'relations', { path: 'backlinks', labelPath: 'relation', emptyText: { en: 'Nothing links to it yet.' } })],
-    { backlinks: { backlinks: { totalCount: 1, edges: [{ node: { relation: 'partOf', from: entity('1', 'src') } }] } } },
+    { backlinks: { backlinks: { totalCount: 1, edges: [{ node: { relation: 'sample.belongs', label: 'belongs to the sample', from: entity('1', 'src') } }] } } },
   );
   try {
-    // The relation's own word, as the wiki's labels give it, not the graph's field name.
-    expect(page.container.textContent).toContain('part of');
+    // The graph supplies product vocabulary; the client does not translate relation identifiers.
+    expect(page.container.textContent).toContain('belongs to the sample');
     expect(page.container.querySelector('a')?.getAttribute('href')).toBe('/e/a.b/1');
   } finally {
     await page.close();
@@ -186,11 +186,11 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   try {
     const tabs = [...page.container.querySelectorAll('[role="tab"]')].map((one) => one.textContent);
     expect(tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
-    // A picture costs a server render: nothing is asked until the reader picks a tab.
-    expect(requested).toHaveLength(0);
+    // The first tab is the picture drawn by itself: LikeC4's view is asked for at once.
+    expect(requested).toHaveLength(1);
+    expect(requested[0]).toContain('format=likec4');
     const likeC4Tab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'LikeC4');
     await act(async () => { likeC4Tab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
-    expect(requested).toHaveLength(1);
     expect(requested[0]).toContain('/render/diagram?entity=uid');
     expect(requested[0]).toContain('format=likec4');
     const mermaidTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');

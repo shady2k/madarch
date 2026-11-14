@@ -1,7 +1,7 @@
 id: otel.cicd-pipeline-run
 purpose: history
 audience: [developer, platform-devops, operations]
-definition: One execution of a pipeline on one revision, with its result and its duration.
+definition: A pipeline run is one execution of a pipeline on one revision, with its result and its duration.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Запуск конвейера
     many: Запуски конвейера
 description:
-  en: One execution of a pipeline on one revision, with its result and its duration.
-  ru: Одно выполнение конвейера на одной ревизии с его результатом и длительностью.
+  en: 'A pipeline run records one pass of a pipeline over one revision: when it started, how long each stage took, what it produced and whether it succeeded. Failed runs show where a change stopped.'
+  ru: 'Запуск конвейера фиксирует один проход конвейера по одной ревизии: когда он начался, сколько занял каждый этап, что получилось и удачно ли всё прошло. Неудачные запуски показывают, где остановилось изменение.'

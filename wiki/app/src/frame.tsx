@@ -36,7 +36,6 @@ import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './
 /** The word the frame gives one of its own sections, in the language the reader reads. */
 export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
-    case 'glossary': return t('knowledge.glossary.title');
     case 'kit': return t('kit.title');
   }
 }
@@ -99,11 +98,6 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
   };
   const here = (address: string): boolean => path === address;
   const link = (address: string) => ({ href: base + address, onClick: follow(address) });
-  const section = (id: FramePage, icon: typeof HomeIcon): ReactElement => (
-    <NavigationLink icon={icon} active={here(PAGE_ADDRESSES[id])} aria-current={here(PAGE_ADDRESSES[id]) ? 'page' : undefined} data-testid={`nav-${id}`} {...link(PAGE_ADDRESSES[id])}>
-      <NavigationLabel>{frameWord(id, t)}</NavigationLabel>
-    </NavigationLink>
-  );
   const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? PAGE_ADDRESSES.catalogue : entityAddress(CATALOGUE_KIND, kind.entryId);
   const kindLink = (kind: NavigationKind, depth: 1 | 2): ReactElement => {
     const address = kindAddress(kind);
@@ -125,7 +119,9 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
         <NavigationLink icon={LayoutGridIcon} active={here(PAGE_ADDRESSES.catalogue)} aria-current={here(PAGE_ADDRESSES.catalogue) ? 'page' : undefined} data-testid="nav-catalogue" {...link(PAGE_ADDRESSES.catalogue)}>
           <NavigationLabel>{t('navigation.catalogue')}</NavigationLabel>
         </NavigationLink>
-        {section('glossary', BookOpenIcon)}
+        <NavigationLink icon={BookOpenIcon} active={here(PAGE_ADDRESSES.glossary)} aria-current={here(PAGE_ADDRESSES.glossary) ? 'page' : undefined} data-testid="nav-glossary" {...link(PAGE_ADDRESSES.glossary)}>
+          <NavigationLabel>{t('knowledge.glossary.title')}</NavigationLabel>
+        </NavigationLink>
         <NavigationLink icon={HistoryIcon} active={here(RUNS_PAGE)} aria-current={here(RUNS_PAGE) ? 'page' : undefined} data-testid="nav-runs" {...link(RUNS_PAGE)}>
           <NavigationLabel>{t('navigation.runs')}</NavigationLabel>
         </NavigationLink>
@@ -249,7 +245,7 @@ function LanguageMenu({ language, onLanguage }: { readonly language: 'en' | 'ru'
   );
 }
 
-/** The top bar: where the reader stands, their role, the language and the way to read the graph again. */
+
 export function FrameToolbar({ product, base, task, language, role, roles, busy, menu, open, onLanguage, onRole, onReload }: {
   readonly product: string | null;
   readonly base: string;
@@ -258,6 +254,7 @@ export function FrameToolbar({ product, base, task, language, role, roles, busy,
   readonly language: 'en' | 'ru';
   readonly role: string;
   readonly roles: readonly string[];
+  readonly navigation?: Navigation | null;
   readonly busy: boolean;
   /** The navigation at a phone's width. */
   readonly menu: ReactNode;

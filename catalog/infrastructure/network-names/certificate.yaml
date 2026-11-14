@@ -1,7 +1,7 @@
 id: x509.certificate
 purpose: operations
 audience: [operations, platform-devops, security-engineer]
-definition: A signed statement that binds a public key to a name, which a service presents to be trusted.
+definition: A certificate is a signed statement that binds a public key to a name, which a service presents to be trusted.
 sources:
 - https://www.rfc-editor.org/rfc/rfc5280.html
 acquisition:
@@ -22,5 +22,5 @@ labels:
     one: Сертификат
     many: Сертификаты
 description:
-  en: A signed statement that binds a public key to a name, which a service presents to be trusted.
-  ru: Подписанное утверждение, связывающее открытый ключ с именем, которое сервис предъявляет для доверия.
+  en: A certificate ties a public key to a name and is signed by an authority that the other side trusts. A service presents it to prove that it is the name it claims, and it expires, so it must be renewed.
+  ru: Сертификат связывает открытый ключ с именем и подписан удостоверяющим центром, которому другая сторона доверяет. Сервис предъявляет его, чтобы доказать, что он и есть заявленное имя; сертификат истекает, поэтому его нужно продлевать.

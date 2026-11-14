@@ -5,7 +5,7 @@
  * One page view is one operation: every section is one aliased root field — a subject section reads the page's entity
  * through `entity(id: $id)` and its inline fragment, a root section is the root field it writes — and the operation
  * declares `$id`, `$lang`, `$role`, the template's variables and the paging variables its sections use, and no other.
- * The server validates a product's templates with this module before it serves; the app composes each page with it, so
+ * The server validates template diagnostics with this module; the app composes each page with it, so
  * a page's shape has one implementation.
  */
 import { typeNameOf } from '../graphql/names.js';
@@ -141,8 +141,15 @@ function variablesUsed(text: string): Set<string> {
  */
 export function composePage(bootstrap: Bootstrap, address: PageAddress): PageComposition {
   const read = templatesOf(bootstrap);
-  const findings: TemplateFinding[] = [...read.findings];
   const template = templateFor(bootstrap, address);
+  const used = new Set<string>();
+  let name: string | undefined = template;
+  while (name !== undefined && !used.has(name)) {
+    used.add(name);
+    name = read.templates.get(name)?.extends;
+  }
+  const findings: TemplateFinding[] = read.findings.filter((finding) =>
+    [...used].some((name) => finding.file === `templates/${name}.yaml`));
   const resolved = resolveTemplate(template, read.templates);
   findings.push(...resolved.findings);
   const empty: PageComposition = { template, operation: '', variables: {}, sections: [], findings };

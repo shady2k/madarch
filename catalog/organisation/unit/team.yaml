@@ -1,7 +1,7 @@
 id: practice.team
 purpose: history
 audience: [product-lead, architect, developer]
-definition: A group of people who work together and answer for a part of the product.
+definition: A team is a small group of people who work together on a shared goal and answer for the result.
 sources:
 - https://www.w3.org/TR/vocab-org/
 acquisition:
@@ -24,5 +24,5 @@ labels:
     one: Команда
     many: Команды
 description:
-  en: A group of people who work together and answer for a part of the product.
-  ru: Группа людей, которые работают вместе и отвечают за часть продукта.
+  en: A team is a group of people who plan and do work together and share responsibility for the outcome. It usually has a name and an area of responsibility, and its members may also belong to other groups such as departments or professional communities.
+  ru: Команда — небольшая группа людей, которые вместе работают над общей целью и отвечают за результат. У команды есть название и круг ответственности, а её участники могут входить и в другие объединения, например в подразделения или профессиональные сообщества.

@@ -1,7 +1,7 @@
 id: archimate.capability
 purpose: understand
 audience: [product, product-lead, analyst]
-definition: What the organisation is able to do, independent of how it does it.
+definition: A business capability is an ability the organisation needs in order to do its work, named independently of the people, systems or processes that provide it.
 sources:
 - https://pubs.opengroup.org/architecture/archimate32-doc/
 acquisition:
@@ -23,5 +23,5 @@ labels:
     one: Бизнес-способность
     many: Бизнес-способности
 description:
-  en: What the organisation is able to do, independent of how it does it.
-  ru: То, что организация умеет делать, независимо от того, как она это делает.
+  en: A business capability names something the organisation is able to do, such as billing a customer or settling a claim. It is described by its outcome rather than by the structure that delivers it, so it stays stable when teams, systems or processes change.
+  ru: 'Бизнес-способность называет то, что организация умеет делать: например, выставлять счёт клиенту или урегулировать страховой случай. Её описывают через результат, а не через подразделения и системы, которые её обеспечивают, поэтому она не меняется вместе с ними.'
