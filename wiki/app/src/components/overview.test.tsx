@@ -2,7 +2,7 @@
  * The home page's overview (madarch-64o5.83): the numbers stand only on a successful answer; a request that failed or has
  * not answered says so ("not known") instead of reporting zero problems or no fill as a fact.
  */
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -11,6 +11,7 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { i18n } = await import('../i18n.js');
 const { ProductOverviewSection } = await import('./overview.js');
+const { resetCommandClient } = await import('./command.js');
 await i18n.changeLanguage('en');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
@@ -27,6 +28,7 @@ async function render(): Promise<{ text: string; close: () => Promise<void> }> {
   return { text: (host.textContent ?? '').replace(/\s+/g, ' '), close: async () => { await act(async () => { root.unmount(); }); host.remove(); } };
 }
 
+beforeEach(() => { resetCommandClient(); });
 beforeAll(() => {
   (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ message: 'the store is closed' }), { status: 500 })) as unknown as typeof fetch;
 });
@@ -53,4 +55,37 @@ test('a successful answer carries the numbers', async () => {
     expect(page.text).toContain('Last fill');
     expect(page.text).not.toContain('not known');
   } finally { await page.close(); }
+});
+
+test('two readers of the same answer make one request and share one change stream', async () => {
+  let problems = 0;
+  let runs = 0;
+  let streams = 0;
+  class FakeSource {
+    constructor() { streams += 1; }
+    addEventListener(): void { /* the section only listens */ }
+    close(): void { /* closed by the last reader */ }
+  }
+  (globalThis as { EventSource?: unknown }).EventSource = FakeSource as unknown as typeof EventSource;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    const answer = url.includes('/api/problems')
+      ? (problems += 1, { open: 2, closed: 0, dismissed: 0, sections: {} })
+      : url.includes('/api/fill-runs') ? (runs += 1, { runs: [] }) : {};
+    return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => { root.render(createElement('div', null, createElement(ProductOverviewSection, { context }), createElement(ProductOverviewSection, { context }))); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+  try {
+    expect(problems).toBe(1);
+    expect(runs).toBe(1);
+    expect(streams).toBe(1);
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+    (globalThis as { EventSource?: unknown }).EventSource = undefined;
+  }
 });

@@ -7,6 +7,7 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { App } = await import('./app.js');
 const { resetConnection } = await import('./connection.js');
+const { resetCommandClient } = await import('./components/command.js');
 await import('./i18n.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
@@ -20,6 +21,7 @@ beforeEach(() => {
   answer = { data: { templateFindings: [finding] } };
   failNetwork = false;
   resetConnection();
+  resetCommandClient();
   window.history.pushState({}, '', '/products/example/p/problems');
   globalThis.fetch = (async (url: string, init?: { body?: string }) => {
     const path = String(url);

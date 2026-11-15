@@ -18,7 +18,7 @@ const message = (failure: unknown): string => failure instanceof Error ? failure
 
 export function RoleFirstVisit({ base, onChosen }: { readonly base: string; readonly onChosen: (role: string) => void }): ReactElement | null {
   const { t } = useTranslation();
-  const read = useCommandRead<ReaderSettingsAnswer>('reader-settings-first', (signal) => readReaderSettings(base, signal));
+  const read = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [selected, setSelected] = useState('everything');
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);

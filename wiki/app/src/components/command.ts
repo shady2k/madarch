@@ -5,7 +5,7 @@
  * its controls are workflow state, not graph data, and they are read here.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { reportOffline, reportOnline, useConnection } from '../connection.js';
+import { connectionGeneration, reportOffline, reportOnline, useConnection } from '../connection.js';
 import { i18n } from '../i18n.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
@@ -320,6 +320,9 @@ function errorOf(body: unknown, status: number): { message: string; code?: strin
   return { message: `the server answered ${String(status)}` };
 }
 
+/** How many changes the tab has seen — the stream's notices and its own successful presses; a read is fresh only at the count it answered under. */
+let changes = 0;
+
 async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
@@ -328,7 +331,9 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
       ...init,
       headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
     });
-  } catch {
+  } catch (failure) {
+    // A read the app itself abandoned (its component left) says nothing about the server.
+    if (init.signal?.aborted === true) throw failure;
     reportOffline();
     throw new CommandError(offlineWords(), 'offline');
   }
@@ -437,55 +442,197 @@ export interface CommandRead<T> {
 }
 
 /**
- * One command read, re-run when its key changes or its `reload` is pressed. The loader is held in a ref, so a component
- * may write it inline; the key says when it must be read.
+ * The reads a page asks for, shared by every component that asks the same one (madarch-64o5.85): one entry per key holds
+ * the answer, the failure, the request under way and the components listening. Two components that read the problems
+ * count read it once; a page that opens again over unchanged data reuses its answer, and the product's one change stream
+ * is what makes it read again. A read abandoned by its last listener is aborted, and its answer stays for the next page
+ * that asks.
+ */
+interface ReadEntry {
+  data: unknown;
+  error: string | null;
+  busy: boolean;
+  /** Whether `data` is an answer (true) or the entry still holds nothing. */
+  hasAnswer: boolean;
+  /** The change count the answer was read at, so a page can tell an unchanged product from a moved one. */
+  changeCount: number;
+  /** The recovery count the answer was read under, so a return from offline always reads again. */
+  generation: number;
+  /** A page's own answer goes stale when its last reader leaves: the next page reads it again. */
+  stale: boolean;
+  readonly listeners: Set<() => void>;
+  loader: ((signal: AbortSignal) => Promise<unknown>) | null;
+  controller: AbortController | null;
+}
+
+const readEntries = new Map<string, ReadEntry>();
+const queuedReloads = new Set<ReadEntry>();
+
+function entryFor(key: string): ReadEntry {
+  let entry = readEntries.get(key);
+  if (entry === undefined) {
+    entry = { data: null, error: null, busy: false, hasAnswer: false, changeCount: -1, generation: connectionGeneration(), stale: true, listeners: new Set(), loader: null, controller: null };
+    readEntries.set(key, entry);
+  }
+  return entry;
+}
+
+function announce(entry: ReadEntry): void {
+  for (const listener of entry.listeners) listener();
+}
+
+function start(entry: ReadEntry): void {
+  if (entry.loader === null) return;
+  entry.controller?.abort();
+  const controller = new AbortController();
+  entry.controller = controller;
+  entry.busy = true;
+  entry.error = null;
+  announce(entry);
+  const loader = entry.loader;
+  const answeredAt = changes;
+  loader(controller.signal).then(
+    (answer) => {
+      if (entry.controller !== controller) return;
+      entry.controller = null;
+      entry.data = answer;
+      entry.hasAnswer = true;
+      entry.changeCount = answeredAt;
+      entry.generation = connectionGeneration();
+      entry.stale = false;
+      entry.error = null;
+      entry.busy = false;
+      announce(entry);
+    },
+    (failure: unknown) => {
+      if (entry.controller !== controller) return;
+      entry.controller = null;
+      entry.busy = false;
+      if (controller.signal.aborted) { announce(entry); return; }
+      // The frame already says the server cannot be reached: a page does not repeat it in a request's words.
+      entry.error = isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
+      entry.hasAnswer = false;
+      announce(entry);
+    },
+  );
+}
+
+/** One reload for every component that pressed in the same turn: they share the request, not one each. */
+function requestReload(entry: ReadEntry): void {
+  if (queuedReloads.has(entry)) return;
+  queuedReloads.add(entry);
+  queueMicrotask(() => {
+    queuedReloads.delete(entry);
+    if (entry.listeners.size > 0) start(entry);
+  });
+}
+
+/**
+ * One command read, shared by its key. A mount reads when the entry holds nothing, when the product changed since the
+ * answer, or when the server has returned since; otherwise it shows the answer already held. `reload` reads again, and
+ * components that press it together make one request.
  */
 export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, enabled = true): CommandRead<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(enabled);
-  const [nonce, setNonce] = useState(0);
+  const [state, setState] = useState<{ data: T | null; error: string | null; busy: boolean }>({ data: null, error: null, busy: enabled });
   const loader = useRef(load);
   loader.current = load;
-  // A return from offline is a new reason to read: the frame's one calm state lifts, and every open page asks again.
+  const held = useRef<ReadEntry | null>(null);
   const connection = useConnection();
   useEffect(() => {
     if (!enabled) {
-      setData(null);
-      setBusy(false);
+      held.current = null;
+      setState({ data: null, error: null, busy: false });
       return;
     }
-    const controller = new AbortController();
-    let alive = true;
-    setBusy(true);
-    loader.current(controller.signal).then(
-      (answer) => { if (alive) { setData(answer); setError(null); setBusy(false); } },
-      (failure: unknown) => {
-        if (alive && !controller.signal.aborted) {
-          // The frame already says the server cannot be reached: a page does not repeat it in a request's words.
-          setError(isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure));
-          setBusy(false);
-        }
-      },
-    );
-    return () => { alive = false; controller.abort(); };
-  }, [key, enabled, nonce, connection.generation]);
-  const reload = useCallback(() => { setNonce((at) => at + 1); }, []);
-  return { data, error, busy, reload };
+    const entry = entryFor(key);
+    held.current = entry;
+    entry.loader = loader.current;
+    const update = (): void => setState({ data: entry.data as T | null, error: entry.error, busy: entry.busy });
+    entry.listeners.add(update);
+    update();
+    const returned = connection.generation !== entry.generation;
+    entry.generation = connection.generation;
+    const fresh = entry.hasAnswer && !entry.stale && entry.changeCount === changes && !returned;
+    if (returned) start(entry);
+    else if (!entry.busy && !fresh) start(entry);
+    return () => {
+      if (held.current === entry) held.current = null;
+      entry.listeners.delete(update);
+      if (entry.listeners.size === 0) {
+        entry.controller?.abort();
+        entry.controller = null;
+        entry.busy = false;
+        entry.stale = true;
+      }
+    };
+  }, [key, enabled, connection.generation]);
+  const reload = useCallback(() => {
+    const entry = held.current;
+    if (entry !== null) requestReload(entry);
+  }, []);
+  return { data: state.data, error: state.error, busy: state.busy, reload };
 }
 
-/** Calls the listener whenever the product's change stream says something changed; silent where the browser has none. */
+// ---- the product's one change stream ------------------------------------------------------------------------------
+
+interface SharedStream {
+  readonly source: EventSource;
+  readonly listeners: Set<() => void>;
+}
+
+const changeStreams = new Map<string, SharedStream>();
+
+function streamFor(base: string): SharedStream {
+  let stream = changeStreams.get(base);
+  if (stream === undefined) {
+    const listeners = new Set<() => void>();
+    const source = new EventSource(eventsAddress(base));
+    // The stream opens by naming the revision the graph is at; the page's own reads already answer that revision, so the
+    // first notice is not a change and does not make every reader ask again. A notice after it moves the tab's change
+    // count and wakes every reader. The stream is also the app's continuous line to the server: its loss is the frame's
+    // calm state even when the reader presses nothing, and its return is what lifts it.
+    let opened = false;
+    source.addEventListener('change', () => {
+      if (!opened) { opened = true; return; }
+      changes += 1;
+      for (const listener of listeners) listener();
+    });
+    source.addEventListener('error', () => { reportOffline(); });
+    source.addEventListener('open', () => { reportOnline(); });
+    stream = { source, listeners };
+    changeStreams.set(base, stream);
+  }
+  return stream;
+}
+
+/** Calls the listener whenever the product's change stream says something changed; one stream is shared by every caller. */
 export function useChangeStream(base: string, onChange: () => void): void {
   const listener = useRef(onChange);
   listener.current = onChange;
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
-    const stream = new EventSource(eventsAddress(base));
-    // The stream is the app's continuous line to the server: its loss is the frame's calm state even when the reader
-    // presses nothing, and its return is what lifts it.
-    stream.addEventListener('change', () => { listener.current(); });
-    stream.addEventListener('error', () => { reportOffline(); });
-    stream.addEventListener('open', () => { reportOnline(); });
-    return () => { stream.close(); };
+    const stream = streamFor(base);
+    const call = (): void => { listener.current(); };
+    stream.listeners.add(call);
+    return () => {
+      stream.listeners.delete(call);
+      if (stream.listeners.size === 0) {
+        stream.source.close();
+        if (changeStreams.get(base) === stream) changeStreams.delete(base);
+      }
+    };
   }, [base]);
+}
+
+/** Forgets every shared read and closes the stream: the tests' own reset before each case. */
+export function resetCommandClient(): void {
+  for (const entry of readEntries.values()) {
+    entry.controller?.abort();
+    entry.listeners.clear();
+  }
+  readEntries.clear();
+  queuedReloads.clear();
+  changes = 0;
+  for (const stream of changeStreams.values()) stream.source.close();
+  changeStreams.clear();
 }

@@ -15,7 +15,7 @@ import type { SectionContext } from './types.js';
 
 export function FirstRunSection({ context }: { readonly context: SectionContext }): ReactElement | null {
   const { t } = useTranslation();
-  const status = useCommandRead<FillStatusAnswer>('first-run-status', (signal) => readFillStatus(context.base, signal));
+  const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(context.base, signal));
   const kinds = context.navigation?.kinds ?? [];
   // A fresh product has had no successful fill. Its starter catalogue and value sets already hold entities, so a kind's
   // count is not what says it is fresh; the fill status does.

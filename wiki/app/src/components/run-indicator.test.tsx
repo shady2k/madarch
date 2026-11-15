@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeEach, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/p/run' });
@@ -6,8 +6,10 @@ GlobalRegistrator.register({ url: 'http://localhost/p/run' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { RunIndicator } = await import('./run-indicator.js');
+const { resetCommandClient } = await import('./command.js');
 await import('../i18n.js');
 afterAll(() => { GlobalRegistrator.unregister(); });
+beforeEach(() => { resetCommandClient(); });
 
 function run(state: string) {
   return { runId: 'run-1', state, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), finishedAt: null, elapsedMs: 10, remainingMs: 0, selected: [], order: [], vertex: null, groups: [], units: [], events: [], records: 0, publishedUnits: 0, agentUsage: null };

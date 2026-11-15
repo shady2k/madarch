@@ -16,8 +16,8 @@ import type { SectionContext } from './types.js';
 export function ProductOverviewSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  const problems = useCommandRead<ProblemsCount>('overview-problems', (signal) => readProblemsCount(context.base, signal));
-  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('overview-runs', (signal) => readFillRuns(context.base, signal));
+  const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(context.base, signal));
+  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => readFillRuns(context.base, signal));
   useChangeStream(context.base, () => { problems.reload(); runs.reload(); });
   const last: FillRunDetail | undefined = runs.data?.runs[0];
   // A number stands only on a successful answer: a request that failed, or has not answered yet, is "not known" — never

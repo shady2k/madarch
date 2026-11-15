@@ -49,9 +49,9 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const [failure, setFailure] = useState<string | null>(null);
   const key = requested.join(',');
   const planRead = useCommandRead<{ plan: FillPlanView }>(`prepare-plan:${key}:${String(pluginsOnly)}`, (signal) => readFillPlan(base, requested, signal, pluginsOnly), requested.length > 0);
-  const agents = useCommandRead<AgentsAnswer>('prepare-agents', (signal) => readAgents(base, signal));
-  const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('prepare-product', (signal) => readProduct(base, signal));
-  const status = useCommandRead<FillStatusAnswer>('prepare-status', (signal) => readFillStatus(base, signal));
+  const agents = useCommandRead<AgentsAnswer>('agents', (signal) => readAgents(base, signal));
+  const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('product', (signal) => readProduct(base, signal));
+  const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
   const plan = planRead.data?.plan;
   const needsAgent = plan?.needsAgent ?? [];
   const requiresAgent = needsAgent.length > 0;

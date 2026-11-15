@@ -101,6 +101,11 @@ export function resetConnection(): void {
   publish();
 }
 
+/** The current recovery count: a read records the one it answered under, so a return from offline is a new read. */
+export function connectionGeneration(): number {
+  return generation;
+}
+
 function subscribe(listener: Listener): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };

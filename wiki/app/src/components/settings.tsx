@@ -136,7 +136,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
   const { t } = useTranslation();
   const base = context.base;
   const settings = useCommandRead<ProductSettingsAnswer>('product-settings', (signal) => readProductSettings(base, signal));
-  const agents = useCommandRead<AgentsAnswer>('settings-agents', (signal) => readAgents(base, signal));
+  const agents = useCommandRead<AgentsAnswer>('agents', (signal) => readAgents(base, signal));
   const reader = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   useChangeStream(base, () => { settings.reload(); agents.reload(); reader.reload(); });
   const [round, setRound] = useState(0);

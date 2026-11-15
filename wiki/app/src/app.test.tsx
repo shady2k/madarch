@@ -12,6 +12,7 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { App } = await import('./app.js');
 const { resetConnection } = await import('./connection.js');
+const { resetCommandClient } = await import('./components/command.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -95,6 +96,7 @@ beforeEach(() => {
   requests.length = 0;
   readerRole = 'everything';
   resetConnection();
+  resetCommandClient();
   try { window.localStorage.clear(); } catch { /* no storage */ }
   // The frame's «Заполнить…» button reads the product's command state, and the change stream is silent here.
   (globalThis as { EventSource?: unknown }).EventSource = undefined;
@@ -180,6 +182,31 @@ test('a path that is no page says so, and asks the graph for nothing', async () 
 
 
 
+test('a page change reads its own page and does not read the frame\'s answers again', async () => {
+  const frameFetch = globalThis.fetch;
+  let problems = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).includes('/api/problems')) problems += 1;
+    return await (frameFetch as typeof fetch)(input, init);
+  }) as typeof fetch;
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    const firstPages = requests.filter((one) => !one.query.includes('bootstrap')).length;
+    expect(firstPages).toBe(1);
+    expect(problems).toBe(1);
+    await act(async () => {
+      window.history.pushState({}, '', '/e/catalogue/00000000-0000-0000-0000-00000000beef');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await settle();
+    expect(requests.filter((one) => !one.query.includes('bootstrap'))).toHaveLength(firstPages + 1);
+    expect(problems).toBe(1);
+  } finally {
+    await page.close();
+  }
+});
+
 test('the saved role is the active role at start', async () => {
   readerRole = 'analyst';
   window.history.pushState({}, '', '/');
@@ -254,7 +281,13 @@ test('a change event refreshes the navigation and asks the current page again', 
     expect(bootstraps).toBe(1);
     expect(pages).toBe(1);
     expect(FakeSource.last).toBeDefined();
+    expect(FakeSource.all).toHaveLength(1);
     expect((FakeSource as unknown as { registered: number }).registered).toBeGreaterThan(0);
+    // The stream opens by naming the revision the page already read: that notice is not a change.
+    await act(async () => { for (const source of FakeSource.all) source.emit(); });
+    await settle();
+    expect(bootstraps).toBe(1);
+    expect(pages).toBe(1);
     await act(async () => { for (const source of FakeSource.all) source.emit(); });
     await settle();
     expect(bootstraps).toBe(2);
