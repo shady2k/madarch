@@ -192,19 +192,18 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
         values['role'] = role;
         continue;
       }
-      const paging = /^(.+)_(first|after)$/u.exec(used);
-      if (paging !== null && paging[1] === section.id) {
-        const pagingType = PAGING_TYPES[paging[2]!]!;
+      const paging = used === `${section.id}_first` ? 'first' : used === `${section.id}_after` ? 'after' : undefined;
+      if (section.id !== '' && paging !== undefined) {
+        const pagingType = PAGING_TYPES[paging]!;
         declarations.set(used, pagingType);
-        if (paging[2] === 'after') continue;
+        if (paging === 'after') continue;
         const pageSize = section.params['pageSize'];
         values[used] = typeof pageSize === 'number' ? pageSize : 50;
         continue;
       }
       // A table's own filter and order (madarch-64o5.128): the page supplies them and the server does the work, so the
       // operation declares them as JSON and no row is filtered here.
-      const table = /^(.+)_(where|orderBy)$/u.exec(used);
-      if (table !== null && table[1] === section.id) {
+      if (section.id !== '' && (used === `${section.id}_where` || used === `${section.id}_orderBy`)) {
         declarations.set(used, 'JSON');
         continue;
       }

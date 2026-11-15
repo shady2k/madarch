@@ -55,7 +55,6 @@ function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
         <ChoiceMenu
           label={label}
           testId={id}
-          className="mt-1 w-full max-w-96"
           value={value ?? ''}
           disabled={disabled}
           onChange={(next) => onChange(next === '' ? null : next)}
@@ -112,7 +111,6 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
             <ChoiceMenu
               label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
               testId={`settings-role-select-${role.role}`}
-              className="mt-1 w-full max-w-96"
               value={assigned ? role.pair!.agent : ''}
               disabled={connection.offline || working || disabled || settings.busy}
               onChange={(next) => assign(role.role, next === '' ? null : next)}
@@ -199,7 +197,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
             <ListItem key={agent.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-line p-3" data-testid={`settings-agent-${agent.id}`} data-chosen={chosen?.id === agent.id ? 'true' : 'false'}>
               <Text className="min-w-0 flex-1">
                 <Text className="block font-medium">{agent.label}</Text>
-                <Text className="block text-small text-muted">
+                <Text className="block min-w-0 break-words text-small text-muted">
                   {agentNote(t, agent)}
                   {agent.login === 'signed-in' ? ` ${t('knowledge.writer.signedIn')}` : agent.login === 'not-signed-in' ? ` ${t('knowledge.writer.notSignedIn', { agent: agent.label })}` : ''}
                 </Text>

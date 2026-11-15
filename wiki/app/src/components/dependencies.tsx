@@ -6,7 +6,7 @@
 import { useTranslation } from 'react-i18next';
 import type { ReactElement } from 'react';
 import { byCodePoint } from '../../../../src/model/order.js';
-import { Paragraph, Stack } from './ui/typography.js';
+import { Metadata, Paragraph, Stack } from './ui/typography.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
 import type { MermaidAnswer } from './diagram-types.js';
 import type { SectionContext } from './types.js';
@@ -132,7 +132,7 @@ export function DependenciesSection({ context }: { readonly context: SectionCont
   const source = sourceOf(graph);
   return (
     <Stack data-testid="dependencies-graph">
-      <Paragraph className="text-small text-muted" data-testid="dependencies-count">{t('knowledge.dependencies.count', { kinds: graph.nodes.length, layers: layersOf(graph) })}</Paragraph>
+      <Metadata data-testid="dependencies-count">{t('knowledge.dependencies.count', { kinds: graph.nodes.length, layers: layersOf(graph) })}</Metadata>
       <MermaidPane answer={{ source } as MermaidAnswer} open={(path) => { context.open(path); }} />
     </Stack>
   );

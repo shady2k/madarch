@@ -9,8 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { LogViewer, type LogViewerEntry, type LogViewerFilters, type LogViewerLabels } from './ui/log-viewer.js';
-import { Metadata, Paragraph, Stack, TextLink } from './ui/typography.js';
-import { readLogs, type LogEntryView, type LogsAnswer } from './command.js';
+import { Metadata, Stack, TextLink } from './ui/typography.js';
+import { logsOf, type LogEntryView, type LogsAnswer } from './logs-query.js';
 import { runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
@@ -60,15 +60,15 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
     const timer = setTimeout(() => { setQuery(filters.query.trim()); }, 250);
     return () => { clearTimeout(timer); };
   }, [filters.query]);
-  const asked = (before?: number, since?: number): Parameters<typeof readLogs>[1] => ({
+  const asked = (before?: number, after?: number): Parameters<typeof logsOf>[1] => ({
     ...(filters.source === '' ? {} : { sources: filters.source }),
     ...(filters.level === '' ? {} : { level: filters.level }),
     ...(filters.run === '' ? {} : { run: filters.run }),
     ...(query === '' ? {} : { q: query }),
-    ...(momentOf(filters.from) === undefined ? {} : { since: momentOf(filters.from) }),
+    ...(momentOf(filters.from) === undefined ? {} : { from: momentOf(filters.from) }),
     ...(momentOf(filters.to) === undefined ? {} : { before: momentOf(filters.to) }),
     ...(before === undefined ? {} : { before }),
-    ...(since === undefined ? {} : { since }),
+    ...(after === undefined ? {} : { from: after }),
     limit: PAGE,
   });
   // The filters moved: the list starts again from the newest page.
@@ -77,7 +77,7 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
     setLoading(true);
     setFailure(null);
     const controller = new AbortController();
-    readLogs(base, asked(), controller.signal).then(
+    logsOf(base, asked(), controller.signal).then(
       (held) => { if (generation.current === mine) { setAnswer(held); setEntries(held.entries); setLoading(false); } },
       (error: unknown) => { if (generation.current === mine) { setFailure(error instanceof Error ? error.message : String(error)); setLoading(false); } },
     );
@@ -91,7 +91,7 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
       const newest = entries.reduce<number | undefined>((held, entry) => (entry.at === null ? held : held === undefined || entry.at > held ? entry.at : held), undefined);
       if (newest === undefined) return;
       const mine = generation.current;
-      readLogs(base, asked(undefined, newest), controller.signal).then(
+      logsOf(base, asked(undefined, newest), controller.signal).then(
         (held) => {
           if (generation.current !== mine || held.entries.length === 0) return;
           setEntries((current) => {
@@ -110,7 +110,7 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
     if (first?.at === null || first?.at === undefined) return;
     const mine = generation.current;
     setLoading(true);
-    readLogs(base, asked(first.at)).then(
+    logsOf(base, asked(first.at)).then(
       (held) => {
         if (generation.current !== mine) return;
         setEntries((current) => {
@@ -163,13 +163,13 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
   const runs = (answer?.runs ?? []).map((run) => ({ value: run, label: run }));
   const shown = answer === null ? 0 : entries.length;
   return (
-    <Stack className="grid gap-4" data-testid="logs-page">
+    <Stack layout="page" data-testid="logs-page">
       <Card>
         {title ? <CardHeader><CardTitle>{t('logs.title')}</CardTitle></CardHeader> : null}
         <CardContent>
-          <Paragraph className="m-0 text-small text-muted">{t('logs.intro')}</Paragraph>
-          {failure === null ? null : <Alert variant="problem" className="mt-2" data-testid="logs-failure"><AlertDescription>{t('logs.readFailed', { message: failure })}</AlertDescription></Alert>}
-          {filters.run === '' ? null : <Metadata className="mt-2 block" data-testid="logs-run-link"><TextLink href={base + runAddress(filters.run)} onClick={(event) => {
+          <Metadata>{t('logs.intro')}</Metadata>
+          {failure === null ? null : <Alert variant="problem" data-testid="logs-failure"><AlertDescription>{t('logs.readFailed', { message: failure })}</AlertDescription></Alert>}
+          {filters.run === '' ? null : <Metadata data-testid="logs-run-link"><TextLink href={base + runAddress(filters.run)} onClick={(event) => {
             event.preventDefault();
             if (open === undefined) window.location.assign(base + runAddress(filters.run));
             else open(runAddress(filters.run));

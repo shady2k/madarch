@@ -292,6 +292,12 @@ async function choose(container: HTMLElement, menu: string, value: string): Prom
 }
 
 /** A native value set, so React's value tracker sees the typed text. */
+
+/** The checked state of the kit's Radix Checkbox, as the button itself states it. */
+function checkedOf(element: Element | null): boolean {
+  return element?.getAttribute('data-state') === 'checked';
+}
+
 function type(input: HTMLInputElement, value: string): void {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ?? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
   const setter = descriptor?.set;
@@ -328,13 +334,18 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
   const page = await render([section('catalogue', 'catalogue', {})], { select: '1' });
   try {
     expect(page.container.querySelectorAll('[data-testid="catalogue-group-check"]').length).toBeGreaterThan(0);
-    const gamma = page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLInputElement;
-    await act(async () => { gamma.click(); });
+    const gamma = page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLElement;
+    // The kit's Checkbox is a Radix button: a full pointer press and click is what a person's press sends.
+    await act(async () => {
+      gamma.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+      gamma.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerType: 'mouse' }));
+      gamma.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    });
     await settle();
     expect(page.container.textContent).toContain('Нужно для Сценарии');
     const alpha = page.container.querySelector('[data-testid="catalogue-kind-check-demo.alpha"]') as HTMLInputElement;
-    expect(alpha.checked).toBe(true);
-    expect(alpha.disabled).toBe(true);
+    expect(checkedOf(alpha)).toBe(true);
+    expect(alpha.hasAttribute('disabled')).toBe(true);
     expect(page.container.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain('Выбран 1 вид');
     expect(page.container.querySelector('[data-testid="catalogue-selected-count"]')?.textContent).toContain('добавлена 1 зависимость');
     // The selection survives a filter that hides its group.
@@ -342,7 +353,7 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
     await act(async () => { type(search, 'Файл'); });
     expect(page.container.querySelector('[data-kind="demo.gamma"]')).toBeNull();
     await act(async () => { type(search, ''); });
-    expect((page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLInputElement).checked).toBe(true);
+    expect(checkedOf(page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]'))).toBe(true);
     await act(async () => { (page.container.querySelector('[data-testid="catalogue-prepare"]') as HTMLButtonElement).click(); });
     expect(page.opened).toContain('/p/prepare?kinds=demo.gamma');
   } finally {

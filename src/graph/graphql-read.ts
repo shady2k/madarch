@@ -364,6 +364,8 @@ export class ReadContext {
     private readonly structure: string,
     /** The product's templates and the pages they open, as the bootstrap states them. */
     private readonly productTemplates: ProductTemplates,
+    /** One page of every log the product keeps, when the caller can read them (the logs page's own evidence). */
+    private readonly logs?: (asked: Readonly<Record<string, unknown>>) => unknown,
   ) {
     this.published = published;
     this.lang = lang ?? manifest.language ?? 'en';
@@ -1163,6 +1165,7 @@ export class ReadContext {
     if (field === 'cochange') return this.cochange(args, lang);
     if (field === 'contributors') return this.contributors(args, lang);
     if (field === 'catalogueDependencies') return this.catalogueDependencies(lang);
+    if (field === 'logs') return this.logs === undefined ? null : this.logs(args);
     if (field === 'related') return this.related(args, lang);
     if (field === 'catalogueEntity') {
       const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');

@@ -95,7 +95,7 @@ export function basePathOf(pathname: string): string {
 }
 
 /** One operation through the product's one read API. */
-export async function postQuery<T>(base: string, query: string, variables: Record<string, unknown>): Promise<GraphqlAnswer<T>> {
+export async function postQuery<T>(base: string, query: string, variables: Record<string, unknown>, signal?: AbortSignal): Promise<GraphqlAnswer<T>> {
   let response: Response;
   try {
     response = await fetch(`${base}/graphql`, {
@@ -103,6 +103,7 @@ export async function postQuery<T>(base: string, query: string, variables: Recor
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ query, variables }),
       credentials: 'same-origin',
+      ...(signal === undefined ? {} : { signal }),
     });
   } catch {
     reportOffline();

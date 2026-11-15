@@ -50,6 +50,8 @@ export function TextLink({ className, ...props }: AnchorHTMLAttributes<HTMLAncho
 
 /** Shared semantic layout for reading pages and form fields. */
 const stackLayouts = {
+  // A command page's sections: one column, a gap between the cards.
+  page: 'grid min-w-0 gap-4',
   fill: 'grid min-w-0 gap-6 lg:grid-cols-[minmax(18rem,1fr)_minmax(0,2fr)]',
   graph: 'max-h-[32rem] overflow-auto',
   catalogue: 'grid min-w-0 items-start gap-6 wide:grid-cols-[minmax(0,1fr)_200px]',

@@ -495,6 +495,7 @@ class Builder {
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
     this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
     this.registry.claimField('Query', 'catalogueDependencies', 'the catalogue graph of kinds');
+    this.registry.claimField('Query', 'logs', 'one page of every log madarch keeps');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
@@ -506,6 +507,12 @@ class Builder {
       { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'catalogueDependencies', type: 'JSON!', args: [{ name: 'lang', type: 'String' }] },
+      // The logs page reads the machine's evidence through the one read API (madarch-64o5.88): the same page of every
+      // log, filtered by the arguments and bounded by the reader's own constants.
+      { name: 'logs', type: 'JSON!', args: [
+        { name: 'sources', type: '[String!]' }, { name: 'level', type: 'String' }, { name: 'run', type: 'String' },
+        { name: 'q', type: 'String' }, { name: 'from', type: 'Int' }, { name: 'before', type: 'Int' }, { name: 'limit', type: 'Int' },
+      ] },
       { name: 'searchGroups', type: '[SearchGroup!]!', args: [
         { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
         { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },

@@ -109,7 +109,7 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   // own tabs stay for the page's sections (madarch-64o5.83).
   return (
     <Stack>
-      <InlineGroup className="items-end justify-between">
+      <InlineGroup>
         <SegmentedChoice
           label={t('knowledge.diagramRenderer')}
           testId="diagram-renderer"
@@ -121,9 +121,9 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
       </InlineGroup>
       <div data-testid="diagram-picture">{picture}</div>
       <Dialog open={full} onOpenChange={setFull}>
-        <DialogContent closeLabel={t('knowledge.views.exitFullscreen')} className="dg-fullscreen" data-testid="diagram-fullscreen">
+        <DialogContent closeLabel={t('knowledge.views.exitFullscreen')} size="window" data-testid="diagram-fullscreen">
           <DialogHeader><DialogTitle>{t('knowledge.views.fullscreen')}</DialogTitle></DialogHeader>
-          <DialogBody className="dg-fullscreen-body">{picture}</DialogBody>
+          <DialogBody fill>{picture}</DialogBody>
         </DialogContent>
       </Dialog>
     </Stack>

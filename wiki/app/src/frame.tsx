@@ -4,23 +4,23 @@
  * in the top bar. Everything it draws comes from the one navigation answer and the app's own words: the sidebar knows no
  * kind of its own, and a row opens the catalogue entry of its kind, whose page the product's templates draw.
  */
-import { useEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type AnchorHTMLAttributes, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  AlertTriangleIcon, BookOpenIcon, CheckIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HistoryIcon, HomeIcon,
+  AlertTriangleIcon, BookOpenIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HistoryIcon, HomeIcon,
   LayoutGridIcon, MenuIcon, RefreshCwIcon, ScrollTextIcon, SettingsIcon, UserRoundIcon,
 } from 'lucide-react';
 import {
   BrandLink, NavigationCount, NavigationFooter, NavigationGroup, NavigationGroupTrigger, NavigationHeading,
-  NavigationLabel, NavigationLink, NavigationScroll, NavigationSection, NavigationSubheading, ProductButton,
+  NavigationLabel, NavigationLink, NavigationScroll, NavigationSection, NavigationSubheading, ProductLink,
 } from './components/ui/navigation.js';
 import {
-  ShellActions, ShellBrandMark, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet, ShellProductLink,
-  ShellProductMenu, ShellRoleButton, ShellRoleLabel, ShellToolbar,
+  ShellActions, ShellBrandMark, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet, ShellRoleButton,
+  ShellRoleLabel, ShellToolbar,
 } from './components/ui/shell.js';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
+  DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './components/ui/dropdown-menu.js';
 import { Button } from './components/ui/button.js';
@@ -29,7 +29,6 @@ import { SearchContainer } from './components/ui/search-results.js';
 import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { RunIndicator } from './components/run-indicator.js';
-import { FillEntry } from './components/fill-entry.js';
 import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage } from './address.js';
@@ -115,7 +114,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
   return (
     <>
       <BrandLink data-testid="nav-brand" concept={t('brand.concept')} {...link('/')}><ShellBrandMark /></BrandLink>
-      <ProductCard name={productName ?? navigation?.product ?? t('brand.product')} />
+      <ProductCard name={productName ?? navigation?.product ?? t('brand.product')} href={base + '/'} onClick={follow('/')} />
       <NavigationScroll aria-label={t('navigation.pages')} data-testid="nav-scroll">
         <NavigationLink icon={HomeIcon} active={tasks.home} aria-current={tasks.home ? 'page' : undefined} data-testid="nav-home" {...link('/')}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
@@ -185,24 +184,9 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
  * The product at the top left: its name and the space it stands in. The wiki is served for one product's graph, so the
  * menu names that product and nothing else; a server that serves a products home opens each wiki under its own address.
  */
-function ProductCard({ name }: { readonly name: string }): ReactElement {
+function ProductCard({ name, href, onClick }: { readonly name: string; readonly href: string; readonly onClick?: AnchorHTMLAttributes<HTMLAnchorElement>['onClick'] }): ReactElement {
   const { t } = useTranslation();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <ProductButton name={name} description={t('product.space')} data-testid="product-selector" aria-label={t('knowledge.chooseProduct')} />
-      </DropdownMenuTrigger>
-      <ShellProductMenu align="start">
-        <DropdownMenuLabel>{t('knowledge.products')}</DropdownMenuLabel>
-        <DropdownMenuItem asChild>
-          <ShellProductLink href="." aria-current="true" data-testid="product-choice" onClick={(event) => { event.preventDefault(); }}>
-            <NavigationLabel>{name}</NavigationLabel>
-            <CheckIcon aria-hidden="true" size={16} />
-          </ShellProductLink>
-        </DropdownMenuItem>
-      </ShellProductMenu>
-    </DropdownMenu>
-  );
+  return <ProductLink name={name} description={t('product.space')} href={href} onClick={onClick} data-testid="product-selector" aria-label={t('knowledge.home')} />;
 }
 
 /** The reader's role: what the page opens and which groups stand first (decision 0031). */
@@ -339,7 +323,6 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, on
       {menu}
       <SearchBox base={base} open={open} />
       <ShellActions>
-        <FillEntry open={open} />
         <RunIndicator base={base} open={open} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />

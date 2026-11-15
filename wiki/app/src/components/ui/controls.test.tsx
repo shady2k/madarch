@@ -64,3 +64,38 @@ test('invalid fields retain accessible names and error descriptions', async () =
   expect(container.querySelector('input')?.getAttribute('aria-describedby')).toBe('required');
   expect(container.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('required');
 });
+
+test('the kit menu names the empty choice and reports it back (madarch-64o5.88)', async () => {
+  // The kit's one-choice control is ChoiceMenu: a caller may name `''` — "no choice", a saved default — as an option,
+  // and the menu reports the same empty string back when it is chosen again.
+  const { ChoiceMenu } = await import('./choice-menu.js');
+  const chosen: string[] = [];
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  const { createElement } = await import('react');
+  await act(async () => {
+    root!.render(createElement(ChoiceMenu, { label: 'Agent', testId: 'kit-menu', value: '', options: [{ value: '', label: 'None' }, { value: 'claude-code', label: 'Claude Code' }], onChange: (next: string) => { chosen.push(next); } }));
+  });
+  const trigger = host.querySelector('[data-testid="kit-menu"]') as HTMLElement;
+  expect(trigger).not.toBeNull();
+  // The empty value stands as the chosen item, not as a missing value.
+  expect(trigger.textContent).toContain('None');
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  const other = document.querySelector('[data-testid="kit-menu-claude-code"]') as HTMLElement | null;
+  expect(other).not.toBeNull();
+  await act(async () => { other!.click(); });
+  expect(chosen).toEqual(['claude-code']);
+  // And back to the empty choice: a caller hears `''`.
+  await act(async () => {
+    trigger.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger.click();
+  });
+  const none = document.querySelector('[data-testid="kit-menu-"]') as HTMLElement | null;
+  expect(none).not.toBeNull();
+  await act(async () => { none!.click(); });
+  expect(chosen[chosen.length - 1]).toBe('');
+});

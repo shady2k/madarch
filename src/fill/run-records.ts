@@ -22,5 +22,8 @@ export function pluginLogFolder(tracesFolder: string, run: string): string {
  * unit ids which differ only in a character a file name cannot hold stay two files.
  */
 export function recordFileName(unit: string, extension: string): string {
-  return `${unit.replace(/[^A-Za-z0-9._-]/gu, '-')}-${createHash('sha256').update(unit).digest('hex').slice(0, 8)}.${extension}`;
+  const stem = [...unit].map((character) =>
+    (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+    (character >= '0' && character <= '9') || '._-'.includes(character) ? character : '-').join('');
+  return `${stem}-${createHash('sha256').update(unit).digest('hex').slice(0, 8)}.${extension}`;
 }

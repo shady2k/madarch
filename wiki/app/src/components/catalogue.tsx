@@ -179,10 +179,8 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     return (
       <FieldLabel className="ml-auto flex items-center gap-2 text-small text-muted">
         <Checkbox
-          checked={box.all}
-          ref={(input) => { if (input !== null) input.indeterminate = box.some; }}
-          onClick={(event) => { event.stopPropagation(); }}
-          onChange={() => toggle(kinds.filter((kind) => !added.has(kind.kind)).map((kind) => kind.kind), !box.all)}
+          checked={box.all ? true : box.some ? 'indeterminate' : false}
+          onCheckedChange={() => toggle(kinds.filter((kind) => !added.has(kind.kind)).map((kind) => kind.kind), !box.all)}
           data-testid="catalogue-group-check"
         />
         {t('catalogue.selectGroup', { count: box.count })}
@@ -204,7 +202,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             <Checkbox
               checked={active.has(kind.kind)}
               disabled={needed !== undefined}
-              onChange={() => toggle([kind.kind], !selected.has(kind.kind))}
+              onCheckedChange={() => toggle([kind.kind], !selected.has(kind.kind))}
               aria-label={kind.many}
               data-testid={`catalogue-kind-check-${kind.kind}`}
             />

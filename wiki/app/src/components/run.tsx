@@ -58,12 +58,14 @@ export type RunCause = 'sandbox' | 'plugin' | 'agent' | 'cap' | 'dependency' | '
 
 /** What a failure's own words say about its cause: the classes the run journal names, never the raw summary. */
 export function runCauseOf(summary: string): RunCause {
-  if (/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX|sandbox/iu.test(summary)) return 'sandbox';
-  if (/plugin is pinned|closure|hashes to|needs a person's approval|plugin/iu.test(summary)) return 'plugin';
-  if (/token cap|token bound|tokens/iu.test(summary)) return 'cap';
-  if (/agent|ACP|auth|sign in|adapter/iu.test(summary)) return 'agent';
-  if (/waits? for a dependency|dependency|blocked/iu.test(summary)) return 'dependency';
-  if (/deadline|timed out|timeout|heartbeat/iu.test(summary)) return 'timeout';
+  const folded = [...summary].map((character) => character === 'ſ' ? 's' : character === 'K' ? 'k'
+    : character >= 'A' && character <= 'Z' ? character.toLowerCase() : character).join('');
+  if (['cgroup', 'subtree_control', 'madarch_plugin_sandbox', 'sandbox'].some((word) => folded.includes(word))) return 'sandbox';
+  if (["plugin is pinned", 'closure', 'hashes to', "needs a person's approval", 'plugin'].some((word) => folded.includes(word))) return 'plugin';
+  if (['token cap', 'token bound', 'tokens'].some((word) => folded.includes(word))) return 'cap';
+  if (['agent', 'acp', 'auth', 'sign in', 'adapter'].some((word) => folded.includes(word))) return 'agent';
+  if (['wait for a dependency', 'waits for a dependency', 'dependency', 'blocked'].some((word) => folded.includes(word))) return 'dependency';
+  if (['deadline', 'timed out', 'timeout', 'heartbeat'].some((word) => folded.includes(word))) return 'timeout';
   return 'unknown';
 }
 
@@ -126,12 +128,37 @@ interface JournalLine {
  * plugin's message, not the engine's sentence around it), and the event's whole text when it names no place.
  */
 export function causeTextOf(summary: string): string {
-  const places = [...summary.matchAll(/(?:^|\s)([^\s:]*\.[A-Za-z0-9]+:\d+: )/gu)];
-  const last = places.at(-1);
-  const from = last === undefined ? summary : summary.slice((last.index ?? 0) + (last[0].startsWith(' ') ? 1 : 0));
-  // The engine's own retry tail — «; the attempt is retried at <moment>» — is the run's bookkeeping, not the cause: the
-  // cause is the message before it.
-  const text = from.replace(/;\s*the attempt is retried.*$/iu, '');
+  let fromAt = 0;
+  for (let at = 0; at < summary.length; at += 1) {
+    if (at !== 0 && summary[at]!.trim() !== '') continue;
+    const start = summary[at]!.trim() === '' ? at + 1 : at;
+    let colon = start;
+    while (colon < summary.length && summary[colon] !== ':' && summary[colon]!.trim() !== '') colon += 1;
+    if (summary[colon] !== ':') continue;
+    const file = summary.slice(start, colon);
+    const dot = file.lastIndexOf('.');
+    const extension = file.slice(dot + 1);
+    if (dot < 0 || extension === '' || [...extension].some((character) =>
+      !((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')))) continue;
+    let end = colon + 1;
+    while (end < summary.length && summary[end]! >= '0' && summary[end]! <= '9') end += 1;
+    if (end === colon + 1 || summary.slice(end, end + 2) !== ': ') continue;
+    fromAt = at + (summary[at] === ' ' ? 1 : 0);
+    at = end + 1;
+  }
+  const from = summary.slice(fromAt);
+  // The engine's own retry tail is bookkeeping, not the cause. Like the original suffix match, a tail ends at no
+  // intervening line terminator; whitespace between the semicolon and the opening may itself span lines.
+  let text = from;
+  for (let at = from.indexOf(';'); at >= 0; at = from.indexOf(';', at + 1)) {
+    let opening = at + 1;
+    while (opening < from.length && from[opening]!.trim() === '') opening += 1;
+    if (!from.slice(opening, opening + 'the attempt is retried'.length).replaceAll('ſ', 's').replaceAll('K', 'k').toLowerCase().startsWith('the attempt is retried')) continue;
+    const tail = from.slice(opening + 'the attempt is retried'.length);
+    if ([...tail].some((character) => '\n\r\u2028\u2029'.includes(character))) continue;
+    text = from.slice(0, at);
+    break;
+  }
   return text.length <= 300 ? text : `${text.slice(0, 300)}…`;
 }
 
@@ -369,7 +396,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                           <Stack className="grid gap-1">
                             <Text className="font-medium">{t('knowledge.fillRun.agents.given')}</Text>
                             <Metadata>{t('knowledge.fillRun.agents.givenFiles', { count: exchange.given.filesTotal })} · {t('knowledge.fillRun.agents.opened', { count: exchange.opened.length })}</Metadata>
-                            <TechnicalText className="max-h-64 overflow-auto break-all rounded border p-2" data-testid="agent-prompt">{exchange.given.prompt}</TechnicalText>
+                            <TechnicalText data-testid="agent-prompt">{exchange.given.prompt}</TechnicalText>
                             {exchange.given.cut ? <Metadata>{t('knowledge.fillRun.agents.cut')} · {t('knowledge.fillRun.agents.bytes', { count: exchange.given.bytes })}</Metadata> : null}
                           </Stack>
                           <Stack className="grid gap-1">
@@ -396,8 +423,8 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                                     {step.title === undefined ? null : <Text> · {step.title}</Text>}
                                     {step.status === undefined ? null : <Metadata> · {step.status}</Metadata>}
                                     {step.path === undefined ? null : <Metadata> · <InlineCode>{step.path}</InlineCode></Metadata>}
-                                    {step.text === undefined ? null : <TechnicalText className="break-all">{step.text}</TechnicalText>}
-                                    {step.detail === undefined ? null : <TechnicalText className="break-all">{step.detail}</TechnicalText>}
+                                    {step.text === undefined ? null : <TechnicalText>{step.text}</TechnicalText>}
+                                    {step.detail === undefined ? null : <TechnicalText>{step.detail}</TechnicalText>}
                                   </ListItem>
                                 ))}
                               </PlainList>
@@ -408,7 +435,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                             <Text className="font-medium">{t('knowledge.fillRun.agents.returned')}</Text>
                             {answered === null ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.returnedMissing')}</Paragraph>
                               : answered.trim() === '' ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.agents.returnedEmpty')}</Paragraph>
-                                : <TechnicalText className="max-h-64 overflow-auto break-all rounded border p-2" data-testid="agent-answer">{answered}</TechnicalText>}
+                                : <TechnicalText data-testid="agent-answer">{answered}</TechnicalText>}
                             {exchange.returned !== null && exchange.returned.cut ? <Metadata>{t('knowledge.fillRun.agents.cut')} · {t('knowledge.fillRun.agents.bytes', { count: exchange.returned.bytes })}</Metadata> : null}
                           </Stack>
                           <Metadata data-testid="agent-tokens">
@@ -418,7 +445,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                           {exchange.failure === null ? null : <Paragraph className="m-0 text-small" data-testid="agent-failure">{t('knowledge.fillRun.agents.failure')}: {exchange.failure}</Paragraph>}
                           <Disclosure data-testid="agent-raw">
                             <DisclosureSummary>{t('knowledge.fillRun.agents.raw')}</DisclosureSummary>
-                            <TechnicalText className="max-h-64 overflow-auto break-all rounded border p-2">{JSON.stringify(exchange, null, 2)}</TechnicalText>
+                            <TechnicalText>{JSON.stringify(exchange, null, 2)}</TechnicalText>
                           </Disclosure>
                         </Stack>
                       </Disclosure>
@@ -441,7 +468,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                   <Metadata>{line.at} · </Metadata>{line.text}{line.times > 1 ? ` ×${String(line.times)}` : ''}
                   {line.cause === null ? null : (
                     <Stack className="mt-1 grid gap-1" data-testid="fill-run-journal-cause">
-                      <TechnicalText className="m-0 break-all text-small">{line.cause.text}</TechnicalText>
+                      <TechnicalText>{line.cause.text}</TechnicalText>
                       <Metadata>{t(`knowledge.fillRun.next.${line.cause.next}`)} <TextLink href={context.base + line.cause.link} onClick={(event) => { event.preventDefault(); context.open(line.cause!.link); }} data-testid="fill-run-and-logs">{t('knowledge.fillRun.logRow')}</TextLink></Metadata>
                     </Stack>
                   )}
@@ -453,7 +480,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
             <Stack className="mt-3 grid gap-1" data-testid="fill-run-stage-times">
               <Text className="font-medium">{t('knowledge.fillRun.stageTimes')}</Text>
               {liveRun.summary.steps.map((step) => (
-                <Metadata key={step.step} className="text-small">{t(`knowledge.fillRun.stage.${step.step}`, { defaultValue: t('knowledge.fillRun.stageOther') })} · {t('knowledge.fillRun.agents.time', { seconds: seconds(step.wallMs) })}</Metadata>
+                <Metadata key={step.step}>{t(`knowledge.fillRun.stage.${step.step}`, { defaultValue: t('knowledge.fillRun.stageOther') })} · {t('knowledge.fillRun.agents.time', { seconds: seconds(step.wallMs) })}</Metadata>
               ))}
             </Stack>
           )}

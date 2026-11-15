@@ -1,5 +1,6 @@
 /**
- * The logs page and the kit's log viewer (madarch-64o5.88): one route answers every log, the page filters and follows it,
+ * The logs page and the kit's log viewer (madarch-64o5.88): the graph answers one page of every log, the page filters
+ * and follows it,
  * a row opens its full text and context, and the viewer's list is virtualised and shows its empty and loading states in
  * the reader's language.
  */
@@ -31,20 +32,27 @@ const ANSWER = {
   scanned: 5,
   truncated: false,
   runs: ['fill-a', 'fill-b'],
-  sources: ['server', 'fill', 'plugin', 'agent', 'store', 'trace'],
+  sources: ['engine', 'fill', 'plugin', 'agent', 'store', 'trace'],
   levels: ['debug', 'info', 'warn', 'error'],
 };
 
 const requests: string[] = [];
+/** The variables each `/graphql` operation carried. */
+const variables: Record<string, unknown>[] = [];
 
 /** Renders the Logs page with the route's answer; `empty` answers a page with no entry. */
 async function render(options: { empty?: boolean; answer?: unknown } = {}): Promise<{ container: HTMLElement; close: () => Promise<void> }> {
   requests.length = 0;
-  globalThis.fetch = (async (input: string | URL | Request) => {
+  variables.length = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     requests.push(url.pathname + url.search);
+    const asked = typeof init?.body === 'string' ? JSON.parse(init.body) as { variables?: Record<string, unknown> } : {};
+    if (url.pathname === '/graphql') variables.push(asked.variables ?? {});
     const body = options.answer ?? (options.empty === true ? { ...ANSWER, entries: [], scanned: 0 } : ANSWER);
-    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    // The logs page reads through the graph: the one read API answers the operation's `logs` field.
+    const payload = url.pathname === '/graphql' ? { data: { logs: body } } : body;
+    return new Response(JSON.stringify(payload), { headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
   const container = document.createElement('div');
   document.body.append(container);
@@ -88,7 +96,7 @@ test('the logs page reads every source, filters through the route and opens a ro
   await setWikiLanguage('ru');
   const page = await render();
   try {
-    expect(requests[0]).toStartWith('/api/logs?');
+    expect(requests[0]).toBe('/graphql');
     const rows = page.container.querySelectorAll('[data-testid="log-row"]');
     expect(rows).toHaveLength(5);
     expect(page.container.textContent).toContain('Показано 5 записей из 5 прочитанных');
@@ -116,12 +124,12 @@ test('the logs page reads every source, filters through the route and opens a ro
     // A filter is the route's, and the control is the kit's menu: the page asks again with what was chosen.
     expect(page.container.querySelector('select')).toBeNull();
     await choose(page, 'log-level-filter', 'error');
-    expect(requests.some((path) => path.includes('level=error'))).toBe(true);
+    expect(variables.some((asked) => asked['level'] === 'error')).toBe(true);
     await choose(page, 'log-source', 'fill');
-    expect(requests.some((path) => path.includes('source=fill'))).toBe(true);
+    expect(variables.some((asked) => Array.isArray(asked['sources']) && (asked['sources'] as string[]).includes('fill'))).toBe(true);
     // A run filters the page and links to the run's own page.
     await choose(page, 'log-run', 'fill-a');
-    expect(requests.some((path) => path.includes('run=fill-a'))).toBe(true);
+    expect(variables.some((asked) => asked['run'] === 'fill-a')).toBe(true);
     expect(page.container.querySelector('[data-testid="logs-run-link"] a')?.getAttribute('href')).toBe('/p/run?run=fill-a');
   } finally {
     await page.close();
@@ -137,7 +145,7 @@ test('the search is highlighted, the follow control pauses the tail, and an empt
     // The text filter waits for the typing to stop, and the read follows it.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
     await settle(20);
-    expect(requests.some((path) => path.includes('q=pinned'))).toBe(true);
+    expect(variables.some((asked) => asked['q'] === 'pinned')).toBe(true);
     // The row's own words carry the match as a mark, so a reader sees what the search found.
     const marks = page.container.querySelectorAll('[data-testid="log-row"] mark');
     expect(marks.length).toBeGreaterThan(0);
@@ -255,8 +263,8 @@ test('a row draws one time in the reader’s clock, and the moment filter is the
     const hour = panel!.querySelector('[data-testid="date-time-hour"]') as HTMLInputElement;
     await act(async () => { type(hour, '11'); });
     await act(async () => { (panel!.querySelector('[data-testid="date-time-done"]') as HTMLElement).click(); });
-    await settle(8);
-    expect(requests.some((path) => path.includes('since='))).toBe(true);
+    await settle(20);
+    expect(variables.some((asked) => typeof asked['from'] === 'number')).toBe(true);
     // The trigger then shows the chosen moment in the reader's words, not a placeholder of the browser's.
     const shown = page.container.querySelector('[data-testid="log-from"]')?.textContent ?? '';
     expect(shown).not.toBe('Любое время');

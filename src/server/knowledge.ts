@@ -375,8 +375,8 @@ function fillRefusalCode(message: string): string | undefined {
       }
       const level = query.get('level');
       if (level !== null && !(LOG_LEVELS as readonly string[]).includes(level)) return refused(400, { field: 'level', message: `"level" is one of ${LOG_LEVELS.join(', ')}, got ${JSON.stringify(level)}` });
-      const numbers: { since?: number; before?: number; limit?: number } = {};
-      for (const key of ['since', 'before', 'limit'] as const) {
+      const numbers: { from?: number; before?: number; limit?: number } = {};
+      for (const key of ['from', 'before', 'limit'] as const) {
         const held = query.get(key);
         if (held === null || held === '') continue;
         const value = Number(held);

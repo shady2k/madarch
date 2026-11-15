@@ -18,6 +18,20 @@ import { schemaPreparationViolations } from './schema-preparation.js';
 import { starterDataViolations } from './starter-data.js';
 import { productFileReaderViolations } from './product-file-readers.js';
 import { kindNameViolations, routeViolations, RULE_FOLDERS } from './read-surfaces.js';
+import {
+  appGraphReadViolations,
+  cataloguePointerViolations,
+  commandListViolations,
+  extractionViolations,
+  i18nViolations,
+  ioSpansViolations,
+  productDataViolations,
+  regexViolations,
+  routeAliasViolations,
+  stateMachineViolations,
+  uiKitViolations,
+  tableSourceViolations,
+} from './gates.js';
 import { unreachableViolations } from './reachability.js';
 import { moduleSet, repositoryRoot } from './sources.js';
 import {
@@ -79,6 +93,18 @@ export async function architectureCheck(options: ArchitectureCheckOptions = {}):
   if (rules.includes('product-file-readers')) found.push(...productFileReaderViolations(root));
   if (rules.includes('graphql-only-reads')) found.push(...routeViolations(root));
   if (rules.includes('no-kind-names')) found.push(...kindNameViolations(root, moduleSet(root, RULE_FOLDERS)));
+  if (rules.includes('no-product-data')) found.push(...productDataViolations(root));
+  if (rules.includes('no-regex')) found.push(...regexViolations(root));
+  if (rules.includes('one-table-source')) found.push(...await tableSourceViolations(root));
+  if (rules.includes('catalogue-pointers')) found.push(...cataloguePointerViolations(root));
+  if (rules.includes('extraction-boundary')) found.push(...extractionViolations(root));
+  if (rules.includes('one-command-list')) found.push(...commandListViolations(root));
+  if (rules.includes('route-aliases')) found.push(...routeAliasViolations(root));
+  if (rules.includes('app-graph-reads')) found.push(...appGraphReadViolations(root));
+  if (rules.includes('io-spans')) found.push(...ioSpansViolations(root));
+  if (rules.includes('one-state-machine')) found.push(...await stateMachineViolations(root));
+  if (rules.includes('ui-kit-only')) found.push(...uiKitViolations(root));
+  if (rules.includes('i18n-text')) found.push(...i18nViolations(root));
   const located = orderedViolations(found);
   if (!existsSync(listPath)) {
     return {
@@ -211,6 +237,32 @@ function describe(violation: ArchitectureViolation): string {
     }
     case 'no-kind-names':
       return `${violation.file} names the kind ${violation.symbol ?? '?'}, and the server's page and API layer name no kind: the kinds are the product's catalogue`;
+    case 'no-product-data':
+      return `${violation.file} spells ${JSON.stringify(violation.symbol ?? '?')}, a kind id, kind name or field name the starter catalogue declares, and the engine holds no product data: the catalogue is the product's, read from its own files`;
+    case 'no-regex':
+      return `${violation.file} parses text with the regular expression ${violation.symbol ?? '?'}, and the engine parses with a syntax tree, never with a pattern`;
+    case 'one-table-source':
+      return `${violation.file} creates the table ${violation.symbol ?? '?'}, and only the graph core's installation and the generator from the manifest make a table: everything else is a vertex or an edge`;
+    case 'catalogue-pointers':
+      return `${violation.file} declares the field ${violation.symbol ?? '?'} as a reference or a free json value, and a pointer is an edge and structured data is a kind: the catalogue declares neither`;
+    case 'extraction-boundary':
+      return `${violation.file} reaches ${violation.symbol ?? '?'}, and only the plugin host and the named infrastructure modules read files or start processes: extraction is a plugin's`;
+    case 'one-command-list':
+      return violation.symbol?.startsWith('declared ') === true
+        ? `${violation.file} keeps the command ${JSON.stringify(violation.symbol.slice('declared '.length))} in the closed list and the command line no longer answers it: the list and the commands are one list, and a command that goes takes its line`
+        : `${violation.file} answers the command ${JSON.stringify(violation.symbol ?? '?')}, which the closed list does not hold: a command is added to the list on purpose, in the commit that adds it`;
+    case 'route-aliases':
+      return `${violation.file} spells the route ${JSON.stringify(violation.symbol ?? '?')} itself, and every route is one entry of src/knowledge/addresses.ts: a path written twice is two lists`;
+    case 'ui-kit-only':
+      return `${violation.file} draws ${violation.symbol ?? 'an element'} outside components/ui, and every element and every className comes from the kit: one place owns the appearance`;
+    case 'i18n-text':
+      return `${violation.file} shows the literal ${JSON.stringify(violation.symbol ?? '?')}, and every visible string is a key of the app's locale files: a reader's language is the reader's`;
+    case 'app-graph-reads':
+      return `${violation.file} imports the read command ${violation.symbol ?? '?'}, and a page's data is read through GraphQL: a bespoke read route is not a page's source`;
+    case 'io-spans':
+      return `${violation.file} calls ${violation.symbol ?? '?'} outside a span, and every function that reaches a file, the network, a database or a process runs inside withSpan`;
+    case 'one-state-machine':
+      return `${violation.file} writes the ${violation.symbol ?? '?'} state itself, and the fill's run and unit states are written only by ${'src/fill/state-store.ts'}`;
   }
 }
 

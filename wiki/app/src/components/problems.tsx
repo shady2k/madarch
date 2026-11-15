@@ -80,7 +80,7 @@ function ProblemRow({ problem, base, open, refresh, say }: {
   };
   const sentence = problem.sentence ?? problem.statement;
   return (
-    <Disclosure className="group border-b border-line last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-rule={problem.rule}>
+    <Disclosure data-testid="problem-row" data-kind={problem.kind} data-rule={problem.rule}>
       <DisclosureSummary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 py-3" data-testid="problem-summary">
         <Text className="font-medium" data-testid="problem-rule">{t(`loop.rule.${problem.rule}`, { defaultValue: t(`loop.problem.${problem.kind}`, { defaultValue: problem.kind }) })}</Text>
         <Badge variant="outline" data-testid="problem-sonar">{t(`loop.sonar.${problem.sonar}`, { defaultValue: problem.sonar })}</Badge>
@@ -167,7 +167,7 @@ export function ProblemsSection({ context }: { readonly context: SectionContext 
                 const meaning = t(`loop.ruleMeaning.${category.rule}`, { defaultValue: '' });
                 return (
                   <ListItem key={category.rule} className="border-b border-line py-2 last:border-b-0">
-                    <Disclosure className="group" data-testid="problem-category" data-rule={category.rule}>
+                    <Disclosure data-testid="problem-category" data-rule={category.rule}>
                       <DisclosureSummary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
                         <Text className="font-medium">{t(`loop.rule.${category.rule}`, { defaultValue: category.label?.[language] ?? category.rule })}</Text>
                         <Badge variant={category.severity === 'blocker' || category.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-category-severity">{t(`loop.severity.${category.severity}`, { defaultValue: category.severity })}</Badge>

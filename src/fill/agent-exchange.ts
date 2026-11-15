@@ -25,6 +25,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpanSync } from '../obs/trace.js';
 import type { AcpUpdate } from './acp.js';
 import { agentExchangeFolder, recordFileName } from './run-records.js';
 
@@ -302,16 +303,27 @@ export class AgentExchangeRecorder {
       returned: this.returned, usage: this.usage, stop: this.stopReason, failure: this.failure,
     };
     const text = `${JSON.stringify(record, null, 1)}\n`;
-    try {
-      mkdirSync(this.options.folder, { recursive: true });
-      const file = agentExchangeFile(this.options.folder, this.options.unit);
-      writeFileSync(file, text, 'utf8');
-      this.written = file;
-    } catch {
-      // The record is evidence, not the work: a folder that cannot be written must not fail the unit.
-    }
+    this.written = writeExchange(this.options.folder, this.options.unit, text);
     return this.written;
   }
+}
+
+/**
+ * One unit's exchange record written beside its run's trace, inside its own span: the file it was written to, or
+ * undefined when the folder could not be written. The record is evidence, not the work, so a failure is not raised.
+ */
+function writeExchange(folder: string, unit: string, text: string): string | undefined {
+  const put = (): string | undefined => {
+    try {
+      mkdirSync(folder, { recursive: true });
+      const file = agentExchangeFile(folder, unit);
+      writeFileSync(file, text, 'utf8');
+      return file;
+    } catch {
+      return undefined;
+    }
+  };
+  return withSpanSync('agent.exchange.write', { 'madarch.agent.unit': unit, 'madarch.agent.bytes': text.length }, put);
 }
 
 /** What a run's exchanges read as: the records, and the files of the folder that were not one. */
@@ -326,23 +338,31 @@ export interface AgentExchangesRead {
  * and no problems.
  */
 export function readRunAgentExchanges(tracesFolder: string, run: string): AgentExchangesRead {
-  const folder = agentExchangeFolder(tracesFolder, run);
-  let names: string[];
-  try { names = readdirSync(folder); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { units: [], problems: [] };
-    return { units: [], problems: [`${folder}: the agent exchanges of run ${JSON.stringify(run)} cannot be read: ${(error as Error).message}`] };
-  }
-  const units: AgentExchangeRecord[] = [];
-  const problems: string[] = [];
-  for (const name of names.filter((held) => held.endsWith('.json')).sort(byCodePoint)) {
-    const file = join(folder, name);
-    try {
-      const record = JSON.parse(readFileSync(file, 'utf8')) as AgentExchangeRecord;
-      if (record.schema !== AGENT_EXCHANGE_SCHEMA || typeof record.unit !== 'string' || typeof record.given !== 'object' || record.given === null) throw new Error(`not a ${AGENT_EXCHANGE_SCHEMA} record`);
-      units.push(record);
-    } catch (error) {
-      problems.push(`${file}: ${(error as Error).message}`);
+  return readExchanges(agentExchangeFolder(tracesFolder, run), run);
+}
+
+/** The records one run's folder holds, read inside its own span. */
+function readExchanges(folder: string, run: string): AgentExchangesRead {
+  const read = (): AgentExchangesRead => {
+    let names: string[];
+    try { names = readdirSync(folder); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { units: [], problems: [] };
+      return { units: [], problems: [`${folder}: the agent exchanges of run ${JSON.stringify(run)} cannot be read: ${(error as Error).message}`] };
     }
-  }
-  return { units, problems };
+    const units: AgentExchangeRecord[] = [];
+    const problems: string[] = [];
+    for (const name of names.filter((held) => held.endsWith('.json')).sort(byCodePoint)) {
+      const file = join(folder, name);
+      try {
+        const raw = readFileSync(file, 'utf8');
+        const record = JSON.parse(raw) as AgentExchangeRecord;
+        if (record.schema !== AGENT_EXCHANGE_SCHEMA || typeof record.unit !== 'string' || typeof record.given !== 'object' || record.given === null) throw new Error(`not a ${AGENT_EXCHANGE_SCHEMA} record`);
+        units.push(record);
+      } catch (error) {
+        problems.push(`${file}: ${(error as Error).message}`);
+      }
+    }
+    return { units, problems };
+  };
+  return withSpanSync('agent.exchange.read', { 'madarch.run': run }, read);
 }

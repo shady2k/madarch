@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
 import { at, dateOf, formatValue, hostOf, localized } from './format.js';
@@ -207,7 +208,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
               const label = localized(column.label, language) ?? '';
               return (
                 <TableHead key={String(index)} aria-sort={canSort && field !== '' && field === sortField ? (sortDirection === 'ASC' ? 'ascending' : 'descending') : undefined}>
-                  {canSort && field !== '' ? <Button variant="link" size="content" onClick={() => askSort(field)} data-testid={`table-sort-${field}`}>{label}</Button> : label}
+                  {canSort && field !== '' ? <Button variant="ghost" size="sm" onClick={() => askSort(field)} data-testid={`table-sort-${field}`}>{label}</Button> : label}
                 </TableHead>
               );
             })}</TableRow>

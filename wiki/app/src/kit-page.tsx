@@ -15,6 +15,10 @@ import {
 import { Button } from './components/ui/button.js';
 import { ChoiceMenu } from './components/ui/choice-menu.js';
 import { DateTimeField, DateTimePanel, type DateTimeLabels } from './components/ui/date-time-field.js';
+import {
+  ActivityCalendar, ChartBar, ChartCalendar, ChartHeatmap, ChartSparkline, ChartStackedBar, ChartSunburst, ChartTreemap,
+  type ChartDay, type ChartNode,
+} from './components/ui/charts.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card.js';
 import { Checkbox } from './components/ui/checkbox.js';
 import { ChoiceCard, ChoiceDescription } from './components/ui/choice-card.js';
@@ -34,13 +38,10 @@ import {
 import { FactChart } from './components/ui/fact-chart.js';
 import { Figure, FigureCaption } from './components/ui/figure.js';
 import { FilterBar, FilterField, FilterResults, PaginationBar, PaginationSummary } from './components/ui/filter-bar.js';
-import {
-  GraphBox, GraphCanvas, GraphEdge, GraphEdges, GraphMetadata, GraphViewport, graphLinkClass,
-} from './components/ui/graph.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
 import { LogViewer, type LogViewerEntry, type LogViewerFilters, type LogViewerLabels } from './components/ui/log-viewer.js';
-import { KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
+import { KitFigureState, KitNarrow, KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
 import { MetadataLine } from './components/ui/metadata-line.js';
 import {
   NavigationCount, NavigationGroup, NavigationGroupTrigger, NavigationLabel, NavigationLink, NavigationPending,
@@ -49,12 +50,12 @@ import {
 import { OrderedList } from './components/ui/ordered-list.js';
 import { Progress } from './components/ui/progress.js';
 import { RadioGroup, RadioGroupItem } from './components/ui/radio-group.js';
-import { RadioInput } from './components/ui/radio-input.js';
 import { Blockquote, ReadingContent } from './components/ui/reading-content.js';
 import {
   SearchContainer, SearchGroupTitle, SearchResultLink, SearchResults,
 } from './components/ui/search-results.js';
 import { SegmentedChoice } from './components/ui/segmented-choice.js';
+
 import {
   ShellAnswersCount, ShellAnswersLink, ShellAnswersWords, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellIconLink,
   ShellTab, ShellTabClose, ShellTabTrigger, ShellTabs,
@@ -92,9 +93,55 @@ function logSample(t: TFunction): readonly LogViewerEntry[] {
   ];
 }
 
+// The figures' data: a repository by bytes, a catalogue by kinds, fill outcomes by day, and ninety days of fills. Fixed
+// numbers, so the page reads the same on every run and a shot can be compared with the one before it.
+const REPOSITORY: readonly ChartNode[] = [
+  { label: 'src', children: [{ label: 'fill', value: 412 }, { label: 'graph', value: 268 }, { label: 'service', value: 196 }, { label: 'knowledge', value: 154 }] },
+  { label: 'wiki/app', children: [{ label: 'components', value: 231 }, { label: 'styles', value: 88 }, { label: 'page.tsx', value: 64 }] },
+  { label: 'samples', children: [{ label: 'fixtures', value: 142 }, { label: 'fill', value: 96 }] },
+  { label: 'docs', value: 120 },
+];
+/** The same shape the catalogue has: many kinds whose tail is folded into one entry when it outgrows the budget. */
+const CATALOGUE: readonly ChartNode[] = Array.from({ length: 40 }, (_, index) => ({ label: `kind-${String(index + 1)}`, value: 40 - index }));
+const BARS = [{ label: 'components', value: 3210 }, { label: 'sections', value: 1840 }, { label: 'templates', value: 912 }, { label: 'views', value: 640 }, { label: 'styles', value: 388 }];
+const HEATMAP_VALUES = [[6, 8, 3, 9, 5], [4, 7, 9, 2, 8], [5, 3, 6, 7, 4], [9, 2, 4, 8, 6], [3, 6, 8, 5, 7], [1, 2, 1, 3, 2], [0, 1, 2, 1, 0]];
+const STACKED_VALUES = [[42, 51, 38, 60, 47], [3, 1, 5, 2, 4], [6, 4, 2, 5, 3]];
+const SPARK = [3, 5, 4, 8, 6, 9, 7, 11, 10, 12, 9, 14];
+/** Ninety days of fills ending on a fixed day, so the calendar reads the same every run. */
+const DAYS: readonly ChartDay[] = Array.from({ length: 90 }, (_, index) => {
+  const at = new Date(Date.UTC(2026, 7, 17 + index));
+  return { date: at.toISOString().slice(0, 10), count: (index * 7 + (index % 5) * 3) % 13 };
+});
+const EMPTY_TREE: readonly ChartNode[] = [{ label: 'nothing yet' }];
+/** The aggregate a section's `bars`, `treemap` or `timeline` display draws: a label, its value and where it leads. */
+const FACT_ROWS = [{ label: 'components', value: 42 }, { label: 'sections', value: 27 }, { label: 'templates', value: 18 }, { label: 'views', value: 9 }];
+
+/** Fold a hierarchy's children to a budget: the biggest stay, the rest become one entry named by the caller. */
+function folded(nodes: readonly ChartNode[], budget: number, label: (count: number) => string): ChartNode[] {
+  const sorted = [...nodes].sort((left, right) => (right.value ?? 0) - (left.value ?? 0));
+  if (sorted.length <= budget) return sorted;
+  const kept = sorted.slice(0, budget - 1);
+  const rest = sorted.slice(budget - 1);
+  return [...kept, { label: label(rest.length), value: rest.reduce((sum, node) => sum + (node.value ?? 0), 0), color: 'var(--surface-soft)', textColor: 'var(--text)' }];
+}
+
+/** The five sample days, named by the reader's locale. */
+function groupsOf(language: string): string[] {
+  return Array.from({ length: 5 }, (_, at) => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 10, 11 + at))));
+}
+
+/** The seven weekday names, born on Monday 2026-01-05, in the reader's locale. */
+function weekdaysOf(language: string): string[] {
+  return Array.from({ length: 7 }, (_, day) => new Intl.DateTimeFormat(language, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 5 + day))));
+}
+
 export function KitPage(): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const weekdays = weekdaysOf(language);
+  const groups = groupsOf(language);
+  const stacked = [t('knowledge.fillRun.state.published'), t('knowledge.fillRun.state.failed'), t('knowledge.fillRun.state.blocked')].map((name, at) => ({ name, data: STACKED_VALUES[at]! }));
+  const heatmap = { rows: weekdays, cols: ['W45', 'W46', 'W47', 'W48', 'W49'], values: HEATMAP_VALUES };
   const state = (key: string): string => t(`kit.${key}`);
   const [choice, setChoice] = useState('one');
   const [segment, setSegment] = useState('one');
@@ -150,24 +197,27 @@ export function KitPage(): ReactElement {
         <KitState label={state('default')}><Input aria-label={state('name')} placeholder={state('name')} /><Textarea aria-label={state('description')} placeholder={state('description')} /></KitState>
         <KitState label={state('disabled')}><Input aria-label={state('name')} defaultValue={state('sample')} disabled /><Textarea aria-label={state('description')} defaultValue={state('sample')} disabled /></KitState>
         <KitState label={state('error')}><Input aria-label={state('name')} aria-invalid="true" aria-describedby="kit-input-error" /><Alert variant="problem" id="kit-input-error"><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
-        <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel></Form></KitState>
+        <KitState label={state('fieldLabel')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel></Form></KitState>
       </KitSection>
 
       <KitSection title="Checkbox / Radio / Switch / Toggle">
-        <KitState label="Checkbox"><Checkbox aria-label={state('name')} defaultChecked /></KitState>
+        <KitState label={`Checkbox — ${state('default')}`}><Checkbox aria-label={state('name')} /></KitState>
+        <KitState label={`Checkbox — ${state('selected')}`}><Checkbox aria-label={state('name')} defaultChecked /></KitState>
+        <KitState label={`Checkbox — ${state('indeterminate')}`}><Checkbox aria-label={state('name')} checked="indeterminate" /></KitState>
+        <KitState label={`Checkbox — ${state('disabled')}`}><Checkbox aria-label={state('name')} disabled defaultChecked /></KitState>
         <KitState label="RadioGroup">
           <RadioGroup defaultValue="one" aria-label={state('name')}><RadioGroupItem value="one" aria-label={state('selected')} /><RadioGroupItem value="two" aria-label={state('default')} /></RadioGroup>
         </KitState>
         <KitState label="Choice">
           <RadioGroup value={choice} onValueChange={setChoice} aria-label={state('name')}>
             {['one', 'two'].map((value) => (
-              <ChoiceCard key={value}><RadioInput name="kit-choice" value={value} checked={choice === value} onChange={() => { setChoice(value); }} /><ChoiceDescription>{state('sample')}</ChoiceDescription></ChoiceCard>
+              <ChoiceCard key={value}><RadioGroupItem value={value} /><ChoiceDescription>{state('sample')}</ChoiceDescription></ChoiceCard>
             ))}
           </RadioGroup>
         </KitState>
-        <KitState label="Switch"><Switch aria-label={state('action')} /><Switch defaultChecked aria-label={state('selected')} /><Switch disabled aria-label={state('disabled')} /></KitState>
+        <KitState label="Switch"><Stack className="flex flex-wrap items-center gap-3"><Switch aria-label={state('action')} /><Switch defaultChecked aria-label={state('selected')} /><Switch disabled aria-label={state('disabled')} /></Stack></KitState>
         <KitState label="Toggle"><Toggle aria-label={state('action')} pressed={toggled} onPressedChange={setToggled}>{state('action')}</Toggle></KitState>
-        <KitState label="Progress"><Progress value={45} aria-label={state('loading')} className="w-48" /><Progress value={null} aria-label={state('indeterminate')} className="w-48" /></KitState>
+        <KitState label="Progress"><Stack className="grid w-80 max-w-full gap-3"><Progress value={45} aria-label={state('loading')} className="h-2.5" /><Progress value={null} aria-label={state('indeterminate')} className="h-2.5" /></Stack></KitState>
       </KitSection>
 
       <KitSection title="Badge / Alert / Card / Skeleton">
@@ -184,17 +234,20 @@ export function KitPage(): ReactElement {
           <TableHeader><TableRow><TableHead>{state('name')}</TableHead><TableHead>{state('description')}</TableHead></TableRow></TableHeader>
           <TableBody><TableRow><TableCell>{state('sample')}</TableCell><TableCell>{state('content')}</TableCell></TableRow></TableBody>
         </Table>
-        <FactChart display="bar" rows={[{ label: state('sample'), value: 3 }, { label: state('content'), value: 7 }]} labelTitle={state('name')} valueTitle={state('description')} />
+        <KitState label={`FactChart — ${state('bar')}`}><FactChart display="bar" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('treemap')}`}><FactChart display="treemap" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('timeline')}`}><FactChart display="timeline" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('empty')}`}><FactChart display="bar" rows={[]} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
       </KitSection>
 
       <KitSection title="FilterBar">
         <FilterResults>
           <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button variant="default" size="sm">{state('action')}</Button></FilterBar>
         </FilterResults>
-        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label="next"><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
+        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label={state('next')}><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
       </KitSection>
 
-      <KitSection title="ChoiceMenu / DateTimeField">
+      <KitSection title={state('choiceMenuTitle')}>
         <KitState label={state('closed')}>
           <ChoiceMenu label={t('logs.filters.source')} value="" options={[{ value: '', label: t('logs.filters.all') }, { value: 'fill', label: t('logs.source.fill') }]} onChange={setMenuChoice} testId="kit-choice-menu" />
         </KitState>
@@ -204,7 +257,7 @@ export function KitPage(): ReactElement {
         <KitState label={state('open')}>
           {/* The open state is a picture of the menu inside its own sample: the kit's menu itself opens over the page. */}
           <Stack className="w-56 rounded-lg border border-line bg-page p-1 text-ink shadow" data-testid="kit-choice-open" aria-hidden="true">
-            <Metadata className="px-2 py-1.5 text-small uppercase tracking-wide text-muted">{t('logs.filters.source')}</Metadata>
+            <Metadata>{t('logs.filters.source')}</Metadata>
             <Stack className="rounded bg-chrome px-2 py-1.5 text-small">{t('logs.filters.all')}</Stack>
             <Stack className="px-2 py-1.5 text-small">{t('logs.source.fill')}</Stack>
           </Stack>
@@ -294,15 +347,6 @@ export function KitPage(): ReactElement {
         <ContentsSidebar><ResponsiveContents title={state('content')} items={CONTENTS} /></ContentsSidebar>
       </KitSection>
 
-      <KitSection title="Graph">
-        <GraphViewport>
-          <GraphCanvas width={240} height={120}>
-            <GraphEdges><GraphEdge active d="M20 20 L180 80" /></GraphEdges>
-            <GraphBox x={10} y={10} width={100} height={40} active><Text className={graphLinkClass}>{state('sample')}</Text><GraphMetadata>{state('name')}</GraphMetadata></GraphBox>
-          </GraphCanvas>
-        </GraphViewport>
-      </KitSection>
-
       <KitSection title="Reading">
         <KitState label="Inline"><InlineCode>const value = 1;</InlineCode><Strong>{state('sample')}</Strong></KitState>
         <KitState label="Code"><CodeFrame><Preformatted><SyntaxToken colors={{ color: 'var(--text)' }}>const value = 1;</SyntaxToken></Preformatted></CodeFrame></KitState>
@@ -336,6 +380,71 @@ export function KitPage(): ReactElement {
         <KitState label={state('logsLive')}>
           <LogViewer entries={logSample(t).slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} locale={language} />
         </KitState>
+      </KitSection>
+
+      <KitSection title={state('charts')} description={state('chartsNote')}>
+        <KitState label={`${state('treemap')} — ${state('data')}`}>
+          <ChartTreemap title={state('treeTitle')} nodes={REPOSITORY} width={640} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('treemap')} — ${state('folded')}`}>
+          <ChartTreemap title={state('foldedTitle')} nodes={folded(CATALOGUE, 6, (count) => t('kit.foldedCount', { count }))} width={640} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('treemap')} — ${state('empty')}`}>
+          <ChartTreemap title={state('treeTitle')} nodes={EMPTY_TREE} width={640} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sunburst')} — ${state('data')}`}>
+          <ChartSunburst title={state('sunburstTitle')} nodes={REPOSITORY} width={360} height={360} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sunburst')} — ${state('empty')}`}>
+          <ChartSunburst title={state('sunburstTitle')} nodes={EMPTY_TREE} width={360} height={360} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('bar')} — ${state('data')}`}>
+          <ChartBar title={state('barTitle')} rows={BARS} width={520} height={220} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('bar')} — ${state('empty')}`}>
+          <ChartBar title={state('barTitle')} rows={[]} width={520} height={220} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('stackedBar')} — ${state('data')}`}>
+          <ChartStackedBar title={state('stackedTitle')} groups={groups} series={stacked} width={520} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('stackedBar')} — ${state('empty')}`}>
+          <ChartStackedBar title={state('stackedTitle')} groups={[]} series={[]} width={520} height={240} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('heatmap')} — ${state('data')}`}>
+          <ChartHeatmap title={state('heatmapTitle')} matrix={heatmap} width={560} height={260} printValues note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('heatmap')} — ${state('empty')}`}>
+          <ChartHeatmap title={state('heatmapTitle')} matrix={{ rows: weekdays, cols: [], values: [] }} width={560} height={260} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sparkline')} — ${state('data')}`}>
+          <ChartSparkline title={state('sparklineTitle')} values={SPARK} width={240} height={48} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('sparkline')} — ${state('empty')}`}>
+          <ChartSparkline title={state('sparklineTitle')} values={[]} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('calendar')} — ${state('data')}`}>
+          <ChartCalendar title={state('calendarTitle')} days={DAYS} width={640} height={140} note={state('noData')} />
+        </KitState>
+        <KitState label={`${state('calendar')} — ${state('empty')}`}>
+          <ChartCalendar title={state('calendarTitle')} days={[]} width={640} height={140} note={state('noData')} />
+        </KitState>
+        <KitFigureState label={`${state('activity')} — ${state('data')}`}>
+          <ActivityCalendar title={state('activityTitle')} days={DAYS} note={state('noData')} />
+        </KitFigureState>
+        <KitFigureState label={`${state('activity')} — ${state('empty')}`}>
+          <ActivityCalendar title={state('activityTitle')} days={[]} note={state('noData')} />
+        </KitFigureState>
+        <KitFigureState label={state('narrow')}>
+          <KitNarrow>
+            <ChartTreemap title={state('treeTitle')} nodes={REPOSITORY} width={390} height={180} note={state('noData')} />
+            <ChartBar title={state('barTitle')} rows={BARS.slice(0, 3)} width={390} height={180} note={state('noData')} />
+            <ChartCalendar title={state('calendarTitle')} days={DAYS} width={390} height={110} note={state('noData')} />
+            <ActivityCalendar title={state('activityTitle')} days={DAYS} note={state('noData')} />
+          </KitNarrow>
+        </KitFigureState>
+        <KitFigureState label={state('darkCharts')}>
+          <ChartHeatmap title={state('heatmapTitle')} matrix={heatmap} width={560} height={260} note={state('noData')} />
+        </KitFigureState>
       </KitSection>
 
       <KitSection title="Embedded">

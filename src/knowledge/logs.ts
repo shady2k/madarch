@@ -26,9 +26,10 @@
 import { closeSync, openSync, readSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpanSync } from '../obs/trace.js';
 
 /** The logs one answer may draw from. */
-export const LOG_SOURCES = ['server', 'fill', 'plugin', 'agent', 'store', 'trace'] as const;
+export const LOG_SOURCES = ['engine', 'fill', 'plugin', 'agent', 'store', 'trace'] as const;
 export type LogSourceName = (typeof LOG_SOURCES)[number];
 
 /** The levels an entry may have, from the quietest to the loudest. */
@@ -39,7 +40,7 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
  * The sources a read takes when it is not told which: every log, and the spans only when they are asked for — one run's
  * trace is hundreds of spans, and a reader who wants them says so.
  */
-export const DEFAULT_LOG_SOURCES: readonly LogSourceName[] = ['server', 'fill', 'plugin', 'agent', 'store'];
+export const DEFAULT_LOG_SOURCES: readonly LogSourceName[] = ['engine', 'fill', 'plugin', 'agent', 'store'];
 
 /** One entry of one log, as a reader of every log reads it. */
 export interface LogEntry {
@@ -86,7 +87,7 @@ export interface LogQuery {
   /** A text every entry must contain, in its message or its detail (case-insensitive). */
   readonly q?: string;
   /** Only entries after this moment, for a live tail. */
-  readonly since?: number;
+  readonly from?: number;
   /** Only entries before this moment, for the older page of a list. */
   readonly before?: number;
   readonly limit?: number;
@@ -116,7 +117,12 @@ export const MAX_DETAIL_CHARACTERS = 8_000;
 /** The characters one plugin log line holds. */
 const MAX_LINE_CHARACTERS = 4_000;
 /** The fields whose name speaks of a secret, which no answer carries. */
-const SECRET_FIELD = /(?:token|secret|password|passwd|authorization|api[-_]?key|cookie|credential)/iu;
+function secretField(name: string): boolean {
+  const folded = [...name].map((character) => character === 'ſ' ? 's' : character === 'K' ? 'k'
+    : character >= 'A' && character <= 'Z' ? character.toLowerCase() : character).join('');
+  return ['token', 'secret', 'password', 'passwd', 'authorization', 'apikey', 'api-key', 'api_key', 'cookie', 'credential']
+    .some((word) => folded.includes(word));
+}
 
 /** The whole number a value is, or the fallback. */
 function whole(value: unknown, fallback: number): number {
@@ -132,7 +138,7 @@ function cutText(value: string, characters = MAX_DETAIL_CHARACTERS): { text: str
 function contextOf(record: Readonly<Record<string, unknown>>, skip: ReadonlySet<string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of Object.keys(record).sort(byCodePoint)) {
-    if (skip.has(key) || SECRET_FIELD.test(key)) continue;
+    if (skip.has(key) || secretField(key)) continue;
     const value = record[key];
     if (value === undefined) continue;
     const text = typeof value === 'string' ? value : (() => { try { return JSON.stringify(value) ?? String(value); } catch { return String(value); } })();
@@ -144,8 +150,19 @@ function contextOf(record: Readonly<Record<string, unknown>>, skip: ReadonlySet<
 
 /** The file and line an error states at the head of its message (`src/x.ts:12: …`), when it states one. */
 function placeOf(message: string): { file: string | null; line: number | null } {
-  const match = /^(?:the |a )?(?:[^\s:]*\/)?([^\s:/]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|ya?ml|md|sh)):(\d+):/u.exec(message);
-  return match === null ? { file: null, line: null } : { file: match[1] ?? null, line: Number(match[2]) };
+  const absent = { file: null, line: null };
+  const text = message.startsWith('the ') ? message.slice(4) : message.startsWith('a ') ? message.slice(2) : message;
+  const colon = text.indexOf(':');
+  if (colon < 0) return absent;
+  const path = text.slice(0, colon);
+  if ([...path].some((character) => character.trim() === '')) return absent;
+  const file = path.slice(path.lastIndexOf('/') + 1);
+  const dot = file.lastIndexOf('.');
+  if (dot <= 0 || !['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'yml', 'yaml', 'md', 'sh'].includes(file.slice(dot + 1))) return absent;
+  const end = text.indexOf(':', colon + 1);
+  const line = text.slice(colon + 1, end);
+  if (end < 0 || line === '' || [...line].some((character) => character < '0' || character > '9')) return absent;
+  return { file, line: Number(line) };
 }
 
 /**
@@ -180,16 +197,16 @@ const ENGINE_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 /** The engine's messages that carry a text of their own behind a fixed opening: the opening is the code, the rest is an argument. */
-const ENGINE_FAMILIES: readonly { readonly pattern: RegExp; readonly code: string; readonly names: readonly string[] }[] = [
-  { pattern: /^unit not extracted: (.*)$/su, code: 'unit-not-extracted', names: ['detail'] },
-  { pattern: /^the plugin session failed: (.*)$/su, code: 'plugin-session-failed', names: ['detail'] },
-  { pattern: /^the sandbox could not resolve a runtime dependency: (.*)$/su, code: 'sandbox-dependency', names: ['detail'] },
-  { pattern: /^(\S+) failed with no retry left: (.*)$/su, code: 'unit-failed-retry', names: ['unit', 'detail'] },
-  { pattern: /^(\S+) failed: (.*)$/su, code: 'unit-failed', names: ['unit', 'detail'] },
-  { pattern: /^(\S+) is blocked: (.*)$/su, code: 'unit-blocked', names: ['unit', 'detail'] },
-  { pattern: /^(\S+) cannot split: (.*)$/su, code: 'unit-cannot-split', names: ['unit', 'detail'] },
-  { pattern: /^(\S+) waits for a resolution: a child failed$/su, code: 'unit-blocked-child', names: ['unit'] },
-  { pattern: /^the run is blocked: (.*)$/su, code: 'run-blocked', names: ['detail'] },
+const ENGINE_FAMILIES: readonly { readonly opening: string; readonly unit?: boolean; readonly exact?: boolean; readonly code: string }[] = [
+  { opening: 'unit not extracted: ', code: 'unit-not-extracted' },
+  { opening: 'the plugin session failed: ', code: 'plugin-session-failed' },
+  { opening: 'the sandbox could not resolve a runtime dependency: ', code: 'sandbox-dependency' },
+  { opening: ' failed with no retry left: ', unit: true, code: 'unit-failed-retry' },
+  { opening: ' failed: ', unit: true, code: 'unit-failed' },
+  { opening: ' is blocked: ', unit: true, code: 'unit-blocked' },
+  { opening: ' cannot split: ', unit: true, code: 'unit-cannot-split' },
+  { opening: ' waits for a resolution: a child failed', unit: true, exact: true, code: 'unit-blocked-child' },
+  { opening: 'the run is blocked: ', code: 'run-blocked' },
 ];
 
 /** The code and arguments of an engine message, or null for a text the page must show as it was written. */
@@ -197,10 +214,16 @@ export function engineEventOf(message: string): { readonly code: string; readonl
   const exact = ENGINE_MESSAGES[message];
   if (exact !== undefined) return { code: exact, arguments: {} };
   for (const family of ENGINE_FAMILIES) {
-    const match = family.pattern.exec(message);
-    if (match === null) continue;
+    let unitEnd = 0;
+    if (family.unit === true) {
+      while (unitEnd < message.length && message[unitEnd]!.trim() !== '') unitEnd += 1;
+      if (unitEnd === 0) continue;
+    }
+    const rest = message.slice(unitEnd);
+    if (family.exact === true ? rest !== family.opening : !rest.startsWith(family.opening)) continue;
     const args: Record<string, string> = {};
-    family.names.forEach((name, index) => { args[name] = cutText(match[index + 1] ?? '').text; });
+    if (family.unit === true) args['unit'] = cutText(message.slice(0, unitEnd)).text;
+    if (family.exact !== true) args['detail'] = cutText(rest.slice(family.opening.length)).text;
     return { code: family.code, arguments: args };
   }
   return null;
@@ -213,36 +236,55 @@ function levelOf(value: unknown): LogLevel {
 
 /** The tail of a file, up to `MAX_FILE_BYTES`: whether it was cut and its text. */
 function readTail(file: string): { text: string; cut: boolean } {
-  let size: number;
-  try { size = statSync(file).size; } catch { return { text: '', cut: false }; }
-  if (size <= MAX_FILE_BYTES) {
-    try { return { text: readFileSync(file, 'utf8'), cut: false }; } catch { return { text: '', cut: false }; }
-  }
-  const descriptor = openSync(file, 'r');
-  try {
-    const buffer = Buffer.alloc(MAX_FILE_BYTES);
-    readSync(descriptor, buffer, 0, MAX_FILE_BYTES, size - MAX_FILE_BYTES);
-    const text = buffer.toString('utf8');
-    // The first line of a tail is a line cut in half: it is dropped rather than shown as a broken record.
-    return { text: text.slice(text.indexOf('\n') + 1), cut: true };
-  } finally {
-    closeSync(descriptor);
-  }
+  const read = (): { text: string; cut: boolean } => {
+    let size: number;
+    try { size = statSync(file).size; } catch { return { text: '', cut: false }; }
+    if (size <= MAX_FILE_BYTES) {
+      try { return { text: readFileSync(file, 'utf8'), cut: false }; } catch { return { text: '', cut: false }; }
+    }
+    const descriptor = openSync(file, 'r');
+    try {
+      const buffer = Buffer.alloc(MAX_FILE_BYTES);
+      readSync(descriptor, buffer, 0, MAX_FILE_BYTES, size - MAX_FILE_BYTES);
+      const text = buffer.toString('utf8');
+      // The first line of a tail is a line cut in half: it is dropped rather than shown as a broken record.
+      return { text: text.slice(text.indexOf('\n') + 1), cut: true };
+    } finally {
+      closeSync(descriptor);
+    }
+  };
+  return withSpanSync('logs.readTail', { 'madarch.log.file': file }, read);
 }
 
 /** The names of the files in one folder, or none when the folder is not there. */
 function namesIn(folder: string): string[] {
-  try { return readdirSync(folder).sort(byCodePoint); } catch { return []; }
+  const list = (): string[] => {
+    try { return readdirSync(folder).sort(byCodePoint); } catch { return []; }
+  };
+  return withSpanSync('logs.list', { 'madarch.log.folder': folder }, list);
+}
+
+/** When a file was last written, in epoch milliseconds, or null when it cannot be read; inside its own span. */
+function lastWritten(file: string): number | null {
+  const stat = (): number | null => { try { return statSync(file).mtimeMs; } catch { return null; } };
+  return withSpanSync('logs.stat', { 'madarch.log.file': file }, stat);
+}
+
+/** A whole text file, or null when it cannot be read; inside its own span. */
+function wholeText(file: string): string | null {
+  const read = (): string | null => { try { return readFileSync(file, 'utf8'); } catch { return null; } };
+  return withSpanSync('logs.readFile', { 'madarch.log.file': file }, read);
 }
 
 /** The stem of a trace file's name: its run id, as the trace wrote it. */
-const stemOf = (name: string): string => name.replace(/\.(?:log\.)?jsonl$/u, '');
+const stemOf = (name: string): string => name.endsWith('.log.jsonl') ? name.slice(0, -'.log.jsonl'.length)
+  : name.endsWith('.jsonl') ? name.slice(0, -'.jsonl'.length) : name;
 
 /** The files of one source, as the read finds them. */
 function sourceFiles(paths: { store: string; knowledgeRoot: string }, source: LogSourceName, bound: number): { file: string; run: string | null; unit: string | null }[] {
   const traces = join(paths.store, 'traces');
   switch (source) {
-    case 'server':
+    case 'engine':
       return namesIn(join(paths.knowledgeRoot, 'traces')).filter((name) => name.endsWith('.log.jsonl')).map((name) => ({ file: join(paths.knowledgeRoot, 'traces', name), run: stemOf(name), unit: null }));
     case 'fill':
       return namesIn(traces).filter((name) => name.endsWith('.log.jsonl')).map((name) => ({ file: join(traces, name), run: stemOf(name), unit: null }));
@@ -264,7 +306,7 @@ function sourceFiles(paths: { store: string; knowledgeRoot: string }, source: Lo
 }
 
 /** One structured log file (`obs/log.ts`) as entries. */
-function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'server'): { entries: LogEntry[]; cut: boolean } {
+function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'engine'): { entries: LogEntry[]; cut: boolean } {
   const read = readTail(file);
   const entries: LogEntry[] = [];
   const skip = new Set(['time', 'level', 'message', 'error']);
@@ -306,8 +348,7 @@ function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'se
 /** One plugin's standard error as entries: one entry per line, the time the file was last written. */
 function entriesOfPluginLog(file: string, run: string | null, unit: string | null): { entries: LogEntry[]; cut: boolean } {
   const read = readTail(file);
-  let at: number | null = null;
-  try { at = statSync(file).mtimeMs; } catch { at = null; }
+  const at = lastWritten(file);
   const entries: LogEntry[] = [];
   for (const [index, line] of read.text.split('\n').entries()) {
     if (line.trim() === '') continue;
@@ -335,7 +376,7 @@ function entriesOfTraceFile(file: string, run: string | null): { entries: LogEnt
     const end = Number(span.endTimeUnixNano) / 1e6;
     const fields: Record<string, string> = {};
     for (const attribute of span.attributes ?? []) {
-      if (typeof attribute.key !== 'string' || SECRET_FIELD.test(attribute.key)) continue;
+      if (typeof attribute.key !== 'string' || secretField(attribute.key)) continue;
       const value = attribute.value as Record<string, unknown> | undefined;
       const held = value === undefined ? '' : typeof value['stringValue'] === 'string' ? value['stringValue'] : typeof value['intValue'] === 'string' ? value['intValue'] : typeof value['boolValue'] === 'boolean' ? String(value['boolValue']) : '';
       if (held !== '') fields[attribute.key] = held;
@@ -357,8 +398,8 @@ function entriesOfTraceFile(file: string, run: string | null): { entries: LogEnt
 
 /** One agent unit's exchange as entries: what it was given, each step it streamed, and what it returned. */
 function entriesOfAgentFile(file: string, run: string | null): { entries: LogEntry[]; cut: boolean } {
-  let text: string;
-  try { text = readFileSync(file, 'utf8'); } catch { return { entries: [], cut: false }; }
+  const text = wholeText(file);
+  if (text === null) return { entries: [], cut: false };
   let record: {
     unit?: unknown; agent?: unknown; model?: unknown; state?: unknown; failure?: unknown;
     startedAt?: unknown; endedAt?: unknown; given?: { prompt?: unknown }; steps?: { at?: unknown; kind?: unknown; title?: unknown; status?: unknown; text?: unknown; detail?: unknown }[];
@@ -452,7 +493,7 @@ export function readLogs(paths: { readonly store: string; readonly knowledgeRoot
     // One run's entries only: a source that belongs to no run (the store's own log) has nothing of a run to show.
     if (query.run !== undefined && entry.run !== query.run) return false;
     if (query.level !== undefined && rankOf(entry.level) < rankOf(query.level)) return false;
-    if (query.since !== undefined && (entry.at === null || entry.at <= query.since)) return false;
+    if (query.from !== undefined && (entry.at === null || entry.at <= query.from)) return false;
     if (query.before !== undefined && (entry.at === null || entry.at >= query.before)) return false;
     if (text !== '' && !entry.message.toLowerCase().includes(text) && !(entry.detail ?? '').toLowerCase().includes(text)) return false;
     return true;
@@ -465,6 +506,14 @@ export function readLogs(paths: { readonly store: string; readonly knowledgeRoot
   const scanned = ordered.length;
   const page = ordered.slice(Math.max(0, ordered.length - limit));
   return { entries: page, more: ordered.length > page.length, scanned, truncated };
+}
+
+/**
+ * One page of every log the product keeps, with what its filters offer: the runs behind the store's traces, the sources
+ * and the levels. The page and the one read API answer the same shape (madarch-64o5.88).
+ */
+export function logsAnswer(paths: { readonly store: string; readonly knowledgeRoot: string }, query: LogQuery = {}): LogPage & { readonly runs: readonly string[]; readonly sources: readonly string[]; readonly levels: readonly string[] } {
+  return { ...readLogs(paths, query), runs: logRuns(paths.store), sources: [...LOG_SOURCES], levels: [...LOG_LEVELS] };
 }
 
 /** The known runs' ids behind one store's traces, newest first, for a filter to offer. */

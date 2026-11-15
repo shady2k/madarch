@@ -4053,6 +4053,7 @@ type Query {
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
   catalogueDependencies(lang: String): JSON!
+  logs(sources: [String!], level: String, run: String, q: String, from: Int, before: Int, limit: Int): JSON!
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
   related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
 }

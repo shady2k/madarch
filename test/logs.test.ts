@@ -94,7 +94,7 @@ describe('every log in one read', () => {
     expect(oneRun.some((entry) => entry.source === 'store')).toBe(false);
     expect(readLogs({ store, knowledgeRoot }, { q: 'PINNED' }).entries.map((entry) => entry.level)).toEqual(['error']);
     const since = Date.parse('2026-11-15T09:41:03.000Z');
-    expect(readLogs({ store, knowledgeRoot }, { since: Date.parse('2026-11-15T09:41:01.000Z') }).entries.every((entry) => (entry.at ?? 0) > Date.parse('2026-11-15T09:41:01.000Z'))).toBe(true);
+    expect(readLogs({ store, knowledgeRoot }, { from: Date.parse('2026-11-15T09:41:01.000Z') }).entries.every((entry) => (entry.at ?? 0) > Date.parse('2026-11-15T09:41:01.000Z'))).toBe(true);
     const before = readLogs({ store, knowledgeRoot }, { before: since }).entries;
     expect(before.every((entry) => (entry.at ?? 0) < since)).toBe(true);
     const page = readLogs({ store, knowledgeRoot }, { limit: 2 });
@@ -146,4 +146,25 @@ test('every fixed message the engine logs has a code the page words', async () =
     }
   }
   expect(missing).toEqual([]);
+});
+
+test('engine families preserve their openings, captures, whitespace and multiline details', () => {
+  for (const [message, code, args] of [
+    ['unit not extracted: first\nsecond', 'unit-not-extracted', { detail: 'first\nsecond' }],
+    ['the plugin session failed: ', 'plugin-session-failed', { detail: '' }],
+    ['the sandbox could not resolve a runtime dependency: dep', 'sandbox-dependency', { detail: 'dep' }],
+    ['😀:unit failed with no retry left: why\nnow', 'unit-failed-retry', { unit: '😀:unit', detail: 'why\nnow' }],
+    ['x failed: ', 'unit-failed', { unit: 'x', detail: '' }],
+    ['x is blocked: why', 'unit-blocked', { unit: 'x', detail: 'why' }],
+    ['x cannot split: why', 'unit-cannot-split', { unit: 'x', detail: 'why' }],
+    ['x waits for a resolution: a child failed', 'unit-blocked-child', { unit: 'x' }],
+    ['the run is blocked: why', 'run-blocked', { detail: 'why' }],
+  ] as const) expect(engineEventOf(message)).toEqual({ code, arguments: args });
+  for (const message of [' x failed: why', 'x\tfailed: why', 'x waits for a resolution: a child failed\n', 'x y failed: why']) {
+    expect(engineEventOf(message)).toBeNull();
+  }
+});
+
+test('record file names replace each non-ASCII code point once and retain allowed punctuation', () => {
+  expect(recordFileName('AZaz09._-😀é/', 'log').split('-').slice(0, -1).join('-')).toBe('AZaz09._----');
 });
