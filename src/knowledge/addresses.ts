@@ -33,6 +33,8 @@ export const SETTINGS_ADDRESS = '/settings';
  * the address names no page.
  */
 export const entityAddress = (key: string): string => `${ENTITY_ADDRESS_BASE}${addressName(key)}`;
+/** One entity's own page, addressed by its kind and its stable id (decision 0036, section 7): `/e/<kind>/<id>`. */
+export const entityPageAddress = (kind: string, id: string): string => `${ENTITY_ADDRESS_BASE}${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
 export function sourceAddress(repo: string | null, path: string, line?: number): string {
   const query = new URLSearchParams();
   if (repo !== null) query.set('repo', repo);
@@ -116,7 +118,6 @@ export const API = {
   task: '/api/task',
   taskPropose: '/api/task-propose',
   taskImpact: '/api/task-impact',
-  taskCreate: '/api/task-create',
   taskClose: '/api/task-close',
   taskRun: '/api/task-run',
   reset: '/api/reset',

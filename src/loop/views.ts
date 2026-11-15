@@ -72,6 +72,10 @@ export interface Problem {
   readonly source?: string;
   readonly by: Author | null;
   readonly at: string | null;
+  /** The finding in both of the wiki's languages, when its rule states it: the words a task opened from it carries. */
+  readonly words?: Readonly<Record<'en' | 'ru', string>>;
+  /** The task a person already opened from this problem: the page links to it instead of opening a second. */
+  readonly task?: ProblemLink;
 }
 
 export interface ProblemListing {
@@ -150,6 +154,7 @@ function wikiProblem(
     statement: string | null; sentence: string | null; fixer: Fixer; closed: boolean; by: Author | null; at: string | null;
     source?: string; place?: ProblemLink; entity?: ProblemLink | null; evidence?: readonly ProblemLink[];
     textKey?: string; textArgs?: Record<string, string | number>;
+    words?: Readonly<Record<'en' | 'ru', string>>;
   },
   settings: ProblemSettings,
   notes: ProblemNote[],
@@ -168,6 +173,7 @@ function wikiProblem(
     fixer: fields.fixer, closed: fields.closed,
     page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
     target: fields.target, reason: fields.reason, ...(fields.textKey === undefined ? {} : { textKey: fields.textKey, textArgs: fields.textArgs }), file: fields.file, line: fields.line,
+    ...(fields.words === undefined ? {} : { words: fields.words }),
     ...(fields.source === undefined ? {} : { source: fields.source }),
     place, entity,
     evidence: fields.evidence ?? [],
