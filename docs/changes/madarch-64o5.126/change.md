@@ -44,17 +44,21 @@ None.
 
 ## Design and decisions
 The card, card header and card content take `min-w-0` and `max-w-full`; `InlineCode` wraps anywhere; the settings agent
-note wraps long paths; inline code inside pages wraps anywhere. The work area already has a scrolling content column and
-its tables and diagrams keep their own scrollers, so the page itself never widens.
+note wraps long paths; inline code inside pages wraps anywhere. A segmented choice wraps its options instead of holding
+one nowrap row, so the long Russian role labels fit. The work area already has a scrolling content column and its tables
+and diagrams keep their own scrollers, so the page itself never widens.
 
 ## Acceptance evidence
 Static: `bun run check` passed; the wiki app's `bun run check` passed.
 Test: the app suite 121 passed, 0 failed.
 Audit: a headless Chromium opened the home, catalogue, settings, sources, problems, glossary, runs, kit, preparation,
-search and three catalogue entity pages at 1440 and 390; every page's `main` scroll width equalled its client width, and
-the document's scroll width equalled the viewport. The settings page was also opened with a 263-character machine home
-path at both widths: every card's right edge stayed inside the work area, and the path wrapped.
-Screens: `docs/changes/madarch-64o5.126/mockups/` holds the long-path settings at 1440 and 390, light and dark.
+search and three catalogue entity pages at 1440 and 390, in English and Russian; every page's `main` scroll width
+equalled its client width, and the document's scroll width equalled the viewport. The settings page was also opened with
+a 263-character machine home path at both widths in both languages: every card's right edge stayed inside the work area,
+and the path wrapped. The Russian role choices first showed the segmented control wider than its card; that is the
+segmented-choice fix above.
+Screens: `docs/changes/madarch-64o5.126/mockups/` holds the long-path settings at 1440 and 390, light and dark, in
+English and Russian.
 Mutation: not run, filed per the stage rule.
 Review: pending; this record is for the review.
 
