@@ -487,19 +487,26 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       // keeps its cause and its places alike, so a file-specific problem is never hidden under the general cause.
       const problems = outcome.result.problems;
       const problemsText = problems.length === 0 ? undefined : `${String(problems.length)} place${problems.length === 1 ? '' : 's'} could not be read: ${problems.map((problem) => `${problem.repository === undefined ? '' : `${problem.repository}/`}${problem.path}:${String(problem.line)}${problem.column === undefined ? '' : `:${String(problem.column)}`} ${problem.message}`).join('; ')}`;
-      if (outcome.result.end.state === 'partial') {
-        const reason = problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`;
-        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason } });
+      // A partial answer keeps every entry it holds (owner's rule, 2026-11-15): the entries the contract and the graph
+      // could take are published, and the reason — the agent's own cause, the places it could not read, and the entries
+      // the contract could not take — is written beside them. Only an answer that holds nothing abstains.
+      const partialReason = outcome.result.end.state === 'partial'
+        ? (problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`)
+        : undefined;
+      const producedEntries = outcome.result.vertices.length + outcome.result.edges.length;
+      if (partialReason !== undefined && producedEntries === 0 && outcome.result.removals.length === 0) {
+        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: partialReason } });
         draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
         journaled = true;
-        progress?.(`the plugin ${unit.plugin.id} abstained: ${reason}`);
+        progress?.(`the plugin ${unit.plugin.id} abstained: ${partialReason}`);
         await meter?.flush();
         const stop = meter?.stop();
         if (stop !== undefined) throw unitStopped(id, 'agent-budget', stop.message);
         return;
       }
+      if (partialReason !== undefined) progress?.(`the plugin ${unit.plugin.id} answered partly and published what it held (${String(producedEntries)}): ${partialReason}`);
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
-      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length, ...(problemsText === undefined ? {} : { reason: problemsText }) } });
+      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? 'empty' : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) } });
       const only = selectedVertex(wiring, unit.kind.name);
       // Publish this kind's unit; other declared results belong to their own units.
       const selectedKinds = new Set([unit.kind.name]);
