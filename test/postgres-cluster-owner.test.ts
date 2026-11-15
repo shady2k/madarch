@@ -8,8 +8,8 @@
 import { afterAll, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { clusterPaths, clusterQuery, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
+import { dirname, join } from 'node:path';
+import { clusterPaths, clusterQuery, openCluster, processStartTime, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-cluster-owner-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -175,25 +175,103 @@ test('an open waits for a start another process is making, then starts the serve
   }
 }, 120_000);
 
-for (const shape of ['with', 'without'] as const) {
-  test(`a data directory an interrupted initdb left unfinished is prepared again (${shape} PG_VERSION)`, async () => {
-    // The clean install walk at main c70335f7: a stop ended initdb mid-run, and the next start ran initdb into the folder
-    // it had filled, which initdb refuses ("exists but is not empty"). A folder that holds no whole cluster is prepared
-    // again from scratch; `PG_VERSION` alone says nothing either way, since initdb writes it 64 ms into its run.
-    const store = storeOf(`interrupted ${shape}`);
-    const { dataDir } = clusterPaths(store);
-    mkdirSync(join(dataDir, 'global'), { recursive: true });
-    if (shape === 'with') writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
-    writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
-    const opened = await openCluster({ ...clusterPaths(store) });
+test('a folder madarch never recorded preparing is never removed, and the open refuses naming it', async () => {
+  // A folder that looks unfinished proves nothing: madarch may not have made it, and a stop or a crash in another
+  // program leaves the same files. Only a folder madarch recorded preparing may be removed.
+  const store = storeOf('foreign');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'base'), { recursive: true });
+  writeFileSync(join(dataDir, 'base', 'someone-elses'), 'kept\n');
+  let refusal: Error | undefined;
+  try { await openCluster({ ...clusterPaths(store) }); } catch (error) { refusal = error as Error; }
+  expect(refusal).toBeDefined();
+  expect(refusal?.message).toContain(dataDir);
+  expect(refusal?.message).toContain('move');
+  expect(readFileSync(join(dataDir, 'base', 'someone-elses'), 'utf8')).toBe('kept\n');
+  expect(existsSync(join(dataDir, 'PG_VERSION'))).toBe(false);
+}, 30_000);
+
+test('an older cluster missing what initdb leaves is refused, never erased', async () => {
+  // A cluster of an older or damaged store can lack `base/1`, and its files are the store's data.
+  const store = storeOf('older');
+  const { dataDir } = clusterPaths(store);
+  const opened = await openCluster({ ...clusterPaths(store) });
+  await opened.stop();
+  rmSync(join(dataDir, 'base', '1'), { recursive: true, force: true });
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  writeFileSync(join(dataDir, 'base', 'kept'), 'still here\n');
+  let refusal: Error | undefined;
+  try { await openCluster({ ...clusterPaths(store) }); } catch (error) { refusal = error as Error; }
+  expect(refusal).toBeDefined();
+  expect(refusal?.message).toContain(dataDir);
+  expect(readFileSync(join(dataDir, 'base', 'kept'), 'utf8')).toBe('still here\n');
+  expect(existsSync(join(dataDir, 'PG_VERSION'))).toBe(true);
+}, 120_000);
+
+test('a folder our record prepared, whose initdb is gone, is removed and prepared again', async () => {
+  // What a stop or a crash during preparation leaves (madarch-64o5.79: the clean install walk): madarch wrote the record
+  // before it ran initdb, and initdb is not there any more — neither finished nor running.
+  const store = storeOf('recorded');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'global'), { recursive: true });
+  writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
+  const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
+  await ended.exited;
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`);
+  const opened = await openCluster({ ...clusterPaths(store) });
+  try {
+    expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(false);
+    expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
+    expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
+    await clusterQuery(opened, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+  } finally { await opened.stop(); }
+}, 120_000);
+
+test('a record naming a pid another process holds is no preparation of ours: the folder is prepared again', async () => {
+  // Windows and a busy machine reuse pids: the recorded process must still be the initdb, by its start time, or what the
+  // record names is somebody else and the preparation it described is gone.
+  const store = storeOf('recycled');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'global'), { recursive: true });
+  writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
+  const other = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
+  try {
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: other.pid, startTime: '0' } })}\n`);
+    const opened = await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 });
     try {
       expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(false);
-      expect(existsSync(join(dataDir, 'global', 'pg_control'))).toBe(true);
-      expect(existsSync(join(dataDir, 'madarch.prepared'))).toBe(true);
       await clusterQuery(opened, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
     } finally { await opened.stop(); }
-  }, 120_000);
-}
+  } finally {
+    other.kill('SIGKILL');
+    await other.exited;
+  }
+}, 120_000);
+
+test('a folder under an initdb our record names, still running, is left as it stands and the open refuses', async () => {
+  // The lock of the madarch that started initdb died with it, so another opener reaches the folder while the initdb runs:
+  // it waits, then refuses naming the initdb, and never removes what that initdb may still be writing.
+  const store = storeOf('preparing');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'global'), { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+  writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
+  const initdb = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
+  try {
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: initdb.pid, startTime: processStartTime(initdb.pid) } })}\n`);
+    const started = performance.now();
+    let refusal: Error | undefined;
+    try { await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 }); } catch (error) { refusal = error as Error; }
+    expect(performance.now() - started).toBeGreaterThanOrEqual(300);
+    expect(refusal).toBeDefined();
+  expect(refusal?.message).toContain(dataDir);
+    expect(refusal?.message).toContain(String(initdb.pid));
+    expect(readFileSync(join(dataDir, 'global', 'half-made'), 'utf8')).toBe('partial');
+  } finally {
+    initdb.kill('SIGKILL');
+    await initdb.exited;
+  }
+}, 120_000);
 
 test('a whole store is never prepared again, and a cluster made before the record gets it', async () => {
   const store = storeOf('whole');
@@ -203,11 +281,11 @@ test('a whole store is never prepared again, and a cluster made before the recor
   const sentinel = join(dataDir, 'madarch.test-sentinel');
   writeFileSync(sentinel, 'kept\n');
   // A cluster prepared before this record existed: the record goes, and the cluster is still the one that is used.
-  rmSync(join(dataDir, 'madarch.prepared'));
+  rmSync(join(dirname(dataDir), 'madarch.prepared'));
   const second = await openCluster({ ...clusterPaths(store) });
   try {
     expect(readFileSync(sentinel, 'utf8')).toBe('kept\n');
-    expect(existsSync(join(dataDir, 'madarch.prepared'))).toBe(true);
+    expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
     await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
   } finally { await second.stop(); }
 }, 120_000);
