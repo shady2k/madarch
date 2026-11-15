@@ -92,6 +92,26 @@ const commitEdges = gitContract.outputs.edges
   .filter((edge) => edge.kind !== 'code.renamed-from')
   .map((edge) => ({ kind: edge.kind, from: typeof edge.from === 'string' ? edge.from : edge.from[0]!, to: typeof edge.to === 'string' ? edge.to : edge.to[0]! }));
 
+test('a rename into a path the product leaves out keeps no edge to that path (madarch-64o5.83)', async () => {
+  // A dependency tree the product excludes: a file moved into it must not leave a touched or renamed-from edge whose end
+  // has no vertex — the fill's partition planning refused such an edge ("partition edge has no output identity").
+  const moved = join(ROOT, 'excluded-rename');
+  mkdirSync(moved);
+  git(moved, ONE, 'init', '-q', '-b', 'main');
+  git(moved, ONE, 'config', 'commit.gpgsign', 'false');
+  writeFileSync(join(moved, 'util.js'), 'export const util = 1;\n');
+  commit(moved, ONE, 'add util.js');
+  mkdirSync(join(moved, 'node_modules', 'pkg'), { recursive: true });
+  git(moved, ONE, 'mv', 'util.js', 'node_modules/pkg/util.js');
+  const renamed = commit(moved, base('Mover', '2026-01-03T00:00:00+0000'), 'move util into a dependency');
+  const exclude = ['**/node_modules/**'];
+  const answer = await gitExtract({ ...unit('code.file', fileEdges, pin(moved, 'moved', renamed)), inputs: { ...(unit('code.file', fileEdges, pin(moved, 'moved', renamed)).inputs as Record<string, unknown>), exclude } } as Unit, context(['util.js', 'node_modules/pkg/util.js']));
+  const paths = (answer.vertices ?? []).filter((vertex) => vertex.kind === 'code.file').map((vertex) => String(vertex.key['path']));
+  expect(paths).toEqual(['util.js']);
+  const dangling = (answer.edges ?? []).filter((edge) => [String(edge.from.key['path'] ?? ''), String(edge.to.key['path'] ?? '')].some((path) => path.startsWith('node_modules/')));
+  expect(dangling).toEqual([]);
+});
+
 test('a backdated side deletion ends a period in ancestry order, not commit-date order', async () => {
   const dag = join(ROOT, 'dag');
   mkdirSync(dag);
