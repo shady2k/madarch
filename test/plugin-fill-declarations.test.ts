@@ -369,6 +369,20 @@ test('review 3: with an agent plugin, a kind whose input has no producer is an e
   expect(plan.outputs.get('other')?.has('Other')).toBe(true);
 });
 
+test('a kind only the agent fills is planned once the fill asks for it, so a press naming it with its dependant runs (madarch-64o5.123)', () => {
+  // The owner's read of code.cycle: the cycle rests on a prerequisite no plugin produces, and only the agent can fill
+  // it. Asked as a dependency alone, the plan has nothing to produce it and says so; asked for too, the plan runs.
+  const catalogue = [kind('Module'), kind('Cycle', ['members'], ['Module'])];
+  const manifest = manifestOf(catalogue, [general()]);
+  const alone = planManifestFill(manifest, '/product', ['Module', 'Cycle'], true, ['Cycle']);
+  expect(alone.errors.map((error) => error.kind).sort()).toEqual(['Cycle', 'Module']);
+  expect(alone.order).toEqual([]);
+  const asked = planManifestFill(manifest, '/product', ['Module', 'Cycle'], true, ['Module', 'Cycle']);
+  expect(asked.errors).toEqual([]);
+  expect(asked.order).toEqual(['general']);
+  expect(asked.agentNeeds.map((need) => need.kind).sort()).toEqual(['Cycle', 'Module']);
+});
+
 test('review 4: a deterministic plugin\'s read of a kind resting on its output is a cycle, not dropped', () => {
   const catalogue = [kind('A', ['title']), kind('B', ['title'], ['A'])];
   const declarations = [plugin('p', [output('A', '*', { reads: ['B'] })]), plugin('q', [output('B')])];

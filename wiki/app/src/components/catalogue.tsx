@@ -124,6 +124,13 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
 
   const added = new Map<string, string>();
   for (const entry of selectionPlan?.added ?? []) added.set(entry.kind, entry.neededBy);
+  // A prerequisite only the agent fills is part of what this press asks to fill (madarch-64o5.123): without it the plan
+  // reaches the preparation page with nothing that can produce it. The catalogue marks the kind «заполнит агент» and
+  // carries it with the selection; whether the plan runs is the preparation page's to decide, once the agent is chosen.
+  const prepareKinds = [...selection, ...[...added.keys()].filter((kind) => {
+    const filled = filledBy(planKindOf(allPlan, kind));
+    return filled.plugins.length === 0 && filled.agent.length > 0;
+  })].sort();
   const active = new Set([...selected, ...added.keys()]);
   const errors = new Map((allPlan?.errors ?? []).map((error) => [error.kind, error]));
   const groupLabels = (id: string | null): string => id === null ? t('knowledge.groupOther') : navigation?.groups.find((group) => group.name === id)?.labels[language] ?? id;
@@ -221,9 +228,9 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
               {kind.taken ? <Badge variant="outline" data-testid="catalogue-taken">{t('catalogue.taken')}</Badge> : null}
             </InlineGroup>
             {kind.definition === null || kind.definition === '' ? null : <Paragraph className="m-0 text-small text-secondary" data-testid="catalogue-definition">{kind.definition}</Paragraph>}
-            {error !== undefined ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
-            {error === undefined && filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
-            {error === undefined && filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph> : null}
+            {error !== undefined && filled.agent.length === 0 ? <Paragraph className="m-0 text-small" data-testid="catalogue-fill-error">{error.plugin === undefined ? error.message : t('catalogue.errorPlugin', { plugin: error.plugin })}</Paragraph> : null}
+            {filled.plugins.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-fill-line">{t('catalogue.filledBy')} <PluginNames names={filled.plugins} plan={allPlan} language={language} /></Paragraph> : null}
+            {filled.agent.length > 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-agent-line">{t('catalogue.agentFills', { fields: filled.agent.map((field) => fieldLabel(allPlan, kind.kind, field, language)).join(', ') })}</Paragraph> : null}
             {error === undefined && filled.plugins.length === 0 && filled.agent.length === 0 ? <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-no-fields">{t('catalogue.noFields')}</Paragraph> : null}
             {neededLabel === undefined ? null : <Paragraph className="m-0 text-small text-muted" data-testid="catalogue-needed">{t('catalogue.neededFor', { kind: neededLabel })}</Paragraph>}
           </Stack>
@@ -286,7 +293,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
           <Button
             disabled={selection.length === 0 || planRead.busy}
             disabledReason={selection.length === 0 ? t('catalogue.toPrepareNeedsKind') : t('catalogue.toPrepareBusy')}
-            onClick={() => context.open(prepareAddress(selection))}
+            onClick={() => context.open(prepareAddress(prepareKinds))}
             data-testid="catalogue-prepare"
           >{t('catalogue.toPrepare')}</Button>
         </Stack>

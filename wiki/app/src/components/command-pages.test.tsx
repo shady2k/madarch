@@ -35,6 +35,9 @@ const NAVIGATION = {
     { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1' },
     { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2' },
     { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3' },
+    // A kind the agent alone fills, and a prerequisite it rests on that only the agent fills too (madarch-64o5.123).
+    { kind: 'demo.cycle', one: 'Цикл', many: 'Циклы', definition: 'Кольцо зависимостей', taken: false, group: 'demo.code', nav: null, count: 0, entryId: null },
+    { kind: 'demo.module', one: 'Модуль', many: 'Модули', definition: 'Модуль кода', taken: false, group: 'demo.code', nav: null, count: 0, entryId: null },
   ],
   purposes: [],
 };
@@ -43,17 +46,37 @@ const ALPHA = { kind: 'demo.alpha', fields: [{ field: 'path', producers: ['disk'
 const BETA = { kind: 'demo.beta', fields: [{ field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
 const GAMMA = { kind: 'demo.gamma', fields: [{ field: 'title', producers: ['disk'] }, { field: 'definition', labels: { en: 'Definition', ru: 'Определение' }, producers: ['agent-fill'] }], agentFields: ['definition'] };
 
+const CYCLE = { kind: 'demo.cycle', fields: [{ field: 'members', labels: { en: 'Members', ru: 'Состав' }, producers: ['agent-fill'] }], agentFields: ['members'] };
+const MODULE = { kind: 'demo.module', fields: [{ field: 'name', labels: { en: 'Name', ru: 'Имя' }, producers: ['agent-fill'] }], agentFields: ['name'] };
+
 const ALL_PLAN = {
-  selectedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], order: ['disk', 'agent-fill'],
+  selectedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma', 'demo.cycle', 'demo.module'], order: ['disk', 'agent-fill'],
   units: [{ plugin: 'disk', kind: 'demo.alpha' }, { plugin: 'agent-fill', kind: 'demo.beta' }, { plugin: 'disk', kind: 'demo.gamma' }, { plugin: 'agent-fill', kind: 'demo.gamma' }],
-  kinds: [ALPHA, BETA, GAMMA],
-  needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }, { kind: 'demo.gamma', fields: ['definition'] }],
-  errors: [], skipped: [], requestedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma'], added: [], pluginsOnly: false,
+  kinds: [ALPHA, BETA, GAMMA, CYCLE, MODULE],
+  needsAgent: [{ kind: 'demo.beta', fields: ['definition'] }, { kind: 'demo.gamma', fields: ['definition'] }, { kind: 'demo.cycle', fields: ['members'] }, { kind: 'demo.module', fields: ['name'] }],
+  errors: [], skipped: [], requestedKinds: ['demo.alpha', 'demo.beta', 'demo.gamma', 'demo.cycle', 'demo.module'], added: [], pluginsOnly: false,
 };
 
 function planFor(selected: readonly string[], pluginsOnly = false) {
   const common = { requestedKinds: selected, added: [] as { kind: string; neededBy: string }[], pluginsOnly, errors: [] as unknown[], skipped: [] as { kind: string; fields: string[]; reason: string }[] };
-  if (selected.length === 3) return { plan: { ...ALL_PLAN, ...common } };
+  // The cycle rests on the module, which only the agent fills: asking for the cycle alone has nothing to produce either
+  // (the owner's read of code.cycle), and asking for both plans the agent for both (madarch-64o5.123).
+  if (selected.length === 5) return { plan: { ...ALL_PLAN, ...common } };
+  const cycleOnly = selected.includes('demo.cycle') && !selected.includes('demo.module');
+  const both = selected.includes('demo.cycle') && selected.includes('demo.module');
+  if (cycleOnly) {
+    return { plan: { ...common, selectedKinds: [], order: [], units: [], kinds: [], needsAgent: [],
+      added: [{ kind: 'demo.alpha', neededBy: 'demo.cycle' }, { kind: 'demo.module', neededBy: 'demo.cycle' }],
+      errors: [
+        { kind: 'demo.cycle', fields: [], message: 'kind "demo.cycle" cannot be filled: its prerequisite "demo.module" has no producer in the manifest' },
+        { kind: 'demo.module', fields: ['name'], message: 'kind "demo.module" cannot be filled: no producer in the manifest' },
+      ] } };
+  }
+  if (both) {
+    return { plan: { ...common, selectedKinds: ['demo.alpha', 'demo.module', 'demo.cycle'], order: pluginsOnly ? ['disk'] : ['disk', 'agent-fill'], units: [],
+      kinds: [ALPHA, MODULE, CYCLE], needsAgent: [{ kind: 'demo.module', fields: ['name'] }, { kind: 'demo.cycle', fields: ['members'] }],
+      added: [{ kind: 'demo.alpha', neededBy: 'demo.cycle' }] } };
+  }
   if (selected.includes('demo.gamma')) {
     return { plan: { ...common, selectedKinds: ['demo.alpha', 'demo.gamma'], order: ['disk', 'agent-fill'], units: [], kinds: [ALPHA, GAMMA], needsAgent: [{ kind: 'demo.gamma', fields: ['definition'] }], added: [{ kind: 'demo.alpha', neededBy: 'demo.gamma' }] } };
   }
@@ -306,6 +329,50 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
     expect((page.container.querySelector('[data-testid="catalogue-kind-check-demo.gamma"]') as HTMLInputElement).checked).toBe(true);
     await act(async () => { (page.container.querySelector('[data-testid="catalogue-prepare"]') as HTMLButtonElement).click(); });
     expect(page.opened).toContain('/p/prepare?kinds=demo.gamma');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a kind only the agent fills goes on to preparation with the prerequisite it rests on, never disabled for want of an agent', async () => {
+  const page = await render([section('catalogue', 'catalogue', {})], { select: '1' });
+  try {
+    const cycle = page.container.querySelector('[data-testid="catalogue-kind-check-demo.cycle"]') as HTMLInputElement;
+    await act(async () => { cycle.click(); });
+    await settle();
+    // The catalogue marks what the agent fills, and the press is never disabled for want of an agent the next page
+    // chooses (madarch-64o5.123).
+    expect(page.container.querySelector('[data-kind="demo.cycle"]')?.textContent).toContain('Заполнит агент: Состав');
+    expect(page.container.querySelector('[data-kind="demo.module"]')?.textContent).toContain('Заполнит агент: Имя');
+    expect(page.container.querySelector('[data-kind="demo.module"]')?.textContent).toContain('Нужно для');
+    const prepare = page.container.querySelector('[data-testid="catalogue-prepare"]') as HTMLButtonElement;
+    expect(prepare.disabled).toBe(false);
+    expect(page.container.querySelector('[data-testid="catalogue-fill-error"]')).toBeNull();
+    // The agent-only prerequisite travels with the selection: the preparation page must be able to plan it.
+    await act(async () => { prepare.click(); });
+    expect(page.opened.map((one) => decodeURIComponent(one))).toContain('/p/prepare?kinds=demo.cycle,demo.module');
+  } finally {
+    await page.close();
+  }
+});
+
+test('choosing an agent on the preparation page makes the plan runnable, and plugins only names the kinds that stay empty', async () => {
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.cycle,demo.module' });
+  try {
+    // Plugins only is the product's default here: no plan error stands, the run goes on, and the empty kinds are named.
+    expect(page.container.querySelector('[data-testid="prepare-plan-error"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="prepare-unfilled-summary"]')).not.toBeNull();
+    const empty = [...page.container.querySelectorAll('[data-testid="prepare-unfilled-kind"]')].map((one) => one.textContent ?? '').join(' ');
+    expect(empty).toContain('Модули');
+    expect(empty).toContain('Циклы');
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toBe('≈ 1 мин');
+    expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(false);
+    // Choosing an agent makes the agent's kinds the run's own work: still no error, still runnable.
+    const claude = page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement;
+    await act(async () => { claude.click(); });
+    await settle();
+    expect(page.container.querySelector('[data-testid="prepare-plan-error"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(false);
   } finally {
     await page.close();
   }

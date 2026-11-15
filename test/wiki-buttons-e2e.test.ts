@@ -235,4 +235,45 @@ run('one button on every page', () => {
     }
   }, 600_000);
 
+  test('the catalogue reaches preparation with a kind only the agent fills, and the plan there has no error', async () => {
+    const page = await browser!.newPage();
+    try {
+      // The owner reads the wiki in Russian; the page's own words are what this walk asserts.
+      await page.evaluateOnNewDocument(() => { try { window.localStorage.setItem('madarch-wiki-language', 'ru'); } catch { /* no storage */ } });
+      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+      await page.goto(`${server!.url}/p/catalogue?select=1`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="catalogue-kind-check-code.cycle"]', { timeout: 60_000 });
+      // The row stands past the first screen, under the sticky selection bar: a reader's press is the input's own click.
+      await page.evaluate(() => (document.querySelector('[data-testid="catalogue-kind-check-code.cycle"]') as HTMLInputElement).click());
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const row = await page.evaluate(() => document.querySelector('[data-kind="code.cycle"]')?.textContent ?? '');
+      expect(row).toContain('Заполнит агент');
+      const prepare = await page.evaluate(() => {
+        const press = document.querySelector('[data-testid="catalogue-prepare"]') as HTMLButtonElement | null;
+        return press === null ? null : { disabled: press.disabled };
+      });
+      expect(prepare).toEqual({ disabled: false });
+      const bottom = await page.evaluate(() => document.querySelector('[data-testid="catalogue-bottom"]')?.textContent ?? '');
+      expect(bottom).toContain('Выбран 1 вид');
+      await page.click('[data-testid="catalogue-prepare"]');
+      await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
+      const address = await page.evaluate(() => location.pathname + location.search);
+      expect(decodeURIComponent(address)).toContain('kinds=code.cycle,code.module');
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const preparePage = await page.evaluate(() => ({
+        errors: document.querySelectorAll('[data-testid="prepare-plan-error"]').length,
+        unfilled: document.querySelector('[data-testid="prepare-unfilled-summary"]')?.textContent ?? null,
+        run: document.querySelector('[data-testid="prepare-run"]') === null ? null : { disabled: (document.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled, reason: (() => { const id = document.querySelector('[data-testid="prepare-run"]')?.getAttribute('aria-describedby'); return id === null || id === undefined ? null : document.getElementById(id)?.textContent; })() },
+      }));
+      // Plugins only is the default here: nothing of the cycle runs, the kinds that stay empty are named, and the press
+      // is never disabled for want of an agent the page has not chosen yet.
+      expect(preparePage.errors).toBe(0);
+      expect(preparePage.unfilled).not.toBeNull();
+      expect(preparePage.run).not.toBeNull();
+      await mkdirSync(SHOTS, { recursive: true });
+      await page.screenshot({ path: join(SHOTS, 'catalogue-cycle-prepare-1440.png'), fullPage: true });
+    } finally {
+      await page.close();
+    }
+  }, 300_000);
 });
