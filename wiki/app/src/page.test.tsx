@@ -358,6 +358,28 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   }
 });
 
+test('the diagram opens at full screen in the kit\'s dialog, and leaves it', async () => {
+  const real = globalThis.fetch;
+  (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ format: 'likec4', entity: { id: 'uid', kind: 'a.b', label: 'Write' }, depth: 1, folded: 0, truncated: false, workspace: 'specification {}\n', view: {}, links: { n0: '/e/a.b/uid' } }), { status: 200 })) as unknown as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
+  const page = await renderPage([section('diagram', 'diagram', { depth: 1 })], { diagram: { id: 'uid' } });
+  try {
+    await act(async () => { await Promise.resolve(); });
+    expect(document.querySelector('[data-testid="diagram-fullscreen"]')).toBeNull();
+    await act(async () => { (page.container.querySelector('[data-testid="diagram-fullscreen-open"]') as HTMLButtonElement).click(); });
+    const dialog = document.querySelector('[data-testid="diagram-fullscreen"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain('Full screen');
+    const close = dialog?.querySelector('button[aria-label="Close full screen"]') as HTMLButtonElement | null;
+    expect(close).not.toBeNull();
+    await act(async () => { close?.click(); });
+    expect(document.querySelector('[data-testid="diagram-fullscreen"]')).toBeNull();
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = real;
+    await page.close();
+  }
+});
+
 test('a failed picture speaks the reader\'s language, never the server\'s', async () => {
   const real = globalThis.fetch;
   (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ code: 'FAILED', message: 'the picture did not draw within 2 s' }), { status: 500 })) as unknown as typeof fetch;
