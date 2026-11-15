@@ -14,6 +14,7 @@ import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation,
 import { selfCommand } from './self-command.js';
 import { commandLanguage, rememberedLanguage, type CommandLanguage } from './command-language.js';
 import { wikiWords } from './wiki-words.js';
+import { stopChildWithin } from './child-stop.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -653,7 +654,14 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
         const child = Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } });
-        const stop = (): void => { child.kill('SIGTERM'); };
+        // A role that will not leave — one inside a store's start, say — is killed rather than waited for: the child's
+        // output is this process's own, so a descendant of it holding that open would keep a stop from ever ending.
+        const stop = (): void => {
+          // One SIGTERM, sent by the bound itself: a second one would find the role's own handler already spent and
+          // end it mid-shutdown, before it has given its stores up.
+          void stopChildWithin({ pid: child.pid, kill: (signal) => { try { child.kill(signal as NodeJS.Signals); } catch { /* gone */ } }, exited: child.exited }, { what: 'the api role' })
+            .then((outcome) => { if (outcome === 'stuck') process.exitCode = 1; });
+        };
         process.once('SIGTERM', stop); process.once('SIGINT', stop);
         try { return await child.exited; }
         finally { process.off('SIGTERM', stop); process.off('SIGINT', stop); unpublish?.(); }

@@ -7,6 +7,28 @@ import { spawn, spawnSync } from 'node:child_process';
 import { stopWindowsDaemon } from '../src/product/windows-daemon-stop.js';
 import { prepareStoreAcceptanceFixture } from './clean-install-fixture.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
+import { stopChildWithin } from '../src/product/child-stop.js';
+
+// The very first statement: a walk that never gets further says so, and CI shows this line or none at all.
+process.stderr.write('walk: start\n');
+
+/**
+ * Ends a child this script started, within a bound — its own copy, so a walk loads nothing of madarch's runtime: a
+ * module graph of the product (a PostgreSQL client, a library call) has no place in a script that only drives commands.
+ */
+async function stopChildWithin(child: { readonly pid: number | undefined; kill(signal?: NodeJS.Signals | number): unknown; readonly exited: Promise<unknown> }, options: { readonly what: string; readonly graceMs?: number; readonly killWaitMs?: number }): Promise<'ended' | 'killed' | 'stuck'> {
+  const graceMs = options.graceMs ?? 30_000;
+  const killWaitMs = options.killWaitMs ?? 10_000;
+  const within = async (work: Promise<unknown>, ms: number): Promise<boolean> =>
+    await Promise.race([work.then(() => true, () => true), new Promise<boolean>((answer) => { const timer = setTimeout(() => answer(false), ms); (timer as unknown as { unref?: () => void }).unref?.(); })]);
+  try { child.kill('SIGTERM'); } catch { /* gone between the check and the signal */ }
+  if (await within(child.exited, graceMs)) return 'ended';
+  process.stderr.write(`walk: ${options.what} (pid ${String(child.pid)}) did not end within ${String(graceMs)} ms of SIGTERM, so it is killed\n`);
+  try { child.kill('SIGKILL'); } catch { /* gone */ }
+  if (await within(child.exited, killWaitMs)) return 'killed';
+  process.stderr.write(`walk: ${options.what} (pid ${String(child.pid)}) did not end within ${String(killWaitMs)} ms of SIGKILL: something of it still holds the walk's output open\n`);
+  return 'stuck';
+}
 
 interface Options { binary: string; os: string; arch: string }
 function args(argv: string[]): Options {
@@ -37,17 +59,76 @@ const packageBuilder = resolve('scripts/build-npm-package.ts');
 const shellParameters = (parameters: string[]): string[] => process.platform === 'win32'
   ? parameters.map((value) => `"${value}"`)
   : parameters;
-const run = (command: string, parameters: string[], cwd = process.cwd(), env: Record<string, string | undefined> = process.env): number => {
-  const result = spawnSync(command, shellParameters(parameters), { cwd, env, encoding: 'utf8', shell: process.platform === 'win32', timeout: 120_000 });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  return result.status ?? 1;
-};
-const buildPlatform = run('bun', [packageBuilder, '--version', '0.0.1', '--os', platform, '--arch', options.arch, '--packages-dir', packages, '--binary', binary]);
+/**
+ * Every step's own bound: a walk may fail, but a step of it never waits without end. A step that outlives its bound has
+ * its whole process tree ended and printed, so a stuck command names itself instead of holding the job for an hour.
+ */
+const STEP_TIMEOUT_MS = 240_000;
+
+/** The processes of one pid's tree, for a step that ran past its bound: pid, parent and command line. */
+function treeOf(pid: number): string {
+  const rows: string[] = [];
+  const tree = new Set<number>([pid]);
+  if (process.platform === 'win32') {
+    const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+    const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+    try {
+      const value = JSON.parse(answer.stdout) as { ProcessId: number; ParentProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; ParentProcessId: number; Name: string; CommandLine?: string }[];
+      const all = Array.isArray(value) ? value : [value];
+      for (let grew = true; grew;) { grew = false; for (const row of all) if (tree.has(row.ParentProcessId) && !tree.has(row.ProcessId)) { tree.add(row.ProcessId); grew = true; } }
+      for (const row of all) if (tree.has(row.ProcessId)) rows.push(`${String(row.ProcessId)} ${String(row.ParentProcessId)} ${row.Name} ${(row.CommandLine ?? '').slice(0, 140)}`);
+    } catch { rows.push(`${String(pid)} (the tree could not be read)`); }
+    return rows.join('\n');
+  }
+  try {
+    const all: { pid: number; ppid: number; cmd: string }[] = [];
+    for (const id of readdirSync('/proc')) {
+      if (!/^\d+$/.test(id)) continue;
+      try {
+        const stat = readFileSync(`/proc/${id}/stat`, 'utf8');
+        const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        all.push({ pid: Number(id), ppid: Number(after[1]), cmd: readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').join(' ').slice(0, 140) });
+      } catch { /* gone */ }
+    }
+    for (let grew = true; grew;) { grew = false; for (const row of all) if (tree.has(row.ppid) && !tree.has(row.pid)) { tree.add(row.pid); grew = true; } }
+    for (const row of all) if (tree.has(row.pid)) rows.push(`${String(row.pid)} ${String(row.ppid)} ${row.cmd}`);
+  } catch { rows.push(`${String(pid)} (the tree could not be read)`); }
+  return rows.join('\n');
+}
+
+/** Ends a step's whole tree: its process group on POSIX, `taskkill /T` on Windows. */
+function endTree(pid: number | undefined): void {
+  if (pid === undefined) return;
+  if (process.platform === 'win32') { spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { encoding: 'utf8', timeout: 10_000 }); return; }
+  try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+}
+
+/** Runs one step: says so first on stderr, streams what it prints, and ends its tree when it outlives its bound. */
+async function runStep(label: string, command: string, parameters: string[], cwd: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, timeoutMs: number = STEP_TIMEOUT_MS): Promise<{ status: number; stdout: string; stderr: string }> {
+  // stderr, so CI shows where a walk is the moment it is there: stdout of a step is its own, and it is asked for later.
+  process.stderr.write(`walk: ${label}\n`);
+  const child = spawn(command, shellParameters(parameters), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', shell: process.platform === 'win32' });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.setEncoding('utf8').on('data', (part: string) => { stdout += part; process.stdout.write(part); });
+  child.stderr?.setEncoding('utf8').on('data', (part: string) => { stderr += part; process.stderr.write(part); });
+  const ended = new Promise<number | null>((answer) => { child.once('error', () => answer(null)); child.once('close', (code) => answer(code)); });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<'timeout'>((answer) => { timer = setTimeout(() => answer('timeout'), timeoutMs); });
+  const outcome = await Promise.race([ended, timedOut]);
+  if (timer !== undefined) clearTimeout(timer);
+  if (outcome === 'timeout') {
+    process.stderr.write(`walk: ${label} did not end within ${String(timeoutMs)} ms; ending its process tree:\n${treeOf(child.pid ?? 0)}\n`);
+    endTree(child.pid);
+    return { status: 1, stdout, stderr };
+  }
+  return { status: outcome ?? 1, stdout, stderr };
+}
+const buildPlatform = (await runStep('build the platform package', 'bun', [packageBuilder, '--version', '0.0.1', '--os', platform, '--arch', options.arch, '--packages-dir', packages, '--binary', binary])).status;
 if (buildPlatform !== 0) process.exit(buildPlatform);
-const buildWrapper = run('bun', [packageBuilder, '--version', '0.0.1', '--wrapper', '--local-walk', '--local-platform', platformKey, '--packages-dir', packages]);
+const buildWrapper = (await runStep('build the wrapper package', 'bun', [packageBuilder, '--version', '0.0.1', '--wrapper', '--local-walk', '--local-platform', platformKey, '--packages-dir', packages])).status;
 if (buildWrapper !== 0) process.exit(buildWrapper);
-const installCode = run('npm', ['install', '--install-links', '--no-save', '--prefix', install, join(packages, 'madarch'), join(packages, `@madarch-${platformKey}`)]);
+const installCode = (await runStep('install the packages', 'npm', ['install', '--install-links', '--no-save', '--prefix', install, join(packages, 'madarch'), join(packages, `@madarch-${platformKey}`)])).status;
 if (installCode !== 0) process.exit(installCode);
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const npxArgs = ['--yes', 'madarch'];
@@ -57,7 +138,7 @@ async function removeWork(): Promise<void> {
   // Stop the home's background server after the foreground walk has ended too,
   // on both success and failure, before deleting its files.
   // Windows cannot unlink a running daemon's executable from the npm install.
-  const stopped = run(npx, [...npxArgs, 'stop', '--home', home], install, env);
+  const stopped = (await runStep('npx madarch stop (before removing the walk\'s folder)', npx, [...npxArgs, 'stop', '--home', home], install, env)).status;
   if (stopped !== 0) throw new Error(`could not stop the walk's server before removing ${work} (exit ${stopped})`);
   // The product's own store server is a process of its own, and it outlives the daemon that started it: the walk's
   // scratch folder is named in its command line, so a walk stops what still names the folder before the folder goes
@@ -88,14 +169,8 @@ async function freePort(): Promise<number> {
 
 async function serveCheck(): Promise<void> {
   /** Runs one `npx madarch` command to its end, the way a person does, and answers what it printed. */
-  const runMadarch = (command: string, extra: string[]): { status: number; stdout: string; stderr: string } => {
-    const finished = spawnSync(npx, shellParameters([...npxArgs, command, ...extra]), { cwd: install, env, encoding: 'utf8', timeout: 180_000, shell: process.platform === 'win32' });
-    const stdout = finished.stdout ?? '';
-    const stderr = finished.stderr ?? '';
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
-    return { status: finished.status ?? 1, stdout, stderr };
-  };
+  const runMadarch = async (command: string, extra: string[]): Promise<{ status: number; stdout: string; stderr: string }> =>
+    await runStep(`npx madarch ${command}`, npx, [...npxArgs, command, ...extra], install, env, 190_000);
   /** The product API answers the draft's id at an address the command printed. */
   const waitForProduct = async (url: string): Promise<boolean> => {
     const until = Date.now() + 30_000;
@@ -109,10 +184,12 @@ async function serveCheck(): Promise<void> {
     return false;
   };
   /** Stops the home's server the way the command says, and proves no server is left. */
-  const stopServer = (): void => {
-    const stopped = runMadarch('stop', ['--home', home]);
-    if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})`);
-    const status = runMadarch('status', ['--home', home]);
+  const stopServer = async (): Promise<void> => {
+    const stopped = await runMadarch('stop', ['--home', home]);
+    // The stop names on stderr why it failed: the walk's own message carries those words, since the CI summary shows
+    // the error and not the commands' output.
+    if (stopped.status !== 0 || !stopped.stdout.includes('stopped')) throw new Error(`npx madarch stop did not stop the server the walk started (exit ${stopped.status})${stopped.stderr.trim() === '' ? '' : `: ${stopped.stderr.trim()}`}`);
+    const status = await runMadarch('status', ['--home', home]);
     if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
   };
   // `init` returns at once: the products home's background server serves the
@@ -145,7 +222,16 @@ async function serveCheck(): Promise<void> {
           // This foreground serve is the walk's child, not the daemon named in the home's state file.
           // Sweep its stores too: force-killing the npm shell alone leaves PostgreSQL holding scratch files.
           if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
-        } else { try { process.kill(-server.pid, 'SIGTERM'); } catch { /* already stopped */ } }
+        } else {
+          // The serve and everything it started are one process group. A role that will not leave, or one whose
+          // descendant still holds the serve's output open, must not become a wait with no end: the walk names it.
+          const tree = server.pid;
+          const outcome = await stopChildWithin(
+            { pid: tree, kill: (signal) => { try { process.kill(-tree, signal as NodeJS.Signals); } catch { /* already stopped */ } }, exited: closed },
+            { what: `the walk's foreground serve tree (pid ${String(tree)})`, graceMs: 30_000, killWaitMs: 10_000 },
+          );
+          if (outcome === 'stuck') throw new Error(`the walk's foreground serve tree (pid ${String(tree)}) did not end: something of it still holds the walk's output open`);
+        }
       }
       await closed;
     })();
@@ -174,11 +260,11 @@ async function serveCheck(): Promise<void> {
   const port = await freePort();
   let failure: Error | undefined;
   let product = '';
-  const daemonTimeout = setTimeout(() => { runMadarch('stop', ['--home', home]); }, 480_000);
+  const daemonTimeout = setTimeout(() => { void runMadarch('stop', ['--home', home]); }, 480_000);
   try {
     if (port === 0) throw new Error('the walk could not find a free port on 127.0.0.1 to start the server on');
     console.log(`$ npx madarch init --home ${home} --port ${port} --template everything --json --no-open`);
-    const created = runMadarch('init', ['--home', home, '--port', String(port), '--template', 'everything', '--json', '--no-open']);
+    const created = await runMadarch('init', ['--home', home, '--port', String(port), '--template', 'everything', '--json', '--no-open']);
     if (created.status !== 0) throw new Error(`npx madarch init did not create a draft and serve it (exit ${created.status})`);
     const line = created.stdout.trim().split('\n').filter((part) => part !== '').at(-1) ?? '';
     let facts: { url: string; folder: string; port: number; reused: boolean };
@@ -210,10 +296,10 @@ async function serveCheck(): Promise<void> {
     if (state.fill?.state !== 'idle') throw new Error(`npx madarch init: the draft's fill is "${String(state.fill?.state)}", and the walk pressed nothing`);
     // Foreground cleanup on Windows stops the home's stores, so no daemon may still hold one here.
     // `not-filled` is not store readiness: startup publication may still be in initdb. Stop must end preparation too.
-    stopServer();
+    await stopServer();
     await checkForegroundServe(facts.folder, 'not-filled');
     console.log(`Fresh unfilled product reopened by npx madarch serve: ${facts.folder}`);
-    const restarted = runMadarch('start', ['--home', home, '--port', String(port)]);
+    const restarted = await runMadarch('start', ['--home', home, '--port', String(port)]);
     if (restarted.status !== 0 || !await waitForProduct(facts.url)) throw new Error(`${facts.folder}:1: could not restart the daemon after the fresh foreground check (exit ${restarted.status})${daemonTail()}`);
     // Store acceptance is deliberately plugin-free: Windows has no plugin sandbox. Keep that separate failure
     // out of this fixture, not out of the engine. Without a producer, Fill publishes no file opinions.
@@ -221,7 +307,7 @@ async function serveCheck(): Promise<void> {
     prepareStoreAcceptanceFixture(facts.folder);
     console.log(`${manifest}:1: store acceptance fixture: code.file only, no plugins (Windows has no plugin sandbox)`);
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
-      if (run('git', parameters, facts.folder, env) !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
+      if ((await runStep(`git ${parameters.join(' ')}`, 'git', parameters, facts.folder, env)).status !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
     // This is the first write and MUST open the installed store, even when the unfilled status is folder-only.
     const pressed = await fetch(`${facts.url}api/fill`, {
@@ -252,7 +338,7 @@ async function serveCheck(): Promise<void> {
     // The server the draft's home started is stopped whether the walk went on
     // or stopped here: nothing of the walk outlives it, pass or fail.
     clearTimeout(daemonTimeout);
-    try { stopServer(); } catch (error) {
+    try { await stopServer(); } catch (error) {
       failure = failure === undefined ? error as Error : new Error(`${failure.message}; and ${(error as Error).message}`);
     }
   }
