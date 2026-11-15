@@ -31,17 +31,29 @@ import { byCodePoint } from '../../../src/model/order.js';
 
 /** The rules, as a reader names them. The order is the order of the list's sort. */
 export const ARCHITECTURE_RULES = [
+  'app-graph-reads',
+  'catalogue-pointers',
+  'extraction-boundary',
   'graph-single-writer',
   'graph-writes-in-writer',
   'graphql-only-reads',
+  'i18n-text',
+  'io-spans',
   'no-kind-names',
+  'no-product-data',
+  'no-regex',
   'no-retired-surfaces',
   'no-unreachable-code',
+  'one-command-list',
   'one-fill-entry',
+  'one-state-machine',
+  'one-table-source',
   'product-file-readers',
+  'route-aliases',
   'schema-preparation-only',
   'sql-only-in-storage-layer',
   'starter-data-when-copying',
+  'ui-kit-only',
 ] as const;
 
 export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
@@ -52,7 +64,7 @@ export type ArchitectureRule = (typeof ARCHITECTURE_RULES)[number];
  * validation rule states is the one exception the owner may list as debt
  * (`no-kind-names`); a retired read route and dead code never are.
  */
-export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-unreachable-code', 'schema-preparation-only', 'starter-data-when-copying'];
+export const NO_BASELINE_RULES: readonly ArchitectureRule[] = ['graphql-only-reads', 'no-unreachable-code', 'one-command-list', 'schema-preparation-only', 'starter-data-when-copying'];
 
 /**
  * One violation as a rule found it.
