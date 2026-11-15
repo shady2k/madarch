@@ -6,10 +6,12 @@
  * The cases run real processes: the cluster's rule is a lock the kernel holds, and only a second process can show it.
  */
 import { afterAll, expect, test } from 'bun:test';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { clusterPaths, clusterQuery, openCluster, processStartTime, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
+import { awaitServerAnswering, clusterPaths, clusterQuery, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
+import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-cluster-owner-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -60,6 +62,11 @@ function postgresHolder(dataDir: string): ReturnType<typeof Bun.spawn> {
 /** The child of this test: another process of the binary, with the same store. */
 function child(mode: string, store: string, extra?: string, marker?: string) {
   return Bun.spawn(['bun', join(import.meta.dir, 'postgres-cluster-owner-driver.ts'), mode, store, ...(extra === undefined ? [] : [extra]), ...(marker === undefined ? [] : [marker])], { stdout: 'pipe', stderr: 'pipe' });
+}
+
+/** A preparation record of ours: the attempt id madarch writes, naming the initdb it spawned when the case has one. */
+function preparingRecordOf(initdbPid?: number): string {
+  return `${JSON.stringify({ id: crypto.randomUUID(), version: 'test', startedAt: new Date().toISOString(), ...(initdbPid === undefined ? {} : { initdb: { pid: initdbPid } }) })}\n`;
 }
 
 /** Waits until a file exists: the child says it holds what the case needs held. */
@@ -226,7 +233,7 @@ test('a folder our record prepared, whose initdb is gone, is removed and prepare
   writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
   const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
   await ended.exited;
-  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(ended.pid));
   const opened = await openCluster({ ...clusterPaths(store) });
   try {
     expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(false);
@@ -245,7 +252,7 @@ test('a record naming a pid another process holds is no preparation of ours: the
   writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
   const other = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
   try {
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: other.pid, startTime: '0' } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(other.pid));
     const opened = await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 });
     try {
       expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(false);
@@ -267,7 +274,7 @@ test('a folder under an initdb our record names, still running, is left as it st
   writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
   const initdb = postgresHolder(dataDir);
   try {
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: initdb.pid, startTime: processStartTime(initdb.pid) } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(initdb.pid));
     const started = performance.now();
     let refusal: Error | undefined;
     try { await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 }); } catch (error) { refusal = error as Error; }
@@ -310,7 +317,7 @@ test('a record of a live initdb outranks what a half-made folder looks like', as
   writeFileSync(join(dataDir, 'global', 'pg_control'), 'partial');
   const initdb = postgresHolder(dataDir);
   try {
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: initdb.pid, startTime: processStartTime(initdb.pid) } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(initdb.pid));
     let refusal: Error | undefined;
     try { await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 }); } catch (error) { refusal = error as Error; }
     expect(refusal).toBeDefined();
@@ -323,33 +330,77 @@ test('a record of a live initdb outranks what a half-made folder looks like', as
   }
 }, 120_000);
 
-for (const shape of ['readable', 'unreadable'] as const) {
-  test(`a folder carrying our preparing record is prepared again, even when its files look whole (${shape} record)`, async () => {
-    // `madarch.prepared`, written only once initdb exits, is the one proof that a cluster is whole. A folder that carries
-    // `madarch.preparing` was abandoned by a stop or a crash, and its files cannot say otherwise: initdb's bootstrap
-    // writes `PG_VERSION`, `global/pg_control` and `base/1` long before the `postgres` database exists
-    // (madarch-64o5.81). A record a crash left half-written still says madarch started the preparation.
-    const store = storeOf(`abandoned preparation ${shape}`);
+test('a folder carrying our unfinished preparation is prepared again, even when its files look whole', async () => {
+  // `madarch.prepared`, written only once initdb exits, is the one proof that a cluster is whole. A folder that carries
+  // our record of an attempt, holds no database beyond initdb's bootstrap's and was left by a stop or a crash is
+  // prepared again: initdb's bootstrap writes `PG_VERSION`, `global/pg_control` and `base/1` long before the `postgres`
+  // database exists (madarch-64o5.81).
+  const store = storeOf('abandoned preparation');
+  const { dataDir } = clusterPaths(store);
+  const first = await openCluster({ ...clusterPaths(store) });
+  await first.stop();
+  const sentinel = join(dataDir, 'madarch.test-sentinel');
+  writeFileSync(sentinel, 'gone\n');
+  const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
+  await ended.exited;
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(ended.pid));
+  const second = await openCluster({ ...clusterPaths(store) });
+  try {
+    expect(existsSync(sentinel)).toBe(false);
+    expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
+    expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
+    await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+  } finally { await second.stop(); }
+}, 120_000);
+
+for (const shape of ['unreadable', 'foreign'] as const) {
+  test(`a folder holding a store's database is refused on a ${shape} record, never erased`, async () => {
+    // Absence of processes says a folder is idle, not that it may be erased: a record that cannot be read, or one that
+    // names no attempt madarch made, is somebody's data beside the folder, and the start refuses naming it
+    // (madarch-64o5.81 review).
+    const store = storeOf(`refused record ${shape}`);
     const { dataDir } = clusterPaths(store);
     const first = await openCluster({ ...clusterPaths(store) });
     await first.stop();
     const sentinel = join(dataDir, 'madarch.test-sentinel');
-    writeFileSync(sentinel, 'gone\n');
-    const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
-    await ended.exited;
+    writeFileSync(sentinel, 'kept\n');
     rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), shape === 'readable'
-      ? `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`
-      : '{"version":"test","startedAt":');
-    const second = await openCluster({ ...clusterPaths(store) });
-    try {
-      expect(existsSync(sentinel)).toBe(false);
-      expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
-      expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
-      await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
-    } finally { await second.stop(); }
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), shape === 'unreadable'
+      ? '{"version":"test","startedAt":'
+      : `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString() })}\n`);
+    let refusal: Error | undefined;
+    try { await openCluster({ ...clusterPaths(store) }); } catch (error) { refusal = error as Error; }
+    expect(refusal?.message).toContain(dataDir);
+    expect(refusal?.message).toContain('move');
+    expect(readFileSync(sentinel, 'utf8')).toBe('kept\n');
   }, 120_000);
 }
+
+test('a restored store\'s folder beside a stale record of ours is refused, never erased', async () => {
+  // A pgdata a person restored into a store folder can sit beside a record a stop left: no process names it, and no
+  // `madarch.prepared` follows. Its own database is what proves the folder holds something of a store's, and the start
+  // refuses naming it — only a folder with initdb's bootstrap databases alone is ever prepared again
+  // (madarch-64o5.81 review).
+  const store = storeOf('restored store');
+  const { dataDir } = clusterPaths(store);
+  const first = await openCluster({ ...clusterPaths(store) });
+  await clusterQuery(first, CLUSTER_ADMIN_DATABASE, 'CREATE DATABASE restored_store_data');
+  await first.stop();
+  const sentinel = join(dataDir, 'madarch.test-sentinel');
+  writeFileSync(sentinel, 'kept\n');
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf());
+  const beyondBootstrap = readdirSync(join(dataDir, 'base')).filter((name) => !['1', '4', '5'].includes(name));
+  expect(beyondBootstrap).toHaveLength(1);
+  let refusal: Error | undefined;
+  try { await openCluster({ ...clusterPaths(store) }); } catch (error) { refusal = error as Error; }
+  expect(refusal?.message).toContain(join(dataDir, 'base'));
+  expect(refusal?.message).toContain('move');
+  // The folder still holds its own database and its files: the refusal read them and removed nothing.
+  expect(existsSync(sentinel)).toBe(true);
+  expect(existsSync(join(dataDir, 'base', beyondBootstrap[0]!))).toBe(true);
+}, 120_000);
 
 test('a store waiting for its server says so every few seconds and refuses with the last attempt\'s reason', async () => {
   // The wait a Windows store makes for its server is driven here with a probe that never answers: the line reaches
@@ -364,6 +415,34 @@ test('a store waiting for its server says so every few seconds and refuses with 
   expect(answer).toContain('did not answer');
   expect(answer).toContain('database "postgres" does not exist');
 }, 60_000);
+
+test('a connection the server ends after authentication is a readiness failure, never the process', async () => {
+  // `pg` rejects the pending query and emits `error` when the server ends a connection after authentication; a listener
+  // is what keeps that event from being thrown out of a socket callback and ending the process that serves the graph
+  // (madarch-64o5.81 review). The server waits after authentication, and is ended while a connection is in that window.
+  const store = storeOf('post-auth disconnect');
+  const { dataDir, socketDir } = clusterPaths(store);
+  const cluster = await openCluster({ ...clusterPaths(store) });
+  await clusterQuery(cluster, CLUSTER_ADMIN_DATABASE, "ALTER SYSTEM SET post_auth_delay = '2'");
+  await clusterQuery(cluster, CLUSTER_ADMIN_DATABASE, 'SELECT pg_reload_conf()');
+  // The reload is a signal: wait until a new session reads the delay, so the probe that is killed is really in it.
+  for (let attempt = 0; ; attempt++) {
+    const [held] = await clusterQuery<{ delay: string }>(cluster, CLUSTER_ADMIN_DATABASE, "SELECT current_setting('post_auth_delay') AS delay");
+    if (held !== undefined && /^2s?$/u.test(held.delay)) break;
+    if (attempt === 50) throw new Error('post_auth_delay never took effect');
+    await Bun.sleep(100);
+  }
+  const waiting = awaitServerAnswering({ dataDir, socketDir, boundMs: 8_000 });
+  await Bun.sleep(1_000);
+  // A fast shutdown ends the backends themselves, so the connection is ended by the server after its authentication:
+  // the client's pending connect fails and `error` is emitted for it.
+  const pgCtl = join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
+  expect(spawnSync(pgCtl, ['-D', dataDir, '-m', 'fast', '-w', '-t', '30', 'stop'], { encoding: 'utf8' }).status).toBe(0);
+  let refusal: Error | undefined;
+  try { await waiting; } catch (error) { refusal = error as Error; }
+  expect(refusal?.message).toContain('did not answer');
+  try { await cluster.stop(); } catch { /* the server was killed to end its connections */ }
+}, 120_000);
 
 test('an initdb killed before it made the postgres database leaves a folder the next open prepares again', async () => {
   // The shape the clean-install walk met on windows-x64 at b43b57ff (madarch-64o5.81): a stop ended initdb after its
@@ -380,7 +459,7 @@ test('an initdb killed before it made the postgres database leaves a folder the 
   rmSync(join(dirname(dataDir), 'madarch.preparing'), { force: true });
   const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
   await ended.exited;
-  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(ended.pid));
   const second = await openCluster({ ...clusterPaths(store) });
   try {
     expect(existsSync(join(dataDir, 'base', '5'))).toBe(true);
@@ -461,7 +540,7 @@ test('a recorded pid that is another process is no preparation: the store is pre
   writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
   const other = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
   try {
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: other.pid } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(other.pid));
     const started = performance.now();
     const opened = await openCluster({ ...clusterPaths(store), preparationWaitMs: 3_000 });
     try {
@@ -493,7 +572,7 @@ test('a preparation still naming its folder is waited for, and the wait says wha
   const original = console.error;
   console.error = (...args: unknown[]) => { lines.push(args.map((value) => String(value)).join(' ')); };
   try {
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: holder.pid } })}\n`);
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(holder.pid));
     let refusal: Error | undefined;
     try { await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 }); } catch (error) { refusal = error as Error; }
     expect(refusal).toBeDefined();

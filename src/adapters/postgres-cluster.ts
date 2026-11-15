@@ -58,7 +58,7 @@ import { postgresProgram, postgresInstallFolder } from './postgres-builds.js';
 import { commandLineArguments } from './postgres-preparation-record.js';
 import { setPriority } from 'node:os';
 import { runningVersion } from '../product/version.js';
-import { preparedRecordPath, preparingRecordPath, runsOnDataDir, type PreparingRecord } from './postgres-preparation-record.js';
+import { namesAnAttempt, newPreparationId, preparedRecordPath, preparingRecordPath, runsOnDataDir, type PreparingRecord } from './postgres-preparation-record.js';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
 export const CLUSTER_PORT = 5_432;
@@ -186,13 +186,18 @@ async function freeTcpPort(): Promise<number> {
 /** Why a connection to the cluster's server did not answer: undefined when it answered, else the client's own words. */
 async function answerFailure(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<string | undefined> {
   let client: Client | undefined;
+  // A server that ends the connection after authentication makes the client reject the pending query and emit `error`
+  // as well; an `error` event with no listener is thrown from a socket callback and would end the process serving the
+  // graph instead of answering a readiness failure (madarch-64o5.81 review). The last word the client said wins.
+  let said: string | undefined;
   try {
     client = new Client({ ...clusterEndpoint(socketDir), user: CLUSTER_USER, database, connectionTimeoutMillis: 2_000 });
+    client.on('error', (error: Error) => { said = error.message; });
     await client.connect();
     await client.query('SELECT 1');
     return undefined;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return said ?? (error instanceof Error ? error.message : String(error));
   } finally {
     await client?.end().catch(() => undefined);
   }
@@ -533,6 +538,22 @@ function initdbWhole(dataDir: string): boolean {
   return existsSync(join(dataDir, 'PG_VERSION')) && existsSync(join(dataDir, 'global', 'pg_control')) && existsSync(join(dataDir, 'base', '1'));
 }
 
+/** The database directories initdb's bootstrap makes: template1, template0 and the postgres database. */
+const BOOTSTRAP_BASES: ReadonlySet<string> = new Set(['1', '4', '5']);
+
+/**
+ * The databases a data directory holds beyond initdb's bootstrap's, by the directory each stands in: an empty list when
+ * it holds only the bootstrap's own, and undefined when what it holds cannot be read. A folder with no `base` yet holds
+ * no database at all. A store's database is one of these, and so is anything a person restored into the folder.
+ */
+function databasesBeyondBootstrap(dataDir: string): string[] | undefined {
+  try {
+    return readdirSync(join(dataDir, 'base')).filter((name) => !BOOTSTRAP_BASES.has(name) && name !== 'pgsql_tmp');
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : undefined;
+  }
+}
+
 
 /**
  * The processes that may still be writing a preparation's data folder: initdb's tree and PostgreSQL's own programs whose
@@ -729,17 +750,33 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
     keepPrepared(dataDir);
     return;
   }
-  // The record's file is what says madarch started this preparation; a record that cannot be read still says it, and
-  // the wait for what names the folder does not need its pid.
+  // A record beside the folder says madarch started a preparation here. It is removed together with the folder only
+  // when both the record and the folder say the preparation holds nothing of a store's: the record names an attempt
+  // madarch made (its id has the shape madarch writes), and the folder holds no database beyond initdb's bootstrap's.
+  // Anything else — a record that cannot be read, a foreign one, or a database a store wrote — is somebody's data: the
+  // start refuses naming the folder, and never erases it (madarch-64o5.81 review).
+  const preparingPath = preparingRecordPath(dataDir);
   const preparing = preparingRecord(dataDir);
-  if (preparing !== undefined || existsSync(preparingRecordPath(dataDir))) {
+  if (preparing !== undefined || existsSync(preparingPath)) {
+    if (preparing === undefined) {
+      throw new Error(`${preparingPath}:1: madarch recorded a preparation beside this store and that record cannot be read, so ${dataDir} is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    }
+    if (!namesAnAttempt(preparing)) {
+      throw new Error(`${preparingPath}:1: the record of a preparation beside ${dataDir} names no attempt madarch made, so the folder is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    }
     await awaitRecordedInitdb(dataDir, preparing, waitMs);
-    // The initdb our record names is gone and no `madarch.prepared` record followed it: the preparation was abandoned,
-    // and its files cannot say otherwise. initdb's bootstrap writes `PG_VERSION`, `global/pg_control` and `base/1`
-    // long before it makes the `postgres` database, so a folder a stop or a crash left after that point looks whole
-    // and is not (madarch-64o5.81: the next open started such a cluster, and every connection answered "database
-    // postgres does not exist"). Only a folder our own record names preparing reaches this line, and the step below
-    // prepares it again under the start lock this open already holds.
+    // Nothing names the folder now and no `madarch.prepared` record followed the attempt: the preparation was abandoned.
+    const beyond = databasesBeyondBootstrap(dataDir);
+    if (beyond === undefined) {
+      throw new Error(`${dataDir}:1: what this folder holds cannot be read, so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    }
+    if (beyond.length > 0) {
+      throw new Error(`${join(dataDir, 'base')}:1: this folder holds ${beyond.join(', ')}, ${beyond.length === 1 ? 'a database' : 'databases'} no bootstrap of initdb's makes, so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    }
+    // Only initdb's own bootstrap databases are here, as a stop or a crash left them before the store's database was
+    // made: initdb's bootstrap writes `PG_VERSION`, `global/pg_control` and `base/1` long before that, so such a folder
+    // looks whole and is not (madarch-64o5.81: the next open started one, and every connection answered "database
+    // postgres does not exist"). It is prepared again below, under the start lock this open already holds.
   } else if (!empty && initdbWhole(dataDir)) {
     // A store prepared before these records existed: what initdb leaves when it ends is the proof, and the record follows.
     keepPrepared(dataDir);
@@ -764,16 +801,19 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   }
   const version = runningVersion();
   const startedAt = new Date().toISOString();
+  // The attempt this record names, from its first line to initdb's end: a later open tells our record from one a person
+  // left beside a folder, and erases a folder only on the record of an attempt of ours.
+  const id = newPreparationId();
   // A record that outlived the folder it named says nothing about the one being made now: preparation is the record
   // from here until initdb ends, and a crash mid-way must not leave a store that reads as whole.
   rmSync(preparedRecordPath(dataDir), { force: true });
-  writeRecord(preparingRecordPath(dataDir), { version, startedAt });
+  writeRecord(preparingRecordPath(dataDir), { id, version, startedAt });
   const started = performance.now();
   try {
     await runInitdb(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C'], dataDir, (pid, startTime) => {
       // The record names the initdb as soon as it has one: a madarch that a stop ends leaves a folder only a later open
       // may remove, and only once that initdb is gone.
-      writeRecord(preparingRecordPath(dataDir), { version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });
+      writeRecord(preparingRecordPath(dataDir), { id, version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });
     }, initdbTimeoutMs);
     writeRecord(preparedRecordPath(dataDir), { version, preparedAt: new Date().toISOString() });
     rmSync(preparingRecordPath(dataDir), { force: true });

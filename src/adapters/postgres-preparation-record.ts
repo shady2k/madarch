@@ -6,6 +6,7 @@
  * `madarch.preparing` is written before an initdb is spawned and names it once it has a pid; `madarch.prepared` is
  * written once that initdb ends. A folder that holds files and neither record is no preparation of ours.
  */
+import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -14,11 +15,24 @@ export const PREPARING_FILE = 'madarch.preparing';
 /** Our record that a preparation finished, beside the data directory. */
 export const PREPARED_FILE = 'madarch.prepared';
 
-/** What `madarch.preparing` holds: who is making the cluster, and the initdb it spawned, once there is one. */
+/** What `madarch.preparing` holds: the attempt making the cluster, and the initdb it spawned, once there is one. */
 export interface PreparingRecord {
+  /** The one preparation this record names, from its first write to initdb's end; an older record may carry none. */
+  readonly id?: string;
   readonly version: string;
   readonly startedAt: string;
   readonly initdb?: { readonly pid: number; readonly startTime?: string };
+}
+
+/** The id of one preparation attempt, as madarch writes it. */
+export function newPreparationId(): string { return randomUUID(); }
+
+/**
+ * Whether a record names an attempt madarch made: its id has the shape madarch writes, so a record a person or another
+ * program left beside a data directory is told apart from ours, and a folder is never erased on a foreign record.
+ */
+export function namesAnAttempt(record: PreparingRecord): boolean {
+  return typeof record.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(record.id);
 }
 
 export function preparingRecordPath(dataDir: string): string { return join(dirname(dataDir), PREPARING_FILE); }
