@@ -318,7 +318,8 @@ describe('the single start command', () => {
       chmodSync(opener, 0o700);
       const proc = Bun.spawn(['script', '-q', '-e', '-c', args.map(shQuote).join(' '), '/dev/null'], {
         cwd: base, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
-        env: { ...process.env, ...SEALED_GIT, MADARCH_APP: builtApp(base), MADARCH_BROWSER: opener },
+        // The language is a machine setting asked once on a first run; this test is about the template question.
+        env: { ...process.env, ...SEALED_GIT, MADARCH_APP: builtApp(base), MADARCH_BROWSER: opener, MADARCH_LANG: 'en' },
       });
       runningChildren.push(proc);
       let output = '';
