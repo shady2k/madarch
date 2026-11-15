@@ -8,6 +8,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type {
+  PluginWriterApplyRequest,
   PluginContractDeclaration,
   PluginEdgeKindDeclaration,
   PluginEdgeResult,
@@ -40,6 +41,7 @@ export interface ResultRefusal {
 /** One unit's answer, held against the declaration and put in a stable order. */
 export interface ValidatedUnit {
   readonly unitId: string;
+  readonly writes?: readonly PluginWriterApplyRequest[];
   readonly vertices: readonly PluginVertexResult[];
   readonly edges: readonly PluginEdgeResult[];
   readonly removals: readonly PluginEntityRef[];

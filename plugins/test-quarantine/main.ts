@@ -39,8 +39,8 @@ export async function extract(_unit: Unit, context: ExtractContext): Promise<Uni
           task: test.task, quarantine_reason: test.reason, since: test.since,
           ...(latest === undefined ? {} : { latest_result: latest }),
         }, evidence: { repository, path, lineStart: test.lineStart, lineEnd: test.lineEnd } });
-        edges.push({ kind: 'quarantines', from, to: { kind: 'code.test-case', key } });
-        edges.push({ kind: 'fixedBy', from, to: { kind: 'task', key: { id: test.task } } });
+        edges.push({ kind: 'quarantines', from, to: { kind: 'code.test-case', key }, evidence: { repository, path, lineStart: test.lineStart, lineEnd: test.lineEnd } });
+        edges.push({ kind: 'fixedBy', from, to: { kind: 'task', key: { id: test.task } }, evidence: { repository, path, lineStart: test.lineStart, lineEnd: test.lineEnd } });
       }
     } catch (error) {
       problems.push(error instanceof Error ? error.message : String(error));

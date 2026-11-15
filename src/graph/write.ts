@@ -978,8 +978,14 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   for (const record of options.reads ?? []) journal.read(record);
   if (options.withdrawal !== undefined) journal.withdrew(options.withdrawal);
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
-  for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
-  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;
+  for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) {
+    written += 1;
+    if (draft.evidence !== undefined) journal.withdrew({ entity: draft.kind, fields: draft.selectedFields, evidence: evidenceList(draft) });
+  }
+  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) {
+    written += 1;
+    if (draft.evidence !== undefined) journal.withdrew({ edge: draft.kind, evidence: evidenceList(draft) });
+  }
   const beforeDeclarations = journal.vertices.length;
   const declared = await declareVertices(executor, contract, drafts.vertices, contextId, journal);
   written += journal.vertices.length - beforeDeclarations;

@@ -48,7 +48,7 @@ const probeFolder = join(FIXTURES, 'plugin-probe');
 const probeClosure = closureOf(probeFolder);
 
 /** One open session on a fixture, with the probe's closure trusted as a release would be. */
-async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; unresolved?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ references: readonly import('../src/plugin/protocol.js').PluginGraphUnresolvedReference[]; next?: string }>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ opinions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedOpinion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
+async function open(folder: string, options: { readonly work?: string; readonly releaseHashes?: readonly string[]; readonly trust?: 'production' | 'validation'; readonly limits?: Partial<typeof LIMITS>; readonly cgroupParent?: string; readonly closure?: ReturnType<typeof closureOf>; readonly graph?: { ownFacts?(query: import('../src/plugin/protocol.js').PluginGraphOwnFactsRequest): Promise<import('../src/plugin/protocol.js').PluginGraphOwnFactsResult>; files(pattern: string): Promise<readonly { kind: string; key: Record<string, string | number> }[]>; value(kind: string, key: Record<string, string | number>, field: string): Promise<unknown>; unresolved?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ references: readonly import('../src/plugin/protocol.js').PluginGraphUnresolvedReference[]; next?: string }>; removedEnds?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ edges: readonly import('../src/plugin/protocol.js').PluginGraphRemovedEnd[]; next?: string }>; unevidenced?(query: import('../src/plugin/protocol.js').PluginGraphPageRequest): Promise<{ opinions: readonly import('../src/plugin/protocol.js').PluginGraphUnevidencedOpinion[]; next?: string }> }; readonly requests?: RequestLog } = {}): Promise<PluginSession> {
   const work = options.work ?? scratch();
   const host = new PluginHost({
     pluginFolder: folder,
@@ -59,7 +59,7 @@ async function open(folder: string, options: { readonly work?: string; readonly 
     releaseHashes: options.releaseHashes ?? [closureOf(folder).hash],
     limits: { ...LIMITS, ...(options.limits ?? {}) },
     cgroupParent: options.cgroupParent ?? parent,
-    ...(options.graph === undefined ? {} : { graph: options.graph }),
+    graph: { files: async () => [], value: async () => null, ownFacts: async () => ({ vertices: [], edges: [] }), ...options.graph },
     ...(options.requests === undefined ? {} : { requests: options.requests }),
   });
   return await host.open();
@@ -197,7 +197,7 @@ describe('the handshake', () => {
     const session = await open(probeFolder);
     try {
       expect(session.declared.name).toBe('plugin-probe');
-      expect(session.declared.protocol).toBe('madarch.plugins/2');
+      expect(session.declared.protocol).toBe('madarch.plugins/3');
       expect(session.declared.outputs.vertices.map((kind) => kind.kind)).toEqual(['probe']);
       expect(session.closureHash).toBe(probeClosure.hash);
     } finally {
@@ -219,11 +219,12 @@ describe('the bounds of one message and one unit', () => {
     const { outcome } = await behaviour('normal');
     expect(outcome.state).toBe('extracted');
     if (outcome.state !== 'extracted') return;
-    expect(outcome.result.vertices.map((vertex) => vertex.kind)).toEqual(['probe']);
-    expect(outcome.result.vertices[0]?.values).toEqual({ size: 12, language: 'typescript' });
-    expect(outcome.result.vertices[0]?.evidence?.path).toBe('probe/normal.ts');
-    expect(outcome.result.edges.map((edge) => edge.kind)).toEqual(['probe-link']);
-    expect(outcome.result.removals.map((removal) => removal.key['id'])).toEqual(['gone']);
+    const vertices = outcome.result.writes?.flatMap(write => write.vertex === undefined ? [] : [write.vertex]) ?? [];
+    expect(vertices.map(vertex => vertex.kind)).toEqual(['probe']);
+    expect(vertices[0]?.values).toEqual({ size: 12, language: 'typescript' });
+    expect(vertices[0]?.evidence?.path).toBe('probe/normal.ts');
+    expect(outcome.result.writes?.flatMap(write => write.edge === undefined ? [] : [write.edge.kind])).toEqual(['probe-link']);
+    expect(outcome.result.writes?.every(write => write.operation === 'add')).toBe(true);
     expect(outcome.result.end).toEqual({ state: 'complete' });
   }, 60_000);
 });
@@ -503,18 +504,22 @@ describe('the answer against the declaration', () => {
     expect(outcome.cause.message).toContain('stranger');
   }, 60_000);
 
-  hostTest('a partial unit carrying removals has them dropped', async () => {
-    const { outcome } = await behaviour('partial-removal');
-    expect(outcome.state).toBe('extracted');
-    if (outcome.state !== 'extracted') return;
-    expect(outcome.result.end.state).toBe('partial');
-    expect(outcome.result.removals).toEqual([]);
-    expect(outcome.result.removalsDropped).toBe(1);
-    const complete = await behaviour('normal');
-    expect(complete.outcome.state).toBe('extracted');
-    if (complete.outcome.state !== 'extracted') return;
-    expect(complete.outcome.result.removals.length).toBe(1);
-    expect(complete.outcome.result.removalsDropped).toBe(0);
+  hostTest('a partial source suppresses deletion of existing facts', async () => {
+    const session = await open(probeFolder, { graph: {
+      files: async () => [], value: async () => null,
+      ownFacts: async () => ({ vertices: [{kind:'probe',key:{id:'gone'},evidence:{repository:'sample',path:'gone.ts'}}], edges: [] }),
+    } });
+    try {
+      const outcome = await session.runUnit({ ...unit('partial-removal'), inputs: {repositories:[{repository:'sample',commit:'current'}]} });
+      expect(outcome.state).toBe('extracted');
+      if (outcome.state !== 'extracted') throw new Error(outcome.cause.message);
+      expect(outcome.result.end.state).toBe('partial');
+      expect(outcome.result.writes?.some(write => write.operation === 'remove')).toBe(false);
+      const complete = await session.runUnit({ ...unit('normal'), inputs: {repositories:[{repository:'sample',commit:'current'}]} });
+      expect(complete.state).toBe('extracted');
+      if (complete.state !== 'extracted') throw new Error(complete.cause.message);
+      expect(complete.result.writes?.filter(write => write.operation === 'remove')).toHaveLength(1);
+    } finally { await session.close(); }
   }, 90_000);
 });
 
@@ -571,6 +576,7 @@ describe('the commands', () => {
           pluginFolder: ${JSON.stringify(probeFolder)}, repository: ${JSON.stringify(probeFolder)},
           workRoot: ${JSON.stringify(work)} + '/' + n, trust: 'validation',
           cgroupParent: ${JSON.stringify(join(work, 'no-cgroup'))},
+          graph: { files:async()=>[],value:async()=>null,ownFacts:async()=>({vertices:[],edges:[]}) },
         }).open();
         try {
           const outcome = await session.runUnit(${JSON.stringify(unit('normal'))});

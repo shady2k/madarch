@@ -839,7 +839,7 @@ function tableKeyOf(database: string, table: string): string {
 
 /**
  * One entity's field values, by field name. They are assembled here, in one function per kind, and nowhere else: protocol
- * `madarch.plugins/2` answers one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
+ * `madarch.plugins/3` reconciles one `values` map per entity with one evidence list instead of `attributes` and `claims`, so
  * a move to it changes `vertexOf` and the declaration's field markers alone, never the reading below.
  */
 type Values = Readonly<Record<string, unknown>>;

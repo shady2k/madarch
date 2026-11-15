@@ -3,7 +3,8 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { OuterTransaction } from '../history-types.js';
 import { withSpan } from '../obs/trace.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
-import type { EvidenceEntry } from './contract.js';
+import type { EvidenceEntry, GraphContract } from './contract.js';
+import type { ConsistencyPage, ConsistencyQuery } from './consistency.js';
 
 const REPOSITORY_OF = (alias: string): string => `(${alias}.key->>'repository')`;
 const PATH_OF = (alias: string): string => `(${alias}.key->>'path')`;
@@ -491,4 +492,82 @@ export async function graphKindCounts(owner: DatabaseOwner): Promise<readonly { 
     );
     return found.rows.map((row) => ({ kind: row.kind, count: Number(row.n) })).sort((left, right) => (left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0));
   }));
+}
+
+export interface StaleEvidence {
+  readonly kind: string;
+  readonly key: Readonly<Record<string, unknown>>;
+  readonly opinion: string;
+  readonly producer: string;
+  readonly evidence: Extract<EvidenceEntry, { type: 'file' }>;
+  readonly reason: string;
+  readonly applicability: 'stale' | 'unavailable';
+}
+
+/**
+ * Only open opinions support current facts. Closed history is never compared with today's tree.
+ * Unknown commits/digests are unavailable, not false. A file's missing current containment is stale
+ * even when its evidence names an older commit. The current schema cannot validate immutable spans.
+ */
+export async function vanishedCurrentEvidence(owner: DatabaseOwner, contract: GraphContract, query: ConsistencyQuery = {}): Promise<ConsistencyPage<StaleEvidence>> {
+  if (!contract.vertex.some(kind => kind.name === GIT_KINDS.file)) return { rows: [] };
+  const limit = query.limit ?? 200;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error(`${new URL(import.meta.url).pathname}:566: evidence page limit must be an integer from 1 to 1000`);
+  return await withSpan('graph.vanishedCurrentEvidence', {}, async () => await owner.transaction('snapshot', async tx => await withSpan('graph.currentEvidenceSnapshot', {}, async () => {
+    const candidates: { kind: string; key: Record<string, unknown>; opinion: string; producer: string; evidence: Extract<EvidenceEntry, { type: 'file' }>; cursor: string }[] = [];
+    const subjects = [
+      ...contract.vertex.map(kind => ({ name: kind.name, table: kind.table, joins: 'JOIN node n ON n.id = o.node_id', key: 'n.key', present: 'NOT n.removed' })),
+      ...contract.edge.filter(kind => kind.table !== undefined).map(kind => ({ name: kind.name, table: kind.table!,
+        joins: 'JOIN edge e ON e.id = o.edge_id JOIN node f ON f.id = e.from_node JOIN node t ON t.id = e.to_node',
+        key: "jsonb_build_object('from', f.key, 'to', t.key, 'discriminator', e.discriminator)", present: 'NOT f.removed AND NOT t.removed' })),
+    ];
+    for (const kind of subjects) {
+      const found = await tx.query<{ key: Record<string, unknown>; opinion: string; producer: string; evidence: Extract<EvidenceEntry, { type: 'file' }>; cursor: string }>(
+        `SELECT ${kind.key} AS key, o.id::text AS opinion, o.said_by AS producer, ev.value AS evidence,
+                $3::text || ':' || lpad(o.id::text, 20, '0') || ':' || lpad(ev.ordinality::text, 10, '0') AS cursor
+         FROM ${kind.table} o ${kind.joins}
+         CROSS JOIN LATERAL jsonb_array_elements(o.evidence) WITH ORDINALITY ev(value, ordinality)
+         WHERE o.state = 'open' AND o.context_id = 1 AND ${kind.present}
+           AND ev.value->>'type' = 'file' AND ev.value->>'repository' IS NOT NULL
+           AND ($1::text IS NULL OR $3::text || ':' || lpad(o.id::text, 20, '0') || ':' || lpad(ev.ordinality::text, 10, '0') > $1)
+         ORDER BY o.id, ev.ordinality LIMIT $2`, [query.after ?? null, limit + 1, kind.table]);
+      candidates.push(...found.rows.map(row => ({ ...row, kind: kind.name })));
+    }
+    candidates.sort((a, b) => a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0);
+    const page = candidates.slice(0, limit);
+    const rows: StaleEvidence[] = [];
+    for (const candidate of page) {
+      const evidence = candidate.evidence;
+      const inventory = await tx.query<{ current: string | null; commit_removed: boolean; file_present: boolean; digest_known: boolean; blob_matches: boolean }>(
+        `SELECT
+           (SELECT c.key->>'hash' FROM node r JOIN entity rk ON rk.id = r.entity_id AND rk.name = '${GIT_KINDS.repository}'
+            JOIN edge a ON a.from_node = r.id JOIN entity ak ON ak.id = a.entity_id AND ak.name = '${GIT_KINDS.asIs}'
+            JOIN ${GIT_TABLES.asIs} ao ON ao.edge_id = a.id AND ao.state = 'open' AND ao.context_id = 1
+            JOIN node c ON c.id = a.to_node WHERE r.key->>'name' = $1 AND a.context_id = 1 AND NOT r.removed ORDER BY ao.id DESC LIMIT 1) AS current,
+           EXISTS (SELECT 1 FROM node c JOIN entity ck ON ck.id = c.entity_id AND ck.name = '${GIT_KINDS.commit}' WHERE c.key->>'hash' = $3 AND c.context_id = 1 AND c.removed) AS commit_removed,
+           EXISTS (SELECT 1 FROM node f JOIN entity fk ON fk.id = f.entity_id AND fk.name = '${GIT_KINDS.file}'
+             JOIN edge e ON e.to_node = f.id JOIN entity ek ON ek.id = e.entity_id AND ek.name = '${GIT_KINDS.contains}'
+             JOIN ${GIT_TABLES.contains} eo ON eo.edge_id = e.id AND eo.state = 'open' AND eo.context_id = 1
+             WHERE f.key->>'repository' = $1 AND f.key->>'path' = $2 AND NOT f.removed AND e.context_id = 1) AS file_present,
+           EXISTS (SELECT 1 FROM ${GIT_TABLES.file} b WHERE b.blob = $3) AS digest_known,
+           EXISTS (SELECT 1 FROM ${GIT_TABLES.file} b JOIN node f ON f.id = b.node_id
+             WHERE f.key->>'repository' = $1 AND f.key->>'path' = $2 AND b.state = 'open' AND b.context_id = 1 AND b.blob = $3) AS blob_matches`,
+        [evidence.repository, evidence.path ?? null, evidence.commit_or_digest ?? null]);
+      const held = inventory.rows[0]!;
+      // No current revision means no complete inventory has been established; absence cannot yet be judged.
+      if (held.current === null) continue;
+      let reason: string | undefined;
+      let applicability: StaleEvidence['applicability'] = 'stale';
+      if (evidence.path !== undefined && !held.file_present) reason = 'the evidence file is absent from the current repository tree';
+      else if (evidence.path !== undefined && held.digest_known && !held.blob_matches) reason = 'the evidence blob no longer supports the current file';
+      else if (held.commit_removed) reason = 'the evidence commit has been withdrawn from the graph';
+      else if (evidence.commit_or_digest !== undefined && evidence.commit_or_digest !== held.current && !held.digest_known) {
+        const commit = await tx.query<{ removed: boolean }>(`SELECT n.removed FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.commit}' WHERE n.key->>'hash' = $1 AND n.context_id = 1`, [evidence.commit_or_digest]);
+        if (commit.rows.length === 0) { reason = 'the historical commit or digest is unavailable in the graph; its truth is not disproved'; applicability = 'unavailable'; }
+        else if (commit.rows.every(row => row.removed)) reason = 'the evidence commit has been withdrawn from the graph';
+      }
+      if (reason !== undefined) rows.push({ kind: candidate.kind, key: candidate.key, opinion: candidate.opinion, producer: candidate.producer, evidence, reason, applicability });
+    }
+    return { rows, ...(candidates.length > limit ? { next: page[page.length - 1]!.cursor } : {}) };
+  })));
 }

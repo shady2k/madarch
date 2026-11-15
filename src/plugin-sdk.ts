@@ -23,10 +23,10 @@
  */
 
 /** The protocol version this SDK speaks. */
-export const PROTOCOL_VERSION = 'madarch.plugins/2';
+export const PROTOCOL_VERSION = 'madarch.plugins/3';
 
 /** One graph read a plugin may declare. */
-export type GraphReadName = 'files' | 'value' | 'unresolved' | 'removedEnds' | 'unevidenced';
+export type GraphReadName = 'files' | 'value' | 'unresolved' | 'removedEnds' | 'unevidenced' | 'ownFacts';
 
 export type KeyValues = Readonly<Record<string, string | number | EntityRef>>;
 
@@ -91,6 +91,90 @@ export interface UnitResult {
   /** The places the unit could not read; the answer's vertices and edges still stand. */
   readonly problems?: readonly UnitProblem[];
   readonly end: UnitEnd;
+}
+
+/** The covered source snapshot (decision 0039, items 18 and 26). */
+export interface ReconciliationScope {
+  readonly repository?: string;
+  readonly commit?: string;
+}
+
+/** Only the authenticated plugin's current facts in a covered scope. */
+export interface OwnFacts {
+  readonly vertices: readonly VertexResult[];
+  readonly edges: readonly EdgeResult[];
+}
+
+/** One explicit difference submitted to the one writer. */
+export interface ReconciliationWrite {
+  readonly operation: 'add' | 'update' | 'remove';
+  readonly vertex?: VertexResult;
+  readonly edge?: EdgeResult;
+  readonly evidence: Evidence;
+}
+
+function codePointOrder(left: string, right: string): number {
+  const a = Array.from(left), b = Array.from(right);
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    const difference = a[index]!.codePointAt(0)! - b[index]!.codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return a.length - b.length;
+}
+
+/** Canonical JSON values; object field order is not a source change. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort(codePointOrder).map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function presentValues(values: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values ?? {}).filter(([, value]) => value !== null && value !== undefined));
+}
+
+/**
+ * Decision 0039 items 18 and 26: reconcile only this source, never sweep an
+ * incomplete scan. Evidence changes alone do not turn equal values into updates.
+ */
+export function reconcileFacts(source: UnitResult, current: OwnFacts, scope: ReconciliationScope): ReconciliationWrite[] {
+  const writes: ReconciliationWrite[] = [];
+  const scopeEvidence: Evidence = {
+    ...(scope.repository === undefined ? {} : { repository: scope.repository }),
+    ...(scope.commit === undefined ? {} : { commitOrDigest: scope.commit }),
+  };
+  const compare = <T extends VertexResult | EdgeResult>(type: 'vertex' | 'edge', desired: readonly T[], existing: readonly T[], identity: (fact: T) => string): void => {
+    const index = (facts: readonly T[]): Map<string, T> => {
+      const indexed = new Map<string, T>();
+      for (const fact of facts) {
+        const key = identity(fact);
+        if (indexed.has(key)) throw new Error(`${import.meta.filename}:1: duplicate ${type} identity in reconciliation: ${key}`);
+        indexed.set(key, fact);
+      }
+      return indexed;
+    };
+    const before = index(existing), after = index(desired);
+    for (const key of [...after.keys()].sort(codePointOrder)) {
+      const fact = after.get(key)!;
+      const previous = before.get(key);
+      if (previous !== undefined && canonical(presentValues(previous.values)) === canonical(presentValues(fact.values))) continue;
+      writes.push({ operation: previous === undefined ? 'add' : 'update', [type]: fact, evidence: { ...scopeEvidence, ...fact.evidence } });
+    }
+    if (source.end.state !== 'complete' || (source.problems?.length ?? 0) > 0) return;
+    for (const key of [...before.keys()].sort(codePointOrder)) {
+      if (!after.has(key)) {
+        const fact = before.get(key)!;
+        const { commitOrDigest: _historicalCommit, ...locator } = fact.evidence ?? {};
+        writes.push({ operation: 'remove', [type]: fact, evidence: { ...locator, ...scopeEvidence } });
+      }
+    }
+  };
+  compare('vertex', source.vertices ?? [], current.vertices, (vertex) => canonical([vertex.kind, vertex.key]));
+  compare('edge', source.edges ?? [], current.edges, (edge) => canonical([edge.kind, edge.from, edge.to, edge.discriminator ?? '']));
+  return writes;
 }
 
 /** The unit the host hands a plugin. */
@@ -163,6 +247,8 @@ export interface GraphPage<T> {
 
 /** The graph reads a plugin declares and asks for (decision 0035, item 15; madarch-stm0.7.1, pieces 2 and 4). */
 export interface GraphReads {
+  /** This source's facts, including prior revisions, within the repository scope. */
+  ownFacts(scope: ReconciliationScope): Promise<OwnFacts>;
   /** The file vertices whose path matches the pattern (a glossary document in any folder, say), in code point order. */
   files(pattern: string): Promise<GraphVertex[]>;
   /** One field of one vertex: a file's content, as the files producer stored it, never a folder of the product. */
@@ -177,6 +263,8 @@ export interface GraphReads {
 
 /** What `extract` is handed beside the unit: the way back to the host while it works. */
 export interface ExtractContext {
+  /** Compare a covered source snapshot with this plugin's facts and write only differences. */
+  reconcile(source: UnitResult, scope: ReconciliationScope): Promise<void>;
   /** Set when the host asked the plugin to stop: a long read should give up at the next check. */
   readonly signal: AbortSignal;
   /** Says the plugin is alive while a long unit runs; the SDK sends one on a timer as well. */
@@ -232,6 +320,8 @@ export interface OutputPlan {
 
 /** What defining a plugin takes: its contract and the one function the author writes. */
 export interface PluginDefinition {
+  /** Explicitly read-only; all other plugins reconcile extraction through the writer. */
+  readonly readOnly?: boolean;
   readonly name: string;
   readonly version: string;
   readonly contract: ContractDeclaration;
@@ -376,21 +466,55 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       try {
         const extract = planning ? definition.planOutput : definition.extract;
         if (extract === undefined) throw new Error('this plugin does not declare planOutput');
+        const graph: GraphReads = {
+          ownFacts: async (scope) => await askHost<OwnFacts>('graph.ownFacts', { unitId: unit.unitId, scope }),
+          files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
+          value: async (kind, key, field) => await askHost<{ value: unknown }>('graph.value', { kind, key, field }).then((answer) => answer.value as never),
+          unresolved: async (query) => await askHost<{ references: GraphUnresolvedReference[]; next?: string }>('graph.unresolved', query ?? {}).then((answer) => ({ rows: answer.references, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+          removedEnds: async (query) => await askHost<{ edges: GraphRemovedEnd[]; next?: string }>('graph.removedEnds', query ?? {}).then((answer) => ({ rows: answer.edges, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+          unevidenced: async (query) => await askHost<{ opinions: GraphUnevidencedOpinion[]; next?: string }>('graph.unevidenced', query ?? {}).then((answer) => ({ rows: answer.opinions, ...(answer.next === undefined ? {} : { next: answer.next }) })),
+        };
+        const reconcile = async (source: UnitResult, scope: ReconciliationScope): Promise<void> => {
+          const current = await graph.ownFacts(scope);
+          const inputs = unit.inputs as { repositories?: readonly { repository: string; commit: string }[] } | undefined;
+          for (const write of reconcileFacts(source, current, scope)) {
+            if (controller.signal.aborted) throw new Error(`${import.meta.filename}:1: reconciliation cancelled for unit ${unit.unitId}`);
+            const fact = write.vertex ?? write.edge;
+            const repository = write.evidence.repository ?? fact?.evidence?.repository;
+            const pin = inputs?.repositories?.find((candidate) => candidate.repository === repository);
+            const evidence = write.operation === 'remove'
+              ? { ...write.evidence, ...(repository === undefined ? {} : { repository }), ...(pin === undefined ? {} : { commitOrDigest: pin.commit }) }
+              : write.evidence;
+            const request = { unitId: unit.unitId, ...write, evidence };
+            const bytes = Buffer.from(JSON.stringify(request), 'utf8');
+            if (bytes.length < 1_000_000) await askHost('writer.apply', request);
+            else {
+              const writeId = `write-${String(askedHost += 1)}`;
+              const fragmentBytes = 512 * 1024;
+              let sequence = 0;
+              for (let offset = 0; offset < bytes.length; offset += fragmentBytes) {
+                send({ jsonrpc: '2.0', method: 'writer.applyChunk', params: { unitId: unit.unitId, writeId, sequence, data: bytes.subarray(offset, offset + fragmentBytes).toString('base64') } });
+                sequence += 1;
+              }
+              await askHost('writer.apply', { unitId: unit.unitId, writeId, chunkCount: sequence });
+            }
+          }
+        };
         const result = await extract(unit, {
+          reconcile,
           signal: controller.signal,
           agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
-          graph: {
-            files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
-            value: async (kind, key, field) => await askHost<{ value: unknown }>('graph.value', { kind, key, field }).then((answer) => answer.value as never),
-            unresolved: async (query) => await askHost<{ references: GraphUnresolvedReference[]; next?: string }>('graph.unresolved', query ?? {}).then((answer) => ({ rows: answer.references, ...(answer.next === undefined ? {} : { next: answer.next }) })),
-            removedEnds: async (query) => await askHost<{ edges: GraphRemovedEnd[]; next?: string }>('graph.removedEnds', query ?? {}).then((answer) => ({ rows: answer.edges, ...(answer.next === undefined ? {} : { next: answer.next }) })),
-            unevidenced: async (query) => await askHost<{ opinions: GraphUnevidencedOpinion[]; next?: string }>('graph.unevidenced', query ?? {}).then((answer) => ({ rows: answer.opinions, ...(answer.next === undefined ? {} : { next: answer.next }) })),
-          },
+          graph,
         }, typeof params?.['cursor'] === 'string' ? params['cursor'] : undefined);
         if (!running.has(id)) return;
-        answerUnit(id, unit.unitId, result);
+        if (!planning && definition.readOnly !== true) {
+          const source = result as UnitResult;
+          await reconcile(source, {});
+          if (!running.has(id)) return;
+          answerUnit(id, unit.unitId, { end: source.end, ...(source.problems === undefined ? {} : { problems: source.problems }) });
+        } else answerUnit(id, unit.unitId, result);
       } catch (error) {
         if (!running.has(id)) return;
         const failed = error as Error & { cause?: string; file?: string; line?: number };
@@ -449,7 +573,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
       protocol: PROTOCOL_VERSION,
       name: definition.name,
       version: definition.version,
-      rights: { network: 'none', ...(definition.graph === true ? { graph: true } : {}), ...(definition.graphReads === undefined ? {} : { graphReads: definition.graphReads }), ...(definition.filesystem === true ? { filesystem: true } : {}) },
+      rights: { network: 'none', ...(definition.graph === true || definition.readOnly !== true ? { graph: true } : {}), ...(definition.readOnly !== true ? { graphReads: [...new Set([...(definition.graphReads ?? ['files', 'value']), 'ownFacts'])] } : definition.graphReads === undefined ? {} : { graphReads: definition.graphReads }), ...(definition.filesystem === true ? { filesystem: true } : {}) },
       limits: {
         ...(definition.maxParallelUnits === undefined ? {} : { maxParallelUnits: definition.maxParallelUnits }),
         ...(definition.maxOutputBytes === undefined ? {} : { maxOutputBytes: definition.maxOutputBytes }),

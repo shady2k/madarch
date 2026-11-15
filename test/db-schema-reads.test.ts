@@ -28,10 +28,11 @@ test('db-schema reads every pattern match with bounded overlap and keeps the sam
       const reads: string[] = [];
       const patterns: string[] = [];
       const context: ExtractContext = {
-        signal: new AbortController().signal, heartbeat() {}, progress() {},
+        signal: new AbortController().signal, heartbeat() {}, progress() {}, async reconcile() { throw new Error("direct extraction must not invoke reconciliation"); },
         async agent() { throw new Error('no agent requested'); },
         graph: {
-          async files(value) { pattern = value; patterns.push(value); return value === 'first' ? definitions : [...definitions].reverse(); },
+          async ownFacts() { return { vertices: [], edges: [] }; },
+    async files(value) { pattern = value; patterns.push(value); return value === 'first' ? definitions : [...definitions].reverse(); },
           async value<T>(_kind: string, key: KeyValues, field: string) {
             const index = Number(String(key['path']).split('.')[0]);
             const heldPattern = pattern;

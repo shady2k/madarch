@@ -49,8 +49,7 @@ function probeVertex(id: string): VertexResult {
 function normalAnswer(unit: Unit): UnitResult {
   return {
     vertices: [probeVertex(String(unit.key['id'] ?? 'one'))],
-    edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: String(unit.key['id'] ?? 'one') } }, to: { kind: 'probe', key: { id: 'two' } }, discriminator: '' }],
-    removals: [{ kind: 'probe', key: { id: 'gone' } }],
+    edges: [{ kind: 'probe-link', from: { kind: 'probe', key: { id: String(unit.key['id'] ?? 'one') } }, to: { kind: 'probe', key: { id: 'two' } }, discriminator: '', evidence: {path:'probe/link.ts',lineStart:1} }],
     end: { state: 'complete' },
   };
 }
@@ -117,7 +116,7 @@ await definePlugin({
     const behavior = behaviorOf(unit);
     if (behavior === 'normal') return normalAnswer(unit);
     if (behavior === 'partial-removal') {
-      return { ...normalAnswer(unit), removals: [{ kind: 'probe', key: { id: 'gone' } }], end: { state: 'partial', cause: 'read half the unit' } };
+      return { ...normalAnswer(unit), end: { state: 'partial', cause: 'read half the unit' } };
     }
     if (behavior === 'undeclared') {
       return { vertices: [{ kind: 'stranger', key: { id: 'x' } }], end: { state: 'complete' } };

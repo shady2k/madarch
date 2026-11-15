@@ -36,6 +36,8 @@
   },
   "rights": {
     "network": "none",
-    "filesystem": true
+    "filesystem": true,
+    "graph": true,
+    "graphReads": ["files", "value", "ownFacts"]
   }
 }

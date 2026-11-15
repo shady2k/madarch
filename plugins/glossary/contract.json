@@ -63,6 +63,11 @@
   },
   "rights": {
     "network": "none",
-    "graph": true
+    "graph": true,
+    "graphReads": [
+      "files",
+      "value",
+      "ownFacts"
+    ]
   }
 }

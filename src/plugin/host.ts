@@ -24,7 +24,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { PluginWriterChunk, PluginWriterChunkReference, PluginGraphOwnFactsRequest, PluginWriterApplyRequest, type PluginGraphOwnFactsResult, graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -109,9 +109,9 @@ export type UnitOutcome =
   | (UnitTrace & { readonly state: 'not-extracted'; readonly unitId: string; readonly cause: UnitCause });
 
 /** The graph request methods the host answers, and the capability each one needs from the contract. */
-type GraphMethod = 'graph.files' | 'graph.value' | 'graph.unresolved' | 'graph.removedEnds' | 'graph.unevidenced';
+type GraphMethod = 'graph.ownFacts' | 'graph.files' | 'graph.value' | 'graph.unresolved' | 'graph.removedEnds' | 'graph.unevidenced';
 const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
-  'graph.files': 'files', 'graph.value': 'value', 'graph.unresolved': 'unresolved', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
+  'graph.ownFacts': 'ownFacts', 'graph.files': 'files', 'graph.value': 'value', 'graph.unresolved': 'unresolved', 'graph.removedEnds': 'removedEnds', 'graph.unevidenced': 'unevidenced',
 };
 
 /**
@@ -120,6 +120,7 @@ const GRAPH_READ_OF: Readonly<Record<GraphMethod, PluginGraphRead>> = {
  * from it; a plugin that declared no `graph` right is refused, and a host given no answerer answers none.
  */
 export interface GraphAnswerer {
+  ownFacts?(query: PluginGraphOwnFactsRequest): Promise<PluginGraphOwnFactsResult>;
   files(pattern: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<readonly { readonly kind: string; readonly key: Readonly<Record<string, string | number>> }[]>;
   value(kind: string, key: import('./protocol.js').PluginKeyValues, field: string, snapshot?: { readonly runId: string; readonly unitId: string; readonly generation: number }): Promise<unknown>;
   /** A page of the references the writer recorded and no vertex holds (madarch-stm0.7.1, piece 2). Absent: refused. */
@@ -291,9 +292,13 @@ export class PluginHost {
   private contractRights: PluginRights | undefined;
   /** What the closure's own contract says it reads, read before the plugin starts. */
   private contractReads: 'unit' | 'whole-graph' = 'unit';
+  private readOnly = false;
+  private readonly writes = new Map<string, PluginWriterApplyRequest[]>();
+  private readonly writeRefusals = new Map<string, UnitCause>();
   private failure: SessionFailure | undefined;
   private handshake: { startedAt: number; resolve: () => void; reject: (cause: UnitCause) => void } | undefined;
   private readonly inFlight = new Map<string, InFlight>();
+  private readonly writerChunks = new Map<string, Map<string, { count: number; bytes: Buffer[] }>>();
   private readonly resultChunks = new Map<string, { count: number; bytes: Buffer[] }>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private paused = false;
@@ -331,6 +336,7 @@ export class PluginHost {
     if (trust !== undefined) throw trust;
     // The rights are the contract's, read before the process starts: the sandbox binds a repository only for a plugin
     // whose contract declared the filesystem right (decision 0035, item 9).
+    this.readOnly = closure.manifest.readOnly === true;
     this.agentPart = closure.manifest.agent;
     this.contractRights = pluginRightsOf(closure);
     this.contractReads = pluginReadsOf(closure);
@@ -458,12 +464,18 @@ ${text === '' ? '(empty)' : text}` };
         log?.settle(slot, taken ? 'answered' : 'refused', 0, taken ? undefined : 'introduce-refused');
         return;
       }
+      if (value.method === 'writer.apply') {
+        const slot = log?.begin(value.method);
+        const answer = this.answerWriter(value.id, value.params);
+        log?.settle(slot, answer.outcome, answer.size, answer.cause);
+        return;
+      }
       if (value.method === 'agent.run') {
         const slot = log?.begin(value.method);
         void this.answerAgent(value.id, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
       }
-      if (value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.unresolved' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
+      if (value.method === 'graph.ownFacts' || value.method === 'graph.files' || value.method === 'graph.value' || value.method === 'graph.unresolved' || value.method === 'graph.removedEnds' || value.method === 'graph.unevidenced') {
         const slot = log?.begin(value.method);
         void this.answerGraph(value.id, value.method, value.params).then((answer) => log?.settle(slot, answer.outcome, answer.size, answer.cause));
         return;
@@ -474,6 +486,25 @@ ${text === '' ? '(empty)' : text}` };
       return;
     }
     if (isNotification(value)) {
+      if (value.method === 'writer.applyChunk') {
+        const chunk = value.params;
+        if (!Value.Check(PluginWriterChunk, chunk)) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: writer fragment requires a unit, write id, sequence and base64 bytes` }); return; }
+        const held = this.inFlight.get(chunk.unitId);
+        if (held === undefined) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: writer fragment names no active unit` }); return; }
+        const decoded = Buffer.from(chunk.data, 'base64');
+        if (decoded.toString('base64') !== chunk.data) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: writer fragment is not canonical base64` }); return; }
+        this.countBytes(held, decoded.length);
+        if (this.failure !== undefined) return;
+        const unit = this.writerChunks.get(chunk.unitId) ?? new Map<string, { count: number; bytes: Buffer[] }>();
+        const fragments = unit.get(chunk.writeId) ?? { count: 0, bytes: [] };
+        if (chunk.sequence !== fragments.count) { this.fail({ code: 'malformed-result', message: `${WHERE}:1: writer fragments must arrive in sequence` }); return; }
+        fragments.count += 1;
+        fragments.bytes.push(decoded);
+        unit.set(chunk.writeId, fragments);
+        this.writerChunks.set(chunk.unitId, unit);
+        held.lastSign = Date.now();
+        return;
+      }
       if (value.method === 'unit.resultChunk') {
         const chunk = value.params;
         if (!Value.Check(PluginResultChunk, chunk)) {
@@ -555,6 +586,16 @@ ${text === '' ? '(empty)' : text}` };
       return { outcome: 'refused', size: 0, cause: 'graph-denied' };
     }
     try {
+      if (method === 'graph.ownFacts') {
+        if (!Value.Check(PluginGraphOwnFactsRequest, params) || !this.inFlight.has(params.unitId)) {
+          this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: graph.ownFacts requires {unitId,scope} naming an active unit`, { cause: 'graph-invalid' }));
+          return { outcome: 'refused', size: 0, cause: 'graph-invalid' };
+        }
+        if (this.options.graph.ownFacts === undefined) return this.graphUnavailable(id, method);
+        const answer = await this.options.graph.ownFacts(params);
+        this.write(successText(id, answer));
+        return { outcome: 'answered', size: answer.vertices.length + answer.edges.length };
+      }
       if (method === 'graph.files') {
         if (!Value.Check(PluginGraphFilesRequest, params)) {
           const first = [...Value.Errors(PluginGraphFilesRequest, params)][0];
@@ -603,6 +644,44 @@ ${text === '' ? '(empty)' : text}` };
     }
   }
 
+  /** Stage explicit writes privately; only a successful unit can publish them. */
+  private answerWriter(id: number | string, params: unknown): { outcome: 'answered' | 'refused'; size: number; cause?: string } {
+    const reject = (message: string, unitId?: string) => {
+      const cause = { code: 'writer-denied', message: `${WHERE}:1: ${message}` };
+      if (unitId !== undefined && this.inFlight.has(unitId)) this.writeRefusals.set(unitId, cause);
+      this.write(failureText(id, RPC_INVALID_PARAMS, cause.message, { cause: cause.code }));
+      return { outcome: 'refused' as const, size: 0, cause: cause.code };
+    };
+    const unitId = typeof params === 'object' && params !== null && 'unitId' in params && typeof params.unitId === 'string' ? params.unitId : undefined;
+    let fragmented = false;
+    if (Value.Check(PluginWriterChunkReference, params)) {
+      const reference = params;
+      const chunks = this.writerChunks.get(reference.unitId)?.get(reference.writeId);
+      this.writerChunks.get(reference.unitId)?.delete(reference.writeId);
+      if (chunks === undefined || chunks.count !== reference.chunkCount) return reject('writer chunk count must match all fragments', unitId);
+      try {
+        params = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks.bytes)));
+      } catch { return reject('writer fragments do not encode a complete UTF-8 JSON operation', unitId); }
+      if ((params as { unitId?: unknown } | null)?.unitId !== reference.unitId) return reject('fragmented writer operation names a different unit', unitId);
+      fragmented = true;
+    }
+    if (!Value.Check(PluginWriterApplyRequest, params)) return reject('writer.apply requires a unit, operation, one vertex or edge and evidence', unitId);
+    if (!this.inFlight.has(params.unitId)) return reject('writer.apply names no active unit');
+    if (this.readOnly) return reject(`${join(this.options.pluginFolder, 'plugin.json')}:1: read-only plugin cannot call writer.apply`, params.unitId);
+    if ((params.vertex === undefined) === (params.edge === undefined)) return reject('writer.apply must name exactly one vertex or edge', params.unitId);
+    if (Object.keys(params.evidence).length === 0) return reject('writer.apply requires nonempty evidence', params.unitId);
+    const checked = validateUnitResult(this.declared!.outputs, { unitId: params.unitId, vertices: params.vertex === undefined ? [] : [params.vertex], edges: params.edge === undefined ? [] : [params.edge], end: { state: 'complete' } });
+    if (!checked.ok) return reject(checked.refusal.message, params.unitId);
+    const held = this.inFlight.get(params.unitId)!;
+    if (!fragmented) this.countBytes(held, Buffer.byteLength(JSON.stringify(params)));
+    if (this.failure !== undefined) return reject('unit exceeded its output bound', params.unitId);
+    const writes = this.writes.get(params.unitId) ?? [];
+    writes.push(params);
+    this.writes.set(params.unitId, writes);
+    this.write(successText(id, { accepted: true }));
+    return { outcome: 'answered', size: 1 };
+  }
+
   /** Agent requests belong to an active unit and only the manifest's agent part can grant them. */
   private async answerAgent(id: number | string, params: unknown): Promise<{ outcome: 'answered' | 'refused' | 'failed'; size: number; cause?: string }> {
     if (!Value.Check(PluginAgentRunRequest, params) || !this.inFlight.has(params.unitId) || this.agentBridge === undefined) {
@@ -648,6 +727,7 @@ ${text === '' ? '(empty)' : text}` };
     if (this.contractRights !== undefined && JSON.stringify(canonicalRights(declared.rights ?? { network: 'none' })) !== JSON.stringify(canonicalRights(this.contractRights))) {
       const cause: UnitCause = { code: 'rights-mismatch', message: `${WHERE}:1: the plugin introduced itself with the rights ${JSON.stringify(declared.rights ?? { network: 'none' })}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractRights)}: the contract is what the host grants, and the introduction repeats it` };
       this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
+      greeting.reject(cause);
       this.handshake = undefined;
       this.fail(cause);
       return false;
@@ -655,6 +735,7 @@ ${text === '' ? '(empty)' : text}` };
     if ((declared.reads ?? 'unit') !== this.contractReads) {
       const cause: UnitCause = { code: 'reads-mismatch', message: `${WHERE}:1: the plugin introduced itself as reading ${JSON.stringify(declared.reads ?? 'unit')}, and its own contract ${join(this.options.pluginFolder, 'contract.json')} declares ${JSON.stringify(this.contractReads)}: the contract is what the host plans it by, and the introduction repeats it` };
       this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
+      greeting.reject(cause);
       this.handshake = undefined;
       this.fail(cause);
       return false;
@@ -662,6 +743,7 @@ ${text === '' ? '(empty)' : text}` };
     if (declared.rights?.network !== undefined && declared.rights.network !== 'none') {
       const cause: UnitCause = { code: 'rights-unsupported', message: `${WHERE}:1: the plugin asks for the network profile "${String(declared.rights.network)}", and this build runs only "none": the network namespace is unshared and socket creation refused` };
       this.write(failureText(id, RPC_INVALID_PARAMS, cause.message));
+      greeting.reject(cause);
       this.handshake = undefined;
       this.fail(cause);
       return false;
@@ -823,6 +905,9 @@ ${text === '' ? '(empty)' : text}` };
         answered,
       ]);
       this.inFlight.delete(unit.unitId);
+      this.writes.delete(unit.unitId);
+      this.writerChunks.delete(unit.unitId);
+      this.writeRefusals.delete(unit.unitId);
       this.resultChunks.delete(unit.unitId);
       this.pending.delete(id);
       this.unitByRequest.delete(id);
@@ -886,6 +971,7 @@ ${text === '' ? '(empty)' : text}` };
 
   private acceptAnswer(unit: PluginUnitRequest, held: InFlight, id: string, result: unknown): UnitOutcome {
     const declared = this.declared!;
+    if ((this.writerChunks.get(unit.unitId)?.size ?? 0) > 0) return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: unit ended with incomplete writer fragments` });
     let answer = result as { unitId?: unknown; chunkCount?: unknown; vertices?: unknown; edges?: unknown; removals?: unknown } | undefined;
     if (answer === null || typeof answer !== 'object' || answer.unitId !== unit.unitId) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: unit ${unit.unitId} was answered with ${answer === undefined ? 'no result' : `a result for ${String((answer as { unitId?: unknown }).unitId)}`}: an answer names the unit it answers` });
@@ -896,12 +982,16 @@ ${text === '' ? '(empty)' : text}` };
     if (shape !== undefined) {
       return this.notExtracted(held, { code: 'malformed-result', message: `${WHERE}:1: the answer to unit ${unit.unitId} is not a unit result: ${shape.instancePath === '' ? 'the result' : shape.instancePath.slice(1)} ${shape.message}` });
     }
+    const writeRefusal = this.writeRefusals.get(unit.unitId);
+    if (writeRefusal !== undefined) return this.notExtracted(held, writeRefusal);
+    if (this.readOnly && ((answer?.vertices as unknown[] | undefined)?.length || (answer?.edges as unknown[] | undefined)?.length || (answer?.removals as unknown[] | undefined)?.length)) return this.notExtracted(held, { code: 'writer-denied', message: `${join(this.options.pluginFolder, 'plugin.json')}:1: read-only plugin returned graph writes` });
+    if ((answer?.vertices as unknown[] | undefined)?.length || (answer?.edges as unknown[] | undefined)?.length || (answer?.removals as unknown[] | undefined)?.length) return this.notExtracted(held, { code: 'reconciliation-required', message: `${WHERE}:1: madarch.plugins/3 writes require SDK reconciliation through writer.apply; unit results report only problems and completion` });
     const checked = validateUnitResult(declared.outputs, answer as Parameters<typeof validateUnitResult>[1]);
     if (!checked.ok) return this.notExtracted(held, refusalCause(checked.refusal, id));
     return {
       state: 'extracted',
       unitId: unit.unitId,
-      result: checked.unit,
+      result: { ...checked.unit, writes: (this.writes.get(unit.unitId) ?? []).filter((write) => checked.unit.end.state !== 'partial' || write.operation !== 'remove') },
       bytes: held.bytes,
       durationMs: Date.now() - held.startedAt,
       counters: this.sandbox?.counters() ?? { memoryPeakBytes: 0, oomKills: 0, pidsMaxHits: 0, cpuMicros: 0, pidsCurrent: 0 },

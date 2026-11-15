@@ -20,6 +20,8 @@ import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } 
 import { unimplementedRuleNotes } from './rules.js';
 import { entityAddress } from '../knowledge/addresses.js';
 import { graphProblemTasks } from '../loop/graph.js';
+import { vanishedCurrentEvidence } from '../graph/index.js';
+import { graphContractOf } from '../fill/stages/plugin-contract.js';
 
 export interface CollectInput {
   readonly productFolder: string;
@@ -91,6 +93,30 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     }
   } catch (error) {
     notes.push({ message: `the consistency section could not be read: ${(error as Error).message}` });
+  }
+  // Decision 0039 items 19/31: current applicability is independent of historical validity.
+  try {
+    let after: string | undefined;
+    do {
+      const page = await vanishedCurrentEvidence(input.owner, graphContractOf(input.manifest), after === undefined ? {} : { after });
+      for (const finding of page.rows) {
+        const path = finding.evidence.path ?? '';
+        const line = finding.evidence.line_start ?? 1;
+        const identity = `${finding.kind}:${JSON.stringify(finding.key)}:opinion:${finding.opinion}:${JSON.stringify(finding.evidence)}`;
+        drafts.push({
+          identity, section: 'code', rule: 'evidence-applicability', kind: 'bug', sonar: 'bug', severity: 'major',
+          fixer: 'agent', closed: false, reason: `${finding.evidence.repository ?? ''}/${path}:${String(line)}: ${finding.reason}`,
+          file: path, line, page: null, pageTitle: null, statement: null, sentence: null, target: null,
+          place: { label: path || finding.kind, href: null, key: null },
+          entity: { label: finding.kind, href: null, key: JSON.stringify(finding.key) },
+          evidence: [{ label: `${finding.evidence.repository ?? ''}/${path}:${String(line)}`, href: null, key: null }],
+          by: null, at: null, source: finding.producer,
+        });
+      }
+      after = page.next;
+    } while (after !== undefined);
+  } catch (error) {
+    notes.push({ message: `the evidence applicability check could not be read: ${(error as Error).message}` });
   }
   // A rule whose predicate no section implements is said once, whatever section it names (madarch-8bdc.13).
   notes.push(...unimplementedRuleNotes(input.settings));

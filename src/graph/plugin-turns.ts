@@ -78,46 +78,6 @@ export async function producerEntities(owner: DatabaseOwner, contract: GraphCont
 }
 
 
-/** One edge a producer published before: its identity as the edge row holds it, ends named by kind and key. */
-export interface ProducerEdge {
-  readonly kind: string;
-  readonly from: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> };
-  readonly to: { readonly kind: string; readonly key: Readonly<Record<string, string | number>> };
-  readonly discriminator: string;
-}
-
-/**
- * Every edge of one kind whose open opinion names one producer, with both ends by the kind and key the product names
- * them: what a complete unit's answer is compared with, so an edge the unit no longer states is removed rather than
- * kept. The ends' keys are the ones `node.key` holds, which is the same object a draft declares.
- */
-export async function producerEdges(owner: DatabaseOwner, contract: GraphContract, kind: string, producer: string): Promise<ProducerEdge[]> {
-  const declared = contract.edge.find((held) => held.name === kind);
-  if (declared === undefined || declared.table === undefined) return [];
-  return await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ from_kind: string; to_kind: string; from_key: Record<string, unknown>; to_key: Record<string, unknown>; discriminator: string }>(
-      `SELECT fk.name AS from_kind, tk.name AS to_kind, nf.key AS from_key, nt.key AS to_key, e.discriminator
-       FROM ${declared.table} o
-       JOIN edge e ON e.id = o.edge_id
-       JOIN node nf ON nf.id = e.from_node
-       JOIN entity fk ON fk.id = nf.entity_id
-       JOIN node nt ON nt.id = e.to_node
-       JOIN entity tk ON tk.id = nt.entity_id
-       WHERE o.state = 'open' AND o.context_id = 1 AND split_part(o.said_by, '@', 1) = $1
-         AND NOT nf.removed AND NOT nt.removed
-       ORDER BY e.id`,
-      [producer],
-    );
-    const keyOf = (value: Record<string, unknown>): Record<string, string | number> => value as Record<string, string | number>;
-    return found.rows.map((row) => ({
-      kind,
-      from: { kind: row.from_kind, key: keyOf(row.from_key) },
-      to: { kind: row.to_kind, key: keyOf(row.to_key) },
-      discriminator: row.discriminator,
-    }));
-  });
-}
-
 /**
  * The debug entry of a unit that published nothing — a plugin that read the graph and then crashed or timed out: its
  * requests stand even where its answer does not, as one journal row in a transaction of its own. This module is the
@@ -170,8 +130,7 @@ function snapshotWrites(writes: unknown): { kind: string; value: unknown }[] {
 /** Declared vertices from one captured producer generation, never the current graph. */
 export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: PluginSnapshot, kind: string): Promise<readonly { readonly key: import('../plugin/protocol.js').PluginKeyValues; readonly values: Readonly<Record<string, unknown>> }[]> {
   return await owner.transaction('snapshot', async tx => {
-    const writes = await snapshotDrafts(tx, snapshot);
-    for (const partition of snapshot.partitions ?? []) writes.push(...await snapshotDrafts(tx, partition, true));
+    const writes = await snapshotHistory(tx, snapshot);
     const vertices = new Map<string, { key: import('../plugin/protocol.js').PluginKeyValues; values: Readonly<Record<string, unknown>> }>();
     for (const write of writes) {
       if (write.kind !== 'vertex' && write.kind !== 'vertex-removal') continue;
@@ -183,6 +142,26 @@ export async function pluginSnapshotVertices(owner: DatabaseOwner, snapshot: Plu
     }
     return [...vertices.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, vertex]) => vertex);
   });
+}
+
+/** Replay only published deltas up to the named generation, not later graph state. */
+async function snapshotHistory(executor: SqlExecutor, snapshot: PluginSnapshot): Promise<DraftWriteLike[]> {
+  // Validate the captured generation before looking up its earlier publications.
+  await snapshotDrafts(executor, snapshot);
+  const found = await executor.query<{ run_id: string; unit_id: string; generation: number }>(
+    `SELECT g.run_id, g.unit_id, g.generation FROM fill_unit_generation g
+     JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
+     WHERE g.unit_id = $1 AND g.generation <= $2 ORDER BY g.generation`,
+    [snapshot.unitId, snapshot.generation]);
+  const writes: DraftWriteLike[] = [];
+  for (const row of found.rows) {
+    const current = await snapshotDrafts(executor, { runId: row.run_id, unitId: row.unit_id, generation: Number(row.generation) });
+    writes.push(...current);
+    for (const partition of await partitionSnapshots(executor, current)) {
+      writes.push(...await snapshotDrafts(executor, partition, true));
+    }
+  }
+  return writes;
 }
 
 export interface PartitionReference {

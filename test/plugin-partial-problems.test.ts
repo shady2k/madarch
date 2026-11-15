@@ -19,7 +19,7 @@ test('a partial unit keeps its file problems beside the general cause', async ()
     writeFileSync(join(root, 'plugin.json'), JSON.stringify(declaration));
     writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: declaration.name, version: declaration.version, outputs: contract }));
     writeFileSync(join(root, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
-await definePlugin({ name: 'partial-probe', version: '1.0.0', contract: ${JSON.stringify(contract)}, extract() {
+await definePlugin({ name: 'partial-probe', version: '1.0.0', readOnly: true, contract: ${JSON.stringify(contract)}, extract() {
   return { problems: [{ repository: 'app', path: 'src/a.ts', line: 2, column: 3, message: 'it broke' }], end: { state: 'partial', cause: 'the rest could not be read' } };
 } });`);
     const closure = closureOf(root);
@@ -27,6 +27,7 @@ await definePlugin({ name: 'partial-probe', version: '1.0.0', contract: ${JSON.s
     const kind = { name: 'Probe', key: ['name'], fields: [] };
     const wiring = {
       productFolder: root,
+      snapshots: { pins: async () => [] },
       manifest: { file: join(root, 'kinds.yaml'), kinds: new Map([['Probe', kind]]), plugins: new Map([[plugin.id, plugin]]) },
       locks: new Map([[plugin.id, { id: plugin.id, version: '1.0.0', closure: closure.hash }]]),
       contract: { vertex: [], edge: [] },

@@ -25,9 +25,10 @@ const source = [
 const file = { kind: 'code.file', key: { repository: 'repo', path: 'test/example.test.ts' } };
 function context(content: string): ExtractContext {
   return {
-    signal: new AbortController().signal, heartbeat() {}, progress() {},
+    signal: new AbortController().signal, heartbeat() {}, progress() {}, async reconcile() { throw new Error("direct extraction must not invoke reconciliation"); },
       async agent() { throw new Error('this extraction does not request an agent'); },
     graph: {
+      async ownFacts() { return { vertices: [], edges: [] }; },
       async files(pattern) { expect(['**/*.test.*', '**/quarantine-results.json']).toContain(pattern); return pattern === '**/*.test.*' ? [file] : []; },
       async value<T>(kind: string, key: Readonly<Record<string, string | number>>, field: string): Promise<T> {
         expect(kind).toBe(file.kind); expect(key).toEqual(file.key); expect(field).toBe('content');
@@ -89,7 +90,7 @@ describe('test quarantine extraction', () => {
     process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
     let content = source;
     const host = new PluginHost({ pluginFolder: folder, repository: work, workRoot: work,
-      trust: 'validation', closure, graph: { async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return content; } },
+      trust: 'validation', closure, graph: { async ownFacts() { return { vertices: [], edges: [] }; }, async files(pattern) { return pattern === '**/*.test.*' ? [file] : []; }, async value() { return content; } },
     });
     try {
       const session = await host.open();
@@ -97,12 +98,12 @@ describe('test quarantine extraction', () => {
         const first = await session.runUnit(unit);
         expect(first.state).toBe('extracted');
         if (first.state !== 'extracted') throw new Error(JSON.stringify(first));
-        expect(first.result.vertices).toHaveLength(2);
+        expect(first.result.writes?.filter(write => write.vertex !== undefined && write.operation === 'add')).toHaveLength(2);
         content = `test('repaired', () => {});`;
         const second = await session.runUnit({ ...unit, unitId: 'after-repair' });
         expect(second.state).toBe('extracted');
         if (second.state !== 'extracted') throw new Error(JSON.stringify(second));
-        expect(second.result.vertices).toEqual([]);
+        expect(second.result.writes).toEqual([]);
       } finally { await session.close(); }
     } finally {
       if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX']; else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;

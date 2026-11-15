@@ -203,6 +203,10 @@
   },
   "rights": {
     "network": "none",
-    "filesystem": true
+    "filesystem": true,
+    "graph": true,
+    "graphReads": [
+      "ownFacts"
+    ]
   }
 }

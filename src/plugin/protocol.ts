@@ -14,8 +14,9 @@
  * and the unit's end, complete or partial with the cause. Progress, heartbeats
  * and errors travel the same channel.
  *
- * Version 2 (2026-11-10) removed the `claim: authoritative | claimed` marker: a
- * declared field is a field, and a result states its value like any other opinion.
+ * Version 3 (0039 items 18–19) reads producer-owned facts through graph.ownFacts and
+ * stages explicit add/update/remove differences through writer.apply. Unit results
+ * report completion and problems; returned mutation lists are refused by the host.
  *
  * Nothing in a message names a madarch kind: the catalogue is the product's
  * data, so every kind here is a string the plugin declared.
@@ -23,10 +24,10 @@
 import { Type, type Static } from 'typebox';
 
 /** The protocol's version: the introduction names it, and a host refuses any other. */
-export const PROTOCOL_VERSION = 'madarch.plugins/2';
+export const PROTOCOL_VERSION = 'madarch.plugins/3';
 
 /** The version of the documents themselves (the schema's `$id` carries it too). */
-export const PROTOCOL_CONTRACT = 2;
+export const PROTOCOL_CONTRACT = 3;
 
 /** The JSON schema's one address, whatever host renders it. */
 export const PROTOCOL_SCHEMA_ID = `https://github.com/shady2k/madarch/schema/v${String(PROTOCOL_CONTRACT)}/plugin-protocol.schema.json`;
@@ -84,6 +85,30 @@ export const PluginEdgeResult = Type.Object(
   },
   { additionalProperties: false, description: 'One edge a unit produced: its kind, its ends by kind and key, and the values of one opinion with what they stand on.' },
 );
+
+/** Reconciliation reads only this invocation's producer-owned facts (0039 items 18–19). */
+export const PluginGraphOwnFactsRequest = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  scope: Type.Object({ repository: Type.Optional(Type.String({ minLength: 1 })), commit: Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: false }),
+}, { additionalProperties: false });
+export const PluginGraphOwnFactsResult = Type.Object({ vertices: Type.Array(PluginVertexResult), edges: Type.Array(PluginEdgeResult) }, { additionalProperties: false });
+
+/** An explicit reconciliation difference; a removal carries its evidence too. */
+export const PluginWriterApplyRequest = Type.Object({
+  unitId: Type.String({ minLength: 1 }),
+  operation: Type.Union([Type.Literal('add'), Type.Literal('update'), Type.Literal('remove')]),
+  vertex: Type.Optional(PluginVertexResult),
+  edge: Type.Optional(PluginEdgeResult),
+  evidence: PluginEvidence,
+}, { additionalProperties: false });
+
+/** A fragmented writer operation still validates as one complete request after transport. */
+export const PluginWriterChunkReference = Type.Object({
+  unitId: Type.String({ minLength: 1 }), writeId: Type.String({ minLength: 1 }), chunkCount: Type.Integer({ minimum: 1 }),
+}, { additionalProperties: false });
+export const PluginWriterChunk = Type.Object({
+  unitId: Type.String({ minLength: 1 }), writeId: Type.String({ minLength: 1 }), sequence: Type.Integer({ minimum: 0 }), data: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
 
 /** One thing the unit's input no longer holds: the plugin's earlier output that the host may remove. */
 export const PluginRemoval = Type.Object(
@@ -185,7 +210,7 @@ export const PluginContractDeclaration = Type.Object(
 
 /** One graph read a plugin may declare: its name. */
 export const PluginGraphRead = Type.Union(
-  [Type.Literal('files'), Type.Literal('value'), Type.Literal('unresolved'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
+  [Type.Literal('ownFacts'), Type.Literal('files'), Type.Literal('value'), Type.Literal('unresolved'), Type.Literal('removedEnds'), Type.Literal('unevidenced')],
   { description: 'One graph read the host answers: files and value are the unit reads, unresolved and removedEnds the writer\'s consistency records, and unevidenced the opinions whose field requires evidence.' },
 );
 
@@ -445,6 +470,8 @@ export const PluginProtocolMessage = Type.Union(
     UnitRequestMessage,
     PlanOutputMessage,
     AgentRunMessage,
+    Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('graph.ownFacts'), params: PluginGraphOwnFactsRequest }, { additionalProperties: false }),
+    Type.Object({ jsonrpc: Type.Literal('2.0'), id: RpcId, method: Type.Literal('writer.apply'), params: Type.Union([PluginWriterApplyRequest, PluginWriterChunkReference]) }, { additionalProperties: false }),
     GraphFilesMessage,
     GraphValueMessage,
     GraphUnresolvedMessage,
@@ -455,6 +482,7 @@ export const PluginProtocolMessage = Type.Union(
     ControlRequest('stop'),
     HeartbeatMessage,
     ResultChunkMessage,
+    Type.Object({ jsonrpc: Type.Literal('2.0'), method: Type.Literal('writer.applyChunk'), params: PluginWriterChunk }, { additionalProperties: false }),
     ProgressMessage,
     ErrorMessage,
     CancelMessage,
@@ -470,6 +498,9 @@ export const PluginProtocolMessage = Type.Union(
   },
 );
 
+export type PluginGraphOwnFactsRequest = Static<typeof PluginGraphOwnFactsRequest>;
+export type PluginGraphOwnFactsResult = Static<typeof PluginGraphOwnFactsResult>;
+export type PluginWriterApplyRequest = Static<typeof PluginWriterApplyRequest>;
 export type PluginIntroduce = Static<typeof PluginIntroduce>;
 export type PluginUnitRequest = Static<typeof PluginUnitRequest>;
 export type PluginUnitProblem = Static<typeof PluginUnitProblem>;

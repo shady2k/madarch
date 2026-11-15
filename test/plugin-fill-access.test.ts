@@ -111,6 +111,7 @@ test('one reader indexes immutable snapshot files and fields once without sharin
   let loads = 0;
   const writes = [{ kind: 'vertex', value: { kind: 'code.file', key: { repository: 'repo', path: 'a.ts' }, values: { content: 'saved', language: 'typescript' } } }];
   const owner = { transaction: async (_mode: string, run: (tx: unknown) => Promise<unknown>) => await run({ query: async (sql: string) => {
+    if (sql.includes('FROM fill_unit_generation g')) return { rows: [{ run_id: snapshot.runId, unit_id: snapshot.unitId, generation: 1 }] };
     if (sql.includes('FROM fill_unit_draft d')) { loads++; return { rows: [{ unit_id: snapshot.unitId, generation: 1, writes }] }; }
     return { rows: [] };
   } }) };
@@ -121,9 +122,9 @@ test('one reader indexes immutable snapshot files and fields once without sharin
   expect(await reader.value('code.file', key, 'content', snapshot)).toBe('saved');
   expect(await reader.value('code.file', key, 'language', snapshot)).toBe('typescript');
   expect(await reader.value('code.file', key, 'omitted', snapshot)).toBeNull();
-  expect(loads).toBe(1);
-  expect(await pluginGraphAnswerer(wiring).value('code.file', key, 'content', snapshot)).toBe('saved');
   expect(loads).toBe(2);
+  expect(await pluginGraphAnswerer(wiring).value('code.file', key, 'content', snapshot)).toBe('saved');
+  expect(loads).toBe(4);
 });
 
 test('snapshot resolver rejects prior-run or unsuccessful generations before execution', async () => {
@@ -147,4 +148,22 @@ test('verified inherited generation freezes original run identity without clonin
   expect(queries[0]).toContain("e.kind = 'unit-inherited'");
   expect(queries[0]).toContain('e.generation = g.generation');
   expect(queries[1]).toContain('FROM fill_unit_draft_part');
+});
+
+
+test('reconciliation reads only selected own facts and selected fields', async () => {
+  const access = pluginInvocationAccess({
+    files: async () => [], value: async () => null,
+    ownFacts: async () => ({ vertices: [
+      { kind: 'A', key: { id: 'a' }, values: { text: 'selected', secret: 'other field' } },
+      { kind: 'B', key: { id: 'b' }, values: { text: 'other output' } },
+    ], edges: [{ kind: 'other-edge', from: {kind:'A',key:{id:'a'}}, to:{kind:'B',key:{id:'b'}} }] }),
+  }, { location: '/product/plugin.json:7', plugin: 'multi', output: 'A', reads: [], fields: ['text'], fileKind: 'File', edges: [] });
+  expect(await access.graph.ownFacts!({ unitId: 'u1', scope: {} })).toEqual({ vertices: [{kind:'A',key:{id:'a'},values:{text:'selected'}}], edges: [] });
+});
+
+test('explicit reconciliation operations cannot write another output or unselected edge', () => {
+  const write = { unitId: 'u1', operation: 'remove' as const, evidence: {path:'source.md'} };
+  expect(() => setup('A', []).access.assertWrites({vertices:[],edges:[],removals:[],writes:[{...write,vertex:{kind:'B',key:{id:'b'}}}]})).toThrow('write of unselected output B');
+  expect(() => setup('A', []).access.assertWrites({vertices:[],edges:[],removals:[],writes:[{...write,edge:{kind:'hidden',from:{kind:'A',key:{id:'a'}},to:{kind:'A',key:{id:'b'}}}}]})).toThrow('unselected edge');
 });
