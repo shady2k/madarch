@@ -22,6 +22,60 @@ as the opinions of the producers that stated them, and has its own page:
 everything the wiki shows is an entity (decisions 0034, 0036).
 _Avoid_: record, instance, item
 
+**Reference** (ru: ссылка):
+One entity naming another: the file `src/index.ts` names the repository it lies
+in, a transition names its two states, a comment names its author. A reference
+is always an edge of the graph between the two vertices, declared as an edge
+kind in the catalogue with its direction, how many it allows and its words in
+both languages; it is never text or JSON in a field, so its target exists, its
+other side shows on the target's page, and a misspelt name cannot be stored
+(madarch-64o5.74; owner, 2026-11-15). A value that names nothing — a path, a
+count, a date, a status — is a field, not a reference.
+_Avoid_: pointer (ru: указатель), link field, reference field
+
+**Value type** (ru: тип значения):
+What a field's value must be, declared once in the catalogue's library of value
+types and reused by the fields of any kind and inside JSON Schemas: text,
+number, date, yes/no, a value of a set, or a format such as IP address, e-mail,
+URL or version, checked by the format's standard check or a regular expression
+declared in the type. A value that does not fit is refused, naming the field
+and the value. A JSON field always declares its JSON Schema (madarch-64o5.74;
+owner, 2026-11-15).
+_Avoid_: datatype (in prose), format (for the whole type)
+
+**Synonym** (ru: синоним):
+Another name of an entity — «мадарч» for madarch — kept on every entity beside
+its name; names and synonyms make the dictionary by which the writer finds an
+entity named in text without a reference (madarch-64o5.74, madarch-64o5.120).
+_Avoid_: alias (in prose)
+
+**System kind** (ru: системный вид):
+A kind built into madarch itself rather than declared by a product: run, unit,
+event, agent usage, operation, problem, person, role, plugin, setting, kind. It
+ships with the engine, is created at install, cannot be deleted by a product, is
+updated with its data migrated when madarch is updated, and may later be
+extended by a product whose kind inherits it (madarch-64o5.74; owner,
+2026-11-15). It is the engine's own vocabulary, not product data.
+_Avoid_: built-in type, core kind
+
+**Run** (ru: запуск):
+One fill of a product, started by a person from the wiki: a vertex of a system
+kind with its state machine (going, pausing, paused, stopping, stopped, ended),
+its units, their outcomes and its statistics — what was done and not done, the
+tools called and how often, the tokens spent. Its event stream, traces and debug
+logs stay outside the graph for a limited time (owner, 2026-11-15: «слово
+"запуск" в качестве термина подходит»).
+_Avoid_: прогон, fill run (in Russian text)
+
+**Term** (ru: термин):
+A concept of the product's language, not a word: a vertex with its definition
+and the subject field it belongs to (a domain, later a bounded context). Its
+name and synonyms are its labels; one word may label two concepts of two
+fields — homonyms — and is then shown with its field in brackets: «запуск
+(заполнение)», «запуск (CI)» (ISO 704, W3C SKOS; owner, 2026-11-15,
+madarch-64o5.144).
+_Avoid_: glossary word, entry
+
 **Kind** (ru: вид; `kind` in code and manifests):
 What the catalogue declares a product can hold: File, Repository, Commit,
 Task, Decision. A kind carries its definition, its fields, its relations, the
