@@ -87,6 +87,12 @@ describe('an agent’s task is English only', () => {
     expect(englishOnly<Record<string, unknown>>({ labels: { ru: 'Только по-русски' }, description: 'A sentence.' })).toEqual({ description: 'A sentence.' });
     expect(isLocaleMap({ en: 'x', ru: 'y' })).toBe(true);
     expect(isLocaleMap({ one: 'x', many: 'y' })).toBe(false);
+    // A key is a language when the manifest declares that language, nothing else: a tag it does not declare is data.
+    expect(isLocaleMap({ en: 'x', de: 'y' })).toBe(false);
+    expect(isLocaleMap({ 'en-GB': 'x', 'ru-RU': 'y' })).toBe(false);
+    expect(isLocaleMap({ en: 'x', ru: 'y', de: 'z' })).toBe(false);
+    expect(englishOnly<Record<string, unknown>>({ labels: { en: 'Identifier', de: 'Bezeichner' } }))
+      .toEqual({ labels: { en: 'Identifier', de: 'Bezeichner' } });
     expect(isLocaleMap({ name: 'domain' })).toBe(false);
     const text = JSON.stringify(resolved);
     expect(text).not.toMatch(/[\u0400-\u04FF]/u);
