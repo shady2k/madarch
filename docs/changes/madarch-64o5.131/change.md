@@ -53,8 +53,9 @@ mounted page.
 Static: `bun run check` passed; the wiki app's `bun run check` passed.
 Test: `run-indicator.test.tsx` 2 passed (never both; one mounted page switches from the run to the fill entry after the
 status read); the app suite 122 passed, 0 failed.
-Screens: `docs/changes/madarch-64o5.131/mockups/` holds 1440 and 390, light and dark, for the idle and running control;
-their text and geometry were read: one control in each state, and the page's scroll width equals its viewport.
+Screens: `docs/changes/madarch-64o5.131/mockups/` holds the idle and running control at 1440 and 390, light and dark,
+in English and Russian; their text and geometry were read: one control in each state, no first-visit role dialog, and the
+page's scroll width equals its viewport.
 Mutation: not run, filed per the stage rule.
 Review: pending; this record is for the review.
 
