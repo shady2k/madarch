@@ -36,7 +36,8 @@ export async function publishSamplePageOpinions(folder: string, knowledgeRoot: s
     { kind: 'domain', slug: 'payment', title: 'Payment', file: 'docs/domains/payment.md', body: 'Payments are charged through one of two providers chosen by configuration.', relates: [PAYMENTS_SERVICE, PAY], sources: ['docs/requirements.md'] },
   ];
   await publishFixtureOpinions(folder, knowledgeRoot, pages.map((page) => ({
-    kind: page.kind, key: { slug: page.slug },
+    // The catalogue keys a product and a domain by their name; the sample's slug is that name.
+    kind: page.kind, key: { name: page.slug },
     values: { title: page.title, file: page.file, body: page.body, relates: page.relates, sources: page.sources, body_line: 1, producer: 'fixture', statements: [], digest: 'fixture', links: [], findings: [], ungrounded: [] },
   })));
 }

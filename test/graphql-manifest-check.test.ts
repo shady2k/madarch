@@ -24,7 +24,8 @@ function collidingProduct(): string {
   writeFileSync(join(folder, 'templates/entity.yaml'), 'template: entity\n');
   const metadata = readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8');
   const cut = metadata.indexOf('\nedges:');
-  writeFileSync(join(folder, 'madarch/catalog.yaml'), `${cut < 0 ? metadata : metadata.slice(0, cut)}\nedges:\n  - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place }\n`);
+  // Every edge declares the words it reads as at each end, in both interface languages (catalogue R7).
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), `${cut < 0 ? metadata : metadata.slice(0, cut)}\nedges:\n  - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place, labels: { en: { out: mentions, in: mentioned by }, ru: { out: упоминает, in: упомянут в } } }\n`);
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.page.yaml'), [
     'id: practice.page', 'purpose: structure', 'definition: A page of the demo.', 'sources: [https://example.test/standard]',
     'acquisition: [conversation]', 'relation-constraints: { out: [], in: [] }',
