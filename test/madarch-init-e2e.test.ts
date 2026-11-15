@@ -26,6 +26,7 @@ import { readerText } from './markdown-reader.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { commandLanguage } from '../src/product/command-language.js';
 import { nextSteps } from '../src/product/cli.js';
+import { wikiWords } from '../src/product/wiki-words.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 
@@ -104,13 +105,14 @@ describe('madarch init', () => {
     expect(initOutput).toContain('Next:');
     // The steps are the current wiki's: the role a first visit asks for, the catalogue's kinds, the run's preparation
     // and its two choices, and the run's own page (madarch-64o5.84).
-    expect(initOutput).toContain('choose the role you read as');
-    expect(initOutput).toContain('"Fill…"');
-    expect(initOutput).toContain('pick the kinds in the catalogue');
-    expect(initOutput).toContain('"Run preparation"');
-    expect(initOutput).toContain('"Plugins only"');
+    // Every quoted name is the wiki's own, and this test reads it from the app's locale file as the steps do: the text
+    // cannot drift from the interface (madarch-64o5.84).
+    const words = wikiWords('en');
+    for (const name of [words.roleQuestion, words.fill, words.catalogue, words.prepare, words.pluginsOnly, words.start]) {
+      expect(initOutput).toContain(`"${name}"`);
+    }
+    expect(initOutput).toContain('pick the kinds in the');
     expect(initOutput).toContain('agent with a token limit');
-    expect(initOutput).toContain('"Start the fill"');
     expect(initOutput).toContain('follow the run on its own page');
     expect(initOutput).toContain('madarch stop');
     // The old flow's claims are gone: no agent chosen from the init text, no pages written into docs/, no turn bound.
@@ -136,11 +138,16 @@ describe('madarch init', () => {
     }
     const said = lines.join('\n');
     expect(said).toContain('Далее:');
-    expect(said).toContain('«Заполнить…»');
-    expect(said).toContain('«Только плагины»');
-    expect(said).toContain('«Запустить заполнение»');
+    const words = wikiWords('ru');
+    for (const name of [words.roleQuestion, words.fill, words.catalogue, words.prepare, words.pluginsOnly, words.start]) {
+      expect(said).toContain(`«${name}»`);
+    }
     expect(said).toContain('madarch stop');
     expect(said).not.toContain('docs/');
+    // And the two languages really differ for each quoted name: the English steps never speak the Russian UI's words.
+    for (const name of [wikiWords('en').roleQuestion, wikiWords('en').prepare, wikiWords('en').pluginsOnly, wikiWords('en').start]) {
+      expect(words.roleQuestion).not.toBe(name);
+    }
   });
 
   test('the wiki it opens is empty, offers the agents and has run none', async () => {

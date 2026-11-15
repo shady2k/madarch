@@ -13,6 +13,7 @@
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { commandLanguage, type CommandLanguage } from './command-language.js';
+import { wikiWords } from './wiki-words.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -1088,31 +1089,31 @@ function displayPath(folder: string): string {
 }
 
 /**
- * The next steps one reader follows after the product's wiki is up, in the person's language: the address, the role a
- * first visit asks for, the fill's two presses (the catalogue, then the run's preparation), and how the background wiki
- * ends. The steps are the wiki's own — the catalogue and the wiki's buttons — so a person reads them there and finds
- * them where they are named.
+ * The next steps one reader follows after the product's wiki is up, in the person's language. Every button and page
+ * name the steps quote is the wiki's own, read from its locale files (`wiki-words.ts`), so the text cannot drift from
+ * the interface it describes; the steps around the names are ours.
  */
 export function nextSteps(folder: string, init: boolean, language: CommandLanguage = commandLanguage()): void {
   const shown = displayPath(folder);
+  const words = wikiWords(language);
   const ru = language === 'ru';
   console.log('');
   console.log(ru ? 'Далее:' : 'Next:');
   if (init) {
     if (ru) {
-      console.log('  1. Откройте адрес wiki выше. При первом входе выберите роль, от имени которой читаете: wiki показывает то, что нужно этой роли.');
-      console.log('  2. Нажмите «Заполнить…» и отметьте виды в каталоге; то, что им нужно, добавится само.');
-      console.log('  3. На «Подготовке запуска» выберите «Только плагины» (без агента и без токенов) или агента с ограничением токенов, затем «Запустить заполнение»; за прогоном следите на его странице.');
+      console.log(`  1. Откройте адрес wiki выше. При первом входе ответьте на «${words.roleQuestion}»: wiki показывает то, что нужно выбранной роли.`);
+      console.log(`  2. Нажмите «${words.fill}» и отметьте виды в «${words.catalogue}»; то, что им нужно, добавится само.`);
+      console.log(`  3. На странице «${words.prepare}» выберите «${words.pluginsOnly}» (без агента и без токенов) или агента с ограничением токенов, затем «${words.start}»; за прогоном следите на его странице.`);
     } else {
-      console.log('  1. Open the wiki address above. On the first visit choose the role you read as: the wiki shows what that role needs.');
-      console.log('  2. Press "Fill…" and pick the kinds in the catalogue; what they need is added for you.');
-      console.log('  3. On "Run preparation" choose "Plugins only" (no agent, no tokens) or an agent with a token limit, then "Start the fill"; follow the run on its own page.');
+      console.log(`  1. Open the wiki address above. On the first visit answer "${words.roleQuestion}": the wiki shows what the role you choose needs.`);
+      console.log(`  2. Press "${words.fill}" and pick the kinds in the "${words.catalogue}"; what they need is added for you.`);
+      console.log(`  3. On the "${words.prepare}" page choose "${words.pluginsOnly}" (no agent, no tokens) or an agent with a token limit, then "${words.start}"; follow the run on its own page.`);
     }
   } else if (ru) {
-    console.log('  • Wiki открывается на домашней странице продукта: «Заполнить…» ведёт в каталог, где отмечают виды, а «Подготовка запуска» — где выбирают «Только плагины» или агента с ограничением токенов. Ничего не читается и не пишется, пока вы не запустите.');
+    console.log(`  • Wiki открывается на домашней странице продукта: «${words.fill}» ведёт в «${words.catalogue}», где отмечают виды, а «${words.prepare}» — где выбирают «${words.pluginsOnly}» или агента с ограничением токенов. Ничего не читается и не пишется, пока вы не запустите.`);
     console.log(`  • Документы продукта — файлы Markdown в ${shown}/docs/; их пишет человек или агент. Чтобы читать и код, подключите репозиторий (madarch repo add <name> <url>) до заполнения.`);
   } else {
-    console.log('  • The wiki opens on the product\'s home page: "Fill…" leads to the catalogue where the kinds are picked, and "Run preparation" is where "Plugins only" or an agent with a token limit is chosen. Nothing is read or written until you start it.');
+    console.log(`  • The wiki opens on the product\'s home page: "${words.fill}" leads to the "${words.catalogue}" where the kinds are picked, and "${words.prepare}" is where "${words.pluginsOnly}" or an agent with a token limit is chosen. Nothing is read or written until you start it.`);
     console.log(`  • Product documents are Markdown files in ${shown}/docs/, written by a person or an agent. To read code too, connect a code repository (madarch repo add <name> <url>) before the fill.`);
   }
   console.log(ru ? '  • Wiki работает в фоне: адрес открывается в любое время; madarch stop останавливает её.' : '  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
