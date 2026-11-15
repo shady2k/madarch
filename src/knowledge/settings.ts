@@ -26,6 +26,8 @@ export interface Settings {
   role: string;
   /** Whether the reader was asked (and chose or skipped). */
   asked: boolean;
+  /** Whether this machine and its person chose to run plugins without isolation; absent when nobody was asked. */
+  pluginsUnconfined?: boolean;
 }
 
 export const settingsPath = (env: DraftEnv): string => join(madarchHome(env), SETTINGS_FILE);
@@ -61,7 +63,31 @@ function readRaw(file: string): Record<string, unknown> {
 export function readSettings(env: DraftEnv, roles: readonly string[]): Settings {
   const raw = readRaw(settingsPath(env));
   const role = typeof raw['role'] === 'string' && roles.includes(raw['role']) ? raw['role'] : EVERY_ROLE;
-  return { role, asked: raw['roleAsked'] === true };
+  const pluginsUnconfined = typeof raw['pluginsUnconfined'] === 'boolean' ? raw['pluginsUnconfined'] : undefined;
+  return { role, asked: raw['roleAsked'] === true, ...(pluginsUnconfined === undefined ? {} : { pluginsUnconfined }) };
+}
+
+/** The isolation answer this machine remembers; absent when nobody was asked. */
+export function readPluginsUnconfined(env: DraftEnv): boolean | undefined {
+  const held = readRaw(settingsPath(env))['pluginsUnconfined'];
+  return typeof held === 'boolean' ? held : undefined;
+}
+
+/** Writes the isolation answer for this machine, keeping every other key of the file. */
+export function writePluginsUnconfined(env: DraftEnv, unconfined: boolean): boolean {
+  const file = settingsPath(env);
+  const raw = readRaw(file);
+  raw['pluginsUnconfined'] = unconfined;
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(raw, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    renameSync(temporary, file);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw new Error(`${file}: the settings could not be written: ${(error as Error).message}`);
+  }
+  return unconfined;
 }
 
 /** Writes the role (and that the reader was asked), keeping every other key of the file. */

@@ -19,6 +19,7 @@
 import { mkdirSync } from 'node:fs';
 import { basename } from 'node:path';
 import { runFill } from '../fill/run.js';
+import { fillIsolation } from '../plugin/sandbox-probe.js';
 import type { PluginAgentOptions } from '../plugin/agent.js';
 import { configuredPluginAgent } from './agents.js';
 import type { DraftEnv } from '../product/home.js';
@@ -100,6 +101,8 @@ export interface KnowledgeFillOptions {
   readonly pluginAgent?: PluginAgentOptions | null;
   /** Maximum reported tokens shared by every plugin agent in this run. */
   readonly tokenCap?: number;
+  /** This machine and its person chose to run plugins without isolation; read from the machine when left out. */
+  readonly unconfined?: boolean;
   /** Adapter discovery and credential environment; the process environment when omitted. */
   readonly env?: DraftEnv;
   /**
@@ -253,6 +256,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
         // One fill, through the one runner: the button, `madarch fill`, the daemon and `madarch mcp`
         // all start it here (madarch-8bdc.2.5, item 6).
         const pluginAgent = options.pluginAgent === undefined ? configuredPluginAgent(options.storeFolder, options.env ?? process.env) : options.pluginAgent ?? undefined;
+        const isolation = options.unconfined === undefined ? await fillIsolation(options.env ?? process.env) : { unconfined: options.unconfined };
         const result = await runFill({
           product: options.productFolder,
           database: owner,
@@ -264,6 +268,7 @@ export async function startKnowledgeFill(options: KnowledgeFillOptions): Promise
           ...(options.targets === undefined ? {} : { targets: options.targets }),
           ...(pluginAgent === undefined ? {} : { pluginAgent }),
           ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }),
+          ...(isolation.unconfined ? { unconfined: true } : {}),
           maxPasses: 100_000,
           onService: (started) => { service = started; },
           // A page that is showing the wiki while this run fills it follows at a pace proportional to the run, not to

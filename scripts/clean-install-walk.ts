@@ -192,6 +192,54 @@ async function serveCheck(): Promise<void> {
     const status = await runMadarch('status', ['--home', home]);
     if (status.status !== 0 || status.stdout.trim() !== 'not running') throw new Error(`npx madarch status still reports a server after the walk stopped it: ${status.stdout.trim()}`);
   };
+  /**
+   * The preparation page's isolation question (madarch-64o5.86), answered the way its person answers it: a machine that
+   * cannot confine a plugin says so in one sentence, and the person presses «run them without isolation» on that page.
+   * The walk reads the page's own answer (`/api/settings`) and presses the same button (that answer's POST), because a
+   * walk without a terminal answers a question as a person does, never through a variable or a hidden flag. Windows has
+   * no plugin sandbox at all: the probe answers "this system has no plugin sandbox" there, the page asks the same
+   * question a Linux machine without delegation gets, and the same press answers it. A machine that confines plugins
+   * asks nothing, and nothing is written.
+   */
+  const answerIsolation = async (url: string): Promise<void> => {
+    const settingsFile = join(work, 'settings.json');
+    // The wiki publishes a draft's catalogue for about fifteen seconds after its server starts (measured 2026-11-15 on
+    // Linux arm64: 14 s from init to the page's first answer), and until then that page's own answer says the catalogue
+    // is being published. The walk waits for the page, as its person does, and names the bound when it never comes.
+    const until = Date.now() + 120_000;
+    const settingsAnswer = async (): Promise<string> => {
+      for (;;) {
+        const answer = await fetch(`${url}api/settings`, { signal: AbortSignal.timeout(30_000) });
+        const text = await answer.text();
+        if (answer.ok) return text;
+        let publishing = false;
+        try { publishing = (JSON.parse(text) as { publication?: unknown }).publication === 'pending'; } catch { publishing = false; }
+        if (!publishing) throw new Error(`${settingsFile}:1: the preparation page's settings could not be read (HTTP ${answer.status}): ${text}`);
+        if (Date.now() > until) throw new Error(`${settingsFile}:1: the preparation page's settings did not answer within 120000 ms while the catalogue was being published: ${text}`);
+        await new Promise((done) => setTimeout(done, 250));
+      }
+    };
+    const body = await settingsAnswer();
+    let held: { pluginsUnconfined?: unknown; pluginIsolation?: { capable?: unknown; reason?: unknown } };
+    try { held = JSON.parse(body) as typeof held; } catch (error) { throw new Error(`${settingsFile}:1: the settings answer is not JSON: ${(error as Error).message}: ${body}`); }
+    const isolation = held.pluginIsolation;
+    if (typeof isolation?.capable !== 'boolean' || typeof isolation.reason !== 'string' || isolation.reason === '') throw new Error(`${settingsFile}:1: the settings answer names no pluginIsolation with a capable flag and a reason: ${body}`);
+    if (isolation.capable) { console.log(`The preparation page asks nothing about isolation: ${isolation.reason}`); return; }
+    // A person's "no" stands: the walk reports it and never presses the other answer over it.
+    if (held.pluginsUnconfined === false) throw new Error(`${settingsFile}:1: the preparation page's isolation question is answered "no" here, and Fill cannot run: ${isolation.reason}`);
+    if (held.pluginsUnconfined === true) { console.log(`The preparation page's isolation question stands answered: ${isolation.reason}`); return; }
+    // The page's own press — «run them without isolation» — for the machine that offers none.
+    const pressed = await fetch(`${url}api/settings`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pluginsUnconfined: true }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const pressedBody = await pressed.text();
+    if (!pressed.ok) throw new Error(`${settingsFile}:1: the preparation page's isolation answer was not saved (HTTP ${pressed.status}): ${pressedBody}`);
+    let answered: { pluginsUnconfined?: unknown };
+    try { answered = JSON.parse(pressedBody) as typeof answered; } catch (error) { throw new Error(`${settingsFile}:1: the saved settings answer is not JSON: ${(error as Error).message}: ${pressedBody}`); }
+    if (answered.pluginsUnconfined !== true) throw new Error(`${settingsFile}:1: the preparation page's isolation answer was saved as ${JSON.stringify(answered.pluginsUnconfined)}, not as pluginsUnconfined true: ${pressedBody}`);
+    console.log(`The preparation page asked why plugins cannot be isolated here ("${isolation.reason}"); the walk answered it on that page, as its person does: plugins run without isolation`);
+  };
   // `init` returns at once: the products home's background server serves the
   // draft, so the walk reads the address the command printed instead of
   // waiting on a foreground that no longer exists.
@@ -313,6 +361,8 @@ async function serveCheck(): Promise<void> {
     for (const parameters of [['add', 'madarch'], ['commit', '-m', 'Prepare plugin-free store acceptance fixture']]) {
       if ((await runStep(`git ${parameters.join(' ')}`, 'git', parameters, facts.folder, env)).status !== 0) throw new Error(`${manifest}:1: cannot commit the store acceptance fixture`);
     }
+    // The preparation page's isolation question, answered on that page just before the person presses Fill there.
+    await answerIsolation(facts.url);
     // This is the first write and MUST open the installed store, even when the unfilled status is folder-only.
     const pressed = await fetch(`${facts.url}api/fill`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: null }),

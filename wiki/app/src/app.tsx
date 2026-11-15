@@ -303,7 +303,10 @@ export function App(): ReactElement {
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds };
+  // This machine's plugin isolation is read here, once, beside the role: a page that offers the isolation choice reads
+  // it from the runtime instead of asking the settings route for itself.
+  const machine = savedRole.data === null ? undefined : { pluginIsolation: savedRole.data.pluginIsolation ?? null, pluginsUnconfined: savedRole.data.pluginsUnconfined, reload: savedRole.reload };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds, ...(machine === undefined ? {} : { machine }) };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (

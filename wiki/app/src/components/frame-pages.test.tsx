@@ -82,6 +82,7 @@ const SETTINGS = {
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
+let readerAnswer: Record<string, unknown> = { role: 'all', asked: true, roles: ['architect', 'all'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
 
 function answer(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -89,6 +90,7 @@ function answer(body: unknown): Response {
 
 beforeEach(async () => {
   requests.length = 0;
+  readerAnswer = { role: 'all', asked: true, roles: ['architect', 'all'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
@@ -101,7 +103,13 @@ beforeEach(async () => {
     if (url.pathname.endsWith('/api/sources')) return answer(SOURCES);
     if (url.pathname.endsWith('/api/product-settings')) return answer(SETTINGS);
     if (url.pathname.endsWith('/api/agents')) return answer({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: null, install: null }], chosen: null });
-    if (url.pathname.endsWith('/api/settings')) return answer({ role: 'all', asked: true, roles: ['architect', 'all'] });
+    if (url.pathname.endsWith('/api/settings')) {
+      if (method === 'POST') {
+        const asked = body as { pluginsUnconfined?: boolean } | null;
+        if (asked?.pluginsUnconfined !== undefined) readerAnswer = { ...readerAnswer, pluginsUnconfined: asked.pluginsUnconfined };
+      }
+      return answer(readerAnswer);
+    }
     if (url.pathname.endsWith('/api/agent-choices')) return answer({ agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: null, reasoning: null } });
     if (url.pathname.endsWith('/api/agent') || url.pathname.endsWith('/api/model-role')) return answer({});
     return answer({});
@@ -258,3 +266,17 @@ test('settings writes are disabled while the link is away', async () => {
     reportOnline();
   }
 });
+
+test('the machine settings show and change the isolation answer', async () => {
+  readerAnswer = { role: 'all', asked: true, roles: ['architect', 'all'], pluginsUnconfined: null, pluginIsolation: { capable: false, reason: 'this machine does not give madarch a cgroup to limit plugins in' } };
+  const page = await render('settings-form', { group: 'all' });
+  try {
+    expect(page.container.querySelector('[data-testid="settings-isolation-reason"]')?.textContent).toContain('нельзя изолировать');
+    expect(page.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
+    await act(async () => { (page.container.querySelector('[data-testid="settings-isolation-allow"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { pluginsUnconfined?: boolean }).pluginsUnconfined === true)).toBe(true);
+    expect(page.container.querySelector('[data-testid="settings-isolation-allowed"]')?.textContent).toContain('без изоляции');
+  } finally { await page.close(); }
+});
+

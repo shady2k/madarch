@@ -29,7 +29,7 @@ import { SourcesSection } from './components/sources.js';
 import { ProductOverviewSection } from './components/overview.js';
 import { RepositoriesSection } from './components/repositories.js';
 import { SettingsSection } from './components/settings.js';
-import type { SectionContext } from './components/types.js';
+import type { MachineSettings, SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
 
 export interface PageRuntime {
@@ -45,6 +45,11 @@ export interface PageRuntime {
   readonly navigation: Navigation | null;
   /** Applies a role the reader chose on this page and keeps it for the frame. */
   readonly onRole?: (role: string) => void;
+  /**
+   * This machine's plugin isolation, as the frame read it once (`/api/settings`): the pages that offer the choice read
+   * it here, so no page asks the machine's settings for itself.
+   */
+  readonly machine?: MachineSettings;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
   readonly pageName: string | null;
   /** Kinds a unit publication just changed: a page that shows them may highlight them. */
@@ -82,6 +87,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       product: runtime.product,
       navigation: runtime.navigation,
       ...(runtime.onRole === undefined ? {} : { onRole: runtime.onRole }),
+      ...(runtime.machine === undefined ? {} : { machine: runtime.machine }),
       pageName: runtime.pageName,
       ...(runtime.changedKinds === undefined ? {} : { changedKinds: runtime.changedKinds }),
     };
