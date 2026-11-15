@@ -16,8 +16,21 @@ const INVERSE_LABELS: Readonly<Record<'en' | 'ru', Readonly<Record<string, strin
   }
 };
 
+/**
+ * The vocabulary key of a relation name: the edge kind (`manifest.depends-on`) as the graph names it, from a field's
+ * camelCase name (`manifestDependsOn`) as a relation row carries it (madarch-64o5.96).
+ */
+export function relationKey(name: string): string {
+  if (name.includes('.') || name.includes('-')) return name;
+  const parts = name.split(/(?=[A-Z])/u);
+  const head = parts.shift() ?? name;
+  const rest = parts.map((part) => part.toLowerCase()).join('-');
+  return rest === '' ? name : `${head.toLowerCase()}.${rest}`;
+}
+
 /** Engine metadata words, or the unchanged identifier when a product supplies no translation. */
 export function relationWords(edge: string, language: string, inverse: boolean): string {
   const code = language.startsWith('ru') ? 'ru' : 'en';
-  return (inverse ? INVERSE_LABELS[code][edge] : RELATION_LABELS[code][edge]) ?? edge;
+  const words = inverse ? INVERSE_LABELS[code] : RELATION_LABELS[code];
+  return words[edge] ?? words[relationKey(edge)] ?? edge;
 }

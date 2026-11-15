@@ -115,6 +115,26 @@ test('every diagram link stands under the product base the request came in on', 
   expect((folded.body as { source: string }).source).toContain(`click n1 href "${base}/e/catalogue/x"`);
 }, 60_000);
 
+test('a node shows the name of a path and keeps the whole path as its hover text, and the page\'s entity stands out', async () => {
+  const paths = { ...neighbourhood, labels: new Map(neighbourhood.labels).set('2', '/src/deep/cloud-resource.yaml') };
+  const held = { diagramNeighbourhood: async () => paths } as unknown as KnowledgeProduct;
+  const mermaid = await renderDiagram(held, { entity: '1', format: 'mermaid' });
+  if (!('body' in mermaid)) throw new Error('the Mermaid answer is not JSON');
+  const source = (mermaid.body as { source: string }).source;
+  expect(source).toContain('n1["cloud-resource.yaml"]');
+  expect(source).toContain('click n1 href "/e/code.file/2" "/src/deep/cloud-resource.yaml"');
+  // The page's own entity stands out in every renderer: Mermaid by its class, LikeC4 by the root the answer names.
+  expect(source).toContain('class n0 madarch-focus');
+  const likec4 = await renderDiagram(held, { entity: '1', format: 'likec4' });
+  if (!('body' in likec4)) throw new Error('the LikeC4 answer is not JSON');
+  expect((likec4.body as { root: string }).root).toBe('n0');
+  const archify = await renderDiagram(held, { entity: '1', format: 'archify' });
+  if (!('html' in archify)) throw new Error('the archify answer is not HTML');
+  // The archify frame is handed the focus node, and the theme message paints it from the kit's palette.
+  expect(archify.html).toContain('node__1');
+  expect(archify.html).toContain("theme.focusFill");
+}, 60_000);
+
 test('the same graph revision answers the same bytes', async () => {
   const first = await renderDiagram(product, { entity: '1', format: 'mermaid' });
   const second = await renderDiagram(product, { entity: '1', format: 'mermaid' });

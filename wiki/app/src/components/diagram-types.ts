@@ -8,6 +8,8 @@ export interface LikeC4Answer {
   readonly workspace: string;
   readonly view: unknown;
   readonly links: Readonly<Record<string, string>>;
+  /** The page's own entity, by its LikeC4 element id: it stands out from its neighbours (madarch-64o5.96). */
+  readonly root: string;
 }
 
 export interface MermaidAnswer {

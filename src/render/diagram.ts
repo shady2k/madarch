@@ -15,7 +15,10 @@ import { ARCHIFY_RENDERER, archifyVendorCandidates, archifyVendorFolder, copyArc
 export interface DiagramNode {
   readonly id: string;
   readonly kind: string;
+  /** The name the node shows: a path's last segment, the whole label otherwise (madarch-64o5.96). */
   readonly label: string;
+  /** The whole label, when the shown name is its last segment: the hover text. */
+  readonly title?: string;
   /** The entity's page, absent for a fold (several entities, no one page). */
   readonly href?: string;
   /** How many entities of one kind the node stands for, when it is a fold. */
@@ -58,7 +61,14 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
   // Every node's page stands under the product's own base (madarch-64o5.98): a server that serves several products
   // answers `/products/<folder>/e/...`, and a link without the prefix is a different address of that server.
   const page = (kind: string, id: string): string => `${base}${pageOf(kind, id)}`;
-  const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: page(entity.kind, entity.uid) };
+  // A node shows its name; a label that is a path shows its last segment, and the whole path stands as the hover text.
+  const named = (id: string): { label: string; title?: string } => {
+    const full = labelOf(id);
+    const cut = full.lastIndexOf('/');
+    return cut >= 0 && cut < full.length - 1 ? { label: full.slice(cut + 1), title: full } : { label: full };
+  };
+  const rootNamed = named(entity.uid);
+  const root: DiagramNode = { id: entity.uid, kind: entity.kind, ...rootNamed, href: page(entity.kind, entity.uid) };
   const nodes = new Map<string, DiagramNode>([[root.id, root]]);
   const edges: DiagramEdge[] = [];
   let folded = 0;
@@ -76,7 +86,7 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     for (const uid of group.nodes) {
       const held = neighbourhood.nodes.get(uid);
       if (held === undefined) continue;
-      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: page(held.kind, uid) });
+      nodes.set(uid, { id: uid, kind: held.kind, ...named(uid), href: page(held.kind, uid) });
       edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
     }
   }
@@ -99,8 +109,15 @@ export function mermaidText(graph: DiagramGraph): string {
   }
   for (const node of graph.nodes) {
     if (node.href === undefined) continue;
-    lines.push(`  click ${ids.get(node.id)!} href "${node.href}" "${escape(node.label === '' ? node.id : node.label)}"`);
+    // The node shows its name; the hover text is the whole label, a path whole (madarch-64o5.96).
+    lines.push(`  click ${ids.get(node.id)!} href "${node.href}" "${escape(node.title ?? (node.label === '' ? node.id : node.label))}"`);
   }
+  // The page's own entity stands out from its neighbours, as it does in every renderer (madarch-64o5.96): the kit's
+  // tokens are read by the page, so the class is stated in CSS variables the svg resolves where it is drawn.
+  const rootId = ids.get(graph.entity.id);
+  // The class alone: the page paints it from the kit's tokens in its own CSS, since Mermaid's classDef grammar takes no
+  // CSS variables (madarch-64o5.96).
+  if (rootId !== undefined) lines.push(`  class ${rootId} madarch-focus`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -163,6 +180,8 @@ export interface LikeC4Picture {
   readonly view: unknown;
   /** Each node's page, by the LikeC4 element id the view carries: a press on it opens that entity. */
   readonly links: Readonly<Record<string, string>>;
+  /** The page's own entity, by its LikeC4 element id: it stands out from its neighbours (madarch-64o5.96). */
+  readonly root: string;
 }
 
 /** Lays the picture out with LikeC4 itself: one workspace in, its laid-out model out. */
@@ -176,7 +195,7 @@ export async function likec4PictureOf(graph: DiagramGraph): Promise<LikeC4Pictur
     const ids = new Map(occurrences.nodes.map((node, at) => [node.id, likec4Id(at)]));
     const links: Record<string, string> = {};
     for (const node of occurrences.nodes) if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
-    return { format: 'likec4', workspace, view: model.$data, links };
+    return { format: 'likec4', workspace, view: model.$data, links, root: ids.get(graph.entity.id) ?? '' };
   } finally {
     await likec4[Symbol.asyncDispose]?.();
   }
@@ -306,7 +325,10 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
 export function forwarder(html: string, graph: DiagramGraph): string {
   const links: Record<string, string> = {};
   for (const node of likec4Occurrences(graph).nodes) if (node.href !== undefined) links[`node_${likec4Name(node.id)}`] = node.href;
-  const script = `<script>(function(){var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);})();</script>`;
+  // The press opens a node's page; a theme message paints the page from the kit's own tokens (madarch-64o5.96). The
+  // renderer keeps its own layout and behaviour, and only its colours come from the wiki the frame stands in.
+  const focus = `node_${likec4Name(graph.entity.id)}`;
+  const script = `<script>(function(){var focusId=${JSON.stringify(focus)};var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);window.addEventListener('message',function(event){var data=event.data||{};if(data.madarch!=='theme'||!data.theme)return;var theme=data.theme;var paints={'--bg':theme.canvas,'--grid':theme.nodeBorder,'--canvas-dot':theme.nodeBorder,'--text':theme.nodeText,'--text-muted':theme.edge,'--text-dim':theme.edge,'--text-faint':theme.edge,'--panel':theme.canvas,'--panel-border':theme.nodeBorder,'--lane-fill':theme.canvas,'--lane-stroke':theme.nodeBorder,'--arrow':theme.edge,'--arrow-emphasis':theme.nodeText,'--mask':theme.canvas,'--accept-fill':theme.nodeFill,'--accept-stroke':theme.nodeBorder,'--frontend-fill':theme.nodeFill,'--frontend-stroke':theme.nodeBorder,'--backend-fill':theme.nodeFill,'--backend-stroke':theme.nodeBorder,'--database-fill':theme.nodeFill,'--database-stroke':theme.nodeBorder,'--cloud-fill':theme.nodeFill,'--cloud-stroke':theme.nodeBorder,'--security-fill':theme.nodeFill,'--security-stroke':theme.nodeBorder,'--messagebus-fill':theme.nodeFill,'--messagebus-stroke':theme.nodeBorder,'--external-fill':theme.nodeFill,'--external-stroke':theme.nodeBorder,'--toolbar-bg':theme.canvas,'--toolbar-border':theme.nodeBorder,'--toolbar-text':theme.nodeText,'--toolbar-menu-bg':theme.canvas};var root=document.documentElement;for(var name in paints){root.style.setProperty(name,paints[name]);}root.setAttribute('data-theme',theme.scheme==='dark'?'dark':'light');var focus=document.querySelector('[data-node-id="'+focusId+'"]');if(focus){focus.querySelectorAll('rect,path,polygon').forEach(function(shape){shape.style.fill=theme.focusFill;shape.style.stroke=theme.focusBorder;shape.style.strokeWidth='2';});}parent.postMessage({madarch:'themed'},'*');});})();</script>`;
   const at = html.toLowerCase().lastIndexOf('</body>');
   return at < 0 ? `${html}${script}` : `${html.slice(0, at)}${script}${html.slice(at)}`;
 }
