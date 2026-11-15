@@ -49,6 +49,15 @@ its name; names and synonyms make the dictionary by which the writer finds an
 entity named in text without a reference (madarch-64o5.74, madarch-64o5.120).
 _Avoid_: alias (in prose)
 
+**System kind** (ru: системный вид):
+A kind built into madarch itself rather than declared by a product: run, unit,
+event, agent usage, operation, problem, person, role, plugin, setting, kind. It
+ships with the engine, is created at install, cannot be deleted by a product, is
+updated with its data migrated when madarch is updated, and may later be
+extended by a product whose kind inherits it (madarch-64o5.74; owner,
+2026-11-15). It is the engine's own vocabulary, not product data.
+_Avoid_: built-in type, core kind
+
 **Kind** (ru: вид; `kind` in code and manifests):
 What the catalogue declares a product can hold: File, Repository, Commit,
 Task, Decision. A kind carries its definition, its fields, its relations, the
