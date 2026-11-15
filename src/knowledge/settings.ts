@@ -83,3 +83,26 @@ export function writeRole(env: DraftEnv, role: string, roles: readonly string[])
   }
   return { role, asked: true };
 }
+
+/** The language the machine speaks, when a person chose one on a first run (madarch-64o5.84); the same file as the role. */
+export function readLanguage(env: DraftEnv): 'en' | 'ru' | undefined {
+  const held = readRaw(settingsPath(env))['language'];
+  return held === 'en' || held === 'ru' ? held : undefined;
+}
+
+/** Writes the language a first run chose, keeping every other key of the file. */
+export function writeLanguage(env: DraftEnv, language: 'en' | 'ru'): 'en' | 'ru' {
+  const file = settingsPath(env);
+  const raw = readRaw(file);
+  raw['language'] = language;
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(raw, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    renameSync(temporary, file);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw new Error(`${file}: the language could not be written: ${(error as Error).message}`);
+  }
+  return language;
+}
