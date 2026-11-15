@@ -385,3 +385,35 @@ test('a store server whose pg_ctl is not installed fails the stop, and the reaso
     expect(why).toContain('is not installed');
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+test('an initdb above the daemon\'s root is not preparation: the daemon is never swept whole', () => {
+  // Windows reuses a pid: an unrelated initdb.exe can hold the pid a finished launcher had, so a walk upwards from the
+  // daemon finds an initdb above it. The daemon's subtree holds the store server, which only pg_ctl may end, so the
+  // preparation walk stops at the root and the daemon is killed by itself.
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-reused-'));
+  const snapshot = [
+    { pid: 40, parent: 1, name: 'initdb.exe' },
+    { pid: 100, parent: 40, name: 'madarch.exe' },
+    { pid: 90, parent: 100, name: 'postgres.exe' },
+    { pid: 91, parent: 100, name: 'madarch.exe' },
+  ];
+  expect(applicationProcessTree(100, snapshot)).toEqual([100, 91]);
+  const live = new Set([90, 91, 100]);
+  const killed: { pid: number; subtree: boolean }[] = [];
+  const run = captureErrors(() => stopWindowsDaemon({ pid: 100, home }, {
+    processes: () => snapshot,
+    alive: (pid) => live.has(pid),
+    taskkill: (pid, _timeout, subtree) => {
+      killed.push({ pid, subtree });
+      if (!subtree) live.delete(pid);
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  }));
+  try {
+    // The store server under the daemon is not in the tree, and nothing of the tree is swept whole.
+    expect(run.answer).toBe(true);
+    expect(killed.map((one) => one.pid)).toEqual([91, 100]);
+    expect(killed.some((one) => one.subtree)).toBe(false);
+    expect([...live]).toEqual([90]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

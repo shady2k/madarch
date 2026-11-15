@@ -6,7 +6,7 @@
  * The cases run real processes: the cluster's rule is a lock the kernel holds, and only a second process can show it.
  */
 import { afterAll, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { clusterPaths, clusterQuery, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
@@ -173,4 +173,41 @@ test('an open waits for a start another process is making, then starts the serve
   } finally {
     await holding.exited;
   }
+}, 120_000);
+
+for (const shape of ['with', 'without'] as const) {
+  test(`a data directory an interrupted initdb left unfinished is prepared again (${shape} PG_VERSION)`, async () => {
+    // The clean install walk at main c70335f7: a stop ended initdb mid-run, and the next start ran initdb into the folder
+    // it had filled, which initdb refuses ("exists but is not empty"). A folder that holds no whole cluster is prepared
+    // again from scratch; `PG_VERSION` alone says nothing either way, since initdb writes it 64 ms into its run.
+    const store = storeOf(`interrupted ${shape}`);
+    const { dataDir } = clusterPaths(store);
+    mkdirSync(join(dataDir, 'global'), { recursive: true });
+    if (shape === 'with') writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+    writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
+    const opened = await openCluster({ ...clusterPaths(store) });
+    try {
+      expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(false);
+      expect(existsSync(join(dataDir, 'global', 'pg_control'))).toBe(true);
+      expect(existsSync(join(dataDir, 'madarch.prepared'))).toBe(true);
+      await clusterQuery(opened, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+    } finally { await opened.stop(); }
+  }, 120_000);
+}
+
+test('a whole store is never prepared again, and a cluster made before the record gets it', async () => {
+  const store = storeOf('whole');
+  const { dataDir } = clusterPaths(store);
+  const first = await openCluster({ ...clusterPaths(store) });
+  await first.stop();
+  const sentinel = join(dataDir, 'madarch.test-sentinel');
+  writeFileSync(sentinel, 'kept\n');
+  // A cluster prepared before this record existed: the record goes, and the cluster is still the one that is used.
+  rmSync(join(dataDir, 'madarch.prepared'));
+  const second = await openCluster({ ...clusterPaths(store) });
+  try {
+    expect(readFileSync(sentinel, 'utf8')).toBe('kept\n');
+    expect(existsSync(join(dataDir, 'madarch.prepared'))).toBe(true);
+    await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+  } finally { await second.stop(); }
 }, 120_000);

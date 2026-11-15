@@ -50,12 +50,14 @@ function waitGone(pids: readonly number[], timeoutMs: number, exists = alive): b
 }
 
 /**
- * Whether this process is store preparation: initdb, or something initdb started. initdb runs its bootstrap
- * `postgres --boot` through cmd.exe on Windows, so that whole subtree is preparation and never a store server.
+ * Whether this process is store preparation: something initdb started, under the daemon's own root. initdb runs its
+ * bootstrap `postgres --boot` through cmd.exe on Windows, so that whole subtree is preparation and never a store
+ * server. The walk stops at the root: an initdb an id names above it is another program — Windows reuses ids — and it
+ * must not turn the daemon's subtree, which holds a store server, into one swept whole.
  */
-function inStorePreparation(pid: number, processes: readonly WindowsProcess[]): boolean {
+function inStorePreparation(pid: number, root: number, processes: readonly WindowsProcess[]): boolean {
   const seen = new Set<number>();
-  for (let at = pid; !seen.has(at);) {
+  for (let at = pid; at !== root && !seen.has(at);) {
     seen.add(at);
     const row = processes.find((one) => one.pid === at);
     if (row === undefined) return false;
@@ -127,7 +129,7 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
     // through cmd.exe, and a bootstrap started between the listing and this kill is in no list. Only a preparation
     // subtree may be ended whole, since a store server is never under one; the daemon's own subtree does hold one,
     // which pg_ctl stops with a fast shutdown, so that subtree is walked, never swept.
-    const subtree = inStorePreparation(pid, snapshot);
+    const subtree = inStorePreparation(pid, state.pid, snapshot);
     try {
       if (reads.kill) reads.kill(pid);
       else {

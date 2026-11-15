@@ -465,9 +465,37 @@ function lowerPriorityOf(dataDir: string): void {
   try { setPriority(pid, SERVER_PRIORITY); } catch { /* the platform refuses: the server keeps the priority it has */ }
 }
 
-/** Makes the data directory with `initdb` when it holds no cluster yet. */
+/**
+ * Our record that `initdb` finished in a data directory. `PG_VERSION` cannot say it: initdb writes it 64 ms into a
+ * 3.3 s run (measured 2026-11-15, this box), so a stop or a crash in the seconds after that leaves a folder that looks
+ * like a cluster. This file is written once initdb has ended, and lives inside the folder, so removing the folder
+ * removes it too.
+ */
+const PREPARED_FILE = 'madarch.prepared';
+
+/**
+ * Whether this data directory holds a cluster `initdb` finished. A folder prepared before this record existed is read
+ * by what initdb leaves when it ends — its version file, its control file, and its template database — so an upgrade
+ * never removes a store that works.
+ */
+function clusterPrepared(dataDir: string): boolean {
+  if (existsSync(join(dataDir, PREPARED_FILE))) return true;
+  return existsSync(join(dataDir, 'PG_VERSION')) && existsSync(join(dataDir, 'global', 'pg_control')) && existsSync(join(dataDir, 'base', '1'));
+}
+
+/** Makes the data directory with `initdb` when it holds no whole cluster, and prepares one an interrupted initdb left over. */
 function createDataDir(dataDir: string, bin: string, log: (line: string) => void): void {
-  if (existsSync(join(dataDir, 'PG_VERSION'))) return;
+  if (clusterPrepared(dataDir)) {
+    // A cluster prepared before this record existed carries the record from now on.
+    if (!existsSync(join(dataDir, PREPARED_FILE))) writeFileSync(join(dataDir, PREPARED_FILE), `prepared ${new Date().toISOString()}\n`, { mode: 0o600 });
+    return;
+  }
+  // An `initdb` that a stop or a crash ended leaves a folder it had already filled, and initdb refuses a folder it did
+  // not make empty ("exists but is not empty", the clean install walk at main c70335f7). Only that unfinished folder is
+  // removed, under the start lock this runs in, so no other process of the binary prepares the store meanwhile.
+  if (existsSync(dataDir)) {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   // Progress, not a warning: a command whose output a caller reads (a script's, a test's) stays quiet.
   defaultLog.info(`madarch: creating the PostgreSQL data directory ${dataDir}`, { madarch: 'postgres' });
@@ -482,6 +510,7 @@ function createDataDir(dataDir: string, bin: string, log: (line: string) => void
   const started = performance.now();
   try {
     runBinary(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C']);
+    writeFileSync(join(dataDir, PREPARED_FILE), `prepared ${new Date().toISOString()}\n`, { mode: 0o600 });
   } finally {
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.initdb ${(performance.now() - started).toFixed(1)} ms`);
   }
