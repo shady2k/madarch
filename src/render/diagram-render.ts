@@ -20,6 +20,8 @@ export interface DiagramRequest {
   readonly format: 'likec4' | 'mermaid' | 'archify';
   readonly lang?: string;
   readonly aggregateAbove?: number;
+  /** The product's own base (`/products/<folder>` on a products home): every node's page stands under it (madarch-64o5.98). */
+  readonly base?: string;
 }
 
 /** What one format answers: a JSON body (LikeC4 and Mermaid) or one self-contained HTML page (archify). */

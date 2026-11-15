@@ -14,6 +14,7 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('../page.js');
 const { setWikiLanguage } = await import('../i18n.js');
+const { reportOffline, reportOnline } = await import('../connection.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -68,6 +69,7 @@ const SETTINGS = {
   },
   agentNames: { 'claude-code': 'Claude Code' },
   bounds: { turns: 12, minutes: 20, toolCalls: 40, writeAttempts: 3, maxDomains: 8, editorialRequestsPerPage: 2 },
+  tokenCap: 200_000,
   busy: false,
 };
 
@@ -193,11 +195,35 @@ test('the settings page offers the agent, the roles, the language and the reader
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { language?: string }).language === 'en')).toBe(true);
 
+    // The default token cap is a product setting (madarch-64o5.90): the field shows it and saves it.
+    const cap = page.container.querySelector('[data-testid="settings-token-cap"]') as HTMLInputElement;
+    expect(cap.value).toBe('200000');
+    await act(async () => { type(cap, '300000'); });
+    await act(async () => { (page.container.querySelector('[data-testid="settings-token-cap-save"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { tokenCap?: number }).tokenCap === 300_000)).toBe(true);
+
     await act(async () => { (page.container.querySelector('[data-testid="settings-reader-architect"]') as HTMLButtonElement).click(); });
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { role?: string }).role === 'architect')).toBe(true);
     expect(page.roles).toContain('architect');
   } finally {
     await page.close();
+  }
+});
+
+test('settings writes are disabled while the link is away', async () => {
+  const page = await render('settings-form', { group: 'all' });
+  try {
+    const choose = page.container.querySelector('[data-testid="settings-agent-choose-claude-code"]') as HTMLButtonElement;
+    expect(choose.disabled).toBe(false);
+    await act(async () => { reportOffline(); await Promise.resolve(); });
+    await settle();
+    expect(choose.disabled).toBe(true);
+    expect((page.container.querySelector('[data-testid="settings-role-select-classification"]') as HTMLSelectElement).disabled).toBe(true);
+    expect((page.container.querySelector('[data-testid="settings-language-en"]') as HTMLButtonElement).disabled).toBe(true);
+  } finally {
+    await page.close();
+    reportOnline();
   }
 });

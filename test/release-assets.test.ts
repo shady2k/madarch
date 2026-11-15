@@ -9,7 +9,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { embeddedWikiApp, releaseVersion } from '../src/product-wiki/release-assets.js';
+import { embeddedWikiApp, releaseRoot, releaseVersion } from '../src/product-wiki/release-assets.js';
 
 describe('the release assets', () => {
   let home: string | undefined;
@@ -26,6 +26,15 @@ describe('the release assets', () => {
   test('the module beside the sources holds no wiki-app folder and no version file', () => {
     expect(embeddedWikiApp()).toBeUndefined();
     expect(releaseVersion()).toBeUndefined();
+  });
+
+  test('the release root is this module\'s bundle root, not the file Bun.main names', () => {
+    // A binary built with a second entry (the read worker) names that worker in Bun.main, a folder with no assets:
+    // the assets stand three folders above src/product-wiki, where this module is laid in the bundle (madarch-64o5.97).
+    expect(releaseRoot({ moduleUrl: 'file:///$bunfs/root/src/product-wiki/release-assets.js' })).toBe('/$bunfs/root');
+    // The bundle mounts its assets at $bunfs/root whatever folder the module was laid in (a flattened layout included).
+    expect(releaseRoot({ moduleUrl: 'file:///$bunfs/root/madarch-linux-arm64' })).toBe('/$bunfs/root');
+    expect(releaseRoot({ moduleUrl: 'file:///work/madarch/src/product-wiki/release-assets.js' })).toBe('/work/madarch');
   });
 
   test('the wiki-app folder answers when its dist carries index.html, not otherwise', () => {

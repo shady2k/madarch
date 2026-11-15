@@ -36,7 +36,8 @@ import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
-import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { runPhaseOf } from '../fill/fsm.js';
+import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
@@ -44,7 +45,8 @@ import { headCommitOf } from '../product/fill-updates.js';
 import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead } from './graph-read.js';
 import { graphMarkdownEntities, pageOpinionKinds } from './markdown.js';
-import type { AgentOffer, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
+import type { AgentOffer, ChangeNotice, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
+import { kindOfUnit } from './unit-kind.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { agentUsageOf, readTraceRunSummary, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -58,7 +60,7 @@ import { fillPlanView, type FillPlanView } from './fill-plan.js';
 import { configuredPluginAgent, pluginAgentOptions, adapterOf, readAgentSettings, installAdapter, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE, MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import { isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
-import type { AgentChoices } from '../fill/acp-choices.js';
+import type { AgentChoices, AgentPreferences } from '../fill/acp-choices.js';
 import { journalFolder, journalOfUnit, NO_COUNTERS, readJournalFile, type Journal, type PageJournal } from '../writer/journal.js';
 import { PRODUCT_PATH, type UnitAgent } from '../writer/units.js';
 import { CONTENT_LANGUAGES } from '../writer/units.js';
@@ -99,6 +101,12 @@ import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js
 import { readProductTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
+
+/**
+ * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
+ * this is the product's default, editable in the product settings, and the prepare page offers it for one run.
+ */
+export const DEFAULT_TOKEN_CAP = 200_000;
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -220,7 +228,10 @@ export class KnowledgeProduct {
   /** The paused run a next fill takes up, if this product has one. */
   private pausedRun: PausedRun | undefined;
   private closed = false;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(notice: ChangeNotice) => void>();
+  /** The last run's progress already announced and the state it was last announced at. */
+  private progressNotice: { runId: string; seq: number } | undefined;
+  private lastRunState: { runId: string; state: string } | undefined;
   private readonly pins = new Map<string, RepositoryPin>();
   private revision = 0;
   private writer: WriterState = { state: 'idle', agent: null, units: [] };
@@ -671,7 +682,7 @@ export class KnowledgeProduct {
    * after each commit the fill reads and with each change of the fill's state, and
    * a notice for the stream to ask at once.
    */
-  readonly changes: { revision(): string; subscribe(listener: () => void): () => void } = {
+  readonly changes: { revision(): string; subscribe(listener: (notice: ChangeNotice) => void): () => void } = {
     revision: () => (this.revision === 0 ? '' : String(this.revision)),
     subscribe: (listener) => {
       this.listeners.add(listener);
@@ -679,11 +690,12 @@ export class KnowledgeProduct {
     },
   };
 
-  private notify(): void {
+  private notify(notice: Omit<ChangeNotice, 'revision'> = { structure: true }): void {
     this.revision += 1;
+    const full: ChangeNotice = { revision: String(this.revision), ...notice };
     for (const listener of this.listeners) {
       try {
-        listener();
+        listener(full);
       } catch {
         // a listener that fails is its own stream's problem
       }
@@ -718,7 +730,7 @@ export class KnowledgeProduct {
     if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
     const paused = await this.controlRun('pause');
     if (paused === undefined || !paused.ok) return { ok: false, status: 409, message: paused?.message ?? 'no fill of this product is running: there is nothing to pause' };
-    this.fill = { ...this.fill, state: 'paused' };
+    this.fill = { ...this.fill, state: 'paused', runPhase: 'paused' };
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
   }
@@ -744,7 +756,7 @@ export class KnowledgeProduct {
       // No worker is writing for a paused run: the run ends here, and the pages it rewrote stand. The stop is marked
       // before the state changes, so a pause message still in the pipe is read as the stop it was ended by.
       this.stopAsked = true;
-      this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
+      this.fill = { ...this.fill, state: 'stopped', runPhase: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.writer = { ...this.writer, state: 'stopped', current: undefined, ...(this.writer.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.pausedRun = undefined;
       this.clearPause();
@@ -845,7 +857,9 @@ export class KnowledgeProduct {
   }
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { selected?: readonly string[]; agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; pluginsOnly?: boolean; targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { selected?: readonly string[]; agent?: string | null; model?: string; reasoning?: string; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; pluginsOnly?: boolean; targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
+    // The model and the reasoning level this run asks of its agent (madarch-64o5.90): named by the press, written nowhere.
+    const preferences: AgentPreferences = { ...(options.model === undefined ? {} : { model: options.model }), ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }) };
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -864,18 +878,15 @@ export class KnowledgeProduct {
     // Plugins-only is the person's explicit choice: it runs the deterministic producers and leaves the agent's fields
     // unfilled. A press that names no agent and no plugins-only choice is the agent plan's to refuse or accept.
     const pluginsOnly = options.pluginsOnly === true || options.targets?.pluginsOnly === true;
+    // The cap this run spends under, when it runs an agent: the press's own, or the product's default (madarch-64o5.90).
+    let tokenCap: number | undefined;
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
-      // The plan is read before the adapter is resolved, so a press that chooses an agent and no cap is refused with the
-      // cap's own words: whenever the plan runs an agent unit, a positive cap is the person's to choose (madarch-64o5.63).
       const wantedAgent = options.agent === undefined ? this.chosenAgent()?.id ?? null : options.agent;
-      if (!pluginsOnly && wantedAgent !== null && options.tokenCap === undefined) {
-        const plannedUnderAgent = planManifestFill(read.manifest, product.folder, options.targets?.kinds, true, options.targets?.requested);
-        if (plannedUnderAgent.requiresAgent) {
-          return { started: false, message: `${read.manifest.file}:1: this fill runs the agent ${wantedAgent}, and a token cap is required: name a positive --token-cap <n> for the fill; the engine sets no cap of its own`, fill: this.fill };
-        }
-      }
-      const selectedAgent = pluginsOnly ? undefined : options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
+      // A press that names no cap runs under the product's default cap (madarch-64o5.90): 200 000 tokens at first, then
+      // whatever the product settings say. A cap named for this run is the run's own and is written nowhere.
+      tokenCap = pluginsOnly || wantedAgent === null || options.agent === null ? options.tokenCap : options.tokenCap ?? this.defaultTokenCap();
+      const selectedAgent = pluginsOnly ? undefined : options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'), preferences);
       const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested, pluginsOnly);
       const files = workingTreeFiles(product.folder);
       assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, product.folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, product.folder));
@@ -965,7 +976,7 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(pluginsOnly ? { pluginsOnly: true } : {}) } }) };
+    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.model === undefined ? {} : { model: options.model }), ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }), ...(tokenCap === undefined ? {} : { tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(pluginsOnly ? { pluginsOnly: true } : {}) } }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
@@ -983,7 +994,7 @@ export class KnowledgeProduct {
     // The repository the run reads, as the product declares it: the card says what it is reading
     // before the run's own trace has a unit to count.
     this.fillRunId = runId;
-    this.fill = { state: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.fill = { state: 'running', runPhase: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
     this.notify();
     this.running = (async () => {
       try {
@@ -994,7 +1005,7 @@ export class KnowledgeProduct {
       } catch (error) {
         if (publication?.status !== 'pending') await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
         if (this.closed) return;
-        this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+        this.fill = { state: 'failed', runPhase: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
         if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
         this.notify();
       }
@@ -1011,7 +1022,7 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly model?: string; readonly reasoning?: string; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
@@ -1024,7 +1035,7 @@ export class KnowledgeProduct {
         runId,
         database: owner,
         env: this.env,
-        ...(asked.agent === undefined ? {} : { pluginAgent: asked.agent === null ? null : pluginAgentOptions(asked.agent, this.env, join(storeFolder, 'agent-runs')) }),
+        ...(asked.agent === undefined ? {} : { pluginAgent: asked.agent === null ? null : pluginAgentOptions(asked.agent, this.env, join(storeFolder, 'agent-runs'), { ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }) }) }),
         ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }),
         prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract),
         ...(asked.targets === undefined ? {} : { targets: asked.targets }),
@@ -1043,7 +1054,7 @@ export class KnowledgeProduct {
     }
     if (result === undefined || !result.ok) {
       this.fill = {
-        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
+        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runPhase: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : result?.state === 'completed_partial' ? 'partial' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
         ...(result?.message === undefined ? {} : { message: result.message }), code: 'fill',
       };
       this.notify();
@@ -1053,7 +1064,7 @@ export class KnowledgeProduct {
     this.changedLoaded = false;
     if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
     this.fill = {
-      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
       ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
     };
@@ -1068,7 +1079,7 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } }): Promise<void> {
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly model?: string; readonly reasoning?: string; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } }): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;
@@ -1079,7 +1090,7 @@ export class KnowledgeProduct {
       // One queue per product, opened with its store and closed with it: starting and stopping the queue's own scheduler
       // around every press cost more than the fill it asked for.
       this.fillQueue ??= await openFillRunQueue(owner);
-      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
+      await askFillRun(this.fillQueue, { product: product.folder, store: storeFolder, runId, ...(asked.agent === undefined ? {} : { agent: asked.agent }), ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }), ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }), ...(asked.language === undefined ? {} : { language: asked.language }), ...(asked.task === undefined ? {} : { task: asked.task }), ...(asked.targets === undefined ? {} : { targets: asked.targets }) });
       // The run's end is the row the process that ran it writes once the store is finished (madarch-8bdc.9): its
       // terminal run row alone is not the store's publication, because the pins a page reads land after it. What the run
       // answered — the reason it did not finish, the repositories it could not read — is written there too.
@@ -1099,7 +1110,7 @@ export class KnowledgeProduct {
       return;
     }
     if (state !== 'succeeded') {
-      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
+      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runPhase: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : state === 'completed_partial' ? 'partial' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
       this.notify();
       return;
     }
@@ -1115,7 +1126,7 @@ export class KnowledgeProduct {
     // where the process that pressed the fill and the one that ran it agree without a second record.
     const unread: { repository: string; path: string; reason: string }[] = end?.unread === undefined ? this.unreadOf() : [...end.unread];
     this.fill = {
-      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
       ...(unread.length === 0 ? {} : { unread }),
     };
@@ -1248,6 +1259,32 @@ export class KnowledgeProduct {
     return readAgentSettings(this.choiceFile());
   }
 
+  /**
+   * The token cap a fill runs under when the person names none (madarch-64o5.90): the product's own setting, 200 000
+   * at first. A cap named for one run is that run's and is written nowhere; this one is what the page offers.
+   */
+  private defaultTokenCap(): number {
+    const file = this.choiceFile();
+    const value = this.settingsRecord()['tokenCap'];
+    if (value === undefined) return DEFAULT_TOKEN_CAP;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw new Error(`${file}:1: tokenCap is the most tokens one fill may spend, a positive whole number; got ${JSON.stringify(value)}`);
+    }
+    return value;
+  }
+
+  /** Saves the default token cap: the cap the prepare page offers and a press without its own cap runs under. */
+  async setDefaultTokenCap(value: number): Promise<{ ok: true; value: number } | { ok: false; status: number; message: string }> {
+    const file = this.choiceFile();
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+      return { ok: false, status: 400, message: `${file}:1: tokenCap is the most tokens one fill may spend, a positive whole number; got ${JSON.stringify(value)}` };
+    }
+    const body = this.settingsRecord();
+    body.tokenCap = value;
+    await this.writeSettings(body);
+    return { ok: true, value };
+  }
+
   /** The most revision requests one page may receive in a pass: the stored setting, or the default when none is set. */
   private editorialRequestsPerPage(): number {
     const file = this.choiceFile();
@@ -1270,12 +1307,18 @@ export class KnowledgeProduct {
     }
     const body = this.settingsRecord();
     body.editorialRequestsPerPage = value;
+    await this.writeSettings(body);
+    return { ok: true, value };
+  }
+
+  /** Writes the product's settings file whole, the way every setting is stored: one file, one atomic rename. */
+  private async writeSettings(body: Record<string, unknown>): Promise<void> {
+    const file = this.choiceFile();
     await mkdir(dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
     await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
     await rename(temporary, file);
     this.notify();
-    return { ok: true, value };
   }
 
   /**
@@ -1775,6 +1818,8 @@ export class KnowledgeProduct {
     /** The name every agent madarch offers is known by, so a page names an agent before it has read the agents (madarch-j6ho.2). */
     agentNames: Record<string, string>;
     bounds: WriterBounds;
+    /** The cap the prepare page offers and a press without its own cap runs under (madarch-64o5.90). */
+    tokenCap: number;
     danger: Awaited<ReturnType<KnowledgeProduct['dangerPlan']>>;
     /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
     dangerError?: string;
@@ -1800,6 +1845,8 @@ export class KnowledgeProduct {
       roles: this.modelRoles(),
       agentNames: Object.fromEntries(WRITER_AGENTS.map((id) => [id, adapterOf(id)?.label ?? id])),
       bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
+      /** The cap a fill runs under when the person names none (madarch-64o5.90). */
+      tokenCap: this.defaultTokenCap(),
       danger,
       ...(dangerError === undefined ? {} : { dangerError }),
       busy: this.running !== undefined,
@@ -2056,6 +2103,29 @@ export class KnowledgeProduct {
   }
 
   /**
+   * One notice for each unit publication the store's run has written since the last look (madarch-64o5.91): the kind
+   * the unit published and the facts it wrote, read from the run's durable progress. The stream carries them to a page
+   * that is open while a fill runs in another process.
+   */
+  private async announceUnitPublications(runId: string): Promise<void> {
+    const owner = this.reader?.owner;
+    if (owner === undefined) return;
+    const events = await readProgress(owner, runId);
+    const seen = this.progressNotice?.runId === runId ? this.progressNotice.seq : 0;
+    let last = seen;
+    for (const event of events) {
+      if (event.seq <= seen) continue;
+      last = event.seq;
+      if (event.kind !== 'unit-published') continue;
+      const kind = kindOfUnit(event.unitId);
+      if (kind === undefined) continue;
+      const facts = /published\s+(\d+)\s+facts?/u.exec(event.summary)?.[1];
+      this.notify({ kinds: [kind], ...(facts === undefined ? {} : { facts: Number(facts) }) });
+    }
+    this.progressNotice = { runId, seq: last };
+  }
+
+  /**
    * The store's own fill state (madarch-8bdc.9): a fill another process runs is answered here as running, and its end is
    * answered as done — two api instances of one server agree about the same fill, and neither has to have pressed it.
    */
@@ -2063,9 +2133,11 @@ export class KnowledgeProduct {
     if (this.reader === undefined) return;
     // A publication of a fill this process did not run moves the numbers an answer states (madarch-8bdc.9): the store's
     // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
+    let moved = false;
     try {
       const stamp = await readStoreStamp(this.reader.owner);
       if (this.storeStamp !== stamp) {
+        moved = true;
         this.storeStamp = stamp;
         this.generation += 1;
         this.kindCountsCache.clear();
@@ -2089,6 +2161,20 @@ export class KnowledgeProduct {
     } catch {
       return;
     }
+    // A publication from another process carries the units it wrote: one notice per unit publication, so a page open
+    // while a fill runs sees each kind and its counts without waiting for the run's end (madarch-64o5.91). A status
+    // poll can see the store move before the run's progress row is committed, so an active run is read on every poll
+    // (the run page already reads it once a second) and a new run is read on its first sight.
+    const activeRun = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(named.state);
+    if (named !== null && (moved || activeRun || this.progressNotice?.runId !== named.runId)) {
+      await this.announceUnitPublications(named.runId).catch(() => undefined);
+    }
+    // A run that starts, pauses or ends may also move the product's files and templates: a structure notice lets the
+    // frame read its bootstrap again, once per transition and never on every poll.
+    if (named !== null && (this.lastRunState?.runId !== named.runId || this.lastRunState?.state !== named.state)) {
+      this.lastRunState = { runId: named.runId, state: named.state };
+      this.notify({ structure: true });
+    }
     // A queued request belongs to this process until its runner settles it. The chain may still name the previous
     // run before the worker claims this request; adopting that run would report its old end as this press's result.
     if (this.running !== undefined && this.fillRunId !== undefined && named?.runId !== this.fillRunId) return;
@@ -2096,7 +2182,7 @@ export class KnowledgeProduct {
     if (named !== null && (named.state === 'paused' || named.state === 'cancelled')) {
       this.fillRunId = named.runId;
       this.fill = {
-        state: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
+        state: named.state === 'paused' ? 'paused' : 'stopped', runPhase: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
         startedAt: new Date(named.createdAt).toISOString(),
         ...(named.state === 'cancelled' ? { finishedAt: new Date(named.updatedAt).toISOString() } : {}),
       };
@@ -2104,7 +2190,7 @@ export class KnowledgeProduct {
     if (live !== null) {
       if (this.fill.state !== 'running' || this.fillRunId !== live.runId) {
         this.fillRunId = live.runId;
-        this.fill = { state: 'running', runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+        this.fill = { state: 'running', runPhase: runPhaseOf(live.state), runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
       }
       return;
     }
@@ -2113,7 +2199,7 @@ export class KnowledgeProduct {
       ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
     if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
       this.fillRunId = named.runId;
-      this.fill = { state: 'running', runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+      this.fill = { state: 'running', runPhase: runPhaseOf(named.state), runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
     }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
@@ -2130,10 +2216,10 @@ export class KnowledgeProduct {
       const finishedAt = (this.options.now?.() ?? new Date()).toISOString();
       this.fill = end.state === 'succeeded'
         ? {
-          state: 'done', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
+          state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
           changed: this.lastChangedPages() ?? [], ...(unread.length === 0 ? {} : { unread }),
         }
-        : { state: 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
+        : { state: 'failed', runPhase: end.state === 'completed_partial' ? 'partial' : end.state === 'cancelled' ? 'stopped' : 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
       this.notify();
     }
   }

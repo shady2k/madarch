@@ -9,12 +9,16 @@
 import { byCodePoint } from '../model/order.js';
 import type { DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { relationWords } from '../knowledge/relation-labels.js';
+import { ARCHIFY_RENDERER, archifyVendorCandidates, archifyVendorFolder, copyArchifyVendor } from './archify-vendor.js';
 
 /** One node of a diagram: an entity, or the fold of several of one kind. */
 export interface DiagramNode {
   readonly id: string;
   readonly kind: string;
+  /** The name the node shows: a path's last segment, the whole label otherwise (madarch-64o5.96). */
   readonly label: string;
+  /** The whole label, when the shown name is its last segment: the hover text. */
+  readonly title?: string;
   /** The entity's page, absent for a fold (several entities, no one page). */
   readonly href?: string;
   /** How many entities of one kind the node stands for, when it is a fold. */
@@ -51,10 +55,20 @@ export function pageOf(kind: string, id: string): string {
  * is its entities, one edge each to the root; a group above it is one node with the count and the page that lists them,
  * drawn as a single edge. The layout therefore never sees more nodes than the groups and the small groups' rows.
  */
-export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number): DiagramGraph {
+export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number, base = ''): DiagramGraph {
   const entity = neighbourhood.entity;
   const labelOf = (uid: string): string => neighbourhood.labels.get(uid) ?? uid;
-  const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: pageOf(entity.kind, entity.uid) };
+  // Every node's page stands under the product's own base (madarch-64o5.98): a server that serves several products
+  // answers `/products/<folder>/e/...`, and a link without the prefix is a different address of that server.
+  const page = (kind: string, id: string): string => `${base}${pageOf(kind, id)}`;
+  // A node shows its name; a label that is a path shows its last segment, and the whole path stands as the hover text.
+  const named = (id: string): { label: string; title?: string } => {
+    const full = labelOf(id);
+    const cut = full.lastIndexOf('/');
+    return cut >= 0 && cut < full.length - 1 ? { label: full.slice(cut + 1), title: full } : { label: full };
+  };
+  const rootNamed = named(entity.uid);
+  const root: DiagramNode = { id: entity.uid, kind: entity.kind, ...rootNamed, href: page(entity.kind, entity.uid) };
   const nodes = new Map<string, DiagramNode>([[root.id, root]]);
   const edges: DiagramEdge[] = [];
   let folded = 0;
@@ -63,8 +77,8 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     if (group.total > aggregateAbove) {
       const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
       const id = `fold:${group.side}:${group.relation}:${group.kind}`;
-      const href = neighbourhood.kindPages.get(group.kind);
-      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(href === undefined ? {} : { href }) });
+      const listed = neighbourhood.kindPages.get(group.kind);
+      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(listed === undefined ? {} : { href: `${base}${listed}` }) });
       folded += group.total;
       edges.push(group.side === 'out' ? { from: root.id, to: id, label: word, both: false } : { from: id, to: root.id, label: word, both: false });
       continue;
@@ -72,7 +86,7 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     for (const uid of group.nodes) {
       const held = neighbourhood.nodes.get(uid);
       if (held === undefined) continue;
-      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: pageOf(held.kind, uid) });
+      nodes.set(uid, { id: uid, kind: held.kind, ...named(uid), href: page(held.kind, uid) });
       edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
     }
   }
@@ -95,8 +109,15 @@ export function mermaidText(graph: DiagramGraph): string {
   }
   for (const node of graph.nodes) {
     if (node.href === undefined) continue;
-    lines.push(`  click ${ids.get(node.id)!} href "${node.href}" "${escape(node.label === '' ? node.id : node.label)}"`);
+    // The node shows its name; the hover text is the whole label, a path whole (madarch-64o5.96).
+    lines.push(`  click ${ids.get(node.id)!} href "${node.href}" "${escape(node.title ?? (node.label === '' ? node.id : node.label))}"`);
   }
+  // The page's own entity stands out from its neighbours, as it does in every renderer (madarch-64o5.96): the kit's
+  // tokens are read by the page, so the class is stated in CSS variables the svg resolves where it is drawn.
+  const rootId = ids.get(graph.entity.id);
+  // The class alone: the page paints it from the kit's tokens in its own CSS, since Mermaid's classDef grammar takes no
+  // CSS variables (madarch-64o5.96).
+  if (rootId !== undefined) lines.push(`  class ${rootId} madarch-focus`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -159,6 +180,10 @@ export interface LikeC4Picture {
   readonly view: unknown;
   /** Each node's page, by the LikeC4 element id the view carries: a press on it opens that entity. */
   readonly links: Readonly<Record<string, string>>;
+  /** The whole label of each node whose shown name is its last segment, by element id: the hover text (madarch-64o5.96). */
+  readonly titles: Readonly<Record<string, string>>;
+  /** The page's own entity, by its LikeC4 element id: it stands out from its neighbours (madarch-64o5.96). */
+  readonly root: string;
 }
 
 /** Lays the picture out with LikeC4 itself: one workspace in, its laid-out model out. */
@@ -171,8 +196,12 @@ export async function likec4PictureOf(graph: DiagramGraph): Promise<LikeC4Pictur
     const occurrences = likec4Occurrences(graph);
     const ids = new Map(occurrences.nodes.map((node, at) => [node.id, likec4Id(at)]));
     const links: Record<string, string> = {};
-    for (const node of occurrences.nodes) if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
-    return { format: 'likec4', workspace, view: model.$data, links };
+    const titles: Record<string, string> = {};
+    for (const node of occurrences.nodes) {
+      if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
+      if (node.title !== undefined) titles[ids.get(node.id)!] = node.title;
+    }
+    return { format: 'likec4', workspace, view: model.$data, links, titles, root: ids.get(graph.entity.id) ?? '' };
   } finally {
     await likec4[Symbol.asyncDispose]?.();
   }
@@ -209,6 +238,44 @@ function archifyType(index: number): string {
   return index === 0 ? 'cloud' : 'backend';
 }
 
+/** The units a text occupies at the archify renderer's own 0.6 px-per-unit advance. */
+function archifyTextUnits(text: string): number {
+  let units = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    const wide = (code >= 0x1100 && code <= 0x115f) || code === 0x2329 || code === 0x232a
+      || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3)
+      || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe10 && code <= 0xfe19)
+      || (code >= 0xfe30 && code <= 0xfe6f) || (code >= 0xff00 && code <= 0xff60)
+      || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1faff);
+    units += wide ? 2 : 1;
+  }
+  return units;
+}
+
+/** The width a sublabel needs at the renderer's preferred 9 px, so the visible text keeps a margin inside its card. */
+function sublabelPreferredWidth(text: string): number {
+  return archifyTextUnits(text) * 9 * 0.6;
+}
+
+/**
+ * The sublabel a node can show: the whole path when it fits at the preferred 9 px inside the card, else a
+ * middle-shortened path that does. The whole path stays in the node's hover title (the forwarder writes it there), so a
+ * deep path never makes the archify renderer refuse the diagram and never starts at the card's edge.
+ */
+export function archifySublabel(text: string, width: number): string {
+  const available = Math.max(1, width - 16);
+  if (sublabelPreferredWidth(text) <= available) return text;
+  const parts = text.split('/');
+  for (let keep = parts.length - 1; keep >= 1; keep -= 1) {
+    const candidate = `…/${parts.slice(-keep).join('/')}`;
+    if (sublabelPreferredWidth(candidate) <= available) return candidate;
+  }
+  let tail = parts[parts.length - 1] ?? text;
+  while (tail.length > 1 && sublabelPreferredWidth(`…${tail}`) > available) tail = tail.slice(1);
+  return `…${tail}`;
+}
+
 /** The archify document of a laid-out view: every node a component at LikeC4's position, every edge a connection. */
 export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Record<string, unknown> {
   const layout = layoutOf(liked);
@@ -220,14 +287,19 @@ export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Reco
     const own = occurrences.nodes.find((one) => likec4Id(order.get(one.id) ?? -1) === node.id);
     const id = own === undefined ? `c${String(at)}` : `node_${likec4Name(own.id)}`;
     componentIds.set(node.id, id);
+    const width = Math.round(node.width ?? 160);
+    const full = own?.title ?? own?.kind ?? '';
     return {
       id,
       type: archifyType(at),
       label: node.title === undefined || node.title === '' ? node.id : node.title,
-      sublabel: own?.kind ?? '',
+      // The whole path stands under a shortened name, so two files of one name read apart (madarch-64o5.96); a path
+      // longer than the node can carry at the legible minimum is shortened here, and the whole path stays in the
+      // node's hover title (see the forwarder).
+      sublabel: full === '' ? '' : archifySublabel(full, width),
 
       pos: [Math.round(node.x ?? 0), Math.round(node.y ?? 0)],
-      size: [Math.round(node.width ?? 160), Math.round(node.height ?? 60)],
+      size: [width, Math.round(node.height ?? 60)],
     };
   });
   if (components.length === 0) throw new Error(`${import.meta.filename}:1: the laid-out view holds no node, and an archify document needs at least one`);
@@ -262,9 +334,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
   const { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const renderer = fileURLToPath(new URL('../../vendor/archify/renderers/architecture/render-architecture.mjs', import.meta.url));
-  if (!existsSync(renderer)) throw new Error(`${renderer}:1: the vendored archify renderer is missing`);
+  const vendor = archifyVendorFolder();
+  if (vendor === undefined) throw new Error(`the vendored archify renderer is missing: neither the checkout's vendor/archify nor the wiki app's dist/archify carries it (looked in ${archifyVendorCandidates().join(', ')})`);
   const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-'));
   const timeout = options.timeoutMs ?? 30_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -272,18 +343,23 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     const input = join(folder, 'document.json');
     const output = join(folder, 'diagram.html');
     writeFileSync(input, JSON.stringify(document));
+    // The release binary carries the renderer inside its own bundle, which only its own process can open: the vendor
+    // folder is laid beside the document, file by file, and the renderer runs from there (madarch-64o5.97). The same
+    // layout serves a checkout's vendor tree, whose entry imports its sibling modules and reads its template.
+    copyArchifyVendor(vendor, join(folder, 'archify'));
+    const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
     const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
     options.started?.(child.pid, folder);
     const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
     if (ended === 'timeout') {
       child.kill('SIGKILL');
-      throw new Error(`${renderer}:1: the archify renderer did not finish within ${String(timeout)} ms`);
+      throw new Error(`the archify renderer did not finish within ${String(timeout)} ms`);
     }
     if (ended !== 0) {
       const said = (await new Response(child.stderr).text()).trim();
-      throw new Error(`${renderer}:1: the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
+      throw new Error(`the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
     }
-    if (!existsSync(output)) throw new Error(`${renderer}:1: the archify renderer wrote no page`);
+    if (!existsSync(output)) throw new Error('the archify renderer wrote no page');
     return forwarder(readFileSync(output, 'utf8'), graph);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -297,8 +373,16 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
 /** The rendered page with the press forwarded: a click on a node's box opens the entity's page in the wiki. */
 export function forwarder(html: string, graph: DiagramGraph): string {
   const links: Record<string, string> = {};
-  for (const node of likec4Occurrences(graph).nodes) if (node.href !== undefined) links[`node_${likec4Name(node.id)}`] = node.href;
-  const script = `<script>(function(){var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);})();</script>`;
+  const titles: Record<string, string> = {};
+  for (const node of likec4Occurrences(graph).nodes) {
+    if (node.href !== undefined) links[`node_${likec4Name(node.id)}`] = node.href;
+    if (node.title !== undefined) titles[`node_${likec4Name(node.id)}`] = node.title;
+  }
+  // The press opens a node's page; a theme message paints the page from the kit's own tokens (madarch-64o5.96). The
+  // renderer keeps its own layout and behaviour, and only its colours come from the wiki the frame stands in. A node
+  // whose visible sublabel was shortened keeps its whole path in the passport detail and the SVG title.
+  const focus = `node_${likec4Name(graph.entity.id)}`;
+  const script = `<script>(function(){var focusId=${JSON.stringify(focus)};var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};var titles=${JSON.stringify(titles).replaceAll('<', '\\u003c')};for(var tid in titles){var detailNode=document.querySelector('[data-node-id="'+tid+'"]');if(detailNode){detailNode.setAttribute('data-node-sublabel',titles[tid]);var titleNode=detailNode.querySelector('title');if(titleNode)titleNode.textContent=titles[tid];}}document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);window.addEventListener('message',function(event){var data=event.data||{};if(data.madarch!=='theme'||!data.theme)return;var theme=data.theme;var paints={'--bg':theme.canvas,'--grid':theme.nodeBorder,'--canvas-dot':theme.nodeBorder,'--text':theme.nodeText,'--text-muted':theme.edge,'--text-dim':theme.edge,'--text-faint':theme.edge,'--panel':theme.canvas,'--panel-border':theme.nodeBorder,'--lane-fill':theme.canvas,'--lane-stroke':theme.nodeBorder,'--arrow':theme.edge,'--arrow-emphasis':theme.nodeText,'--mask':theme.canvas,'--accept-fill':theme.nodeFill,'--accept-stroke':theme.nodeBorder,'--frontend-fill':theme.nodeFill,'--frontend-stroke':theme.nodeBorder,'--backend-fill':theme.nodeFill,'--backend-stroke':theme.nodeBorder,'--database-fill':theme.nodeFill,'--database-stroke':theme.nodeBorder,'--cloud-fill':theme.nodeFill,'--cloud-stroke':theme.nodeBorder,'--security-fill':theme.nodeFill,'--security-stroke':theme.nodeBorder,'--messagebus-fill':theme.nodeFill,'--messagebus-stroke':theme.nodeBorder,'--external-fill':theme.nodeFill,'--external-stroke':theme.nodeBorder,'--toolbar-bg':theme.canvas,'--toolbar-border':theme.nodeBorder,'--toolbar-text':theme.nodeText,'--toolbar-menu-bg':theme.canvas};var root=document.documentElement;for(var name in paints){root.style.setProperty(name,paints[name]);}root.setAttribute('data-theme',theme.scheme==='dark'?'dark':'light');var focus=document.querySelector('[data-node-id="'+focusId+'"]');if(focus){focus.querySelectorAll('rect,path,polygon').forEach(function(shape){shape.style.fill=theme.focusFill;shape.style.stroke=theme.focusBorder;shape.style.strokeWidth='2';});}parent.postMessage({madarch:'themed'},'*');});})();</script>`;
   const at = html.toLowerCase().lastIndexOf('</body>');
   return at < 0 ? `${html}${script}` : `${html.slice(0, at)}${script}${html.slice(at)}`;
 }

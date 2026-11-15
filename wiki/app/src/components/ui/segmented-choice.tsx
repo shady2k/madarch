@@ -7,12 +7,13 @@ import { ToggleGroup, ToggleGroupItem } from './toggle-group.js';
  * single-selection toggle group, which carries the group's name, the roving
  * focus and the pressed state — rather than a radio group rebuilt on buttons.
  */
-export function SegmentedChoice({ label, testId, value, options, onChange }: {
+export function SegmentedChoice({ label, testId, value, options, onChange, disabled = false }: {
   label: string;
   testId: string;
   value: string;
   options: readonly { value: string; label: string; testId: string }[];
   onChange: (value: string) => void;
+  disabled?: boolean;
 }): ReactElement {
   return (
     <div className="dg-seg" data-testid={testId}>
@@ -25,7 +26,7 @@ export function SegmentedChoice({ label, testId, value, options, onChange }: {
         onValueChange={(next) => { if (next !== '') onChange(next); }}
       >
         {options.map((option) => (
-          <ToggleGroupItem key={option.value} value={option.value} data-testid={option.testId}>{option.label}</ToggleGroupItem>
+          <ToggleGroupItem key={option.value} value={option.value} disabled={disabled} data-testid={option.testId}>{option.label}</ToggleGroupItem>
         ))}
       </ToggleGroup>
     </div>

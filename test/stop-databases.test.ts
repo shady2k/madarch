@@ -5,7 +5,7 @@
  */
 import { afterAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,10 @@ const root = mkdtempSync(join(tmpdir(), 'madarch-stop-databases-'));
 const children: ReturnType<typeof Bun.spawn>[] = [];
 afterAll(() => {
   for (const child of children) { try { child.kill('SIGKILL'); } catch { /* gone */ } }
-  rmSync(root, { recursive: true, force: true });
+  // The folder stays for the run's own sweep: this run lives in a scratch folder its preload removes when it ends
+  // (test/run-scratch.ts). Removing every fixture here — thousands of files and a dozen data directories — outlasts
+  // the five seconds a hook has on a loaded runner, and bun reports that as "(fail) (unnamed)" (madarch-64o5.79:
+  // CI shard 5 of #311 stopped at 5083.91 ms).
 });
 
 interface Fixture {

@@ -94,6 +94,51 @@ test('the archify format answers its self-contained interactive page, each node 
   expect(answer.html).toContain("madarch:'open'");
 }, 60_000);
 
+test('every diagram link stands under the product base the request came in on', async () => {
+  // A products-home server answers a wiki under /products/<folder>/, so a node's page must carry that prefix in all
+  // three formats; without it the server answers a different address (madarch-64o5.98).
+  const base = '/products/shop';
+  const mermaid = await renderDiagram(product, { entity: '1', format: 'mermaid', base });
+  if (!('body' in mermaid)) throw new Error('the Mermaid answer is not JSON');
+  const source = (mermaid.body as { source: string }).source;
+  expect(source).toContain(`click n0 href "${base}/e/code.repository/1"`);
+  expect(source).toContain(`click n1 href "${base}/e/code.file/2"`);
+  const likec4 = await renderDiagram(product, { entity: '1', format: 'likec4', base });
+  if (!('body' in likec4)) throw new Error('the LikeC4 answer is not JSON');
+  expect((likec4.body as { links: Record<string, string> }).links['n1']).toBe(`${base}/e/code.file/2`);
+  const archify = await renderDiagram(product, { entity: '1', format: 'archify', base });
+  if (!('html' in archify)) throw new Error('the archify answer is not HTML');
+  expect(archify.html).toContain(`${base}/e/code.file/2`);
+  // The folded node opens the list under the same prefix.
+  const folded = await renderDiagram({ ...(product as object), diagramNeighbourhood: async () => ({ ...neighbourhood, kindPages: new Map([['code.file', '/e/catalogue/x']]) }) } as unknown as KnowledgeProduct, { entity: '1', format: 'mermaid', base, aggregateAbove: 1 });
+  if (!('body' in folded)) throw new Error('the folded answer is not JSON');
+  expect((folded.body as { source: string }).source).toContain(`click n1 href "${base}/e/catalogue/x"`);
+}, 60_000);
+
+test('a node shows the name of a path and keeps the whole path as its hover text, and the page\'s entity stands out', async () => {
+  const paths = { ...neighbourhood, labels: new Map(neighbourhood.labels).set('2', '/src/deep/cloud-resource.yaml') };
+  const held = { diagramNeighbourhood: async () => paths } as unknown as KnowledgeProduct;
+  const mermaid = await renderDiagram(held, { entity: '1', format: 'mermaid' });
+  if (!('body' in mermaid)) throw new Error('the Mermaid answer is not JSON');
+  const source = (mermaid.body as { source: string }).source;
+  expect(source).toContain('n1["cloud-resource.yaml"]');
+  expect(source).toContain('click n1 href "/e/code.file/2" "/src/deep/cloud-resource.yaml"');
+  // The page's own entity stands out in every renderer: Mermaid by its class, LikeC4 by the root the answer names.
+  expect(source).toContain('class n0 madarch-focus');
+  const likec4 = await renderDiagram(held, { entity: '1', format: 'likec4' });
+  if (!('body' in likec4)) throw new Error('the LikeC4 answer is not JSON');
+  expect((likec4.body as { root: string }).root).toBe('n0');
+  // Both renderers carry the whole path: LikeC4 as each node's hover text, archify as the sublabel under the name, so
+  // two files of one name read apart (madarch-64o5.96).
+  expect((likec4.body as { titles: Record<string, string> }).titles['n1']).toBe('/src/deep/cloud-resource.yaml');
+  const archify = await renderDiagram(held, { entity: '1', format: 'archify' });
+  if (!('html' in archify)) throw new Error('the archify answer is not HTML');
+  expect(archify.html).toContain('data-node-sublabel="/src/deep/cloud-resource.yaml"');
+  // The archify frame is handed the focus node, and the theme message paints it from the kit's palette.
+  expect(archify.html).toContain('node__1');
+  expect(archify.html).toContain("theme.focusFill");
+}, 60_000);
+
 test('the same graph revision answers the same bytes', async () => {
   const first = await renderDiagram(product, { entity: '1', format: 'mermaid' });
   const second = await renderDiagram(product, { entity: '1', format: 'mermaid' });
@@ -154,6 +199,48 @@ test('an unknown format, a depth below one and a missing entity are refused by t
   }
 });
 
+
+test('the archify renderer is taken from the vendor tree and run from the scratch folder', async () => {
+  const { archifyVendorFolder, ARCHIFY_RENDERER } = await import('../src/render/archify-vendor.js');
+  const { archifyDocument, diagramGraphOf, likec4PictureOf, renderArchify } = await import('../src/render/diagram.js');
+  const { existsSync } = await import('node:fs');
+  const vendor = archifyVendorFolder();
+  if (vendor === undefined) throw new Error('no vendor folder holds the archify renderer');
+  expect(existsSync(join(vendor, ...ARCHIFY_RENDERER))).toBe(true);
+  const graph = diagramGraphOf(neighbourhood, 1, 12);
+  const document = archifyDocument(graph, await likec4PictureOf(graph));
+  let copied = false;
+  const page = await renderArchify(document, graph, { started: (_pid, folder) => { copied = existsSync(join(folder, 'archify', 'renderers', 'architecture', 'render-architecture.mjs')) && existsSync(join(folder, 'archify', 'assets', 'template.html')); } });
+  expect(copied).toBe(true);
+  expect(page).toContain('data-node-id');
+}, 60_000);
+
+test('an archify failure answers one sentence in the reader\'s language, never JSON or a bundle path', async () => {
+  const { createKnowledgePart } = await import('../src/server/knowledge.js');
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-failure-'));
+  const makers = {
+    json: (status: number, body: unknown) => Response.json(body, { status }),
+    refused: (status: number, error: Record<string, unknown>) => ({ response: Response.json({ error }, { status }) }),
+    errorLog: () => undefined,
+  };
+  try {
+    const missing = { ...(product as object), folder, diagramNeighbourhood: async () => undefined } as unknown as KnowledgeProduct;
+    const part = createKnowledgePart(makers as never, missing, () => [], {});
+    const ru = (await part.diagram(new Request('http://localhost/render/diagram?entity=nope&format=archify&lang=ru'))).response;
+    expect(ru.headers.get('content-type')).toContain('text/html');
+    const ruText = await ru.text();
+    expect(ruText).toContain('archify не смог нарисовать эту диаграмму.');
+    expect(ruText).not.toContain('{"');
+    expect(ruText).not.toContain('$bunfs');
+    const en = await (await part.diagram(new Request('http://localhost/render/diagram?entity=nope&format=archify&lang=en'))).response.text();
+    expect(en).toContain('archify could not draw this diagram.');
+    // Mermaid and LikeC4 stay JSON: the page reads their code and says the failure in its own words.
+    const json = (await part.diagram(new Request('http://localhost/render/diagram?entity=nope&format=mermaid&lang=ru'))).response;
+    expect(json.headers.get('content-type')).toContain('application/json');
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
 
 test('a CPU-looping renderer is killed by its own deadline while another diagram remains responsive', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-render-loop-'));
@@ -220,3 +307,31 @@ test('the requested fold bound reaches the neighbourhood reader', async () => {
   expect('body' in answer).toBe(true);
   expect(sample).toBe(30);
 });
+
+test('a deep path in a narrow node renders, with the whole path reachable', async () => {
+  const deep = `/src/${'nested/'.repeat(20)}index.ts`;
+  const paths = { ...neighbourhood, labels: new Map(neighbourhood.labels).set('2', deep) };
+  const held = { diagramNeighbourhood: async () => paths } as unknown as KnowledgeProduct;
+  const answer = await renderDiagram(held, { entity: '1', format: 'archify' });
+  if (!('html' in answer)) throw new Error(`the archify answer is not HTML: ${JSON.stringify(answer).slice(0, 400)}`);
+  // The visible sublabel is shortened, while the whole path stays in the node's passport title the forwarder writes.
+  expect(answer.html).toContain('data-node-sublabel="…');
+  expect(answer.html).toContain(deep);
+}, 60_000);
+
+test('no renderer prints a raw relation key; each uses the shared relation word', async () => {
+  const mermaid = await renderDiagram(product, { entity: '1', format: 'mermaid' });
+  if (!('body' in mermaid)) throw new Error('the Mermaid answer is not JSON');
+  const source = (mermaid.body as { source: string }).source;
+  expect(source).not.toContain('codeContains');
+  expect(source).toContain('contains');
+  const likec4 = await renderDiagram(product, { entity: '1', format: 'likec4' });
+  if (!('body' in likec4)) throw new Error('the LikeC4 answer is not JSON');
+  const workspace = (likec4.body as { workspace: string }).workspace;
+  expect(workspace).not.toContain('codeContains');
+  expect(workspace).toContain('contains');
+  const archify = await renderDiagram(product, { entity: '1', format: 'archify' });
+  if (!('html' in archify)) throw new Error('the archify answer is not HTML');
+  expect(archify.html).not.toContain('codeContains');
+  expect(archify.html).toContain('contains');
+}, 60_000);

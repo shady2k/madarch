@@ -6,22 +6,24 @@
  */
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
+import { useConnection } from '../connection.js';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
+import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
 import {
-  chooseAgent, chooseModelRole, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
+  chooseAgent, chooseModelRole, isOffline, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
   useChangeStream, useCommandRead,
-  type AgentChoice, type AgentChoicesAnswer, type AgentOffer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
+  type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
 } from './command.js';
+import { agentNote } from './agent-words.js';
 import type { SectionContext } from './types.js';
 
-const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
+const message = (failure: unknown): string | null => isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
 
 /** One card of the page. */
 function Section({ id, title, intro, children }: { readonly id: string; readonly title: string; readonly intro?: string; readonly children: ReactNode }): ReactElement {
@@ -34,17 +36,6 @@ function Section({ id, title, intro, children }: { readonly id: string; readonly
       </CardContent>
     </Card>
   );
-}
-
-/** What the agent offers on this machine, in a person's words. */
-function agentNote(t: TFunction, agent: AgentOffer): string {
-  if (!agent.installed) {
-    if (agent.install?.kind === 'npm') return t('knowledge.writer.notInstalled', { package: agent.install.package, version: agent.install.version, size: agent.install.size, folder: agent.install.folder });
-    if (agent.install?.kind === 'bundled') return t('knowledge.writer.notInstalledBundled', { program: agent.install.program });
-    return t('knowledge.writer.installUnknown', { agent: agent.label });
-  }
-  if (agent.version === null) return t('knowledge.writer.installedUnknownVersion', { where: agent.where ?? '—' });
-  return t('knowledge.writer.installedAt', { where: agent.where ?? '—', version: agent.version });
 }
 
 /** One model or reasoning choice the agent reports. */
@@ -86,6 +77,7 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
   readonly reload: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const connection = useConnection();
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const assigned = role.role !== 'writing' && role.source === 'assigned' && role.pair !== null;
@@ -93,6 +85,7 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
   const choices = useCommandRead<AgentChoicesAnswer>(`settings-role-choices:${role.role}:${agent}`, (signal) => readAgentChoices(base, agent, signal), assigned && agent !== '');
   const pairLabel = role.pair === null ? t('settings.roles.unassigned') : `${names[role.pair.agent] ?? role.pair.agent} · ${role.pair.model ?? t('settings.roles.agentsOwn')}`;
   const save = (change: { model?: string | null; reasoning?: string | null }): void => {
+    if (connection.offline) return;
     setWorking(true);
     setError(null);
     chooseModelRole(base, role.role, agent, change).then(() => { setWorking(false); reload(); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
@@ -107,14 +100,14 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
       {role.source === 'none' ? <Paragraph className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-none-${role.role}`}>{t('settings.roles.noDefault')}</Paragraph> : null}
       {assigned && choices.data !== null ? (
         <Stack className="mt-3" data-testid={`settings-role-choices-${role.role}`}>
-          {choices.data.choices.model === null ? null : <ChoiceSelect id={`settings-role-model-${role.role}`} label={t('settings.model.model')} choice={choices.data.choices.model} value={role.pair?.model} disabled={working || disabled || settings.busy} onChange={(value) => save({ model: value })} />}
-          {choices.data.choices.reasoning === null ? null : <ChoiceSelect id={`settings-role-reasoning-${role.role}`} label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={role.pair?.reasoning} disabled={working || disabled || settings.busy} onChange={(value) => save({ reasoning: value })} />}
+          {choices.data.choices.model === null ? null : <ChoiceSelect id={`settings-role-model-${role.role}`} label={t('settings.model.model')} choice={choices.data.choices.model} value={role.pair?.model} disabled={connection.offline || working || disabled || settings.busy} onChange={(value) => save({ model: value })} />}
+          {choices.data.choices.reasoning === null ? null : <ChoiceSelect id={`settings-role-reasoning-${role.role}`} label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={role.pair?.reasoning} disabled={connection.offline || working || disabled || settings.busy} onChange={(value) => save({ reasoning: value })} />}
         </Stack>
       ) : null}
       {role.role === 'writing' ? null : (
         <Stack className="mt-2">
           <FieldLabel className="mb-1 block text-small font-medium">{t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
-            <Select value={assigned ? role.pair!.agent : ''} disabled={working || disabled || settings.busy} onValueChange={(next) => assign(role.role, next === '' ? null : next)}>
+            <Select value={assigned ? role.pair!.agent : ''} disabled={connection.offline || working || disabled || settings.busy} onValueChange={(next) => assign(role.role, next === '' ? null : next)}>
               <SelectTrigger aria-label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })} data-testid={`settings-role-select-${role.role}`} className="mt-1 w-full max-w-96"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</SelectItem>
@@ -132,37 +125,46 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
 /** The settings page. */
 export function SettingsSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t } = useTranslation();
+  const connection = useConnection();
   const base = context.base;
   const settings = useCommandRead<ProductSettingsAnswer>('product-settings', (signal) => readProductSettings(base, signal));
-  const agents = useCommandRead<AgentsAnswer>('settings-agents', (signal) => readAgents(base, signal));
+  const agents = useCommandRead<AgentsAnswer>('agents', (signal) => readAgents(base, signal));
   const reader = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   useChangeStream(base, () => { settings.reload(); agents.reload(); reader.reload(); });
   const [round, setRound] = useState(0);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The default token cap, as typed: `null` until the person edits the number the product holds.
+  const [cap, setCap] = useState<string | null>(null);
   const data = settings.data;
   const chosen = data?.chosenAgent ?? null;
   const choices = useCommandRead<AgentChoicesAnswer>(`settings-choices:${chosen?.id ?? ''}:${String(round)}`, (signal) => readAgentChoices(base, chosen!.id, signal, round > 0), chosen !== null);
-  const saveSettings = (change: { language?: string; model?: string | null; reasoning?: string | null }): void => {
+  const saveSettings = (change: { language?: string; model?: string | null; reasoning?: string | null; tokenCap?: number }): void => {
+    if (connection.offline) return;
     setWorking('settings');
     setError(null);
     saveProductSettings(base, change).then(() => { setWorking(null); settings.reload(); choices.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
   const choose = (agent: string | null): void => {
+    if (connection.offline) return;
     setWorking('agent');
     setError(null);
     chooseAgent(base, agent, true).then(() => { setWorking(null); settings.reload(); agents.reload(); choices.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
   const assign = (role: string, agent: string | null): void => {
+    if (connection.offline) return;
     setWorking(`role:${role}`);
     setError(null);
     chooseModelRole(base, role, agent, { install: true }).then(() => { setWorking(null); settings.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
   const saveReader = (role: string): void => {
+    if (connection.offline) return;
     setWorking('reader');
     setError(null);
     saveReaderRole(base, role).then(() => { setWorking(null); reader.reload(); context.onRole?.(role); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
+  const capValue = Number(cap ?? data?.tokenCap ?? 0);
+  const capValid = Number.isSafeInteger(capValue) && capValue > 0;
   const namedAgents = Object.entries(data?.agentNames ?? {});
   const roleOptions = [
     ...namedAgents.map(([id, name]) => {
@@ -199,27 +201,27 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
                 </Text>
               </Text>
               {chosen?.id === agent.id ? <Badge variant="solid" data-testid="settings-agent-chosen">{t('settings.agent.chosen')}</Badge> : (
-                <Button variant="default" size="default" disabled={working !== null || data.busy} onClick={() => choose(agent.id)} data-testid={`settings-agent-choose-${agent.id}`}>{agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}</Button>
+                <Button variant="default" size="default" disabled={connection.offline || working !== null || data.busy} onClick={() => choose(agent.id)} data-testid={`settings-agent-choose-${agent.id}`}>{agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}</Button>
               )}
             </ListItem>
           ))}
           {agents.data === null && agents.error === null ? <ListItem className="text-muted">{t('knowledge.loading')}</ListItem> : null}
         </PlainList>
         {agents.error === null ? null : <Paragraph className="mb-0 mt-3 text-small" role="alert">{agents.error}</Paragraph>}
-        {chosen === null ? null : <Paragraph className="mb-0 mt-3"><Button variant="default" size="default" disabled={working !== null || data.busy} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
+        {chosen === null ? null : <Paragraph className="mb-0 mt-3"><Button variant="default" size="default" disabled={connection.offline || working !== null || data.busy} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
       </Section>
 
       <Section id="model" title={t('settings.model.title')} intro={t('settings.model.intro')}>
         {chosen === null ? <Paragraph className="m-0 text-muted" data-testid="settings-model-none">{t('settings.model.noAgent')}</Paragraph> : null}
         {chosen !== null && choices.data === null && choices.error === null ? <Paragraph className="m-0 text-muted" data-testid="settings-model-asking">{t('settings.model.asking', { agent: chosen.label })}</Paragraph> : null}
         {choices.data !== null && choices.data.choices.model === null && choices.data.choices.reasoning === null ? <Paragraph className="m-0 text-muted" data-testid="settings-model-reports-none">{t('settings.model.reportsNone', { agent: chosen?.label ?? '' })}</Paragraph> : null}
-        {choices.data?.choices.model == null ? null : <ChoiceSelect id="settings-model-select" label={t('settings.model.model')} choice={choices.data.choices.model} value={chosen?.model} disabled={working !== null || data.busy} onChange={(value) => saveSettings({ model: value })} />}
-        {choices.data?.choices.reasoning == null ? null : <ChoiceSelect id="settings-reasoning-select" label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={chosen?.reasoning} disabled={working !== null || data.busy} onChange={(value) => saveSettings({ reasoning: value })} />}
+        {choices.data?.choices.model == null ? null : <ChoiceSelect id="settings-model-select" label={t('settings.model.model')} choice={choices.data.choices.model} value={chosen?.model} disabled={connection.offline || working !== null || data.busy} onChange={(value) => saveSettings({ model: value })} />}
+        {choices.data?.choices.reasoning == null ? null : <ChoiceSelect id="settings-reasoning-select" label={t('settings.model.reasoning')} choice={choices.data.choices.reasoning} value={chosen?.reasoning} disabled={connection.offline || working !== null || data.busy} onChange={(value) => saveSettings({ reasoning: value })} />}
         {choices.error === null ? null : (
           <Alert variant="problem" data-testid="settings-model-error">
             <AlertDescription>
               {t('settings.model.failed')}: {choices.error}
-              <Paragraph className="mt-2"><Button variant="default" size="default" onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
+              <Paragraph className="mt-2"><Button variant="default" size="default" disabled={connection.offline} onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
             </AlertDescription>
           </Alert>
         )}
@@ -244,9 +246,20 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
             { value: 'ru', label: t('navigation.russian'), testId: 'settings-language-ru' },
             { value: 'en', label: t('navigation.english'), testId: 'settings-language-en' },
           ]}
+          disabled={connection.offline}
           onChange={(value) => saveSettings({ language: value })}
         />
         <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.language.note')}</Paragraph>
+      </Section>
+
+      <Section id="fills" title={t('settings.fills.title')} intro={t('settings.fills.intro')}>
+        <Stack className="flex flex-wrap items-end gap-3">
+          <FieldLabel className="grid gap-1 text-small">{t('settings.fills.tokenCap')}
+            <Input data-testid="settings-token-cap" type="number" min={1} step={1} value={cap ?? String(data.tokenCap)} aria-invalid={!capValid} onInput={(event) => setCap(event.currentTarget.value)} />
+          </FieldLabel>
+          <Button variant="default" size="default" disabled={connection.offline || working !== null || !capValid || capValue === data.tokenCap} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
+        </Stack>
+        <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-token-cap-note">{capValid ? t('settings.fills.tokenCapNote', { cap: capValue }) : t('settings.fills.tokenCapInvalid')}</Paragraph>
       </Section>
 
       <Section id="reader" title={t('settings.reader.title')} intro={t('settings.reader.intro')}>
@@ -260,6 +273,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
               label: t(`knowledge.roles.names.${role}`, { defaultValue: role }),
               testId: `settings-reader-${role}`,
             }))}
+            disabled={connection.offline}
             onChange={saveReader}
           />
         )}

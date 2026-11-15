@@ -32,7 +32,9 @@
 
   /* 4.4 Rhythm and measure. */
   --leading: 1.58; /* unitless body line height */
-  --measure: 960px; /* maximum text width; the work area remains fluid below it */
+  --measure: 960px; /* the search field's and the reading measure's own cap */
+  --work-max: 1920px; /* the work area's cap: pages take the screen's width up to this (madarch-64o5.99) */
+  --prose: 75ch; /* running prose keeps a reading measure inside the fluid work area */
   /* The page's first two gaps: the breadcrumb under the top bar, the title under the breadcrumb. */
   --page-top: 16px;
   --crumb-gap: 8px;

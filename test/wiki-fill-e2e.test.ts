@@ -260,14 +260,13 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.waitForSelector('[data-testid="first-run"]', { timeout: 60_000 });
       expect(await page.$eval('[data-testid="page-title"]', (element) => element.textContent?.trim() ?? '')).toBe('agent-plan');
       expect(await page.$('[data-testid="page-search"]')).toBeNull();
-      expect(await textOf(page)).not.toContain('Aggregate');
+      // The first-run guide states what madarch is and the three steps, and the preparation wizard stands inline.
+      expect(await textOf(page)).toContain('вики этого продукта');
+      expect(await textOf(page)).toContain('Проверьте набор видов');
+      await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="prepare-run"]', { timeout: 60_000 });
       await shotAt('first-run', 1440, 900);
       await shotAt('first-run', 390, 844);
-      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
-      await page.click('[data-testid="first-run-start"]');
-      await page.waitForSelector('[data-testid="prepare-wizard"]', { timeout: 60_000 });
-      await shotAt('wizard-prepare', 1440, 900);
-      await shotAt('wizard-prepare', 390, 844);
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.goto(`${planServer!.url}/p/catalogue?select=1`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="catalogue-kind-check-code.file"]', { timeout: 60_000 });
@@ -282,7 +281,7 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.click('[data-testid="catalogue-prepare"]');
       await page.waitForSelector('[data-testid="prepare-plugins-only"]', { timeout: 60_000 });
-      await page.waitForFunction(() => (document.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked, { timeout: 60_000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked') === 'true', { timeout: 60_000 });
       const planText = await textOf(page);
       expect(planText).toContain('Агент заполнит');
       expect(planText).toContain('Только плагины');
@@ -300,17 +299,21 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.evaluate(() => { document.querySelector('[data-testid="prepare-unfilled"]')?.scrollIntoView({ block: 'center' }); });
       await new Promise((resolve) => setTimeout(resolve, 250));
       await page.screenshot({ path: join(SHOTS, 'prepare-no-agent-390.png') });
-      // The agent view stays one press away: unchecking names the agent and its cap.
-      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
-      await page.$eval('[data-testid="prepare-plugins-only"]', (element) => (element as HTMLInputElement).click());
-      await page.waitForSelector('[data-testid="prepare-agent"]', { timeout: 60_000 });
-      expect(await textOf(page)).toContain('Лимит считает токены');
-      await page.evaluate(() => { document.querySelector('[data-testid="prepare-agent"]')?.scrollIntoView({ block: 'center' }); });
-      await shotAt('prepare-agent', 1440, 900);
-      await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
-      await page.evaluate(() => { document.querySelector('[data-testid="prepare-cap"]')?.scrollIntoView({ block: 'center' }); });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      await page.screenshot({ path: join(SHOTS, 'prepare-agent-390.png') });
+      // Every installed agent stands beside «Только плагины»; a machine with one that can run shows its cap in one click.
+      const usable = await page.$('[data-testid="prepare-who"] [data-available="true"]');
+      if (usable !== null) {
+        await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+        const radio = await usable.$('[role="radio"]');
+        await radio?.click();
+        await page.waitForSelector('[data-testid="prepare-cap"]', { timeout: 60_000 });
+        expect(await textOf(page)).toContain('Лимит считает токены');
+        await page.evaluate(() => { document.querySelector('[data-testid="prepare-who"]')?.scrollIntoView({ block: 'center' }); });
+        await shotAt('prepare-agent', 1440, 900);
+        await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+        await page.evaluate(() => { document.querySelector('[data-testid="prepare-cap"]')?.scrollIntoView({ block: 'center' }); });
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        await page.screenshot({ path: join(SHOTS, 'prepare-agent-390.png') });
+      }
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.click('[data-testid="prepare-change"]');
       await page.waitForSelector('[data-testid="catalogue-bottom"]', { timeout: 30_000 });
@@ -326,7 +329,7 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.click('[data-testid="fill-kind"]');
       await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
       await page.waitForSelector('[data-testid="prepare-plugins-only"]', { timeout: 60_000 });
-      await page.waitForFunction(() => (document.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked, { timeout: 60_000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked') === 'true', { timeout: 60_000 });
       expect(await page.$('[data-testid="prepare-unfilled"]')).not.toBeNull();
       expect((await page.$eval('[data-testid="prepare-run"]', (element) => (element as HTMLButtonElement).disabled))).toBe(false);
       expect(failures.filter((one) => !one.includes('favicon')).join('\n')).toBe('');
@@ -373,7 +376,7 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.click('[data-testid="catalogue-prepare"]');
       await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
       await page.waitForSelector('[data-testid="prepare-plugins-only"]', { timeout: 60_000 });
-      await page.waitForFunction(() => (document.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked, { timeout: 60_000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked') === 'true', { timeout: 60_000 });
       expect(await textOf(page)).toContain('Только плагины');
       expect(await textOf(page)).toContain('Машины состояний');
       expect(await textOf(page)).not.toContain('state_machines');

@@ -19,6 +19,13 @@ const SCHEMA: readonly string[] = [
     updated_at bigint NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS fill_run_product ON fill_run (product, created_at)',
+  `CREATE TABLE IF NOT EXISTS fill_run_lease (
+    run_id text PRIMARY KEY,
+    owner_token text NOT NULL,
+    owner_pid integer NOT NULL,
+    heartbeat_at bigint NOT NULL,
+    expires_at bigint NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS fill_unit (
     unit_id text PRIMARY KEY,
     product text NOT NULL,

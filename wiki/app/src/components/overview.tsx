@@ -16,8 +16,8 @@ import type { SectionContext } from './types.js';
 export function ProductOverviewSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  const problems = useCommandRead<ProblemsCount>('overview-problems', (signal) => readProblemsCount(context.base, signal));
-  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('overview-runs', (signal) => readFillRuns(context.base, signal));
+  const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(context.base, signal));
+  const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => readFillRuns(context.base, signal));
   useChangeStream(context.base, () => { problems.reload(); runs.reload(); });
   const last: FillRunDetail | undefined = runs.data?.runs[0];
   // A number stands only on a successful answer: a request that failed, or has not answered yet, is "not known" — never
@@ -32,7 +32,7 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
         <Stack className="grid gap-2">
           {/* The product's own page is written by an agent or a person; until then the home says so rather than nothing. */}
           <Paragraph className="m-0 text-secondary" data-testid="overview-description">{t('overview.description')}</Paragraph>
-          <InlineGroup>
+          <InlineGroup align="baseline" className="mb-0 gap-3">
             <TextLink href={context.base + '/p/problems'} onClick={(event) => { event.preventDefault(); context.open('/p/problems'); }} data-testid="overview-problems">
               {problemsText}
             </TextLink>

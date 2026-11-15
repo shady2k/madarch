@@ -134,6 +134,8 @@ function runCommand(args: string[], overrides: Record<string, string> = {}, cwd?
 interface LiveNew {
   readonly stdout: string;
   readonly exitCode: number | null;
+  /** Whether the command ended by itself within the bound, without this file stopping it. */
+  exited(timeoutMs: number): Promise<boolean>;
   finish(): Promise<{ stdout: string; exitCode: number | null }>;
 }
 export function serveNew(args: string[], overrides: Record<string, string> = {}, program: readonly string[] = ['bun', CLI], cwd?: string): LiveNew {
@@ -169,6 +171,7 @@ export function serveNew(args: string[], overrides: Record<string, string> = {},
   return {
     get stdout() { return stdoutText; },
     get exitCode() { return proc.exitCode; },
+    exited: async (timeoutMs: number) => await Promise.race([proc.exited.then(() => true, () => true), Bun.sleep(timeoutMs).then(() => false)]),
     finish: async () => {
       proc.kill();
       const [, stdout] = await Promise.all([proc.exited, whenStdout]);
@@ -315,7 +318,8 @@ describe('the single start command', () => {
       chmodSync(opener, 0o700);
       const proc = Bun.spawn(['script', '-q', '-e', '-c', args.map(shQuote).join(' '), '/dev/null'], {
         cwd: base, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
-        env: { ...process.env, ...SEALED_GIT, MADARCH_APP: builtApp(base), MADARCH_BROWSER: opener },
+        // The language is a machine setting asked once on a first run; this test is about the template question.
+        env: { ...process.env, ...SEALED_GIT, MADARCH_APP: builtApp(base), MADARCH_BROWSER: opener, MADARCH_LANG: 'en' },
       });
       runningChildren.push(proc);
       let output = '';
@@ -356,7 +360,9 @@ describe('madarch init', () => {
     // The id the manifest holds is the one the command printed.
     const read = readProduct(folder);
     expect(read).toMatchObject({ ok: true, product: { id, name: `idea-${todayName()}`, schemaVersion: 1 } });
-    // The command returns at once; the wiki is the background server's.
+    // The command returns at once — by itself, before anything stops it: a run this file had to stop reads as the
+    // signal's code, and a command that left on its own is what "returns at once" means.
+    expect(await serve.exited(30_000)).toBe(true);
     const { stdout, exitCode } = await serve.finish();
     expect(exitCode).toBe(0);
     const url = stdout.match(/The wiki is running at (http:\/\/\S+)/)?.[1];

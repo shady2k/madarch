@@ -17,6 +17,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import { isWikiPagePath, wikiPageAddresses } from '../knowledge/addresses.js';
+import type { ChangeNotice } from '../knowledge/model.js';
 import type { Handled, ReplyMaker } from './http.js';
 
 /** The never-and-then-closer of a stream's tail: the encoded bytes one event line is written in. */
@@ -31,7 +32,7 @@ const eventBytes = new TextEncoder();
  */
 export interface OutsideChanges {
   revision(): string;
-  subscribe(listener: () => void): () => void;
+  subscribe(listener: (notice: ChangeNotice) => void): () => void;
 }
 
 /** The graph revision stream. Product files affect pages only after a plugin writes graph opinions. */
@@ -43,12 +44,18 @@ function streamingEvents(changes: OutsideChanges, request: Request): Handled {
       const write = (line: string): void => { into.enqueue(eventBytes.encode(line)); };
       let lastRevision: string | undefined;
       let ended = false;
-      const ask = (): void => {
+      const ask = (notice?: ChangeNotice): void => {
         if (ended) return;
-        const revision = changes.revision();
-        if (revision === lastRevision) return;
+        const revision = notice?.revision ?? changes.revision();
+        if (revision === lastRevision && notice?.kinds === undefined && notice?.structure !== true) return;
         lastRevision = revision;
-        write(`event: change\ndata: ${JSON.stringify({ revision })}\n\n`);
+        const data = {
+          revision,
+          ...(notice?.kinds === undefined ? {} : { kinds: notice.kinds }),
+          ...(notice?.facts === undefined ? {} : { facts: notice.facts }),
+          ...(notice?.structure === true ? { structure: true } : {}),
+        };
+        write(`event: change\ndata: ${JSON.stringify(data)}\n\n`);
       };
       const off = changes.subscribe(ask);
       const keepAlive = setInterval(() => write(': ping\n\n'), 30_000);

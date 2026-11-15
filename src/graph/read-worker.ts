@@ -30,7 +30,7 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
   const hood = owner === undefined ? asked.neighbourhood : await neighbourhood(owner, asked.descriptor!.folder, asked);
   if (hood === undefined) return { status: 404, code: 'FAILED', error: `${import.meta.path}:1: the graph holds no entity "${asked.request.entity}"` };
   stage('folding the neighbourhood');
-  const graph = diagramGraphOf(hood, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
+  const graph = diagramGraphOf(hood, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE, asked.request.base ?? '');
   const key = JSON.stringify({ graph, format: asked.request.format });
   const cached = pictures.get(key);
   if (cached !== undefined) return cached;
@@ -40,7 +40,7 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
     answer = { status: 200, body: { format: 'mermaid', entity: graph.entity, depth: graph.depth, folded: graph.folded, truncated: graph.truncated, source: mermaidText(graph) } };
   } else {
     const liked = await likec4PictureOf(graph);
-    if (asked.request.format === 'likec4') answer = { status: 200, body: { format: 'likec4', entity: graph.entity, depth: graph.depth, folded: graph.folded, truncated: graph.truncated, workspace: liked.workspace, view: liked.view, links: liked.links } };
+    if (asked.request.format === 'likec4') answer = { status: 200, body: { format: 'likec4', entity: graph.entity, depth: graph.depth, folded: graph.folded, truncated: graph.truncated, workspace: liked.workspace, view: liked.view, links: liked.links, titles: liked.titles, root: liked.root } };
     else answer = { status: 200, html: await renderArchify(archifyDocument(graph, liked), graph, { timeoutMs: asked.deadlineMs ?? 30_000, started: (pid, folder) => self.postMessage({ kind: 'renderer', pid, folder }), stopped: () => self.postMessage({ kind: 'renderer' }) }) };
   }
   const bytes = Buffer.byteLength('html' in answer ? answer.html : JSON.stringify('body' in answer ? answer.body : answer));

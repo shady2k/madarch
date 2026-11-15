@@ -201,7 +201,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     const error: FillPlanError | undefined = errors.get(kind.kind);
     const link = linkOf(kind);
     return (
-      <ListItem key={kind.kind} className="border-b border-line py-3 last:border-b-0" data-testid="catalogue-kind" data-kind={kind.kind}>
+      <ListItem key={kind.kind} className="border-b border-line py-3 last:border-b-0" data-testid="catalogue-kind" data-kind={kind.kind} data-changed={context.changedKinds?.has(kind.kind) ? 'true' : undefined}>
         <Stack className="flex items-start gap-3">
           {selecting ? (
             <Checkbox

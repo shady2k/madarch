@@ -5,6 +5,8 @@
  * its controls are workflow state, not graph data, and they are read here.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { connectionGeneration, reportOffline, reportOnline, useConnection } from '../connection.js';
+import { i18n } from '../i18n.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
@@ -139,6 +141,8 @@ export interface ProductSettingsAnswer {
     readonly maxDomains: number;
     readonly editorialRequestsPerPage: number;
   };
+  /** The cap a fill runs under when the person names none (madarch-64o5.90). */
+  readonly tokenCap: number;
   readonly danger?: unknown;
   readonly dangerError?: string;
   readonly busy: boolean;
@@ -246,7 +250,7 @@ export interface SourcesAnswer {
 
 /** The product's fill state, as much as the fill page and its button read (`GET /api/status`). */
 export interface FillStatusAnswer {
-  readonly fill: { readonly state: string; readonly runId?: string };
+  readonly fill: { readonly state: string; readonly runPhase?: string; readonly runId?: string };
   readonly product?: { readonly name: string; readonly id: string };
   readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
   /** Whether a fill ever succeeded on this product. */
@@ -263,6 +267,8 @@ export interface FillRunGroup {
   readonly done: number;
   readonly total: number;
   readonly state: string;
+  /** The unit's reader-facing state from the server's one machine. */
+  readonly phase: string;
 }
 
 /** One thing a run recorded, as the run's own sequence states it. */
@@ -279,6 +285,9 @@ export interface FillRunEvent {
 export interface FillRunDetail {
   readonly runId: string;
   readonly state: string;
+  /** The public run phase (queued, running, paused, succeeded, partial, failed, stopped). */
+  readonly phase: string;
+  readonly final: boolean;
   readonly startedAt: string;
   readonly updatedAt: string;
   readonly finishedAt: string | null;
@@ -288,7 +297,7 @@ export interface FillRunDetail {
   readonly order: readonly string[] | null;
   readonly vertex: string | null;
   readonly groups: readonly FillRunGroup[];
-  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly generation: number; readonly attempts: number }[];
+  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly phase: string; readonly skippedBecause?: string; readonly generation: number; readonly attempts: number }[];
   readonly events: readonly FillRunEvent[];
   readonly records: number;
   readonly publishedUnits: number;
@@ -301,6 +310,14 @@ export class CommandError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
 }
 
+/** Whether a failed read or press could not reach the server at all, rather than being refused by it. */
+export function isOffline(error: unknown): boolean {
+  return error instanceof CommandError && error.code === 'offline';
+}
+
+/** The reader's one calm line for a server that cannot be reached; a press that fails shows it instead of a request's words. */
+export const offlineWords = (): string => i18n.t('connection.offline');
+
 function errorOf(body: unknown, status: number): { message: string; code?: string } {
   if (body !== null && typeof body === 'object') {
     const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
@@ -310,6 +327,9 @@ function errorOf(body: unknown, status: number): { message: string; code?: strin
   return { message: `the server answered ${String(status)}` };
 }
 
+/** How many changes the tab's stream has seen; a read is fresh only at the count it answered under. */
+let changes = 0;
+
 async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
@@ -318,9 +338,21 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
       ...init,
       headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
     });
-  } catch (error) {
-    throw new CommandError(`the request failed (${error instanceof Error ? error.message : String(error)})`);
+  } catch (failure) {
+    // A read the app itself abandoned (its component left) says nothing about the server.
+    if (init.signal?.aborted === true) throw failure;
+    reportOffline();
+    throw new CommandError(offlineWords(), 'offline');
   }
+  if (response.status === 503) {
+    reportOffline('starting');
+    throw new CommandError(offlineWords(), 'offline');
+  }
+  if (response.status === 502 || response.status === 504) {
+    reportOffline();
+    throw new CommandError(offlineWords(), 'offline');
+  }
+  reportOnline();
   let body: unknown;
   try {
     body = await response.json();
@@ -364,7 +396,7 @@ export const chooseModelRole = (base: string, role: string, agent: string | null
 export const readProductSettings = (base: string, signal?: AbortSignal): Promise<ProductSettingsAnswer> => command(base, '/api/product-settings', signal === undefined ? {} : { signal });
 
 /** Saves the settings the retained route takes: the pages' language, the agent's model and reasoning, the editorial bound. */
-export const saveProductSettings = (base: string, change: { readonly language?: string; readonly model?: string | null; readonly reasoning?: string | null; readonly editorialRequestsPerPage?: number }): Promise<ProductSettingsAnswer> =>
+export const saveProductSettings = (base: string, change: { readonly language?: string; readonly model?: string | null; readonly reasoning?: string | null; readonly editorialRequestsPerPage?: number; readonly tokenCap?: number }): Promise<ProductSettingsAnswer> =>
   command(base, '/api/product-settings', { method: 'POST', body: JSON.stringify(change) });
 
 /** `GET /api/settings`: the reader's own role on this machine. */
@@ -398,7 +430,7 @@ export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs
 export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${query({ run: runId })}`, signal === undefined ? {} : { signal });
 
 /** Starts the fill of the kinds checked: their dependencies and order are the server's. */
-export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
+export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly model?: string | null; readonly reasoning?: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
   command(base, '/api/fill-selected', { method: 'POST', body: JSON.stringify(selection) });
 
 /** A person's «Пауза». */
@@ -412,6 +444,14 @@ export const eventsAddress = (base: string): string => `${base}/api/events`;
 
 // ---- the reads a component uses -----------------------------------------------------------------------------------
 
+/** One notice the product's change stream carries: its revision and, for a unit publication, the kinds and facts it changed. */
+export interface ChangeNotice {
+  readonly revision: string;
+  readonly kinds?: readonly string[];
+  readonly facts?: number;
+  readonly structure?: boolean;
+}
+
 /** What one command read holds: its answer, the message of a failed read, and the way to read it again. */
 export interface CommandRead<T> {
   readonly data: T | null;
@@ -421,43 +461,240 @@ export interface CommandRead<T> {
 }
 
 /**
- * One command read, re-run when its key changes or its `reload` is pressed. The loader is held in a ref, so a component
- * may write it inline; the key says when it must be read.
+ * The reads a page asks for, shared by every component that asks the same one (madarch-64o5.85): one entry per key holds
+ * the answer, the failure, the request under way and the components listening. Two components that read the problems
+ * count read it once; a page that opens again over unchanged data reuses its answer, and the product's one change stream
+ * is what makes it read again. A read abandoned by its last listener is aborted, and its answer stays for the next page
+ * that asks.
  */
-export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, enabled = true): CommandRead<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(enabled);
-  const [nonce, setNonce] = useState(0);
-  const loader = useRef(load);
-  loader.current = load;
-  useEffect(() => {
-    if (!enabled) {
-      setData(null);
-      setBusy(false);
-      return;
-    }
-    const controller = new AbortController();
-    let alive = true;
-    setBusy(true);
-    loader.current(controller.signal).then(
-      (answer) => { if (alive) { setData(answer); setError(null); setBusy(false); } },
-      (failure: unknown) => { if (alive && !controller.signal.aborted) { setError(failure instanceof Error ? failure.message : String(failure)); setBusy(false); } },
-    );
-    return () => { alive = false; controller.abort(); };
-  }, [key, enabled, nonce]);
-  const reload = useCallback(() => { setNonce((at) => at + 1); }, []);
-  return { data, error, busy, reload };
+interface ReadEntry {
+  data: unknown;
+  error: string | null;
+  busy: boolean;
+  /** Whether `data` is an answer (true) or the entry still holds nothing. */
+  hasAnswer: boolean;
+  /** The change count the answer was read at, so a page can tell an unchanged product from a moved one. */
+  changeCount: number;
+  /** The recovery count the answer was read under, so a return from offline always reads again. */
+  generation: number;
+  /** A page's own answer goes stale when its last reader leaves: the next page reads it again. */
+  stale: boolean;
+  readonly listeners: Set<() => void>;
+  loader: ((signal: AbortSignal) => Promise<unknown>) | null;
+  controller: AbortController | null;
 }
 
-/** Calls the listener whenever the product's change stream says something changed; silent where the browser has none. */
-export function useChangeStream(base: string, onChange: () => void): void {
+const readEntries = new Map<string, ReadEntry>();
+const queuedReloads = new Set<ReadEntry>();
+
+function entryFor(key: string): ReadEntry {
+  let entry = readEntries.get(key);
+  if (entry === undefined) {
+    entry = { data: null, error: null, busy: false, hasAnswer: false, changeCount: -1, generation: connectionGeneration(), stale: true, listeners: new Set(), loader: null, controller: null };
+    readEntries.set(key, entry);
+  }
+  return entry;
+}
+
+function announce(entry: ReadEntry): void {
+  for (const listener of entry.listeners) listener();
+}
+
+function start(entry: ReadEntry): void {
+  if (entry.loader === null) return;
+  entry.controller?.abort();
+  const controller = new AbortController();
+  entry.controller = controller;
+  entry.busy = true;
+  entry.error = null;
+  announce(entry);
+  const loader = entry.loader;
+  const answeredAt = changes;
+  loader(controller.signal).then(
+    (answer) => {
+      if (entry.controller !== controller) return;
+      entry.controller = null;
+      entry.data = answer;
+      entry.hasAnswer = true;
+      entry.changeCount = answeredAt;
+      entry.generation = connectionGeneration();
+      entry.stale = false;
+      entry.error = null;
+      entry.busy = false;
+      announce(entry);
+    },
+    (failure: unknown) => {
+      if (entry.controller !== controller) return;
+      entry.controller = null;
+      entry.busy = false;
+      if (controller.signal.aborted) { announce(entry); return; }
+      // The frame already says the server cannot be reached: a page does not repeat it in a request's words.
+      entry.error = isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
+      entry.hasAnswer = false;
+      announce(entry);
+    },
+  );
+}
+
+/** One reload for every component that pressed in the same turn: they share the request, not one each. */
+function requestReload(entry: ReadEntry): void {
+  if (queuedReloads.has(entry)) return;
+  queuedReloads.add(entry);
+  queueMicrotask(() => {
+    queuedReloads.delete(entry);
+    if (entry.listeners.size > 0) start(entry);
+  });
+}
+
+/**
+ * One command read, shared by its key. A mount reads when the entry holds nothing, when the product changed since the
+ * answer, or when the server has returned since; otherwise it shows the answer already held. `reload` reads again, and
+ * components that press it together make one request.
+ */
+export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, enabled = true): CommandRead<T> {
+  const [state, setState] = useState<{ data: T | null; error: string | null; busy: boolean }>({ data: null, error: null, busy: enabled });
+  const loader = useRef(load);
+  loader.current = load;
+  const held = useRef<ReadEntry | null>(null);
+  const connection = useConnection();
+  // The banner's probe owns the retry schedule while the link is away; a retained page must not keep pressing beside it.
+  const offline = useRef(connection.offline);
+  offline.current = connection.offline;
+  useEffect(() => {
+    if (!enabled) {
+      held.current = null;
+      setState({ data: null, error: null, busy: false });
+      return;
+    }
+    const entry = entryFor(key);
+    held.current = entry;
+    entry.loader = loader.current;
+    const update = (): void => setState({ data: entry.data as T | null, error: entry.error, busy: entry.busy });
+    entry.listeners.add(update);
+    update();
+    const returned = connection.generation !== entry.generation;
+    entry.generation = connection.generation;
+    const fresh = entry.hasAnswer && !entry.stale && entry.changeCount === changes && !returned;
+    if (connection.offline && !entry.hasAnswer) return;
+    if (returned) start(entry);
+    else if (!entry.busy && !fresh) start(entry);
+    return () => {
+      if (held.current === entry) held.current = null;
+      entry.listeners.delete(update);
+      if (entry.listeners.size === 0) {
+        entry.controller?.abort();
+        entry.controller = null;
+        entry.busy = false;
+        entry.stale = true;
+        forgetReadsWhenIdle();
+      }
+    };
+  }, [key, enabled, connection.generation]);
+  const reload = useCallback(() => {
+    const entry = held.current;
+    if (entry !== null && !offline.current) requestReload(entry);
+  }, []);
+  return { data: state.data, error: state.error, busy: state.busy, reload };
+}
+
+// ---- the product's one change stream ------------------------------------------------------------------------------
+
+interface SharedStream {
+  source: EventSource;
+  readonly listeners: Set<(notice: ChangeNotice) => void>;
+  /** Whether the current connection's opening revision was read. */
+  opened: boolean;
+  /** The last revision this tab read; a reconnect's opening revision is a change only if it moved. */
+  seenRevision: string | undefined;
+}
+
+const changeStreams = new Map<string, SharedStream>();
+
+function wire(stream: SharedStream): void {
+  const source = stream.source;
+  stream.opened = false;
+  source.addEventListener('change', (event: MessageEvent<string>) => {
+    let notice: ChangeNotice = { revision: '' };
+    try {
+      const data = JSON.parse(event.data) as Record<string, unknown>;
+      notice = {
+        revision: typeof data['revision'] === 'string' ? data['revision'] : '',
+        ...(Array.isArray(data['kinds']) ? { kinds: data['kinds'].filter((kind): kind is string => typeof kind === 'string') } : {}),
+        ...(typeof data['facts'] === 'number' ? { facts: data['facts'] } : {}),
+        ...(data['structure'] === true ? { structure: true } : {}),
+      };
+    } catch {
+      // A notice without JSON is a revision change alone.
+    }
+    const opening = !stream.opened;
+    stream.opened = true;
+    if (opening) {
+      // The first notice names the revision this connection opened at. It is not a change when it is the revision the
+      // tab last read; it is one when the graph moved while the stream was away.
+      if (stream.seenRevision === undefined || notice.revision === stream.seenRevision) {
+        stream.seenRevision = notice.revision;
+        return;
+      }
+    }
+    stream.seenRevision = notice.revision;
+    changes += 1;
+    for (const listener of stream.listeners) listener(notice);
+  });
+  source.addEventListener('error', () => { reportOffline(); });
+  source.addEventListener('open', () => { stream.opened = false; reportOnline(); });
+}
+
+function streamFor(base: string): SharedStream {
+  let stream = changeStreams.get(base);
+  if (stream === undefined) {
+    stream = { source: new EventSource(eventsAddress(base)), listeners: new Set(), opened: false, seenRevision: undefined };
+    wire(stream);
+    changeStreams.set(base, stream);
+  }
+  return stream;
+}
+
+/** A server that refused the stream closes it for good; a return replaces it, keeping the last revision. */
+function reopenChangeStream(base: string): void {
+  const stream = changeStreams.get(base);
+  if (stream === undefined || stream.source.readyState !== 2) return;
+  const old = stream.source;
+  stream.source = new EventSource(eventsAddress(base));
+  wire(stream);
+  old.close();
+}
+
+/** Calls the listener whenever the product's change stream says something changed; one stream is shared by every caller. */
+export function useChangeStream(base: string, onChange: (notice: ChangeNotice) => void): void {
   const listener = useRef(onChange);
   listener.current = onChange;
+  const connection = useConnection();
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
-    const stream = new EventSource(eventsAddress(base));
-    stream.addEventListener('change', () => { listener.current(); });
-    return () => { stream.close(); };
+    const stream = streamFor(base);
+    const call = (notice: ChangeNotice): void => { listener.current(notice); };
+    stream.listeners.add(call);
+    return () => {
+      stream.listeners.delete(call);
+      if (stream.listeners.size === 0) {
+        stream.source.close();
+        if (changeStreams.get(base) === stream) changeStreams.delete(base);
+        forgetReadsWhenIdle();
+      }
+    };
   }, [base]);
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return;
+    if (connection.generation > 0) reopenChangeStream(base);
+  }, [base, connection.generation]);
+}
+
+/** A tab with no reader and no stream forgets what it read: the next app on the page starts from nothing. */
+function forgetReadsWhenIdle(): void {
+  if (changeStreams.size > 0) return;
+  for (const entry of readEntries.values()) if (entry.listeners.size > 0) return;
+  for (const entry of readEntries.values()) entry.controller?.abort();
+  readEntries.clear();
+  queuedReloads.clear();
+  changes = 0;
 }

@@ -1,4 +1,18 @@
 {
+  "kinds": {
+    "name": "Kind",
+    "count": "Entities"
+  },
+  "connection": {
+    "offline": "No connection to the madarch server — reconnecting…",
+    "starting": "The server is starting…",
+    "restored": "Connection restored",
+    "retryIn": "next attempt in {{seconds}} s",
+    "checking": "checking the connection…",
+    "retryNow": "Retry now",
+    "dataAsOf": "data as of {{time}}",
+    "actionsDisabled": "The server cannot be reached. This action will be available when the connection returns."
+  },
   "facts": {
     "loading": "Reading facts…",
     "empty": "No facts are declared for this reader role.",
@@ -88,12 +102,20 @@
       "noHistory": "No fill runs yet.",
       "selectionUnknown": "Selection not recorded",
       "count": "Published {{done}} of {{total}} units",
+      "count_one": "Published {{done}} of {{total}} unit",
+      "count_few": "Published {{done}} of {{total}} units",
+      "count_many": "Published {{done}} of {{total}} units",
+      "count_other": "Published {{done}} of {{total}} units",
       "elapsed": "Elapsed: {{seconds}} s",
       "remainingUnknown": "Remaining time: not known yet",
       "remaining": "Approximately {{seconds}} s remaining",
       "tokensUnknown": "Tokens: not reported",
       "tokens": "Tokens: {{input}} input · {{output}} output · {{total}} total",
       "records": "Facts written: {{count}}",
+      "records_one": "{{count}} fact written",
+      "records_few": "{{count}} facts written",
+      "records_many": "{{count}} facts written",
+      "records_other": "{{count}} facts written",
       "stopWords": "Stop this run? Records already written will stay.",
       "log": "Run log",
       "back": "Choose another fill",
@@ -106,7 +128,44 @@
       },
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
-      "event": {
+      "phase": {
+      "queued": "Queued",
+      "running": "Running",
+      "paused": "Paused",
+      "succeeded": "Succeeded",
+      "partial": "Partly completed",
+      "failed": "Failed",
+      "stopped": "Stopped",
+      "skipped": "Skipped",
+      "waiting": "Waiting",
+      "done": "Published",
+      "cancelled": "Cancelled",
+      "skippedBecause": "Skipped because {{unit}} failed",
+      "skippedBecauseRunEnded": "Skipped because the run ended"
+    },
+    "final": {
+      "succeeded": "Every required unit published.",
+      "partial": "The run ended, but some units did not publish.",
+      "failed": "The run ended with a failure.",
+      "stopped": "The run was stopped."
+    },
+    "next": {
+      "retry": "Fix the cause, then retry the fill.",
+      "retryAction": "Retry the fill"
+    },
+    "status": {
+      "queued": "Running",
+      "running": "Running",
+      "paused": "Paused",
+      "succeeded": "Succeeded",
+      "partial": "Partly completed",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "endedAt": "ended {{time}}",
+    "attention": "The run did not finish completely",
+    "duration": "{{seconds}} s",
+    "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -706,7 +765,7 @@
     },
     "roles": {
       "cardTitle": "Which role do you read as?",
-      "cardLead": "The wiki keeps one page for everyone. Your role chooses which parts of a page are open and which groups come first; the rest stays one click away.",
+      "cardLead": "The wiki keeps one page for everyone. Your role chooses which parts of a page are open and which groups come first.",
       "cardNote": "Kept on this machine, for every product. You can switch it at the top at any time. Skipping reads everything.",
       "skip": "Skip",
       "continue": "Continue",
@@ -1253,7 +1312,10 @@
     "diagramFailed": "The diagram could not be built.",
     "diagramTooLarge": "The diagram is too large to show.",
     "diagramBadRequest": "The server refused the diagram request.",
-    "diagramRenderer": "Renderer"
+    "diagramRenderer": "Renderer",
+    "diagramFit": "Fit",
+    "diagramZoomIn": "Zoom in",
+    "diagramZoomOut": "Zoom out"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -1604,20 +1666,25 @@
   },
   "firstRun": {
     "title": "First run",
-    "intro": "The graph is empty. This is a recommended set of {{count}} kinds; change it if you need to, then start the fill.",
-    "start": "Prepare the first fill",
+    "what": "Madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
+    "stepOne": "Check the set of kinds the wiki should hold.",
+    "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
+    "stepThree": "Start the fill and follow its run.",
     "manual": "Choose in the catalogue"
   },
   "prepare": {
     "title": "Preparing the fill",
-    "wizardIntro": "First run on this product: this is a recommended set of kinds. Change the set if you need to, then start the fill.",
-    "intro": "The final set, what each plugin and the agent will fill, and one press that starts the run.",
+    "wizardIntro": "First run on this product: this is a recommended set of kinds.",
+    "intro": "The final set, who fills which fields, and what the run will take.",
     "change": "Change the set",
     "product": "Product and repositories",
     "repositoryFilled": "Filled",
     "productRepository": "Product repository",
     "repositoryNotFilled": "Not filled",
     "finalSet": "What will be filled",
+    "inlineSet": "{{count}} kinds will be filled.",
+    "openPlan": "Open the whole plan",
+    "unfilledInline": "Without an agent, {{count}} kinds keep some fields empty. The whole plan names them.",
     "neededFor": "needed for {{kind}}",
     "pluginsLine": "Plugins fill:",
     "agentLine": "The agent fills: {{fields}}",
@@ -1626,15 +1693,31 @@
     "noProducer": "no producer in the manifest",
     "nothingToRun": "Nothing would run: the selected kinds have no producer. Add a plugin or choose an agent.",
     "who": "Who fills",
+    "agentSignedIn": "Signed in.",
+    "agentNotSignedIn": "No sign-in — sign in with {{agent}}.",
+    "agentNotInstalled": "Not installed —",
+    "agentInstall": "install in the product settings",
     "pluginsOnly": "Only plugins",
     "pluginsOnlyNote": "No agent runs: the fields the agent would fill stay empty.",
-    "unfilled": "Only plugins: these fields stay unfilled: {{what}}.",
-    "nothing": "nothing",
-    "agent": "Agent",
-    "chooseAgent": "Choose an agent for this run",
+    "fieldsN_one": "{{count}} field",
+    "fieldsN_few": "{{count}} fields",
+    "fieldsN_many": "{{count}} fields",
+    "fieldsN_other": "{{count}} fields",
+    "kindsN_one": "{{count}} kind",
+    "kindsN_few": "{{count}} kinds",
+    "kindsN_many": "{{count}} kinds",
+    "kindsN_other": "{{count}} kinds",
+    "unfilledSummary": "{{fields}} in {{kinds}} stay empty.",
+    "unfilledKind": "{{kind}}: {{fields}}",
+    "estimate": "≈ {{minutes}} min · up to {{tokens}} tokens",
+    "estimateTime": "≈ {{minutes}} min",
     "cap": "Token cap",
     "capNote": "The cap counts the agent's tokens for this run. When it runs out, the run stops and leaves the rest unfilled.",
-    "model": "Model: {{model}}",
+    "modelChoice": "Model",
+    "reasoningChoice": "Reasoning level",
+    "saveDefaults": "Save as default",
+    "savedDefaults": "Saved",
+    "capDefault": "Left empty, the field uses the product's default: up to {{cap}} tokens.",
     "invalidCap": "Enter a positive whole-number token cap.",
     "capRequired": "Name a token cap: with an agent the run does not start without one.",
     "agentRequired": "Choose an agent: the selected kinds leave fields to it.",
@@ -1642,7 +1725,6 @@
     "missingPlugin": "the plugin {{plugin}} is missing",
     "run": "Start the fill",
     "starting": "Starting…",
-    "onePress": "One press starts the run. There is no second question.",
     "noKinds": "The address names no kinds: return to the catalogue and choose."
   },
   "runs": {
@@ -1652,6 +1734,10 @@
     "none": "No fills yet.",
     "took": "Took {{duration}}",
     "failedUnits": "{{count}} units failed",
+    "failedUnits_one": "{{count}} unit failed",
+    "failedUnits_few": "{{count}} units failed",
+    "failedUnits_many": "{{count}} units failed",
+    "failedUnits_other": "{{count}} units failed",
     "kinds": "The kinds this run asked for ({{count}})"
   },
   "fillKind": {
@@ -1781,6 +1867,14 @@
       "range": "{{from}}–{{to}} of {{total}}",
       "previous": "Previous",
       "next": "Next"
+    },
+    "fills": {
+      "title": "Fills",
+      "intro": "What one fill of this product may spend when the run names no bound of its own.",
+      "tokenCap": "Default token cap",
+      "tokenCapNote": "The prepare page offers this cap, and a run that names none spends up to {{cap}} tokens.",
+      "tokenCapInvalid": "The default token cap is a positive whole number of tokens.",
+      "save": "Save"
     }
   },
   "errors": {

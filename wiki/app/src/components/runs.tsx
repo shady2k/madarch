@@ -19,7 +19,7 @@ import type { SectionContext } from './types.js';
 export function RunsSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
-  const read = useCommandRead<{ runs: readonly FillRunDetail[] }>('runs', (signal) => readFillRuns(context.base, signal));
+  const read = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => readFillRuns(context.base, signal));
   useChangeStream(context.base, read.reload);
   const labelOf = (kind: string): string | undefined => context.navigation?.kinds.find((one) => one.kind === kind)?.many;
   const selection = (run: FillRunDetail): string => {
@@ -38,18 +38,18 @@ export function RunsSection({ context }: { readonly context: SectionContext }): 
       {read.data === null ? null : (
         <PlainList className="m-0 grid list-none gap-2 p-0">
           {read.data.runs.map((run) => {
-            const failed = run.units.filter((unit) => unit.status === 'failed').length;
+            const failed = run.units.filter((unit) => unit.phase === 'failed').length;
             return (
-            <ListItem key={run.runId} className="rounded-lg border border-line p-3" data-testid="runs-run" data-state={run.state}>
+            <ListItem key={run.runId} className="rounded-lg border border-line p-3" data-testid="runs-run" data-state={run.phase}>
               <Stack className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <TextLink href={context.base + runAddress(run.runId)} onClick={(event) => { event.preventDefault(); context.open(runAddress(run.runId)); }} className="font-medium">
                   {momentWords(run.startedAt, language)}
                 </TextLink>
-                <Badge variant={run.state === 'running' || run.state === 'paused' ? 'solid' : 'outline'}>{t(`knowledge.fillRun.state.${run.state}`, { defaultValue: run.state })}</Badge>
+                <Badge variant={run.phase === 'running' || run.phase === 'paused' ? 'solid' : 'outline'}>{t(`knowledge.fillRun.status.${run.phase}`, { defaultValue: run.phase })}</Badge>
                 {run.finishedAt === null ? null : <Paragraph className="m-0 text-small text-muted">{momentWords(run.finishedAt, language)}</Paragraph>}
               </Stack>
               <Paragraph className="m-0 mt-1 text-small text-secondary" data-testid="runs-summary">
-                {t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length })}
+                {t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })}
                 {' · '}{t('runs.took', { duration: durationWords(run.elapsedMs, language) })}
                 {failed === 0 ? '' : ` · ${t('runs.failedUnits', { count: failed })}`}
               </Paragraph>
