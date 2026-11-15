@@ -18,20 +18,6 @@ relation-constraints:
   - realises
 template-policy: none
 fields:
-- name: legacy_id
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
 - name: status
   type: json
   reference: value-set-entry

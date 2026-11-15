@@ -17,25 +17,6 @@ relation-constraints:
 template-policy: page
 source: graph
 fields:
-- name: legacy_id
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
-  type: json
-  nullable: true
-  producers:
-  - person
 - name: status
   type: json
   reference: value-set-entry
@@ -97,7 +78,6 @@ fields:
   producers:
   - person
 origin: person
-import-folder: docs/tasks
 nav: own-page
 details:
 - status

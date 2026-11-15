@@ -13,28 +13,7 @@ relation-constraints:
   - evidences
 template-policy: page
 source: graph
-fields:
-- name: legacy_id
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
-  type: json
-  nullable: true
-  producers:
-  - person
 origin: person
-import-folder: docs/corrections
 nav: loop
 details:
 - statement
