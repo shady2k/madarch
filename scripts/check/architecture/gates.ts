@@ -645,7 +645,7 @@ export function uiKitViolations(root: string, modules: Map<string, GateModule> =
 const NON_TEXT_PROPS = new Set([
   'className', 'style', 'id', 'role', 'type', 'name', 'value', 'href', 'to', 'src', 'key', 'ref', 'as', 'variant',
   'size', 'slot', 'target', 'rel', 'htmlFor', 'tabIndex', 'method', 'action', 'dir', 'lang', 'form', 'autoComplete',
-  'inputMode', 'spellCheck', 'contentEditable', 'draggable', 'data-testid',
+  'inputMode', 'spellCheck', 'contentEditable', 'draggable', 'data-testid', 'align', 'kind'
 ]);
 
 /** Gate 9: a JSX text or a literal in a visible prop is refused outside the locale files. */

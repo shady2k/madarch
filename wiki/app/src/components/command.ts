@@ -186,7 +186,7 @@ export const peekGraphVerdicts = (base: string, signal?: AbortSignal): Promise<G
   command(base, '/api/graph-verdicts?peek=1', signal === undefined ? {} : { signal });
 
 /** One page of the rows a person still has to look at. */
-export const readGraphVerdictRows = (base: string, options: { readonly offset: number; readonly limit: number }, signal?: AbortSignal): Promise<GraphVerdictsAnswer> =>
+export const graphVerdictRows = (base: string, options: { readonly offset: number; readonly limit: number }, signal?: AbortSignal): Promise<GraphVerdictsAnswer> =>
   command(base, `/api/graph-verdicts?verdict=non-valid&limit=${String(options.limit)}&offset=${String(options.offset)}`, signal === undefined ? {} : { signal });
 
 /** Runs one verdict pass and answers its first page. */

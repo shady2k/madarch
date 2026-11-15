@@ -19,7 +19,7 @@ import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { Select } from './ui/select.js';
 import {
-  chooseAgent, chooseModelRole, isOffline, peekGraphVerdicts, readAgentChoices, readAgents, readGraphVerdictRows, readProductSettings, readReaderSettings,
+  chooseAgent, chooseModelRole, isOffline, peekGraphVerdicts, readAgentChoices, readAgents, graphVerdictRows, readProductSettings, readReaderSettings,
   rewritePages, runGraphVerdicts, saveGraphVerdictBudgets, saveProductSettings, saveReaderRole, startFresh,
   useChangeStream, useCommandRead,
   type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type GraphVerdictsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole, type ResetPlanAnswer,
@@ -146,7 +146,7 @@ function VerdictsSection({ base, disabled, busy }: { readonly base: string; read
     setError(null);
     peekGraphVerdicts(base, controller.signal)
       .then(async (answer) => {
-        const page = answer.report === undefined ? null : await readGraphVerdictRows(base, { offset, limit: 100 }, controller.signal);
+        const page = answer.report === undefined ? null : await graphVerdictRows(base, { offset, limit: 100 }, controller.signal);
         if (controller.signal.aborted) return;
         setView(page === null ? answer : { ...answer, rows: page.rows, total: page.total, offset: page.offset, limit: page.limit });
         setItems(String(answer.budgets.itemsPerRun));

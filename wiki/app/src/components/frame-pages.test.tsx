@@ -93,10 +93,10 @@ const VERDICTS = {
     generatedAt: '2026-11-15T10:00:00.000Z', validatorVersion: '1.2.3',
     totals: { items: 40, valid: 30, invalid: 4, unreviewed: 6 },
     reasons: [{ reason: 'no rule decided', count: 6 }],
-    byKind: [{ role: 'node', kind: 'doc.term', valid: 3, invalid: 1, unreviewed: 2 }],
+    byKind: [{ role: 'node', kind: 'demo.thing', valid: 3, invalid: 1, unreviewed: 2 }],
   },
   total: 10, offset: 0, limit: 100,
-  rows: [{ id: 'n1', role: 'node', kind: 'doc.term', label: 'Queue', verdict: 'unreviewed', reason: 'no rule decided' }],
+  rows: [{ id: 'n1', role: 'node', kind: 'demo.thing', label: 'Queue', verdict: 'unreviewed', reason: 'no rule decided' }],
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
@@ -272,7 +272,7 @@ test('the settings page shows the graph verdicts, the bounds, where the product 
     expect(page.container.querySelector('[data-testid="settings-verdicts-total"]')?.textContent).toBe('40');
     expect(page.container.querySelector('[data-testid="settings-verdicts-invalid"]')?.textContent).toBe('4');
     expect(page.container.querySelectorAll('[data-testid="settings-verdicts-row"]')).toHaveLength(1);
-    expect(page.container.querySelector('[data-testid="settings-verdicts-kinds"]')?.textContent).toContain('doc.term');
+    expect(page.container.querySelector('[data-testid="settings-verdicts-kinds"]')?.textContent).toContain('demo.thing');
     await act(async () => { type(page.container.querySelector('[data-testid="settings-verdict-items-per-run"]') as HTMLInputElement, '250'); });
     await act(async () => { (page.container.querySelector('[data-testid="settings-verdicts-save"]') as HTMLButtonElement).click(); });
     await settle();

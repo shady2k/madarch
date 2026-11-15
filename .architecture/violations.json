@@ -1266,11 +1266,6 @@
   },
   {
     "rule": "i18n-text",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "align: baseline"
-  },
-  {
-    "rule": "i18n-text",
     "file": "wiki/app/src/components/plugin-names.tsx",
     "symbol": ","
   },
@@ -1353,11 +1348,6 @@
     "rule": "i18n-text",
     "file": "wiki/app/src/components/table.tsx",
     "symbol": "→"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/frame.tsx",
-    "symbol": "align: end"
   },
   {
     "rule": "i18n-text",
