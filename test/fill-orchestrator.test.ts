@@ -23,7 +23,7 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageE
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, recordUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
@@ -32,7 +32,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit, renewRunLease, RUN_LEASE_TTL_MS } from '../src/fill/state-store.js';
+import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit, RUN_HEARTBEAT_MS, RUN_LEASE_TTL_MS } from '../src/fill/state-store.js';
 import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -1247,15 +1247,47 @@ describe('what the review found, kept as tests', () => {
     expect((await readRunUnits(opened.owner, runId)).every((unit) => isFinalUnitState(unit.state))).toBe(true);
   });
 
-  test('a planning stage that outlives the lease keeps it by renewing the run lease', async () => {
-    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
+  test('a planning stage that outlives the lease keeps it through the production heartbeat', async () => {
+    let entered: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const reached = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const stage = draftingStage('snapshot', { units: ['src'] });
+    stage.plan = async () => { entered!(); await gate; return { units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }; };
+    const opened = await world({ registry: new StageRegistry().register(stage) });
+    const started = await startRun(opened.orchestrator, { runId: 'run-long-plan' });
+    expect(started.ok).toBe(true);
+    const planning = planRun(opened.orchestrator, { runId: 'run-long-plan' });
+    await reached;
     opened.clock.advance(RUN_LEASE_TTL_MS + 1);
-    const held = await readRun(opened.owner, runId);
-    expect(held).not.toBeNull();
-    expect(await renewRunLease(opened.owner, { runId, ownerToken: held!.context.owner?.token ?? `run:${runId}`, at: opened.clock.now() })).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, RUN_HEARTBEAT_MS + 500));
+    release!();
+    const plan = await planning;
+    expect(plan.outcome).toBe('planned');
     const next = await startRun(opened.orchestrator, { runId: 'run-after-long-plan' });
     expect(next.ok).toBe(false);
-    expect((await readRun(opened.owner, runId))?.state).toBe('running');
+    expect((await readRun(opened.owner, 'run-long-plan'))?.state).toBe('running');
+  });
+
+  test('a recovered run refuses the late planner\'s next unit and stays final', async () => {
+    let entered: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const reached = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const stage = draftingStage('snapshot', { units: ['src'] });
+    stage.plan = async () => { entered!(); await gate; return { units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }; };
+    const opened = await world({ registry: new StageRegistry().register(stage) });
+    await startRun(opened.orchestrator, { runId: 'run-recovered' });
+    const planning = planRun(opened.orchestrator, { runId: 'run-recovered' });
+    await reached;
+    if (opened.orchestrator.heartbeat.timer !== undefined) clearInterval(opened.orchestrator.heartbeat.timer);
+    opened.clock.advance(RUN_LEASE_TTL_MS + 1);
+    await recoverOrphanedRun(opened.orchestrator, { runId: 'run-recovered', at: opened.clock.now() });
+    release!();
+    const plan = await planning;
+    expect(plan.outcome).not.toBe('planned');
+    expect((await readRun(opened.owner, 'run-recovered'))?.state).toBe('failed');
+    expect((await readRunUnits(opened.owner, 'run-recovered')).every((unit) => isFinalUnitState(unit.state))).toBe(true);
   });
 
   test('a live owner\'s lease keeps a second start from ending its run', async () => {

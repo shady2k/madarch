@@ -14,7 +14,6 @@ import { closeTrace, openTrace, runInTrace, withSpan } from '../obs/trace.js';
 import { traceKeepOf } from '../knowledge/settings.js';
 import { log } from '../obs/log.js';
 import { here } from './fsm-core.js';
-import { readRun, renewRunLease, RUN_HEARTBEAT_MS } from './state-store.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import { fillSteps } from './steps.js';
@@ -175,14 +174,6 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
       ...(options.workers === undefined ? {} : { workers: options.workers }),
       ...(options.maxPasses === undefined ? {} : { maxPasses: options.maxPasses }),
     });
-    const heartbeat = setInterval(() => {
-      void (async () => {
-        const held = await readRun(options.database, runId).catch(() => null);
-        if (held === null || ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(held.state)) return;
-        await renewRunLease(options.database, { runId, ownerToken: held.context.owner?.token ?? `run:${runId}`, at: Date.now() }).catch(() => undefined);
-      })();
-    }, RUN_HEARTBEAT_MS);
-    heartbeat.unref?.();
     try {
       options.onService?.(service);
       const result = await service.run({ product: fill.product, runId });
@@ -194,7 +185,6 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
       if (unread.length === 0) return withKind;
       return withKind.ok ? { ...withKind, unread: [...unread] } : withKind;
     } finally {
-      clearInterval(heartbeat);
       if (options.keepService !== true) await service.stop();
     }
   } finally {

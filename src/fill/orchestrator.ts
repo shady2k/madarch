@@ -104,6 +104,7 @@ import {
   createUnitIn,
   leaseUnit,
   openChain,
+  PlanningFenceError,
   readChain,
   readRun,
   readRunLease,
@@ -115,6 +116,7 @@ import {
   retryGeneration,
   RETRYABLE_UNIT_STATES,
   renewRunLease,
+  RUN_HEARTBEAT_MS,
   revokeUnitLease,
   type ChainRecord,
   type RunRecord,
@@ -320,6 +322,8 @@ export interface FillOrchestrator {
    * removes it when the attempt ends.
    */
   readonly authority: Map<string, AbortController>;
+  /** The production heartbeat of the run this orchestrator drives. */
+  readonly heartbeat: { timer: ReturnType<typeof setInterval> | undefined; runId: string | null; ownerToken: string | null };
 }
 
 /** Builds the orchestrator, resolving every seam and the limits. */
@@ -350,6 +354,7 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
+    heartbeat: { timer: undefined, runId: null, ownerToken: null },
   };
 }
 
@@ -725,7 +730,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   const configurationDigest = read.ok
     ? snapshotStageConfigurations(read.graph.stages)
     : canonicalJsonDigest({ starved: read.starvation.map((path) => path.path).sort(byCodePoint) });
-  const recorded = await recordRunConfiguration(database, { runId: run.runId, digest: configurationDigest, snapshot, at });
+  const recorded = await recordRunConfiguration(database, { runId: run.runId, digest: configurationDigest, snapshot, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock() });
   if (recorded.digest !== configurationDigest) {
     return {
       outcome: 'refused',
@@ -766,7 +771,13 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   // publications of its earlier attempts at a resumed one.
   const publishedByNow = await readRunPublicationCount(database, run.runId);
   for (const [stagePosition, stageId] of graph.order.entries()) {
-    const stage = await planStageUnits(orchestrator, { run, graph, stageId, stagePosition, at });
+    let stage: StagePlanOutcome & { readonly refusal?: PlanRefusal };
+    try {
+      stage = await planStageUnits(orchestrator, { run, graph, stageId, stagePosition, at });
+    } catch (error) {
+      if (error instanceof PlanningFenceError) return { outcome: 'refused', run, code: error.code, reason: error.message };
+      throw error;
+    }
     if (stage.refusal !== undefined) return { outcome: 'refused', run, code: stage.refusal.code, reason: stage.refusal.reason };
     units.push(...stage.units);
     reused.push(...stage.reused);
@@ -775,7 +786,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
     // a stage that planned no unit may be planned again once the run has published
     // past its attempt what a producer of its inputs makes, and never twice
     // without one.
-    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at });
+    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock() });
     await emit(orchestrator, {
       runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-planned',
       summary: `stage ${stageId} planned ${stage.units.length} ${stage.units.length === 1 ? 'unit' : 'units'}${stage.reused.length > 0 ? ` and inherited ${stage.reused.length}` : ''}`,
@@ -859,7 +870,7 @@ async function planStageUnitsSpanned(
     const before = await readUnit(database, unitId);
     const answer = await createUnit(database, {
       unitId, product: orchestrator.product, runId: run.runId, stageId,
-      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
+      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
     });
     if (answer.runId !== run.runId) {
         // The identity already has a generation another run owns. Decision 0027's reuse is exact, and decision
@@ -890,7 +901,7 @@ async function planStageUnitsSpanned(
           }
           await recordUnitPlan(database, {
             unitId, generation: replaced.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: replaced.record.generation, stagePosition, planPosition, state: replaced.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: replaced.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${replaced.record.generation}, replacing the stale generation ${answer.generation} this unit stood on` });
@@ -908,7 +919,7 @@ async function planStageUnitsSpanned(
           }
           await recordUnitPlan(database, {
             unitId, generation: retried.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: retried.record.generation, stagePosition, planPosition, state: retried.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: retried.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${retried.record.generation}, retrying the ${answer.state} generation ${answer.generation} run "${answer.runId}" left` });
@@ -924,7 +935,7 @@ async function planStageUnitsSpanned(
       }
       await recordUnitPlan(database, {
         unitId, generation: answer.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
       });
       const created = before === null;
       units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: answer.generation, stagePosition, planPosition, state: answer.state, created });
@@ -2242,6 +2253,29 @@ function ownerPidOf(run: RunRecord): number {
   return run.context.owner?.pid ?? process.pid;
 }
 
+/** Starts the production lease heartbeat for one run, using the orchestrator's own clock. */
+function beginHeartbeat(orchestrator: FillOrchestrator, run: RunRecord): void {
+  stopHeartbeat(orchestrator);
+  const ownerToken = ownerTokenOf(run);
+  orchestrator.heartbeat.runId = run.runId;
+  orchestrator.heartbeat.ownerToken = ownerToken;
+  const timer = setInterval(() => {
+    void renewRunLease(orchestrator.database, { runId: run.runId, ownerToken, at: orchestrator.clock() }).catch(() => undefined);
+  }, RUN_HEARTBEAT_MS);
+  timer.unref?.();
+  orchestrator.heartbeat.timer = timer;
+}
+
+/** Stops the heartbeat when no run of this orchestrator is live. */
+function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestrator['heartbeat'] }): void {
+  const heartbeat = orchestrator.heartbeat;
+  if (heartbeat === undefined) return;
+  if (heartbeat.timer !== undefined) clearInterval(heartbeat.timer);
+  heartbeat.timer = undefined;
+  heartbeat.runId = null;
+  heartbeat.ownerToken = null;
+}
+
 /**
  * Ends a run whose owner's lease lapsed: the recovery claims the expired lease
  * under the same row lock a planning step uses, so a live planner renewing it
@@ -2290,6 +2324,7 @@ export async function startRun(orchestrator: FillOrchestrator, options: { readon
   const run = existing ?? await createRun(database, { runId: options.runId, product: orchestrator.product, at });
   const lease = await claimRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), ownerPid: ownerPidOf(run), at });
   if (lease === null) return { ok: false, code: 'fill-orchestrator/run-held', reason: `fill-orchestrator: run "${run.runId}" is held by another live process; its lease has not expired` };
+  beginHeartbeat(orchestrator, run);
   if (chain.state === 'active' && chain.context.activeRunId !== run.runId) {
     // A chain whose run ended is free: a run that is terminal cannot finish or be cancelled any further,
     // so the next run wakes it rather than being refused by a chain nothing can release.
@@ -2398,6 +2433,7 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
   const run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (isFinalRunState(run.state)) {
+    stopHeartbeat(orchestrator);
     await skipOutstandingUnits(orchestrator, run, `the run ended ${runPhaseOf(run.state)}`);
     return { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) };
   }
@@ -2448,7 +2484,7 @@ async function settleChain(orchestrator: RunControlContext, _runId: string, evid
 }
 
 /** Durable cancellation and settlement need no registry, source, queue or executor. */
-export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'>;
+export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'> & { readonly heartbeat?: FillOrchestrator['heartbeat'] };
 
 /** What one cancellation did. */
 export interface CancelOutcome {
@@ -2783,6 +2819,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     return { run, admitted: 0, swept: 0, stale: 0, settlement: { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) }, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
   }
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
+    stopHeartbeat(orchestrator);
     const settlement = await settleRun(orchestrator, { runId: run.runId });
     tick('settle');
     return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };

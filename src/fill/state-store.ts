@@ -40,6 +40,7 @@ import { here, raise, withLocation } from './fsm-core.js';
 import type { Refusal } from './fsm-core.js';
 import {
   CHAIN_STATES,
+  FINAL_RUN_STATES,
   RUN_STATES,
   UNIT_STATES,
   chainMachine,
@@ -72,6 +73,27 @@ import type {
  * caller holds.
  */
 export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
+
+/** A planning write refused because the run has ended or its lease belongs to another process. */
+export class PlanningFenceError extends Error {
+  readonly code = 'fill-orchestrator/run-not-owned';
+  constructor(readonly runId: string) { super(`fill-orchestrator: run "${runId}" is no longer held by this process's lease`); }
+}
+
+/**
+ * Checks, inside the caller's transaction and under the run row's lock, that the
+ * run is still non-final and this process's lease is the one in force. Every
+ * planning write calls this: a recovery that took the lease writes the ending,
+ * and a late planner's next write refuses instead of creating a unit under it.
+ */
+export async function assertPlanningFenceIn(executor: SqlExecutor, options: { readonly runId: string; readonly ownerToken: string; readonly at: number }): Promise<void> {
+  const { rows } = await executor.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+  const run = rows[0];
+  if (run === undefined || (FINAL_RUN_STATES as readonly string[]).includes(run.state)) throw new PlanningFenceError(options.runId);
+  const lease = await executor.query<{ owner_token: string; expires_at: unknown }>('SELECT owner_token, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE', [options.runId]);
+  const held = lease.rows[0];
+  if (held === undefined || held.owner_token !== options.ownerToken || millis(held.expires_at) <= options.at) throw new PlanningFenceError(options.runId);
+}
 
 /** The tables this store owns, named in operation failures. */
 export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_run_lease', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
@@ -462,7 +484,7 @@ export async function claimRunLease(database: FillStateDatabase, options: { read
 /** Renews a lease only for the token that holds it; false when another owner or no lease stands. */
 export async function renewRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly at: number; readonly ttlMs?: number }): Promise<boolean> {
   return await run(here(), database, `renewRunLease(${options.runId})`, ['fill_run_lease'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string }>('UPDATE fill_run_lease SET heartbeat_at = $3, expires_at = $4 WHERE run_id = $1 AND owner_token = $2 RETURNING run_id', [options.runId, options.ownerToken, options.at, options.at + (options.ttlMs ?? RUN_LEASE_TTL_MS)]);
+    const { rows } = await executor.query<{ run_id: string }>('UPDATE fill_run_lease SET heartbeat_at = $3, expires_at = GREATEST(expires_at, $4) WHERE run_id = $1 AND owner_token = $2 RETURNING run_id', [options.runId, options.ownerToken, options.at, options.at + (options.ttlMs ?? RUN_LEASE_TTL_MS)]);
     return rows.length > 0;
   }, 'write');
 }
@@ -532,6 +554,10 @@ export interface UnitCreateOptions {
   readonly inputsDigest: string;
   readonly retries: number;
   readonly at: number;
+  /** The planning owner's lease token; a planning write refuses when it is no longer in force. */
+  readonly ownerToken?: string;
+  /** The moment the fence is judged at; the planning clock when it differs from the plan's timestamp. */
+  readonly ownerAt?: number;
 }
 
 /**
@@ -542,6 +568,7 @@ export interface UnitCreateOptions {
  * checkpoint and a sealed child set" asks for.
  */
 export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOptions): Promise<UnitRecord> {
+    if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
     const context = newUnitContext({ generation: 1, retries: options.retries });
     const inserted = await executor.query<UnitRow>(
       'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at',
