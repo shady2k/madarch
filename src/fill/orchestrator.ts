@@ -47,6 +47,7 @@ import { ClosureRefusal } from '../plugin/closure-refusal.js';
 import { readProducerOutcomes, readProducerOutcomesIn } from '../graph/producer-outcomes.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
+import { log } from '../obs/log.js';
 import { annotateSpan, withSpan } from '../obs/trace.js';
 import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
@@ -399,6 +400,10 @@ async function emit(
     kind: event.kind,
     summary: event.summary,
   });
+  // A failure is a log line as well as an event (madarch-64o5.88): the run's own log holds the words a person reads on
+  // the logs page — the plugin's error with its file, line and path — and the event's text is the one that stands there.
+  if (event.kind === 'unit-failed' || event.kind === 'run-failed') log.error(event.summary, { runId: event.runId, stage: event.stage, unitId: event.unitId });
+  else if (event.kind === 'unit-blocked' || event.kind === 'run-blocked') log.warn(event.summary, { runId: event.runId, stage: event.stage, unitId: event.unitId });
   if (orchestrator.sink !== undefined) await orchestrator.sink(stored);
 }
 

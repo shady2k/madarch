@@ -4,7 +4,7 @@ import { RELEASE_CLOSURE_HASHES } from '../src/plugin/release-closures.js';
 /** Real sandboxed plugin turns and a fake ACP peer: no model, adapter install or credentials. */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
@@ -174,6 +174,10 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       expect(unit?.opened.map((open) => open.path)).toEqual(['docs/a.md', 'docs/b.md']);
       expect(unit?.returned?.text).toBe(JSON.stringify(answer));
       expect(unit?.usage?.context).toEqual({ used: 31, size: 1000 });
+      // Each plugin run's standard error is kept with the run too (madarch-64o5.88): the unit's scratch folder is
+      // temporary, and the logs page reads the record after it is gone.
+      const pluginLogs = readdirSync(join(f.home, 'traces', `${run.runId}.plugins`));
+      expect(pluginLogs.length).toBeGreaterThanOrEqual(1);
     } finally { await owner.close(); }
   }, 120_000);
 

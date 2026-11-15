@@ -24,10 +24,12 @@
  */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
-import { traceStem } from '../obs/trace.js';
 import type { AcpUpdate } from './acp.js';
+import { agentExchangeFolder, recordFileName } from './run-records.js';
+
+// The folder is read here and written by `src/fill/run-records.ts`: a test and the run's own reader name it from here.
+export { agentExchangeFolder };
 
 /** The schema tag of a record, so a reader knows what it read. */
 export const AGENT_EXCHANGE_SCHEMA = 'madarch.agent-exchange@1';
@@ -168,15 +170,9 @@ function locationPath(raw: unknown): string | undefined {
   return undefined;
 }
 
-/** The folder one run's agent exchanges stand in, beside the run's trace. */
-export function agentExchangeFolder(tracesFolder: string, run: string): string {
-  return join(tracesFolder, `${traceStem(run)}.agents`);
-}
-
 /** The file one unit's exchange is kept in: its unit id, made a file name, and a digest so two ids stay two files. */
 export function agentExchangeFile(folder: string, unit: string): string {
-  const name = `${unit.replace(/[^A-Za-z0-9._-]/gu, '-')}-${createHash('sha256').update(unit).digest('hex').slice(0, 8)}.json`;
-  return join(folder, name);
+  return join(folder, recordFileName(unit, 'json'));
 }
 
 /**
