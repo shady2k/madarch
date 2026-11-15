@@ -343,6 +343,59 @@ test('a change event refreshes the navigation and asks the current page again', 
   }
 });
 
+test('a unit publication grows the sidebar before the run ends, without a reload', async () => {
+  class FakeSource {
+    static readonly all: FakeSource[] = [];
+    private readonly listeners: ((event: MessageEvent<string>) => void)[] = [];
+    constructor() { FakeSource.all.push(this); }
+    addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void { if (type === 'change') this.listeners.push(listener); }
+    close(): void { /* closed by the app */ }
+    emit(data = ''): void { for (const listener of this.listeners) listener({ data } as MessageEvent<string>); }
+  }
+  (globalThis as { EventSource?: unknown }).EventSource = FakeSource as unknown as typeof EventSource;
+  let navCount = 0;
+  let bootstraps = 0;
+  let pages = 0;
+  const nav = (count: number) => ({ ...navigation, kinds: navigation.kinds.map((one) => ({ ...one, count })) });
+  (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
+    const path = String(url);
+    if (!path.endsWith('/graphql')) {
+      const command = path.includes('/api/settings')
+        ? { role: readerRole, asked: true, roles: ['analyst', 'everything'] }
+        : path.includes('/api/problems') ? { open: 0, closed: 0, dismissed: 0, sections: {} } : { fill: { state: 'idle' } };
+      return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
+    if (body.query.includes('bootstrap')) {
+      bootstraps += 1;
+      return new Response(JSON.stringify({ data: { bootstrap, navigation: nav(navCount) } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (body.query.includes('navigation')) {
+      return new Response(JSON.stringify({ data: { navigation: nav(navCount) } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    pages += 1;
+    return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    expect(page.container.querySelector('[data-testid="nav-kind"]')).toBeNull();
+    // The stream's opening revision is not a change; the unit publication after it is.
+    await act(async () => { for (const source of FakeSource.all) source.emit(JSON.stringify({ revision: '1' })); });
+    navCount = 4;
+    await act(async () => { for (const source of FakeSource.all) source.emit(JSON.stringify({ revision: '2', kinds: ['a.b'], facts: 4 })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
+    await settle();
+    expect(page.container.querySelector('[data-testid="nav-kind"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="nav-count"]')?.textContent).toBe('4');
+    expect(page.container.querySelector('[data-testid="nav-kind"]')?.getAttribute('data-changed')).toBe('true');
+    expect(bootstraps).toBe(1);
+    expect(pages).toBe(1);
+  } finally {
+    await page.close();
+  }
+}, 10_000);
+
 test('the sidebar\'s «Ждёт вас» count is the problems listing\'s open total', async () => {
   window.history.pushState({}, '', '/');
   const page = await render();

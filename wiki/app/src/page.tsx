@@ -47,6 +47,8 @@ export interface PageRuntime {
   readonly onRole?: (role: string) => void;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
   readonly pageName: string | null;
+  /** Kinds a unit publication just changed: a page that shows them may highlight them. */
+  readonly changedKinds?: ReadonlySet<string>;
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
@@ -81,6 +83,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       navigation: runtime.navigation,
       ...(runtime.onRole === undefined ? {} : { onRole: runtime.onRole }),
       pageName: runtime.pageName,
+      ...(runtime.changedKinds === undefined ? {} : { changedKinds: runtime.changedKinds }),
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);

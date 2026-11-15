@@ -36,7 +36,7 @@ import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
-import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
@@ -44,7 +44,7 @@ import { headCommitOf } from '../product/fill-updates.js';
 import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead } from './graph-read.js';
 import { graphMarkdownEntities, pageOpinionKinds } from './markdown.js';
-import type { AgentOffer, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
+import type { AgentOffer, ChangeNotice, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { agentUsageOf, readTraceRunSummary, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -220,7 +220,10 @@ export class KnowledgeProduct {
   /** The paused run a next fill takes up, if this product has one. */
   private pausedRun: PausedRun | undefined;
   private closed = false;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(notice: ChangeNotice) => void>();
+  /** The last run's progress already announced and the state it was last announced at. */
+  private progressNotice: { runId: string; seq: number } | undefined;
+  private lastRunState: { runId: string; state: string } | undefined;
   private readonly pins = new Map<string, RepositoryPin>();
   private revision = 0;
   private writer: WriterState = { state: 'idle', agent: null, units: [] };
@@ -671,7 +674,7 @@ export class KnowledgeProduct {
    * after each commit the fill reads and with each change of the fill's state, and
    * a notice for the stream to ask at once.
    */
-  readonly changes: { revision(): string; subscribe(listener: () => void): () => void } = {
+  readonly changes: { revision(): string; subscribe(listener: (notice: ChangeNotice) => void): () => void } = {
     revision: () => (this.revision === 0 ? '' : String(this.revision)),
     subscribe: (listener) => {
       this.listeners.add(listener);
@@ -679,11 +682,12 @@ export class KnowledgeProduct {
     },
   };
 
-  private notify(): void {
+  private notify(notice: Omit<ChangeNotice, 'revision'> = { structure: true }): void {
     this.revision += 1;
+    const full: ChangeNotice = { revision: String(this.revision), ...notice };
     for (const listener of this.listeners) {
       try {
-        listener();
+        listener(full);
       } catch {
         // a listener that fails is its own stream's problem
       }
@@ -2056,6 +2060,33 @@ export class KnowledgeProduct {
   }
 
   /**
+   * One notice for each unit publication the store's run has written since the last look (madarch-64o5.91): the kind
+   * the unit published and the facts it wrote, read from the run's durable progress. The stream carries them to a page
+   * that is open while a fill runs in another process.
+   */
+  private async announceUnitPublications(runId: string): Promise<void> {
+    const owner = this.reader?.owner;
+    if (owner === undefined) return;
+    const events = await readProgress(owner, runId);
+    const seen = this.progressNotice?.runId === runId ? this.progressNotice.seq : 0;
+    let last = seen;
+    for (const event of events) {
+      if (event.seq <= seen) continue;
+      last = event.seq;
+      if (event.kind !== 'unit-published') continue;
+      const unit = event.unitId.slice(event.unitId.lastIndexOf('/') + 1);
+      const colon = unit.indexOf(':');
+      // A scoped unit names its scope after the kind (`code.file#<hash>`, `code.file@<scope>`): the graph's kind is
+      // the part before it, which is what the navigation and a page address use.
+      const kind = (colon < 0 ? unit : unit.slice(colon + 1)).split(/[#@]/u)[0] ?? '';
+      if (kind === '') continue;
+      const facts = /published\s+(\d+)\s+facts?/u.exec(event.summary)?.[1];
+      this.notify({ kinds: [kind], ...(facts === undefined ? {} : { facts: Number(facts) }) });
+    }
+    this.progressNotice = { runId, seq: last };
+  }
+
+  /**
    * The store's own fill state (madarch-8bdc.9): a fill another process runs is answered here as running, and its end is
    * answered as done — two api instances of one server agree about the same fill, and neither has to have pressed it.
    */
@@ -2063,9 +2094,11 @@ export class KnowledgeProduct {
     if (this.reader === undefined) return;
     // A publication of a fill this process did not run moves the numbers an answer states (madarch-8bdc.9): the store's
     // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
+    let moved = false;
     try {
       const stamp = await readStoreStamp(this.reader.owner);
       if (this.storeStamp !== stamp) {
+        moved = true;
         this.storeStamp = stamp;
         this.generation += 1;
         this.kindCountsCache.clear();
@@ -2088,6 +2121,20 @@ export class KnowledgeProduct {
         : (await readRuns(this.reader.owner, identity.name))[0] ?? null;
     } catch {
       return;
+    }
+    // A publication from another process carries the units it wrote: one notice per unit publication, so a page open
+    // while a fill runs sees each kind and its counts without waiting for the run's end (madarch-64o5.91). A status
+    // poll can see the store move before the run's progress row is committed, so an active run is read on every poll
+    // (the run page already reads it once a second) and a new run is read on its first sight.
+    const activeRun = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(named.state);
+    if (named !== null && (moved || activeRun || this.progressNotice?.runId !== named.runId)) {
+      await this.announceUnitPublications(named.runId).catch(() => undefined);
+    }
+    // A run that starts, pauses or ends may also move the product's files and templates: a structure notice lets the
+    // frame read its bootstrap again, once per transition and never on every poll.
+    if (named !== null && (this.lastRunState?.runId !== named.runId || this.lastRunState?.state !== named.state)) {
+      this.lastRunState = { runId: named.runId, state: named.state };
+      this.notify({ structure: true });
     }
     // A queued request belongs to this process until its runner settles it. The chain may still name the previous
     // run before the worker claims this request; adopting that run would report its old end as this press's result.

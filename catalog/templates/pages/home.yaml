@@ -37,10 +37,6 @@ sections:
     component: kinds
     on: root
     title: { en: What the graph holds, ru: Что держит граф }
-    query: |
-      navigation(lang: $lang) {
-        kinds { kind one many count entryId }
-      }
     params: {}
 
   - id: byLanguage

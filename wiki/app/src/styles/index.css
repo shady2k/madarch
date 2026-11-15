@@ -716,6 +716,16 @@ main tbody tr:nth-child(odd) {
   margin-block-start: 1.5em;
 }
 
+/* A kind a unit publication just changed (madarch-64o5.91): its row or sidebar link flashes once, then settles. */
+[data-changed="true"] {
+  animation: ui-changed 2s ease-out;
+}
+
+@keyframes ui-changed {
+  from { background-color: var(--surface-active); }
+  to { background-color: transparent; }
+}
+
 /* 4.4 A rule between sections. */
 main hr {
   border: 0;

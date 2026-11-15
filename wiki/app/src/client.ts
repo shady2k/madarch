@@ -65,6 +65,16 @@ export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
   }
 }`;
 
+/** The frame's navigation alone: what the sidebar, the home's kind counts and the catalogue's counts show. */
+export const NAVIGATION_QUERY = `query Navigation($lang: String) {
+  navigation(lang: $lang) {
+    product
+    groups { name labels short open parent }
+    kinds { kind one many definition taken group nav count entryId }
+    purposes { id labels }
+  }
+}`;
+
 export interface GraphqlError {
   readonly message: string;
   readonly extensions?: { readonly code?: string };
@@ -98,7 +108,7 @@ export async function postQuery<T>(base: string, query: string, variables: Recor
     return { errors: [], offline: true };
   }
   // A proxy in front of the server answers these when the server behind it is not there; the link, not the graph, is
-  // what failed.
+  // what failed. A 503 is the server saying it is starting, and the frame says that instead of an error.
   if (response.status === 503) {
     reportOffline('starting');
     return { errors: [], offline: true };
@@ -122,6 +132,15 @@ export async function readBootstrap(base: string, lang: string): Promise<{ boots
   if (answer.errors.length > 0) return { message: answer.errors.map((error) => error.message).join('; ') };
   if (answer.data?.bootstrap === undefined || answer.data.navigation === undefined) return { message: 'the graph answered no bootstrap' };
   return { bootstrap: answer.data.bootstrap, navigation: answer.data.navigation };
+}
+
+/** The navigation alone, for a page that stays open while a fill changes its counts. */
+export async function readNavigation(base: string, lang: string): Promise<{ navigation?: Navigation; message?: string; offline?: boolean }> {
+  const answer = await postQuery<{ navigation?: Navigation }>(base, NAVIGATION_QUERY, { lang });
+  if (answer.offline === true) return { offline: true };
+  if (answer.errors.length > 0) return { message: answer.errors.map((error) => error.message).join('; ') };
+  if (answer.data?.navigation === undefined) return { message: 'the graph answered no navigation' };
+  return { navigation: answer.data.navigation };
 }
 
 /** Every error's code the answer carried, so a stale schema can be told from a broken page. */

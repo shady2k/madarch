@@ -9,10 +9,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
-import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
+import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
-import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
+import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
@@ -87,6 +87,9 @@ export function App(): ReactElement {
   const savedRole = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [lastDataAt, setLastDataAt] = useState<number | null>(null);
+  const [changedKinds, setChangedKinds] = useState<ReadonlySet<string>>(new Set());
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const navigationRequest = useRef(0);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
@@ -133,6 +136,16 @@ export function App(): ReactElement {
     setNavigation(read.navigation ?? null);
     setLastDataAt(Date.now());
     return read.bootstrap;
+  }, [base, language]);
+
+  /** The frame's navigation alone: a unit publication changes its kind counts, not the product's templates. */
+  const refreshNavigation = useCallback(async (): Promise<void> => {
+    const request = ++navigationRequest.current;
+    const read = await readNavigation(base, language);
+    if (!alive.current || request !== navigationRequest.current) return;
+    if (read.navigation === undefined) return;
+    setNavigation(read.navigation);
+    setLastDataAt(Date.now());
   }, [base, language]);
 
   // The probe that lifts the calm state: the product read the server answers first, without touching the graph.
@@ -249,9 +262,34 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
-  // A publication moves the graph: the same event that refreshes the problems count refreshes the frame's navigation, so
-  // a run that published its kinds shows them in the sidebar without a page reload.
-  useChangeStream(base, () => { problems.reload(); void loadBootstrap(); });
+  /**
+   * A change notice: a unit publication names the kinds it moved, so the frame reads only its navigation and, when the
+   * page shows one of those kinds, that page; a structure notice is the product's files or templates moving, and the
+   * whole frame reads again. The changed kinds wear a short highlight.
+   */
+  const replyToNotice = useCallback((notice: ChangeNotice): void => {
+    problems.reload();
+    if (notice.structure === true || notice.kinds === undefined || notice.kinds.length === 0) {
+      void loadBootstrap();
+      return;
+    }
+    const kinds = notice.kinds;
+    setChangedKinds((held) => new Set([...held, ...kinds]));
+    if (highlightTimer.current !== undefined) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => {
+      highlightTimer.current = undefined;
+      setChangedKinds(new Set());
+    }, 2000);
+    void refreshNavigation();
+    // The home shows the counts in its own sections, and an older template reads them from its own query: the home reads
+    // its page again. An entity page reads again only when its kind changed.
+    const kind = address.page.kind;
+    if (address.home === true || (kind !== undefined && kinds.includes(kind))) reload({});
+  }, [address.home, address.page.kind, loadBootstrap, problems.reload, refreshNavigation, reload]);
+
+  // The product's one event stream: a unit publication changes counts, a structure notice changes the frame.
+  useChangeStream(base, replyToNotice);
+  useEffect(() => () => { if (highlightTimer.current !== undefined) clearTimeout(highlightTimer.current); }, []);
 
   const productName = identity.data?.name ?? navigation?.product ?? null;
   const applyRole = useCallback((next: string): void => { setRole(next); keepRole(next); }, []);
@@ -259,11 +297,11 @@ export function App(): ReactElement {
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} />
+    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} changed={changedKinds} />
   );
   const [menuOpen, setMenuOpen] = useState(false);
   // The graph could not be read at all, or the server cannot be reached: the frame says so instead of a page.
