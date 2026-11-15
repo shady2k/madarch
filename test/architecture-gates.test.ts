@@ -68,6 +68,17 @@ describe('gate 1: the engine holds no product data', () => {
     expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([['src/a.ts', 'statement']]);
   });
 
+  test('system declarations do not make their words manifest format vocabulary', () => {
+    const home = fixture({
+      ...catalogue('question', 'id: practice.question\n'),
+      'src/product/manifest/system-catalogue.ts': "export const declarations = [['question', 'Question']];\n",
+      'src/a.ts': "export const literal = 'question';\n",
+    });
+    expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([
+      ['src/a.ts', 'question'],
+    ]);
+  });
+
   test('an import from catalog/ is refused: the engine reads the product\'s own files', async () => {
     const home = fixture({ 'src/a.ts': "import { x } from '../catalog/work/execution/task.yaml';\nexport const y = x;\n" });
     expect(productDataViolations(home).map((violation) => violation.symbol)).toEqual(['import ../catalog/work/execution/task.yaml']);

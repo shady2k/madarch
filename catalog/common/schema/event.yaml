@@ -1,3 +1,4 @@
+extends: system:event
 id: manifest.event
 purpose: structure
 audience: [architect, product-lead]

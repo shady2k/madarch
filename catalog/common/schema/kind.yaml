@@ -1,3 +1,4 @@
+extends: system:kind
 id: manifest.kinds
 purpose: structure
 audience: [architect, product-lead]

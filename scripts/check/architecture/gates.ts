@@ -218,7 +218,7 @@ export function manifestFormatWords(root: string): Set<string> {
     for (const entry of entries.sort((left, right) => byCodePoint(left.name, right.name))) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) { walk(path); continue; }
-      if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+      if (!entry.isFile() || !entry.name.endsWith('.ts') || entry.name === 'system-catalogue.ts') continue;
       const file = relative(root, path).split('\\').join('/');
       const module = parseModule(file, readFileSync(path, 'utf8'), false);
       for (const node of nodesOf(module.tree)) {
@@ -257,6 +257,9 @@ export function productDataViolations(root: string, modules: Map<string, GateMod
   for (const module of modules.values()) {
     for (const node of nodesOf(module.tree)) {
       const value = stringValue(node);
+      // The trusted system catalogue declares engine kinds, not product vocabulary.
+      // Its words must not exempt the same literals in any other engine module.
+      if (module.file === 'src/product/manifest/system-catalogue.ts') continue;
       if (value === undefined || !names.has(value)) continue;
       found.push({ rule: 'no-product-data', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: value });
     }
