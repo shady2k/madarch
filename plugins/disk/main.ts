@@ -9,14 +9,14 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   for (const pin of inputs.repositories) {
     if (context.signal.aborted) throw new Error('disk extraction cancelled');
     if (unit.kind === 'code.repository') {
-      vertices.push({ kind: 'code.repository', key: { name: pin.repository }, values: { url: pin.url === undefined || pin.url === '' ? null : pin.url, default_branch: pin.defaultBranch ?? null }, evidence: { repository: pin.repository, commitOrDigest: pin.commit } });
+      vertices.push({ kind: 'code.repository', key: { name: pin.repository }, values: { url: pin.url ?? null, default_branch: pin.defaultBranch ?? null }, evidence: { repository: pin.repository, commitOrDigest: pin.commit } });
       context.progress(vertices.length, undefined, pin.repository);
       continue;
     }
     const tree = await readRepositoryTree(pin, { fileFacts: unit.kind === 'code.file', ...(inputs.keys === undefined ? {} : { paths: inputs.keys.filter(key => key.repository === pin.repository).map(key => key.path) }) });
     const evidence = { repository: pin.repository, commitOrDigest: pin.commit };
     const repository = { kind: 'code.repository', key: { name: pin.repository } };
-    vertices.push({ ...repository, values: { url: tree.repository.url === '' ? null : tree.repository.url, default_branch: pin.defaultBranch ?? null }, evidence });
+    vertices.push({ ...repository, values: { url: tree.repository.url, default_branch: pin.defaultBranch ?? null }, evidence });
     const folders = new Set<string>();
     const within = (path: string): boolean => inputs.paths === undefined || inputs.paths.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
     // The product's own exclusions: a repository's node_modules or build output is not the product's knowledge unless the

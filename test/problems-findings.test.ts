@@ -38,6 +38,10 @@ class FindingsReader {
     return { total: rows.length, rows };
   }
   async relationEdges(): Promise<{ total: number; rows: [] }> { return { total: 0, rows: [] }; }
+  async list(kind: string): Promise<{ total: number; rows: GraphEntity[]; next: null }> {
+    const rows = this.rows.filter((one) => one.kind === kind);
+    return { total: rows.length, rows, next: null };
+  }
 }
 
 describe('a findings kind of the manifest is read as problems, and no other kind is', () => {

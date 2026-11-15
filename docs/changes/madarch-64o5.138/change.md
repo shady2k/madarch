@@ -15,7 +15,7 @@ Reference-to-edge conversion, mention extraction, graph-dependent value-set memb
 - Catalogue fields name shared value types. JSON fields declare a schema, including its dialect.
 - Installation refuses invalid schemas and unresolved references without network access.
 - The writer refuses invalid keys, vertex values and edge attributes before publication SQL, naming the field, expected type and value with VALUE_TYPE_MISMATCH.
-- Regular expressions in new validation contracts live only in catalogue value-type declarations. Field schemas use refs rather than inline patterns.
+- Field schemas use shared type refs rather than inline patterns. Git remote values retain the recorded lexical C string: any string without NUL, including empty, newline-containing, helper, scp-like and local forms. This is not URL parsing or a connectivity check. Recorded Git identity strings, including empty or malformed email text, remain accepted; strict email/URL types remain available for person-entered values.
 
 ## Preserved contracts
 None.
@@ -35,9 +35,17 @@ Place: catalogue installation and graph writer
 None.
 
 ## Design and decisions
-The base predates the foundation gates; the coordinator must run those gates at integration. Existing natural-key reference objects remain pending the edge task. Operations schemas follow declaration semantics because no operations producer exists in this checkout. See conversion.md for assumptions and exact contracts.
+Merged catalogue head c0b2ada8, which includes the foundation gates. The checks pass without gained gate entries: the storage vocabulary is declared once in the manifest reader, Draft vocabulary IDs remain literal IDs, and the stale writer regex entry was removed. Existing natural-key reference objects remain pending the edge task. Operations schemas follow declaration semantics because no operations producer exists in this checkout. See conversion.md for assumptions and exact contracts.
 
 ## Acceptance evidence
+- Updated on coordinator request `/tmp/f5b.md`, based on coordinator commit `3ae5de48` and catalogue merge `c0b2ada8`.
+- `bun run check`: passed; 1,311 architecture entries matched, no gained entry and one stale regex entry removed. UI architecture zero; 498 catalogue kinds; four workflows; no quarantined cases.
+- Eleven focused suites: 139 passed, 677 assertions. Git tree/history plus value-type suites: 15 passed, 117 assertions, including absent versus recorded empty remote. Wiki app check and 123 tests passed, 581 assertions.
+- Narrow mutation of the Git remote format: five killed, one survived (format `type` empty string: Ajv defaults to string); 83.33%. No claim of whole-change mutation coverage.
+- Git remote admission follows Git 2.43.0 `builtin/remote.c` lines 194–207: it writes the remote URL argument without URL validation. `git remote add` and offline `git ls-remote --get-url` both accept an empty value. Transport dispatch and reachability are not stored-value validation.
+- `recorded-identity` does not restrict string content. Existing producer decoding/representation is unchanged; this schema introduces no rejection or byte conversion.
+
+### Original delivery evidence (historical)
 - `bun run check`: passed, 35 existing architecture violations matched; UI architecture zero; catalogue 498 kinds, 117 page/member; 4 workflows; no quarantined cases.
 - Nine focused suites: 120 passed, 622 assertions. Scripted-agent MCP suite separately passed all three cases within a five-suite run of 65 passed cases.
 - Wiki app check passed; 120 tests passed, 564 assertions.

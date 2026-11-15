@@ -55,6 +55,19 @@
 # Shared value contracts (decision 0039, items 3, 4 and 29). Schema ids are immutable.
 # Resolve references from this installed library only; writes never fetch schemas.
 value-types:
+  git-remote:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:git-remote:v1
+      type: string
+      format: git-remote
+  recorded-identity:
+    storage: text
+    schema:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: urn:madarch:value-type:recorded-identity:v1
+      type: string
   bigint:
     storage: bigint
     schema:

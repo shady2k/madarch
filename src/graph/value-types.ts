@@ -13,12 +13,24 @@ export type ValueTypes = Readonly<Record<string, ValueTypeDeclaration>>;
 function validator(): Ajv2020 {
   const ajv = new Ajv2020({ strict: true, allErrors: true, validateFormats: true });
   addFormats(ajv);
+  // Git stores remote values without transport validation (builtin/remote.c, add/set-url).
+  // A recorded remote is a C string, not an RFC URI; Git config admits even an empty one.
+  ajv.addFormat('git-remote', { type: 'string', validate: (value: string) => !value.includes('\0') });
   return ajv;
 }
 const compiled = new WeakMap<object, WeakMap<object, ValidateFunction>>();
 const validators = new WeakMap<object, Ajv2020>();
 
-const VOCABULARIES = new Set(['core', 'applicator', 'unevaluated', 'validation', 'meta-data', 'format-annotation', 'format-assertion', 'content'].map((name) => `https://json-schema.org/draft/2020-12/vocab/${name}`));
+const VOCABULARIES = new Set([
+  'https://json-schema.org/draft/2020-12/vocab/core',
+  'https://json-schema.org/draft/2020-12/vocab/applicator',
+  'https://json-schema.org/draft/2020-12/vocab/unevaluated',
+  'https://json-schema.org/draft/2020-12/vocab/validation',
+  'https://json-schema.org/draft/2020-12/vocab/meta-data',
+  'https://json-schema.org/draft/2020-12/vocab/format-annotation',
+  'https://json-schema.org/draft/2020-12/vocab/format-assertion',
+  'https://json-schema.org/draft/2020-12/vocab/content',
+]);
 /** Walk schema positions, never property names or literal annotation/const data. */
 function walkSchema(schema: unknown, visit: (schema: Record<string, unknown>) => void): void {
   if (schema === null || typeof schema !== 'object' || Array.isArray(schema)) return;

@@ -80,6 +80,32 @@ test('0039: catalogue formats and JSON structures are executable, not labels', (
   }
 });
 
+test('0039: Git remotes and recorded identities keep producer values', () => {
+  const library = (Bun.YAML.parse(CATALOG_FILES['catalog.yaml']!) as { 'value-types': ValueTypes })['value-types'];
+  const remote = compileValueSchema(library['git-remote']!.schema, library);
+  for (const value of ['git@example.org:team/repo.git', 'example.org:repo.git', '/srv/git/repo.git', '../repo.git', './repo:with-colon', 'file:///srv/git/repo.git', 'ssh://git@example.org/team/repo.git', 'remote\nname', 'helper::address']) {
+    expect(remote(value)).toBe(true);
+  }
+  expect(remote('')).toBe(true);
+  expect(remote('repo\u0000path')).toBe(false);
+  const identity = compileValueSchema(library['recorded-identity']!.schema, library);
+  for (const value of ['', 'not an email', 'name@', 'Name <missing-at>', 'escaped\\xff', 'identity\u0000name']) {
+    expect(identity(value)).toBe(true);
+  }
+  expect(identity(7)).toBe(false);
+  const personEmail = compileValueSchema(library.email!.schema, library);
+  expect(personEmail('not an email')).toBe(false);
+  expect(personEmail('')).toBe(false);
+  for (const [path, fieldName, expectedType] of [
+    ['code/structure/code.repository.yaml', 'url', 'git-remote'],
+    ['history/work/code.author.yaml', 'name', 'recorded-identity'],
+    ['history/work/code.author.yaml', 'email', 'recorded-identity'],
+  ] as const) {
+    const kind = Bun.YAML.parse(CATALOG_FILES[path]!) as { fields: { name: string; type: string }[] };
+    expect(kind.fields.find((field) => field.name === fieldName)?.type).toBe(expectedType);
+  }
+});
+
 test('0039: validation results and malformed registry boundaries are explicit', () => {
   expect(fitsValueSchema(schema, types, { email: 'reader@example.org' })).toBe(true);
   expect(fitsValueSchema(schema, types, { email: 'bad' })).toBe(false);

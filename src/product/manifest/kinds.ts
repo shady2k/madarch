@@ -64,6 +64,8 @@ export type KindsFileSource = ProductFileRead & Pick<ProductFileSource, 'filesBe
 /** What kind of problem a finding is, for the Problems page: a file that cannot be read. */
 export type FindingKind = 'unreadable-file';
 
+const STORAGE_TYPES = ['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json'] as const;
+
 export interface Finding {
   /** Where the problem stands, as the reader knows it: the product's path, or `repos/<repository>/<path>` in a code repository. */
   file: string;
@@ -649,6 +651,26 @@ export type KindsRead =
   | { present: true; manifest: KindsManifest };
 
 /** The shape a manifest field's binding to a plugin field takes: `<plugin>@<major>.<field>` (decision 0035, item 17). */
+/**
+ * Whether an agent binding's description tells the agent to read a file, a glob or a repository — a leading "Read", a
+ * glob, or a docs path (owner's rule, madarch-64o5.109): the agent reads the graph, and a specialised plugin reads
+ * documents into it. Written as plain scanning, no pattern matching (the architecture gate's no-regex rule).
+ */
+function readsAFile(description: string): boolean {
+  let start = 0;
+  while (start < description.length && (description[start] === ' ' || description[start] === '\t' || description[start] === '\n')) start++;
+  if (description.startsWith('Read', start)) {
+    const after = description[start + 'Read'.length];
+    if (after === undefined || after === ' ' || after === '\t' || after === '\n' || after === ',') return true;
+  }
+  if (description.includes('**')) return true;
+  for (let at = description.indexOf('docs/'); at !== -1; at = description.indexOf('docs/', at + 5)) {
+    const before = description[at - 1];
+    if (before === undefined || before === ' ' || before === '\t' || before === '\n') return true;
+  }
+  return false;
+}
+
 const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 
 /**
@@ -875,6 +897,17 @@ function withWorkflows(manifest: KindsManifest, files: ProductFileRead, productF
 /** Reads catalogue metadata and kind declarations of a product working tree; absent when neither exists. */
 export function readKinds(productFolder: string): KindsRead {
   return readKindsFrom(workingTreeFiles(productFolder), productFolder);
+}
+
+/**
+ * The one text an agent is given for a field's meaning (madarch-64o5.107): the description a field's agent binding states,
+ * else the kind's English description, else the field's own name. The reader's other languages stay the people's: the
+ * agent is sent one text once.
+ */
+export function agentMeaningOf(kind: { readonly descriptions?: Readonly<Record<string, string>> }, field: { readonly name: string; readonly binding?: unknown }): string {
+  const binding = field.binding as { readonly kind?: unknown; readonly description?: unknown } | undefined;
+  if (binding?.kind === 'agent' && typeof binding.description === 'string') return binding.description;
+  return kind.descriptions?.['en'] ?? field.name;
 }
 
 /**
@@ -1756,7 +1789,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (typeof relation === 'string' && relation.trim() !== '' && (direction === 'out' || direction === 'in')) member = { relation, direction, ...(typeof parentKind === 'string' && parentKind.trim() !== '' ? { parentKind } : {}), ...(typeof property === 'string' && property.trim() !== '' ? { property } : {}), line: at(['kinds', name, 'member']) };
       }
     }
-    const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json', ...Object.keys(valueTypes)]);
+    const fieldTypes = new Set<string>([...STORAGE_TYPES, ...Object.keys(valueTypes)]);
     const parseFields = (raw: unknown, field: string): FieldDecl[] => {
       if (raw === undefined) return [];
       if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, producers?, reference?, binding? }`); return []; }
@@ -1821,7 +1854,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       // a repository is refused where it is written; a specialised plugin reads documents into the graph, and the agent
       // then reads those entities. A description of graph data ("read from the text of the files … in the graph") is not
       // such an instruction.
-      if (/^\s*Read\b/u.test(description) || /\*\*|(^|\s)docs\//u.test(description)) {
+      if (readsAFile(description)) {
         problem([...path, 'agent'], 'an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository');
         return null;
       }
@@ -2082,7 +2115,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         findings.push({ file, line: at(['edges', index, 'labels']), message: `edge "${body['name']}": the edge declares no words in "${language}": every edge kind names both ends in ${LABEL_LANGUAGES.join(' and ')}` });
         return;
       }
-      const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json', ...Object.keys(valueTypes)]);
+      const fieldTypes = new Set<string>([...STORAGE_TYPES, ...Object.keys(valueTypes)]);
       const fields: FieldDecl[] = [];
       const rawFields = body['fields'];
       if (rawFields !== undefined) {
@@ -2153,7 +2186,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   for (const catalogueAgent of [...plugins.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true)) {
     const candidates = [...kinds.values()].sort((left, right) => byCodePoint(left.name, right.name));
     const vertices: PluginOutputKind[] = candidates.map((kind) => ({ kind: kind.name, key: kind.key ?? [], fields: (kind.fields ?? []).map((field) => ({
-      name: field.name, type: field.type, meaning: field.binding?.kind === 'agent' ? field.binding.description : Object.values(kind.descriptions ?? {}).join(' ') || field.name,
+      name: field.name, type: field.type, meaning: agentMeaningOf(kind, field),
       example: null, required: (kind.key ?? []).includes(field.name) || field.nullable !== true, evidence: field.evidence ?? true, ...(field.reference === undefined ? {} : { reference: field.reference }),
     })) }));
     const agentEdges: PluginOutputEdge[] = [...edges.values()].filter((edge) => edge.from.length === 1 && edge.to.length === 1).map((edge) => ({ kind: edge.name, from: edge.from[0]!, to: edge.to[0]!, fields: edge.fields.map((field) => ({ name: field.name, type: field.type, meaning: field.name, example: null, required: field.nullable !== true, evidence: field.evidence ?? true })) }));

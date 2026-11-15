@@ -2,7 +2,7 @@
 
 ## Scope and result
 
-Decision 0039 items 3, 4 and 29: 596 kind fields plus 10 edge attribute fields name installed shared value types. All 127 JSON kind fields declare `$schema: https://json-schema.org/draft/2020-12/schema` and an explicit `$ref`. There are no JSON edge attributes. The library contains 63 schemas with immutable `urn:madarch:value-type:<name>:v1` IDs. No new repository data files were introduced. Existing catalogue kind files and catalog/catalog.yaml carry the declarations.
+Decision 0039 items 3, 4 and 29: 596 kind fields plus 10 edge attribute fields name installed shared value types. All 127 JSON kind fields declare `$schema: https://json-schema.org/draft/2020-12/schema` and an explicit `$ref`. There are no JSON edge attributes. The library contains 65 schemas with immutable `urn:madarch:value-type:<name>:v1` IDs. No new repository data files were introduced. Existing catalogue kind files and catalog/catalog.yaml carry the declarations.
 
 92 kind YAML files changed, plus catalog/catalog.yaml. Additional code edit: src/knowledge/catalog-starter.ts widens ContractFieldData.type to string and preserves schema in its type. Runtime compatibility views already retain raw fields, schema and the full metadata library. src/knowledge/seed.ts needs no change: raw kind files and the spread catalogue metadata retain the library for starter selections.
 
@@ -15,14 +15,15 @@ Decision 0039 items 3, 4 and 29: 596 kind fields plus 10 edge attribute fields n
 | class-diagram-level | 1 | 0 | 1 |
 | duration-ms | 1 | 0 | 1 |
 | duration-seconds | 3 | 0 | 3 |
-| email | 2 | 0 | 2 |
+| email | 1 | 0 | 1 |
+| git-remote | 1 | 0 | 1 |
 | integer | 26 | 0 | 26 |
 | json | 127 | 0 | 127 |
 | path | 23 | 0 | 23 |
 | port | 3 | 0 | 3 |
-| text | 347 | 7 | 354 |
+| recorded-identity | 2 | 0 | 2 |
+| text | 346 | 7 | 353 |
 | timestamp | 33 | 2 | 35 |
-| url | 1 | 0 | 1 |
 | value-set-value | 1 | 0 | 1 |
 | version | 5 | 0 | 5 |
 
@@ -38,9 +39,12 @@ Decision 0039 items 3, 4 and 29: 596 kind fields plus 10 edge attribute fields n
 - Timestamp fields remain RFC3339 date-time strings; date-only is provided as a reusable separate type, without changing current timestamp storage.
 - Duration units were read from bindings: job-run, drill and work-span use duration-seconds; test-result uses duration-ms. Both are nonnegative integer contracts; no values or units were converted.
 - Path rejects NUL/CR/LF and empty strings; version rejects whitespace/NUL and empty strings, but allows package constraint syntax without spaces. Money is ISO-style uppercase three-letter currency code, space, signed decimal amount; it is available but no existing cost field was forcibly reinterpreted. Email/URL use Ajv format assertions. IP addresses and ISO duration also use standard formats.
-- Existing git-author email now uses email format. Historical malformed git identities will be refused rather than silently accepted; if arbitrary Git identity text is intended, the catalogue should deliberately keep that field text.
+- Git remote values represent the recorded lexical C string, not a parsed URL: any string without NUL, including empty, newline-containing, helper, scp-like and local forms, can be recorded. Acceptance does not assert transport connectivity or classify a string as a working URL. `plugins/disk/main.ts` emits the repository `url` from the pinned/tree remote, preserving an explicit empty string; only an absent remote is null.
+- Git identities are recorded data, not person-entered contact details. `plugins/git/reader.ts:101` reads `%aN` and `%aE`; lines 154–168 preserve decoded strings or escape unreadable bytes. `plugins/git/main.ts:121–126` emits them as the `code.author` natural-key fields `name` and `email`. Both fields use recorded-identity, an arbitrary string including empty and malformed email text. The current producer emits no separate commit author/committer identity fields: commit date/offset fields keep their existing types. The strict email type remains on `organisation/membership/person.yaml`.
 
 ## Validation
+
+The entries below record the earlier 63-type conversion. The Git correction adds two types (65 total); its added regression cases and current integration checks are delegated to the coordinator, not claimed by this document edit.
 
 - Foreground strict Ajv2020 + ajv-formats compile: 63 library schemas and 127 explicit field schemas compiled; 596 kind fields resolved to installed types. Exit 0.
 - `bun run check:catalog`: passed, 28 areas, 106 subgroups, 498 kinds, 117 page/member kinds, everything and none templates no findings. Exit 0.
@@ -1658,6 +1662,17 @@ These are the exact installed declarations; references resolve within this libra
 }
 ```
 
+### git-remote — storage text
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:madarch:value-type:git-remote:v1",
+  "type": "string",
+  "format": "git-remote"
+}
+```
+
 ### integer — storage integer
 
 ```json
@@ -2807,6 +2822,16 @@ These are the exact installed declarations; references resolve within this libra
 }
 ```
 
+### recorded-identity — storage text
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:madarch:value-type:recorded-identity:v1",
+  "type": "string"
+}
+```
+
 ### text — storage text
 
 ```json
@@ -2894,11 +2919,11 @@ The current writer stores references as `{kind, key}`, including references nest
 
 ## Bigint representation correction
 
-The bigint type accepts a JSON integer number or a canonical decimal string. Strings reject leading zeroes, plus signs and negative zero. Numeric range and safe-number checks remain writer responsibilities. Counts remain 596 kind fields, 10 edge fields, 127 JSON field schemas and 63 shared types.
+The bigint type accepts a JSON integer number or a canonical decimal string. Strings reject leading zeroes, plus signs and negative zero. Numeric range and safe-number checks remain writer responsibilities. Counts remain 596 kind fields, 10 edge fields and 127 JSON field schemas; the library now has 65 shared types, including git-remote and recorded-identity.
 
 ## Fixed scalar enum membership
 
-`class-diagram.level` now names the shared `class-diagram-level` text type, whose JSON Schema enum is `["code", "domain"]`, as its existing agent binding declares. Counts: 596 kind fields + 10 edge fields; 127 JSON schemas; 63 shared types. Kind text fields drop from 348 to 347; one field uses class-diagram-level.
+`class-diagram.level` now names the shared `class-diagram-level` text type, whose JSON Schema enum is `["code", "domain"]`, as its existing agent binding declares. Counts: 596 kind fields + 10 edge fields; 127 JSON schemas; 65 shared types. One field uses class-diagram-level; the Git identity correction leaves 346 kind text fields.
 
 ```json
 {

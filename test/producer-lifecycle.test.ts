@@ -124,7 +124,7 @@ async extract(unit, context) {
     // The owner's rule (2026-11-15): a partial answer keeps every entry it holds, so the Problem it states is published
     // and the outcome names the cause; only an answer that holds nothing abstains.
     expect(await readProducerOutcomes(owner, { runId: 'partial' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'completed', produced: 1, reason: 'scripted abstention' })]));
-    expect((await problems()).map((row) => row.title)).toEqual(['Partial finding', expect.anything()]);
+    expect((await problems()).map((row) => row.title as string | null)).toEqual(['Partial finding', null]);
     release = configure('good'); const clean = await run('good'); expect(clean.ok).toBe(true);
     expect(await problems()).toEqual([]);
     expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));

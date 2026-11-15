@@ -21,7 +21,7 @@ fields:
   - disk
   - git
 - name: url
-  type: url
+  type: git-remote
   nullable: true
   producers:
   - disk

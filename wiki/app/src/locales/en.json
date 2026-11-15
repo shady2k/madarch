@@ -51,7 +51,7 @@
     "back": "List"
   },
   "brand": {
-    "product": "Madarch",
+    "product": "madarch",
     "concept": "wiki",
     "title": "{{product}} — product wiki"
   },
@@ -1516,6 +1516,8 @@
     "problemEntity": "Entity:",
     "problemEvidence": "Evidence:",
     "problemCreateTask": "Create a task",
+    "problemHasTask": "Has task:",
+    "problemOpenTask": "Open the task",
     "problemNotAProblem": "Not a problem",
     "problemDismissPrompt": "Why is this not a problem? The reason is kept as a file in the product repository.",
     "problemDismissConfirm": "Save the reason",
@@ -1666,7 +1668,7 @@
   },
   "firstRun": {
     "title": "First run",
-    "what": "Madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
+    "what": "madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
     "stepOne": "Check the set of kinds the wiki should hold.",
     "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
     "stepThree": "Start the fill and follow its run.",
