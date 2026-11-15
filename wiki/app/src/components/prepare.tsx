@@ -1,9 +1,11 @@
 
 /**
  * The preparation panel (the design change of madarch-64o5.71): the product and its repositories, the final set the server
- * plans, which fields each plugin fills and which the agent fills, the agent and its token cap when the plan holds the
- * agent, and one final press. «Только плагины» plans the deterministic part only and says which fields stay unfilled. The
- * page is separate and full width on a phone; a wide screen keeps it in a reading column.
+ * plans, which fields each plugin fills and which the agent fills, who fills the set and the token cap when the plan holds
+ * the agent, and one final press. «Кто заполнит» shows every installed agent beside «Только плагины» as one choice
+ * (madarch-64o5.90): the product's saved agent stands until the person picks another, else plugins-only, which plans the
+ * deterministic part only and says which fields stay unfilled. The page is separate and full width on a phone; a wide
+ * screen keeps it in a reading column.
  */
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,12 +13,13 @@ import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
-import { Checkbox } from './ui/checkbox.js';
+import { ChoiceCard } from './ui/choice-card.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
+import { agentStateNote, agentUsable } from './agent-words.js';
 import {
   CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer,
@@ -27,6 +30,7 @@ import type { Navigation } from '../client.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
+const PLUGINS_ONLY = 'plugins-only';
 const labelOf = (navigation: Navigation | null, kind: string): string => navigation?.kinds.find((one) => one.kind === kind)?.many ?? kind;
 /** One kind and the fields the agent leaves unfilled when only plugins run. */
 function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | null, plan: FillPlanView | undefined, language: string): string {
@@ -40,16 +44,20 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const base = context.base;
   const requested = (typeof context.variables['kinds'] === 'string' ? context.variables['kinds'] : '').split(',').filter((kind) => kind !== '').sort();
   const wizard = context.variables['wizard'] === '1';
-  const [pluginsOnly, setPluginsOnly] = useState(context.variables['pluginsOnly'] === '1');
+  // «Кто заполнит» is one radio choice: an installed agent, or «Только плагины». Until the person picks, the product's
+  // saved agent stands, else plugins-only: the agents are always visible, and no agent spend happens without a pick.
+  const [picked, setPicked] = useState<string | null>(null);
   const lastVars = useRef(`${String(context.variables['kinds'] ?? '')}\u0000${String(context.variables['pluginsOnly'] ?? '')}`);
-  const [agent, setAgent] = useState<string | null>(null);
-  const chosen = useRef(false);
   const [cap, setCap] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const key = requested.join(',');
-  const planRead = useCommandRead<{ plan: FillPlanView }>(`prepare-plan:${key}:${String(pluginsOnly)}`, (signal) => readFillPlan(base, requested, signal, pluginsOnly), requested.length > 0);
   const agents = useCommandRead<AgentsAnswer>('prepare-agents', (signal) => readAgents(base, signal));
+  const savedWho = agents.data?.chosen?.id ?? null;
+  const who = picked ?? (context.variables['pluginsOnly'] === '1' ? PLUGINS_ONLY : savedWho ?? PLUGINS_ONLY);
+  const pluginsOnly = who === PLUGINS_ONLY;
+  const agent = pluginsOnly ? null : who;
+  const planRead = useCommandRead<{ plan: FillPlanView }>(`prepare-plan:${key}:${String(pluginsOnly)}`, (signal) => readFillPlan(base, requested, signal, pluginsOnly), requested.length > 0);
   const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('prepare-product', (signal) => readProduct(base, signal));
   const status = useCommandRead<FillStatusAnswer>('prepare-status', (signal) => readFillStatus(base, signal));
   const plan = planRead.data?.plan;
@@ -62,20 +70,14 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const capRequired = capChosen && cap.trim() === '';
   const capInvalid = cap.trim() !== '' && !(Number.isSafeInteger(Number(cap)) && Number(cap) > 0);
   const validCap = !capRequired && !capInvalid;
-  const missingAgent = !pluginsOnly && requiresAgent && agent === null;
   const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null);
 
-  useEffect(() => {
-    if (chosen.current || agents.data === null) return;
-    chosen.current = true;
-    if (agents.data.chosen !== null) setAgent(agents.data.chosen.id);
-  }, [agents.data]);
   // A link with another selection or mode, or the back button, starts the panel from that address again.
   useEffect(() => {
     const held = `${String(context.variables['kinds'] ?? '')}\u0000${String(context.variables['pluginsOnly'] ?? '')}`;
     if (held !== lastVars.current) {
       lastVars.current = held;
-      setPluginsOnly(context.variables['pluginsOnly'] === '1');
+      setPicked(null);
     }
   }, [context.variables]);
 
@@ -84,22 +86,12 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     if (only) query.set('pluginsOnly', '1');
     try { window.history.replaceState({}, '', `${base}/p/prepare?${query.toString()}`); } catch { /* no history */ }
   };
-  const setOnly = (only: boolean): void => {
-    setPluginsOnly(only);
-    sync(only);
+  const choose = (next: string): void => {
+    setPicked(next);
+    sync(next === PLUGINS_ONLY);
   };
-  // A person with no agent configured gets the plugins-only choice, not a dead press: the plan's agent fields are named
-  // as left unfilled, and the run is one press. Choosing an agent or unchecking the box is still theirs.
-  const onlyChosen = useRef(false);
-  useEffect(() => {
-    if (onlyChosen.current || agents.data === null || !requiresAgent) return;
-    if (agents.data.chosen === null) {
-      onlyChosen.current = true;
-      setOnly(true);
-    }
-  }, [agents.data, requiresAgent]);
   const run = (): void => {
-    if (plan === undefined || planRead.busy || errors.length > 0 || missingAgent || !validCap || !runnable) return;
+    if (plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, {
@@ -191,18 +183,33 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       <Card data-testid="prepare-controls">
         <CardHeader><CardTitle>{t('prepare.who')}</CardTitle></CardHeader>
         <CardContent>
-          <FieldLabel className="mb-3 flex items-start gap-2 text-small">
-            <Checkbox checked={pluginsOnly} onChange={() => setOnly(!pluginsOnly)} data-testid="prepare-plugins-only" />
-            <Text><Text className="block font-medium">{t('prepare.pluginsOnly')}</Text><Text className="block text-muted">{t('prepare.pluginsOnlyNote')}</Text></Text>
-          </FieldLabel>
+          {agents.data === null && agents.error === null ? <Skeleton className="h-16 w-full" data-testid="prepare-agents-loading" /> : null}
+          {agents.error === null ? null : <Paragraph role="alert" className="mt-0 text-small" data-testid="prepare-agents-error">{agents.error}</Paragraph>}
+          {agents.data === null ? null : (
+            <RadioGroup value={who} onValueChange={choose} aria-label={t('prepare.who')} className="mb-3" data-testid="prepare-who">
+              {agents.data.agents.map((offer) => (
+                <ChoiceCard key={offer.id} data-testid={`prepare-agent-${offer.id}`} data-chosen={agent === offer.id ? 'true' : 'false'} data-available={agentUsable(offer) ? 'true' : 'false'}>
+                  <RadioGroupItem value={offer.id} aria-label={offer.label} disabled={!agentUsable(offer)} />
+                  <Text className="min-w-0 flex-1 text-small">
+                    <Text className="block font-medium">{offer.label}</Text>
+                    <Text className="block text-muted" data-testid={`prepare-agent-state-${offer.id}`}>{agentStateNote(t, offer)}</Text>
+                  </Text>
+                </ChoiceCard>
+              ))}
+              <ChoiceCard data-testid="prepare-plugins-only-choice" data-chosen={pluginsOnly ? 'true' : 'false'}>
+                <RadioGroupItem value={PLUGINS_ONLY} aria-label={t('prepare.pluginsOnly')} data-testid="prepare-plugins-only" />
+                <Text className="min-w-0 flex-1 text-small">
+                  <Text className="block font-medium">{t('prepare.pluginsOnly')}</Text>
+                  <Text className="block text-muted">{t('prepare.pluginsOnlyNote')}</Text>
+                </Text>
+              </ChoiceCard>
+            </RadioGroup>
+          )}
           {pluginsOnly ? (
             <Alert className="mb-3" data-testid="prepare-unfilled"><AlertDescription>{t('prepare.unfilled', { what: unfilledWords(needsAgent, navigation, plan, language) || t('prepare.nothing') })}</AlertDescription></Alert>
           ) : null}
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
-              <FieldLabel className="grid gap-1 text-small">{t('prepare.agent')}
-                <Select data-testid="prepare-agent" value={agent ?? ''} onChange={(event) => setAgent(event.target.value === '' ? null : event.target.value)} options={[{ value: '', label: t('prepare.chooseAgent') }, ...(agents.data?.agents ?? []).map((offer) => ({ value: offer.id, label: offer.label }))]} />
-              </FieldLabel>
               <FieldLabel className="grid gap-1 text-small">{t('prepare.cap')}
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={cap} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
@@ -210,13 +217,12 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           ) : null}
           {!pluginsOnly && requiresAgent && choices.data?.choices.model?.current !== null && choices.data?.choices.model?.current !== undefined ? <Paragraph className="mt-2 text-small text-muted">{t('prepare.model', { model: choices.data.choices.model.current })}</Paragraph> : null}
           {!pluginsOnly && requiresAgent ? <Paragraph className="mt-2 text-small text-muted" data-testid="prepare-cap-note">{t('prepare.capNote')}</Paragraph> : null}
-          {missingAgent ? <Paragraph className="mt-2 text-small" data-testid="prepare-agent-required">{t('prepare.chooseAgent')}</Paragraph> : null}
           {capRequired ? <Paragraph role="alert" className="mt-2 text-small" data-testid="prepare-cap-required">{t('prepare.capRequired')}</Paragraph> : null}
           {capInvalid ? <Paragraph role="alert" className="mt-2 text-small">{t('prepare.invalidCap')}</Paragraph> : null}
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || missingAgent || !validCap || !runnable} onClick={run} data-testid="prepare-run">
+            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || !validCap || !runnable} onClick={run} data-testid="prepare-run">
               {t(busy ? 'prepare.starting' : 'prepare.run')}
             </Button>
             {runnable ? <Text className="text-small text-muted">{t('prepare.onePress')}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}

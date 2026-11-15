@@ -6,7 +6,6 @@
  */
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
@@ -17,8 +16,9 @@ import { Select } from './ui/select.js';
 import {
   chooseAgent, chooseModelRole, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
   useChangeStream, useCommandRead,
-  type AgentChoice, type AgentChoicesAnswer, type AgentOffer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
+  type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
 } from './command.js';
+import { agentNote } from './agent-words.js';
 import type { SectionContext } from './types.js';
 
 const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
@@ -34,17 +34,6 @@ function Section({ id, title, intro, children }: { readonly id: string; readonly
       </CardContent>
     </Card>
   );
-}
-
-/** What the agent offers on this machine, in a person's words. */
-function agentNote(t: TFunction, agent: AgentOffer): string {
-  if (!agent.installed) {
-    if (agent.install?.kind === 'npm') return t('knowledge.writer.notInstalled', { package: agent.install.package, version: agent.install.version, size: agent.install.size, folder: agent.install.folder });
-    if (agent.install?.kind === 'bundled') return t('knowledge.writer.notInstalledBundled', { program: agent.install.program });
-    return t('knowledge.writer.installUnknown', { agent: agent.label });
-  }
-  if (agent.version === null) return t('knowledge.writer.installedUnknownVersion', { where: agent.where ?? '—' });
-  return t('knowledge.writer.installedAt', { where: agent.where ?? '—', version: agent.version });
 }
 
 /** One model or reasoning choice the agent reports. */

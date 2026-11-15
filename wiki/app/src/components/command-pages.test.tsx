@@ -84,6 +84,12 @@ const RUN = {
 
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
+/** The agents `/api/agents` offers and the one this product saved; both installed and signed in unless a test says otherwise. */
+let agentOffers: { id: string; label: string; installed: boolean; login: string; loginDetail: string; where: string | null; version: string | null; install: null }[] = [
+  { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
+  { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
+];
+let savedAgent: { id: string; label: string } | null = null;
 
 function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -92,6 +98,11 @@ function answer(_path: string, body: unknown): Response {
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
+  savedAgent = null;
+  agentOffers = [
+    { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
+    { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
+  ];
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
@@ -99,7 +110,7 @@ beforeEach(async () => {
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
     if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
-    if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', version: '1.0' }], chosen: null });
+    if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
     if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
     if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
@@ -191,7 +202,7 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
   }
 });
 
-test('the preparation panel states the final set, both fillers, the agent and the cap, and starts one press', async () => {
+test('the preparation panel shows every installed agent beside plugins-only, picks plugins-only by default, and runs the picked agent', async () => {
   const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
   try {
     const text = page.container.textContent ?? '';
@@ -201,17 +212,22 @@ test('the preparation panel states the final set, both fillers, the agent and th
     expect(text).toContain('Что заполнится');
     expect(text).toContain('Плагины заполнят: disk');
     expect(text).toContain('Агент заполнит: Определение');
-    // No agent is configured, so «Только плагины» stands: the agent's fields are named and the press is live.
-    expect((page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked).toBe(true);
+    // Nothing is saved, so «Только плагины» stands, but both installed agents stand beside it: three choices, visible.
+    expect(page.container.querySelectorAll('[data-testid="prepare-who"] [role="radio"]').length).toBe(3);
+    expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(text).toContain('Claude Code');
+    expect(text).toContain('Codex');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('Вход на этой машине выполнен');
     expect(page.container.querySelector('[data-testid="prepare-unfilled"]')?.textContent).toContain('Определение');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
-    expect(page.container.querySelector('[data-testid="prepare-agent"]')).toBeNull();
-    // Choose an agent instead: uncheck the box, choose one, cap it, and press once.
-    await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
+    expect(page.container.querySelector('[data-testid="prepare-cap"]')).toBeNull();
+    // Choose Claude Code: its model appears beside the cap.
+    const claude = page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement;
+    await act(async () => { claude.click(); });
     await settle();
-    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
-    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    await settle();
+    expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
+    expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
+    expect(page.container.textContent).toContain('Модель: opus');
     // The server needs a positive cap for agent work: the form says so and holds the press until it has one.
     expect(page.container.querySelector('[data-testid="prepare-cap-required"]')).not.toBeNull();
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
@@ -228,13 +244,28 @@ test('the preparation panel states the final set, both fillers, the agent and th
   }
 });
 
+test('the product\'s saved agent is the default, and an agent that cannot run is shown with what is missing', async () => {
+  savedAgent = { id: 'codex', label: 'Codex' };
+  agentOffers[0] = { ...agentOffers[0]!, login: 'not-signed-in' };
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    expect(page.container.querySelector('[data-testid="prepare-agent-codex"]')?.getAttribute('data-chosen')).toBe('true');
+    expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
+    // Claude Code has no sign-in here: its choice stays visible, disabled, and says what is missing in one sentence.
+    const claude = page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement;
+    expect(claude.disabled).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('нет входа');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).not.toContain('{"');
+    expect(requests.some((one) => one.path.endsWith('/api/agents'))).toBe(true);
+  } finally {
+    await page.close();
+  }
+});
+
 test('a server refusal is shown in the reader\'s language by its code', async () => {
   const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
   try {
-    await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
-    await settle();
-    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
-    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
     await settle();
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     await act(async () => { type(cap, '1000'); });

@@ -1630,8 +1630,6 @@
     "pluginsOnlyNote": "No agent runs: the fields the agent would fill stay empty.",
     "unfilled": "Only plugins: these fields stay unfilled: {{what}}.",
     "nothing": "nothing",
-    "agent": "Agent",
-    "chooseAgent": "Choose an agent for this run",
     "cap": "Token cap",
     "capNote": "The cap counts the agent's tokens for this run. When it runs out, the run stops and leaves the rest unfilled.",
     "model": "Model: {{model}}",
