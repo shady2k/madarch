@@ -3,7 +3,6 @@ import { forwardRef, type HTMLAttributes, type ButtonHTMLAttributes, type Anchor
 import { cn } from '@/lib/utils.js';
 import { SheetContent } from './sheet.js';
 import { Skeleton } from './skeleton.js';
-import { DropdownMenuContent } from './dropdown-menu.js';
 import type { ComponentProps } from 'react';
 import { Button, type ButtonProps } from './button.js';
 
@@ -30,8 +29,6 @@ export function ShellError(props: HTMLAttributes<HTMLDivElement>) { return <div 
 
 export function ShellBrandMark() { return <svg aria-hidden="true" className="size-10 shrink-0 text-ink" viewBox="0 0 50 32"><text x="0" y="25" fill="currentColor" fontFamily="Inter, sans-serif" fontSize="31" fontWeight="750" letterSpacing="-4">m<tspan fill="var(--text)">·</tspan></text></svg>; }
 
-export function ShellProductMenu(props: ComponentProps<typeof DropdownMenuContent>) { return <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]" {...props} />; }
-export function ShellProductLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="flex items-center gap-2 no-underline" {...props} />; }
 export function ShellLanguageButton(props: ButtonProps) { return <Button variant="ghost" size="icon" className="shell-language size-9" {...props} />; }
 export function ShellAnswersLink(props: AnchorHTMLAttributes<HTMLAnchorElement>) { return <a className="answers-waiting no-underline" {...props} />; }
 export function ShellAnswersWords(props: HTMLAttributes<HTMLSpanElement>) { return <span className="answers-waiting-words" {...props} />; }

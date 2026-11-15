@@ -39,16 +39,16 @@ describe('a plugin declares its tier and its capabilities', () => {
   });
 
   test('a core plugin is the one gate to one source; an ordinary plugin owns none', () => {
-    expect(capabilityProblem({ tier: 'core', capabilities: ['repository'] }, 'git')).toBeUndefined();
+    expect(capabilityProblem({ tier: 'core', capabilities: ['git'] }, 'git')).toBeUndefined();
     expect(capabilityProblem({ tier: 'core', capabilities: ['filesystem'] }, 'disk')).toBeUndefined();
-    expect(capabilityProblem({ tier: 'ordinary', capabilities: ['repository'] }, 'imports')).toBeUndefined();
+    expect(capabilityProblem({ tier: 'ordinary', capabilities: ['git'] }, 'imports')).toBeUndefined();
     expect(capabilityProblem({ tier: 'core', capabilities: [] }, 'gate')).toContain('the core plugin "gate" declares no capability: a core plugin is the one gate to one outside source, and it names that source');
-    expect(capabilityProblem({ tier: 'core', capabilities: ['repository', 'filesystem'] }, 'gate')).toContain('declares 2 capabilities');
+    expect(capabilityProblem({ tier: 'core', capabilities: ['git', 'filesystem'] }, 'gate')).toContain('declares 2 capabilities');
     expect(capabilityProblem({ tier: 'ordinary', capabilities: [] }, 'plain')).toBeUndefined();
   });
 
   test('the environment is the source a core plugin owns, and the agent capability a plugin asks for', () => {
-    expect(environmentOf({ tier: 'core', capabilities: ['repository'] })).toMatchObject({ repository: true, filesystem: false, network: false, agents: false });
+    expect(environmentOf({ tier: 'core', capabilities: ['git'] })).toMatchObject({ repository: true, filesystem: false, network: false, agents: false });
     expect(environmentOf({ tier: 'core', capabilities: ['filesystem'] })).toMatchObject({ repository: true, filesystem: true });
     expect(environmentOf({ tier: 'ordinary', capabilities: ['agents'] })).toMatchObject({ repository: false, agents: true });
     expect(environmentOf({ tier: 'core', capabilities: ['network'] })).toMatchObject({ network: true, repository: false });
@@ -64,7 +64,7 @@ describe('a plugin declares its tier and its capabilities', () => {
     } catch (error) {
       const refusal = error as ClosureRefusal;
       expect(refusal.message).toStartWith(`${file}:${String(text.split('\n').findIndex((line) => line.includes('"capabilities"')) + 1)}: `);
-      expect(refusal.message).toContain('declares the capability "disk": the capabilities are "repository", "filesystem", "network", "agents"');
+      expect(refusal.message).toContain('declares the capability "disk": the capabilities are "git", "filesystem", "network", "agents"');
       expect(refusal.file).toBe(file);
     }
   });
@@ -73,8 +73,8 @@ describe('a plugin declares its tier and its capabilities', () => {
     const folder = scratch();
     const file = join(folder, 'plugin.json');
     let said = '';
-    try { parsePluginManifest(manifest({ tier: 'core', capabilities: ['repository', 'network'] }), file); } catch (error) { said = (error as Error).message; }
-    const text = manifest({ tier: 'core', capabilities: ['repository', 'network'] });
+    try { parsePluginManifest(manifest({ tier: 'core', capabilities: ['git', 'network'] }), file); } catch (error) { said = (error as Error).message; }
+    const text = manifest({ tier: 'core', capabilities: ['git', 'network'] });
     expect(said).toContain(`${file}:${String(text.split('\n').findIndex((line) => line.includes('"capabilities"')) + 1)}: the core plugin "probe" declares 2 capabilities`);
   });
 });

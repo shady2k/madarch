@@ -4,6 +4,11 @@ import { readPublishedManifest } from '../graph/manifest-publication.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { executeGraphql, structureRevisionOf } from '../graph/graphql-execute.js';
+import { declareFileTextQueue, readFileTextByBlob } from '../knowledge/file-texts.js';
+import { readProduct } from '../product/manifest.js';
+import type { QueueService } from '../fill/queue.js';
+import { openFillRunQueue } from '../fill/run-jobs.js';
+import { join } from 'node:path';
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readPublishedTemplates } from '../graph/product-templates.js';
 import { diagramGraphOf, archifyDocument, likec4PictureOf, mermaidText, renderArchify } from '../render/diagram.js';
@@ -56,7 +61,7 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
     const asked = event.data;
     if (asked.descriptor !== undefined) owner = await createPostgresDatabaseOwner(asked.descriptor.connection);
     const answer = asked.kind === 'graphql'
-      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000 }, asked.operation)
+      ? await executeGraphql(owner!, { folder: asked.descriptor.folder, deadlineMs: asked.deadlineMs ?? 30_000, readText: fileTextOf(owner!, asked.descriptor.folder) }, asked.operation)
       : await diagram(asked, owner);
     await owner?.close();
     self.postMessage({ kind: 'answer', answer });
@@ -65,3 +70,28 @@ self.onmessage = async (event: MessageEvent<ReadWork>) => {
     self.postMessage({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
   }
 };
+
+/**
+ * The read a page's `source` field answers with (decision 0037): the file's blob comes from the graph, and the bytes come
+ * from the store's one queue, which the fill role answers. The read worker holds the store's connection, so it asks the
+ * queue itself, and no working copy is opened.
+ */
+function fileTextOf(owner: DatabaseOwner, product: string): (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined> {
+  let opened: Promise<QueueService> | undefined;
+  const queue = async (): Promise<QueueService> => {
+    opened ??= openFillRunQueue(owner).then(async (held) => { await declareFileTextQueue(held); return held; });
+    return await opened;
+  };
+  return async (ask) => {
+    // The repository is the one the product connected, read where its manifest declares it: a folder under repos/, or the
+    // product folder itself, checked by the host before a byte is read.
+    const held = readProduct(product);
+    const root = held.ok && ask.repository === held.product.name ? product : join(product, 'repos', ask.repository);
+    const answer = await readFileTextByBlob(await queue(), {
+      product, repository: ask.repository, root, blob: ask.blob, from: ask.from,
+      fromColumn: ask.moved ? null : ask.fromColumn ?? null,
+      to: ask.moved ? null : ask.to ?? null,
+    });
+    return { ...answer, blob: ask.blob, from: ask.from, ...(ask.moved ? { moved: true } : {}) };
+  };
+}

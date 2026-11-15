@@ -66,6 +66,8 @@ export interface SandboxSpec {
   readonly platform?: string;
   /** The cgroup madarch's own cgroup stands under: `MADARCH_PLUGIN_CGROUP`, else the process's own. */
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run without isolation; the host says so once. */
+  readonly unconfined?: boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -212,7 +214,8 @@ export async function startPluginProcess(spec: SandboxSpec): Promise<SandboxProc
   if (mode !== undefined && mode !== 'off') {
     throw new Error(`${fileURLToPath(import.meta.url)}:170: MADARCH_PLUGIN_SANDBOX=${JSON.stringify(mode)} is refused: accepted forms are unset (sandbox on) or off`);
   }
-  if (mode === 'off') return startUnconfined(spec);
+  if (mode === 'off') return startUnconfined(spec, 'the operator chose to run without confinement');
+  if (spec.unconfined === true) return startUnconfined(spec, 'this machine and its person chose to run plugins without isolation');
   const platform = spec.platform ?? sandboxPlatform();
   const problem = await sandboxSetupProblem({ platform, cgroupParent: spec.cgroupParent, ...(spec.env === undefined ? {} : { env: spec.env }) });
   if (problem !== undefined) {
@@ -223,9 +226,9 @@ export async function startPluginProcess(spec: SandboxSpec): Promise<SandboxProc
 }
 
 /** A plain child with the same protocol, closure and runtime, but no isolation or resource bounds. */
-async function startUnconfined(spec: SandboxSpec): Promise<SandboxProcess> {
+async function startUnconfined(spec: SandboxSpec, why: string): Promise<SandboxProcess> {
   if (!warnedUnconfined) {
-    process.stderr.write('Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.\n');
+    process.stderr.write(`Plugins run unconfined because ${why}; they can read and write everything the user can.\n`);
     warnedUnconfined = true;
   }
   mkdirSync(spec.workFolder, { recursive: true });

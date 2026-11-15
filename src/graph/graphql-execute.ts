@@ -47,6 +47,11 @@ export interface GraphqlOperation {
 /** What the executor needs of the product it answers for. */
 export interface GraphqlProduct {
   readonly deadlineMs?: number;
+  /**
+   * The read of one file's text by the blob the graph names (decision 0037): the role that answers a read gives it, and a
+   * product without one answers the field with null.
+   */
+  readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>;
   /** The published manifest, when the caller already holds it; left out, it is read inside the operation's snapshot. */
   readonly manifest?: KindsManifest;
   readonly folder: string;
@@ -307,7 +312,7 @@ export async function executeGraphql(owner: DatabaseOwner, product: GraphqlProdu
         return typeof held === 'function' ? (held as (...args: unknown[]) => unknown).bind(target) : held;
       },
     });
-    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings);
+    const context = new ReadContext(serial, manifest, published, product.folder, operation.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings, product.readText);
     const result = await execute({
       schema,
       document,

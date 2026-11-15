@@ -223,6 +223,8 @@ export interface PluginHostOptions {
   readonly releaseHashes?: readonly string[];
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run plugins without isolation. */
+  readonly unconfined?: boolean;
   readonly platform?: string;
   /** `journal.debug`: where the host records every request the plugin makes, refused and abandoned ones included. */
   readonly requests?: RequestLog;
@@ -389,6 +391,7 @@ export class PluginHost {
       entry: closure.manifest.entry,
       limits: { memoryBytes: limits.memoryBytes, cpuQuotaMicros: limits.cpuQuotaMicros, cpuPeriodMicros: limits.cpuPeriodMicros, pids: limits.pids },
       ...(this.options.cgroupParent === undefined ? {} : { cgroupParent: this.options.cgroupParent }),
+      ...(this.options.unconfined === true ? { unconfined: true } : {}),
       ...(this.options.env === undefined ? {} : { env: this.options.env }),
       platform,
     };
@@ -622,7 +625,7 @@ ${text === '' ? '(empty)' : text}` };
    */
   private async readBlobThroughCore(ask: { readonly repository: string; readonly blob: string; readonly from?: number; readonly fromColumn?: number; readonly to?: number }): Promise<PluginReadResult & { readonly complete?: boolean; readonly next?: { readonly line: number; readonly column: number } | null }> {
     if (this.options.readBlob !== undefined) return await this.options.readBlob(ask);
-    const { readBlobThroughPlugin } = await import('../knowledge/file-texts.js');
+    const { readBlobThroughPlugin } = await import('./file-reads.js');
     // A connected repository lies under the product's repos/; the product's own repository is the product's folder.
     const connected = join(this.options.repository, 'repos', ask.repository);
     const root = existsSync(connected) || ask.repository !== basename(resolve(this.options.repository)) ? connected : this.options.repository;
@@ -642,7 +645,7 @@ ${text === '' ? '(empty)' : text}` };
   private accessesRepository(): boolean {
     if (this.environment.repository) return true;
     const declaration = declarationOf(this.closureManifest ?? {});
-    return declaration.capabilities.includes('repository');
+    return declaration.capabilities.includes('git');
   }
 
   /**

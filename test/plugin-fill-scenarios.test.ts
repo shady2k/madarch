@@ -46,7 +46,7 @@ function fixture(mode: Mode) {
   const contract = { vertices: entries.map(([kind, , fields]) => ({ kind, key: [fields[0]], fields: fields.map(field) })), edges: [] };
   const produces = entries.filter(([kind]) => mode !== 'system-git' || kind !== 'Healthy').map(([kind, reads]) => ({ kind, fields: '*', reads }));
   // A plugin that runs a tool is a core plugin and names the one source it owns (decision 0038): this one reads git.
-  writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'scenarios', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces, ...(mode === 'system-git' ? { tier: 'core', capabilities: ['repository'], tools: [{ name: 'git', source: 'system', minimumVersion: '2.31' }] } : {}) }));
+  writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ name: 'scenarios', version: '1.0.0', entry: 'main.js', runtime: { name: 'bun', version: Bun.version }, produces, ...(mode === 'system-git' ? { tier: 'core', capabilities: ['git'], tools: [{ name: 'git', source: 'system', minimumVersion: '2.31' }] } : {}) }));
   const scenarioContract = mode === 'system-git' ? { vertices: contract.vertices.filter(vertex => vertex.kind !== 'Healthy'), edges: [] } : contract;
   writeFileSync(join(plugin, 'contract.json'), JSON.stringify({ id: 'scenarios', version: '1.0.0', outputs: scenarioContract, rights: { network: 'none', graph: true, graphReads: ['value'] } }));
   writeFileSync(join(plugin, 'main.js'), readFileSync(new URL('./fixtures/plugin-declaration-scenarios/main.js', import.meta.url), 'utf8'));

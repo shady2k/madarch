@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifyBlobRead } from '../src/knowledge/file-texts.js';
+import { verifyBlobRead } from '../src/plugin/file-reads.js';
 import { closureOf } from '../src/plugin/closure.js';
 import { sdkClosureFiles } from '../src/plugin/closure.js';
 import { createHash } from 'node:crypto';

@@ -16,7 +16,7 @@ import { Button } from './ui/button.js';
 import { InlineGroup, Metadata, Paragraph, Stack } from './ui/typography.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { FileSource } from './ui/drawing.js';
-import { readFileText, type FileTextAnswer } from './command.js';
+import { postQuery } from '../client.js';
 import { grammarOf, highlightLines, plainLines, type HighlightedLine } from './file-highlight.js';
 import { at, localized } from './format.js';
 import { TextSection } from './text.js';
@@ -36,7 +36,43 @@ function storedView(): 'rendered' | 'source' {
   }
 }
 
-const isMarkdown = (path: string): boolean => /\.(md|markdown|mdx)$/iu.test(path);
+/** The text of one file as the graph answers it (decision 0037): the lines asked for, and the blob they stand on. */
+interface FileTextAnswer {
+  readonly text: string;
+  readonly lines: number;
+  readonly bytes: number;
+  readonly binary: boolean;
+  readonly blob: string;
+  readonly from: number;
+  readonly language?: string;
+  readonly complete: boolean;
+  readonly moved?: boolean;
+  readonly next: { readonly line: number; readonly column: number } | null;
+}
+
+/** One file's text, asked of the graph: a page's data is read through the one read API. */
+const SOURCE_QUERY = `query Source($repository: String!, $path: String!, $from: Int, $to: Int, $fromColumn: Int, $blob: String) {
+  source(repository: $repository, path: $path, from: $from, to: $to, fromColumn: $fromColumn, blob: $blob) {
+    text lines bytes binary blob from language complete moved next { line column }
+  }
+}`;
+
+async function sourceText(base: string, ask: { readonly repository: string; readonly path: string; readonly from: number; readonly to?: number; readonly fromColumn?: number; readonly blob?: string }): Promise<FileTextAnswer> {
+  const answer = await postQuery<{ source: FileTextAnswer | null }>(base, SOURCE_QUERY, {
+    repository: ask.repository, path: ask.path, from: ask.from,
+    ...(ask.to === undefined ? {} : { to: ask.to }),
+    ...(ask.fromColumn === undefined ? {} : { fromColumn: ask.fromColumn }),
+    ...(ask.blob === undefined ? {} : { blob: ask.blob }),
+  });
+  if (answer.offline === true) throw new Error('offline');
+  const held = answer.errors[0]?.message;
+  if (held !== undefined) throw new Error(held);
+  if (answer.data?.source == null) throw new Error('the graph holds no text of this file');
+  return answer.data.source;
+}
+
+/** Whether a path names a Markdown file: its own suffix, never a pattern over the whole path. */
+const isMarkdown = (path: string): boolean => ['.md', '.markdown', '.mdx'].some((suffix) => path.toLowerCase().endsWith(suffix));
 
 /** Where the next range continues: a line, and inside it a column when a line was cut at the byte bound. */
 interface Cursor {
@@ -90,7 +126,7 @@ export function FileTextSection({ context }: { readonly context: SectionContext 
     const view_ = generation.current;
     setBusy(true);
     try {
-      const held = await readFileText(context.base, {
+      const held = await sourceText(context.base, {
         repository, path, from, fromColumn: column === 1 ? undefined : column, to: from + chunk - 1,
         ...(blob.current === null ? {} : { blob: blob.current }),
       });
@@ -148,7 +184,7 @@ export function FileTextSection({ context }: { readonly context: SectionContext 
     let from = 1;
     let column: number | undefined;
     for (;;) {
-      const held = await readFileText(context.base, { repository, path, from, ...(column === undefined ? {} : { fromColumn: column }) });
+      const held = await sourceText(context.base, { repository, path, from, ...(column === undefined ? {} : { fromColumn: column }) });
       text += held.text;
       if (held.complete !== false || held.next === null || held.next === undefined) break;
       from = held.next.line;
@@ -162,8 +198,8 @@ export function FileTextSection({ context }: { readonly context: SectionContext 
     URL.revokeObjectURL(url);
   };
   return (
-    <Stack className="grid gap-3" data-testid="file-text">
-      <InlineGroup className="mb-0">
+    <Stack layout="text" data-testid="file-text">
+      <InlineGroup>
         {markdown ? (
           <SegmentedChoice
             label={t('knowledge.fileText.view')}
@@ -177,12 +213,12 @@ export function FileTextSection({ context }: { readonly context: SectionContext 
         <Button variant="default" size="sm" onClick={() => void download()} data-testid="file-text-download">{t('knowledge.fileText.download')}</Button>
         <Metadata data-testid="file-text-count">{t('knowledge.fileText.count', { shown: new Intl.NumberFormat(context.language).format(lines.length), total: new Intl.NumberFormat(context.language).format(answer.lines) })}</Metadata>
       </InlineGroup>
-      {moved ? <Paragraph className="m-0 text-small" data-testid="file-text-moved">{t('knowledge.fileText.moved')}</Paragraph> : null}
+      {moved ? <Metadata data-testid="file-text-moved">{t('knowledge.fileText.moved')}</Metadata> : null}
       {markdown && view === 'rendered' ? (
-        <div data-testid="file-text-rendered">
+        <Stack data-testid="file-text-rendered">
           {/* The very component the Sources page draws a document with, fed the file's text (madarch-u3vw.16). */}
           <TextSection context={{ ...context, data: { text: answer.text }, section: { ...context.section, params: { path: 'text' } } }} />
-        </div>
+        </Stack>
       ) : (
         <FileSource
           ref={box}

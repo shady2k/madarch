@@ -487,3 +487,20 @@ for (const obsoleteError of [false, true]) {
     }
   });
 }
+
+test('the brand is lowercase and the product block is a link with no chevron', async () => {
+  const page = await render();
+  try {
+    const brand = page.container.querySelector('[data-testid="nav-brand"]');
+    expect(brand?.tagName).toBe('A');
+    expect(brand?.querySelector('strong')?.textContent).toBe('madarch');
+    const product = page.container.querySelector('[data-testid="product-selector"]') as HTMLAnchorElement | null;
+    expect(product?.tagName).toBe('A');
+    expect(product?.getAttribute('href')).toBe('/');
+    expect(product?.querySelector('svg')).toBeNull();
+    const initial = product?.querySelector('.product-initial');
+    expect(initial?.className).toContain('font-sans');
+    expect(initial?.className).not.toContain('font-serif');
+    expect(initial?.textContent).toBe('M');
+  } finally { await page.close(); }
+});

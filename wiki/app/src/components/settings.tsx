@@ -11,12 +11,12 @@ import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
-import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
+import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
 import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
-import { Select } from './ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
 import {
-  chooseAgent, chooseModelRole, isOffline, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
+  chooseAgent, chooseModelRole, isOffline, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderIsolation, saveReaderRole,
   useChangeStream, useCommandRead,
   type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
 } from './command.js';
@@ -52,14 +52,13 @@ function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
   return (
     <Stack className="mb-3 last:mb-0">
       <FieldLabel className="mb-1 block text-small font-medium">{label}
-        <Select
-          data-testid={id}
-          className="mt-1 w-full max-w-96"
-          value={value ?? ''}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
-          options={[{ value: '', label: choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current }) }, ...choice.values.map((entry) => ({ value: entry.value, label: entry.name }))]}
-        />
+        <Select value={value ?? ''} disabled={disabled} onValueChange={(next) => onChange(next === '' ? null : next)}>
+          <SelectTrigger aria-label={label} data-testid={id}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current })}</SelectItem>
+            {choice.values.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </FieldLabel>
       {picked?.description === undefined ? null : <Paragraph className="m-0 text-small text-muted">{picked.description}</Paragraph>}
     </Stack>
@@ -108,14 +107,13 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
       {role.role === 'writing' ? null : (
         <Stack className="mt-2">
           <FieldLabel className="mb-1 block text-small font-medium">{t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
-            <Select
-              data-testid={`settings-role-select-${role.role}`}
-              className="mt-1 w-full max-w-96"
-              value={assigned ? role.pair!.agent : ''}
-              disabled={connection.offline || working || disabled || settings.busy}
-              onChange={(event) => assign(role.role, event.target.value === '' ? null : event.target.value)}
-              options={[{ value: '', label: settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') }) }, ...options.map((option) => ({ value: option.id, label: option.name }))]}
-            />
+            <Select value={assigned ? role.pair!.agent : ''} disabled={connection.offline || working || disabled || settings.busy} onValueChange={(next) => assign(role.role, next === '' ? null : next)}>
+              <SelectTrigger aria-label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })} data-testid={`settings-role-select-${role.role}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</SelectItem>
+                {options.map((option) => <SelectItem key={option.id} value={option.id}>{option.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </FieldLabel>
         </Stack>
       )}
@@ -165,6 +163,12 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
     setError(null);
     saveReaderRole(base, role).then(() => { setWorking(null); reader.reload(); context.onRole?.(role); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
+  const saveIsolation = (unconfined: boolean): void => {
+    if (connection.offline) return;
+    setWorking('isolation');
+    setError(null);
+    saveReaderIsolation(base, unconfined).then(() => { setWorking(null); reader.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+  };
   const capValue = Number(cap ?? data?.tokenCap ?? 0);
   const capValid = Number.isSafeInteger(capValue) && capValue > 0;
   const namedAgents = Object.entries(data?.agentNames ?? {});
@@ -197,7 +201,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
             <ListItem key={agent.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-line p-3" data-testid={`settings-agent-${agent.id}`} data-chosen={chosen?.id === agent.id ? 'true' : 'false'}>
               <Text className="min-w-0 flex-1">
                 <Text className="block font-medium">{agent.label}</Text>
-                <Text className="block text-small text-muted">
+                <Text className="block min-w-0 break-words text-small text-muted">
                   {agentNote(t, agent)}
                   {agent.login === 'signed-in' ? ` ${t('knowledge.writer.signedIn')}` : agent.login === 'not-signed-in' ? ` ${t('knowledge.writer.notSignedIn', { agent: agent.label })}` : ''}
                 </Text>
@@ -262,6 +266,27 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
           <Button variant="default" size="default" disabled={connection.offline || working !== null || !capValid || capValue === data.tokenCap} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
         </Stack>
         <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-token-cap-note">{capValid ? t('settings.fills.tokenCapNote', { cap: capValue }) : t('settings.fills.tokenCapInvalid')}</Paragraph>
+      </Section>
+
+      <Section id="isolation" title={t('settings.isolation.title')} intro={t('settings.isolation.intro')}>
+        {reader.data === null ? <Paragraph className="m-0 text-muted">{t('knowledge.loading')}</Paragraph> : (
+          <Stack className="grid gap-2" data-testid="settings-isolation">
+            {reader.data.pluginIsolation.capable ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-capable">{t('settings.isolation.capable')}</Paragraph> : (
+              <Paragraph className="m-0 text-small" data-testid="settings-isolation-reason">{t('settings.isolation.unavailable', { reason: reader.data.pluginIsolation.reason })}</Paragraph>
+            )}
+            {reader.data.pluginIsolation.capable ? null : (
+              <>
+                {reader.data.pluginsUnconfined === true ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-allowed">{t('settings.isolation.allowed')}</Paragraph> : null}
+                {reader.data.pluginsUnconfined === false ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-denied">{t('settings.isolation.denied')}</Paragraph> : null}
+                <InlineGroup>
+                  {reader.data.pluginsUnconfined === true ? null : <Button variant="default" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(true)} data-testid="settings-isolation-allow">{t('settings.isolation.allow')}</Button>}
+                  {reader.data.pluginsUnconfined === false ? null : <Button variant="outline" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(false)} data-testid="settings-isolation-deny">{t('settings.isolation.deny')}</Button>}
+                </InlineGroup>
+              </>
+            )}
+          </Stack>
+        )}
+        {reader.error === null ? null : <Paragraph className="mb-0 mt-2 text-small" role="alert">{reader.error}</Paragraph>}
       </Section>
 
       <Section id="reader" title={t('settings.reader.title')} intro={t('settings.reader.intro')}>

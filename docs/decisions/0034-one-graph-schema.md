@@ -1,6 +1,6 @@
 # 0034. One graph schema: identity, a table per kind from its contract, edges apart, claims with sources, layers over the parent, one journal
 
-Status: accepted
+Status: accepted; item 3 superseded by 0039
 Date: 2026-11-09
 
 Builds on 0026 (graph first, per-file stages), 0027 (registry, orchestrator, exactly-once

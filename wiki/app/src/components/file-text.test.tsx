@@ -31,12 +31,30 @@ beforeEach(async () => {
   // The view is remembered per reader: each case starts at the Markdown's rendered view.
   window.localStorage.removeItem('madarch-file-text-view');
   await setWikiLanguage('ru');
-  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request) => {
+  // A page's data is read through the graph (decision 0037): the stub answers the `source` field the section asks for.
+  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     requests.push(url.pathname + url.search);
+    if (url.pathname.endsWith('/graphql')) {
+      const asked = JSON.parse(String(init?.body ?? '{}')) as { query?: string; variables?: Record<string, unknown> };
+      const known = asked.query?.includes('source(') === true;
+      const variables = asked.variables ?? {};
+      const moved = typeof variables['blob'] === 'string' && variables['blob'] !== answer.blob;
+      return new Response(JSON.stringify({ data: { source: known ? { ...answer, moved, from: moved ? 1 : variables['from'] ?? 1, next: null, complete: true, language: 'typescript' } : null } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
 });
+
+/** A stub that answers the graph's `source` field: the section reads a file's text through the one read API (0037). */
+function sourceStub(ask: (variables: Record<string, unknown>) => Record<string, unknown>): void {
+  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost');
+    requests.push(url.pathname + url.search);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { variables?: Record<string, unknown> };
+    return new Response(JSON.stringify({ data: { source: ask(body.variables ?? {}) } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+}
 
 function context(path: string, repository = 'sample'): Record<string, unknown> {
   return {
@@ -71,11 +89,8 @@ test('a Markdown file opens rendered by the documents\' component, with the Rend
   answer = { ...answer, text: '# Vision\n\nThe product\'s first page.\n', lines: 3 };
   const page = await render(context('docs/vision.md'));
   try {
-    expect(requests[0]).toContain('/api/source');
-    expect(requests[0]).toContain('repo=sample');
-    expect(requests[0]).toContain('path=docs%2Fvision.md');
-    expect(requests[0]).toContain('from=1');
-    expect(requests[0]).toContain('to=400');
+    // The text is read through the graph, not through a route of its own (decision 0037).
+    expect(requests[0]).toBe('/graphql');
     const rendered = page.container.querySelector('[data-testid="file-text-rendered"]');
     expect(rendered?.querySelector('h1')?.textContent).toBe('Vision');
     expect(page.container.querySelector('[data-testid="file-text-view-rendered"]')).not.toBeNull();
@@ -129,28 +144,26 @@ test('a Markdown link of a script URL is drawn as text: only http(s), mailto and
 test('a later range is appended once, in its place: scrolling a long file never repeats or skips a line', async () => {
   // The owner's review (madarch-u3vw.16): lines 401-800 stood twice and 801-1200 were skipped.
   const all = Array.from({ length: 1_600 }, (_, at) => `line ${String(at + 1)}`);
-  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request) => {
-    const url = new URL(String(input), 'http://localhost');
-    const from = Number(url.searchParams.get('from') ?? '1');
-    const to = Number(url.searchParams.get('to') ?? String(all.length));
-    requests.push(url.pathname + url.search);
+  sourceStub((variables) => {
+    const from = Number(variables['from'] ?? 1);
+    const to = Number(variables['to'] ?? all.length);
     const held = all.slice(from - 1, to);
-    return new Response(JSON.stringify({
-      text: `${held.join('\n')}\n`, lines: all.length, bytes: 1, binary: false, blob: 'a'.repeat(40), from, repository: 'sample', path: 'src/long.ts',
+    return {
+      text: `${held.join('\n')}\n`, lines: all.length, bytes: 1, binary: false, blob: 'a'.repeat(40), from,
       complete: to >= all.length, next: to >= all.length ? null : { line: to + 1, column: 1 },
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
-  }) as unknown as typeof fetch;
+    };
+  });
   const page = await render(context('src/long.ts'));
   try {
     expect(sourceLines(page.container)).toEqual(all.slice(0, 400));
     const box = page.container.querySelector('[data-testid="file-text-source"]') as HTMLElement;
     await act(async () => { box.scrollTop = box.scrollHeight; box.dispatchEvent(new Event('scroll', { bubbles: true })); });
     await settle();
-    expect(requests.at(-1)).toContain('from=401');
+    expect(requests.at(-1)).toBe('/graphql');
     expect(sourceLines(page.container)).toEqual(all.slice(0, 800));
     await act(async () => { box.scrollTop = box.scrollHeight; box.dispatchEvent(new Event('scroll', { bubbles: true })); });
     await settle();
-    expect(requests.at(-1)).toContain('from=801');
+    expect(requests.at(-1)).toBe('/graphql');
     expect(sourceLines(page.container)).toEqual(all.slice(0, 1200));
   } finally {
     await page.close();
@@ -159,19 +172,17 @@ test('a later range is appended once, in its place: scrolling a long file never 
 
 test('going from one file to another shows the other file: the loaded text never survives the navigation', async () => {
   // The owner's review (madarch-u3vw.16): sample/a.ts's text stood under sample/b.ts's page.
-  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request) => {
-    const url = new URL(String(input), 'http://localhost');
-    const path = url.searchParams.get('path') ?? '';
-    requests.push(url.pathname + url.search);
+  sourceStub((variables) => {
+    const path = String(variables['path'] ?? '');
     const text = path === 'sample/a.ts' ? 'export const alpha = 1;\n' : 'export const beta = 2;\n';
-    return new Response(JSON.stringify({ text, lines: 2, bytes: 1, binary: false, blob: (path === 'sample/a.ts' ? 'a' : 'b').repeat(40), from: 1, repository: 'sample', path }), { status: 200, headers: { 'content-type': 'application/json' } });
-  }) as unknown as typeof fetch;
+    return { text, lines: 2, bytes: 1, binary: false, blob: (path === 'sample/a.ts' ? 'a' : 'b').repeat(40), from: 1, complete: true, next: null };
+  });
   const page = await render(context('sample/a.ts'));
   try {
     expect(sourceLines(page.container)).toEqual(['export const alpha = 1;']);
     await page.show(context('sample/b.ts'));
     expect(sourceLines(page.container)).toEqual(['export const beta = 2;']);
-    expect(requests.filter((one) => one.includes('path=sample%2Fb.ts')).length).toBeGreaterThanOrEqual(1);
+    expect(requests.filter((one) => one === '/graphql').length).toBeGreaterThanOrEqual(2);
   } finally {
     await page.close();
   }
@@ -179,24 +190,19 @@ test('going from one file to another shows the other file: the loaded text never
 
 test('a later range names the blob the first answer held, and a moved blob restarts the view and says so', async () => {
   // The owner's review (madarch-u3vw.16): after a fill published revision B, scrolling appended B's lines to A's text.
-  const asked: string[] = [];
   let moved = false;
-  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request) => {
-    const url = new URL(String(input), 'http://localhost');
-    asked.push(url.pathname + url.search);
-    const from = Number(url.searchParams.get('from') ?? '1');
-    const to = Number(url.searchParams.get('to') ?? '400');
+  const asked: Record<string, unknown>[] = [];
+  sourceStub((variables) => {
+    asked.push(variables);
+    const from = Number(variables['from'] ?? 1);
+    const to = Number(variables['to'] ?? 400);
     const blob = moved ? 'b'.repeat(40) : 'a'.repeat(40);
     // A moved blob answers its own first lines, from line 1: the view restarts there.
     const start = moved ? 1 : from;
     const end = moved ? Math.max(1, to - from + 1) : to;
     const text = Array.from({ length: end - start + 1 }, (_, at) => `${moved ? 'B' : 'A'} line ${String(start + at)}`).join('\n') + '\n';
-    return new Response(JSON.stringify({
-      text, lines: 1_600, bytes: 1, binary: false, blob, from: start, repository: 'sample', path: 'src/moved.ts',
-      complete: false, next: { line: end + 1, column: 1 },
-      ...(moved ? { moved: true } : {}),
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
-  }) as unknown as typeof fetch;
+    return { text, lines: 1_600, bytes: 1, binary: false, blob, from: start, complete: false, next: { line: end + 1, column: 1 }, ...(moved ? { moved: true } : {}) };
+  });
   const page = await render(context('src/moved.ts'));
   try {
     expect(sourceLines(page.container)[0]).toBe('A line 1');
@@ -205,7 +211,7 @@ test('a later range names the blob the first answer held, and a moved blob resta
     await act(async () => { box.scrollTop = box.scrollHeight; box.dispatchEvent(new Event('scroll', { bubbles: true })); });
     await settle();
     // The later request names the blob the first answer held.
-    expect(asked.at(-1)).toContain(`blob=${'a'.repeat(40)}`);
+    expect(asked.at(-1)?.['blob']).toBe('a'.repeat(40));
     // The answer came from another revision: the view restarts at its first line, and says so.
     expect(sourceLines(page.container)[0]).toBe('B line 1');
     expect(page.container.querySelector('[data-testid="file-text-moved"]')).not.toBeNull();

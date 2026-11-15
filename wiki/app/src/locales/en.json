@@ -51,7 +51,7 @@
     "back": "List"
   },
   "brand": {
-    "product": "Madarch",
+    "product": "madarch",
     "concept": "wiki",
     "title": "{{product}} — product wiki"
   },
@@ -124,7 +124,7 @@
       "noRun": "The address names no run.",
       "result": "Result by kind",
       "cause": {
-        "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins."
+        "sandbox": "The plugin did not start: this machine cannot give it an isolated sandbox. On the preparation page, choose to run plugins without isolation if you trust them, or do not fill."
       },
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
@@ -344,7 +344,7 @@
       "emptyFolder": "This folder holds no file and no folder at this commit.",
       "textTitle": "Text",
       "textMissing": "The file's text is not shown",
-      "textNotRead": "The text of {{path}} could not be read: {{reason}}",
+      "textNotRead": "The text of {{path}} could not be read: {{{reason}}}",
       "binaryFile": "A binary file, {{size}}. Its text is not shown.",
       "history": "History",
       "noHistory": "The history of this file has not been read, or no commit touched it.",
@@ -996,10 +996,10 @@
       "service": "Service",
       "secret": "Secret"
     },
-    "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
+    "pageNotRead": "Could not read the page of {{id}}: {{{reason}}}",
     "fillRebuiltExtractors": "Graph rebuilt: extractors changed",
     "contractLoading": "Loading contract documentation…",
-    "contractRenderError": "Cannot render the definition: {{reason}}",
+    "contractRenderError": "Cannot render the definition: {{{reason}}}",
     "contractSelectionMissing": "The selected operation was not found in the rendered definition.",
     "contractPublish": "Publish",
     "contractSubscribe": "Subscribe",
@@ -1015,7 +1015,7 @@
     "contractRule": "Rule",
     "contractEnum": "Enum value",
     "contractNoFields": "This message has no fields.",
-    "contractDiagnostic": "Definition unavailable: {{reason}}",
+    "contractDiagnostic": "Definition unavailable: {{{reason}}}",
     "contractTechnicalDetails": "Technical details",
     "contractUnknownReason": "The definition is unavailable.",
     "contractReason": {
@@ -1683,13 +1683,19 @@
   },
   "firstRun": {
     "title": "First run",
-    "what": "Madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
+    "what": "madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
     "stepOne": "Check the set of kinds the wiki should hold.",
     "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
     "stepThree": "Start the fill and follow its run.",
     "manual": "Choose in the catalogue"
   },
   "prepare": {
+    "isolationQuestion": "Plugins cannot be isolated on this machine: {{reason}}. Run them without isolation? They can read and write what you can.",
+    "isolationRun": "Run without isolation",
+    "isolationNo": "Do not fill",
+    "isolationUnconfined": "Plugins run without isolation on this machine.",
+    "isolationDenied": "You chose not to run plugins without isolation on this machine.",
+    "isolationSettings": "Plugin isolation setting",
     "title": "Preparing the fill",
     "wizardIntro": "First run on this product: this is a recommended set of kinds.",
     "intro": "The final set, who fills which fields, and what the run will take.",
@@ -1761,6 +1767,16 @@
     "button": "Fill this kind"
   },
   "settings": {
+      "isolation": {
+        "title": "Plugin isolation on this machine",
+        "intro": "How madarch runs plugins here. This is this machine and your setting, not the product’s.",
+        "capable": "Plugins run isolated on this machine.",
+        "unavailable": "Plugins cannot be isolated on this machine: {{reason}}.",
+        "allow": "Run plugins without isolation",
+        "deny": "Do not run plugins without isolation",
+        "allowed": "Plugins run without isolation on this machine. They can read and write what you can.",
+        "denied": "Plugins do not run without isolation on this machine."
+      },
     "nav": "Product settings",
     "title": "Product settings",
     "intro": "How {{product}} is set up on this machine: who writes its pages, in which language, and the actions that start the pages or the graph over.",
@@ -1855,7 +1871,7 @@
         "graph": "the graph store on this machine: {{store}};",
         "fill": "then a fresh fill reads the code and the agent writes the pages.",
         "confirm": "Remove and start from scratch",
-        "fillRefused": "The pages and the graph were removed, but the fill did not start: {{reason}} Put that right, then press Refresh in the top bar."
+        "fillRefused": "The pages and the graph were removed, but the fill did not start: {{{reason}}} Put that right, then press Refresh in the top bar."
       },
       "agentEdits": "A page the agent wrote and you edited in place is removed with the others, because its front matter still says the agent wrote it. To keep such a page, change `producer: agent` to `producer: person` there first."
     },
@@ -1919,6 +1935,7 @@
     "noTemplateFindings": "No template findings."
   },
   "kit": {
+    "next": "next",
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
     "approvalTitle": "Owner approval required",
@@ -1947,7 +1964,36 @@
     "empty": "Empty",
     "complete": "Complete",
     "indeterminate": "Indeterminate",
-    "typography": "Page structure and typography"
+    "typography": "Page structure and typography",
+    "fieldLabel": "Field label",
+    "charts": "Charts and hierarchies",
+    "chartsNote": "Six forms of the vendored diagrammatic and the activity calendar in its two shapes. Each is drawn from the kit's tokens only: no chart carries a colour of its own.",
+    "treemap": "Treemap",
+    "sunburst": "Sunburst",
+    "bar": "Bar",
+    "stackedBar": "Stacked bar",
+    "heatmap": "Heatmap",
+    "sparkline": "Sparkline",
+    "calendar": "Calendar (static)",
+    "activity": "Calendar (interactive)",
+    "data": "With data",
+    "folded": "Folded to the size budget",
+    "narrow": "390 px",
+    "darkCharts": "Dark: the figures take the page's scheme, its surface and its ink",
+    "noData": "No values to draw",
+    "activityTitle": "Fills per day",
+    "treeTitle": "Repository by bytes",
+    "foldedTitle": "Catalogue by kinds, folded to 6 entries",
+    "sunburstTitle": "Repository by bytes, as rings",
+    "barTitle": "Kinds by what the graph holds",
+    "stackedTitle": "Fill outcomes by day",
+    "heatmapTitle": "Fills by weekday and week",
+    "sparklineTitle": "Units a fill published",
+    "calendarTitle": "Fills in the last ninety days",
+    "calendarLess": "less",
+    "calendarMore": "more",
+    "foldedCount": "{{count}} folded",
+    "calendarSummary": "{{title}}: {{total}} in {{days}} days, {{from}} to {{to}}"
   },
   "overview": {
     "title": "Where this product stands",
@@ -1957,5 +2003,8 @@
     "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
     "notKnown": "Problems: not known right now",
     "fillUnknown": "The last fill is not known right now"
+  },
+  "charts": {
+    "missingValues": "No value: {{labels}}"
   }
 }

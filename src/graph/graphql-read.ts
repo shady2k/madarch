@@ -21,12 +21,13 @@ import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { generatedTableName, type FieldType } from '../graph/contract.js';
 import { byCodePoint } from '../model/order.js';
-import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
+import { fileTextKind, homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, kindTypeNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
 import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
 import { join } from 'node:path';
+import { catalogueFileTextRole } from '../knowledge/file-text-kind.js';
 import { relationWords } from '../knowledge/relation-labels.js';
 import { checkProductTemplates } from './template-check.js';
 import type { TemplateFile } from '../page-contract/template.js';
@@ -370,6 +371,11 @@ export class ReadContext {
     private readonly templateFiles: readonly TemplateFile[] = [],
     private readonly templateBodies: ReadonlyMap<string, string> = new Map(),
     private readonly templateFindings: readonly TemplateFinding[] = [],
+    /**
+     * The read of one file's text by the blob the graph names (decision 0037), given by the role that answers it: the api
+     * role asks the store's queue, and a read that has no reader answers null.
+     */
+    private readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>,
   ) {
     this.published = published;
     this.lang = lang ?? manifest.language ?? 'en';
@@ -1146,6 +1152,44 @@ export class ReadContext {
 
   // ---- roots -------------------------------------------------------------------------------------------------
 
+  /**
+   * One file's text, read by the blob the graph names (decision 0037): the entity is found by the roles the product
+   * declares, and the bytes are read by the role that answers a read — never from a working copy.
+   */
+  private async sourceOf(args: Record<string, unknown>): Promise<unknown> {
+    if (this.readText === undefined) return null;
+    const repository = typeof args['repository'] === 'string' ? args['repository'] : '';
+    const path = typeof args['path'] === 'string' ? args['path'] : '';
+    if (repository === '' || path === '') return null;
+    const declared = fileTextKind(this.manifest);
+    const roles = declared?.fileText ?? catalogueFileTextRole();
+    const kind = declared?.name ?? roles.kind;
+    if (kind === undefined) return null;
+    const table = this.vertexTable.get(kind);
+    if (table === undefined) return null;
+    // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
+    const found = await this.tx.query<{ blob: unknown }>(
+      `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
+        WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
+          AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`,
+      [roles.repository, repository, roles.path, path],
+    );
+    const blob = found.rows[0]?.blob;
+    if (typeof blob !== 'string' || blob === '') return null;
+    // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
+    // says so, so two revisions are never interleaved.
+    const held = typeof args['blob'] === 'string' ? args['blob'] : undefined;
+    const moved = held !== undefined && held !== blob;
+    const integer = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined;
+    const answer = await this.readText({
+      repository, path, blob, moved,
+      from: moved ? 1 : integer(args['from']) ?? 1,
+      ...(integer(args['to']) === undefined || moved ? {} : { to: integer(args['to'])! }),
+      ...(moved ? {} : integer(args['fromColumn']) === undefined ? {} : { fromColumn: integer(args['fromColumn'])! }),
+    });
+    return answer ?? null;
+  }
+
   private async root(field: string, args: Record<string, unknown>): Promise<unknown> {
     const lang = typeof args['lang'] === 'string' ? args['lang'] : undefined;
     if (field === 'entity') {
@@ -1175,6 +1219,7 @@ export class ReadContext {
     }
     if (field === 'allCatalogueEntity') return this.allCatalogue(args as ConnectionArgs, lang);
     if (field === 'home') return this.home(lang);
+    if (field === 'source') return await this.sourceOf(args);
     if (field === 'search') return this.search(args, lang);
     if (field === 'searchGroups') return this.searchGroups(args, lang);
     if (field === 'bootstrap') return this.bootstrap();

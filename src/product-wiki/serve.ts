@@ -178,6 +178,12 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   if (!built.ok) return { outcome: 'refused', message: built.message };
   const port = options.port ?? DEFAULT_PORT;
   const knowledgeRoot = knowledgeRootOf(dirname(folder));
+  const { prepareSandboxCgroup } = await import('../plugin/sandbox-delegation.js');
+  const cgroup = await prepareSandboxCgroup(process.env);
+  if (!cgroup.ok) console.error(cgroup.message);
+  const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
+  const probe = await probePluginSandbox();
+  if (probe.state === 'unavailable') console.error(probe.reason);
   // A start of this home stops a PostgreSQL server a crash left before it serves.
   await stopDatabasesUnder(knowledgeRoot);
   let server: StartedServer;

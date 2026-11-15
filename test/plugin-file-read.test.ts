@@ -39,7 +39,7 @@ function product(options: { readonly link?: string } = {}): { folder: string; re
   const reader = join(folder, 'plugins', 'reader');
   mkdirSync(reader, { recursive: true });
   const outputs = { vertices: [{ kind: 'probe.read', key: ['id'], fields: [{ name: 'length', type: 'integer', meaning: 'the text length', example: 1, required: true }] }], edges: [] };
-  writeFileSync(join(reader, 'plugin.json'), JSON.stringify({ name: 'reader', version: '1.0.0', tier: 'ordinary', capabilities: ['repository'], entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'probe.read', fields: '*', reads: [] }] }));
+  writeFileSync(join(reader, 'plugin.json'), JSON.stringify({ name: 'reader', version: '1.0.0', tier: 'ordinary', capabilities: ['git'], entry: 'main.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'probe.read', fields: '*', reads: [] }] }));
   // The plugin reads no graph: its one read is the file the host answers.
   writeFileSync(join(reader, 'contract.json'), JSON.stringify({ id: 'reader', version: '1.0.0', outputs, rights: { network: 'none' } }));
   writeFileSync(join(reader, 'main.ts'), `import { definePlugin } from 'madarch-plugin-sdk';

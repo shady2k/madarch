@@ -16,6 +16,6 @@
   ],
   "tier": "core",
   "capabilities": [
-    "repository"
+    "git"
   ]
 }

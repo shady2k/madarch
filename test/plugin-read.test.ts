@@ -13,7 +13,7 @@ import { PROTOCOL_VERSION } from '../src/plugin/protocol.js';
 test('the host reads a blob through the plugin, line ranges included', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-plugin-read-'));
   const outputs = { vertices: [{ kind: 'item', key: ['id'] }], edges: [] };
-  writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'reader', version: '1.0.0', tier: 'core', capabilities: ['repository'], entry: 'entry.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'item', fields: '*', partition: 'key' }] }));
+  writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name: 'reader', version: '1.0.0', tier: 'core', capabilities: ['git'], entry: 'entry.ts', runtime: { name: 'bun', version: Bun.version }, produces: [{ kind: 'item', fields: '*', partition: 'key' }] }));
   writeFileSync(join(root, 'contract.json'), JSON.stringify({ id: 'reader', version: '1.0.0', outputs, rights: { network: 'none' } }));
   writeFileSync(join(root, 'entry.ts'), `import { definePlugin } from 'madarch-plugin-sdk';
 const lines = ['# Notes', '', 'The first line.', 'The second line.'];

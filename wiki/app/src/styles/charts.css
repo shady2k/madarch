@@ -1,0 +1,56 @@
+/**
+ * The chart forms' tokens (vendor/diagrammatic), every one set from the kit's
+ * design tokens: a figure is drawn in the page's palette, its type and its
+ * light/dark scheme, and carries no colour of its own (task madarch-64o5.82).
+ *
+ * Categories are told apart by hue: the owner chose "information over design"
+ * (2026-11-15), so the seven categorical steps are the kit's `--chart-cat-*`
+ * tokens, light and dark, and the forms whose marks are categories — treemap,
+ * sunburst, bar, stacked bar — read them. Magnitude and heat keep one ink:
+ * `--dg-c1` is the text colour and the rest are its strengths over the page,
+ * and every heat figure's ramp is those, never a hue. The diagrammatic defaults
+ * stay the fallbacks for a host with no tokens at all (a test render, a figure
+ * drawn without the sheet).
+ */
+[data-dg],
+[data-dg-legend] {
+  --dg-c1: var(--chart-cat-1);
+  --dg-c2: var(--chart-cat-2);
+  --dg-c3: var(--chart-cat-3);
+  --dg-c4: var(--chart-cat-4);
+  --dg-c5: var(--chart-cat-5);
+  --dg-c6: var(--chart-cat-6);
+  --dg-c7: var(--chart-cat-7);
+  --dg-pos: var(--chart-cat-1);
+  --dg-neg: var(--chart-cat-4);
+  --dg-ink: var(--text);
+  --dg-muted: var(--text-muted);
+  --dg-grid: var(--border);
+  --dg-surface: var(--bg-page);
+  --dg-font: var(--font-sans);
+}
+
+/* A figure that stands in a table cell or beside a value keeps the small step. */
+[data-dg] text {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Heat: one ink at descending strength, whatever a category figure beside it wears. */
+[data-dg][data-dg-magnitude],
+[data-heat] [data-dg] {
+  --dg-c1: var(--text);
+  --dg-c2: color-mix(in oklab, var(--text) 86%, var(--bg-page));
+  --dg-c3: color-mix(in oklab, var(--text) 72%, var(--bg-page));
+  --dg-c4: color-mix(in oklab, var(--text) 58%, var(--bg-page));
+  --dg-c5: color-mix(in oklab, var(--text) 44%, var(--bg-page));
+  --dg-c6: color-mix(in oklab, var(--text) 32%, var(--bg-page));
+  --dg-c7: color-mix(in oklab, var(--text) 22%, var(--bg-page));
+}
+
+/* The heat graph's cells: the same steps of one ink, as the host's colour scale (charts.tsx hands them over). */
+[data-testid="activity-calendar"] {
+  --heat-step-1: color-mix(in oklab, var(--text) 22%, var(--bg-page));
+  --heat-step-2: color-mix(in oklab, var(--text) 40%, var(--bg-page));
+  --heat-step-3: color-mix(in oklab, var(--text) 62%, var(--bg-page));
+  --heat-step-4: color-mix(in oklab, var(--text) 84%, var(--bg-page));
+}

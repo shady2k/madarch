@@ -10,11 +10,13 @@ import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
 import type { AgentMeter } from '../fill/agent-meter.js';
-import { withSpan } from '../obs/trace.js';
+import { startSpan, withSpan } from '../obs/trace.js';
 import type { PluginManifest } from './closure.js';
 import type { GraphAnswerer } from './host.js';
 import { PluginUnitResult, type PluginContractDeclaration } from './protocol.js';
 import { validateUnitResult } from './results.js';
+
+import { catalogueFileTextRole, type FileTextRole } from '../knowledge/file-text-kind.js';
 
 const WHERE = `src/plugin/agent.ts:1: ${fileURLToPath(import.meta.url)}`;
 
@@ -39,6 +41,8 @@ export interface PluginAgentOptions {
    * file reads ask it by the blob id the graph holds, never by a working-copy path.
    */
   readonly readFile?: (request: { readonly repository: string; readonly blob: string; readonly from?: number; readonly limit?: number }) => Promise<string>;
+  /** The roles a file's entity names its repository and blob by; the catalogue's when a product declares none (0037). */
+  readonly fileText?: FileTextRole;
   /** Repository identities mapped to writable host folders. Missing identities cannot be written. */
   readonly repositories?: Readonly<Record<string, string>>;
   readonly cwd?: string;
@@ -120,11 +124,12 @@ export class PluginAgentBridge {
               if (file === undefined) throw new Error(`${WHERE}: graph read denied for ${name}`);
               // The text is the blob the graph names, read by the host through the git plugin (decision 0037): the agent
               // and the page share one read path, and neither reads a working copy.
-              const blob = await this.graph.value(file.kind, file.key, 'blob');
+              const roles = this.options.fileText ?? catalogueFileTextRole();
+              const blob = await this.graph.value(file.kind, file.key, roles.blob);
               if (typeof blob !== 'string' || blob === '') throw new Error(`${WHERE}: graph file ${name} holds no blob id, and a file's text is read by its blob`);
               if (this.options.readFile === undefined) throw new Error(`${WHERE}: this host answers no blob read, and a file's text is read through the host`);
               log.debug('plugin agent file read', { unitId, path: name, blob });
-              const content = await this.options.readFile({ repository: String(file.key['repository']), blob, ...(params.line == null ? {} : { from: params.line }), ...(params.limit == null ? {} : { limit: params.limit }) });
+              const content = await this.readAgentFile(String(file.key[roles.repository]), blob, params.line ?? undefined, params.limit ?? undefined);
               return { content };
             },
           },
@@ -177,9 +182,10 @@ export class PluginAgentBridge {
           if (file === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
           // The evidence's line range is checked against the text the graph's blob names, read through the one gate
           // (decision 0037): the graph holds no text of its own.
-          const blob = await this.graph.value(file.kind, file.key, 'blob');
+          const roles = this.options.fileText ?? catalogueFileTextRole();
+          const blob = await this.graph.value(file.kind, file.key, roles.blob);
           if (this.options.readFile === undefined || typeof blob !== 'string' || blob === '') throw new Error(`${WHERE}: agent evidence names a file whose text the host cannot read`);
-          const content = await this.options.readFile({ repository: String(file.key['repository']), blob });
+          const content = await this.readAgentFile(String(file.key[roles.repository]), blob);
           const start = evidence.lineStart;
           const end = evidence.lineEnd;
           if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
@@ -190,9 +196,21 @@ export class PluginAgentBridge {
         this.activeUnits.delete(unitId);
         this.turns.delete(controller);
         if (connection !== undefined) { this.connections.delete(connection); await connection.close(); }
-        if (workspace !== undefined) { rmSync(workspace, { recursive: true, force: true }); workspace = undefined; }
+        if (workspace !== undefined) {
+          const held = workspace;
+          workspace = undefined;
+          removeWorkspace(held);
+        }
       }
     });
+  }
+
+  /** One file's text for the agent, read in a span of its own: the host answers it by the blob's id. */
+  private async readAgentFile(repository: string, blob: string, from?: number, limit?: number): Promise<string> {
+    const span = startSpan('plugin.agent.file', { 'madarch.plugin': 'agent' });
+    try {
+      return await this.options.readFile!({ repository, blob, ...(from === undefined ? {} : { from }), ...(limit === undefined ? {} : { limit }) });
+    } finally { span.end(); }
   }
 
   pause(): void {
@@ -211,4 +229,10 @@ export class PluginAgentBridge {
     await Promise.all([...this.connections].map(async (connection) => await connection.close()));
     this.connections.clear();
   }
+}
+
+/** Removes one agent's scratch workspace, in a span of its own: the conversation has ended and its files go with it. */
+function removeWorkspace(folder: string): void {
+  const span = startSpan('plugin.agent.workspace', {});
+  try { rmSync(folder, { recursive: true, force: true }); } finally { span.end(); }
 }

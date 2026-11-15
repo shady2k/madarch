@@ -13,7 +13,8 @@ import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan } from '../obs/trace.js';
 import { readFillEnd, readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
-import { closeFileTextSessions, declareFileTextQueue, serveFileTexts } from './file-texts.js';
+import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
+import { closeFileTextSessions } from '../plugin/file-reads.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */

@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { boundFileText, FILE_TEXT_MAX_BYTES, readBlobThroughPlugin } from '../src/knowledge/file-texts.js';
+import { boundFileText, FILE_TEXT_MAX_BYTES } from '../src/knowledge/file-text-shape.js';
+import { readBlobThroughPlugin } from '../src/plugin/file-reads.js';
 import { closureOf } from '../src/plugin/closure.js';
 
 const IDENTITY = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' };

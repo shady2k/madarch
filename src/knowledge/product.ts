@@ -30,7 +30,8 @@ import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js'
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { productRepositoryId } from '../product/identity.js';
-import { KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManifest } from '../product/manifest/kinds.js';
+import { catalogueFileTextRole } from './file-text-kind.js';
+import { fileTextKind, KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManifest } from '../product/manifest/kinds.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
@@ -2328,16 +2329,21 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     const read = await this.manifestRead(product.folder);
     if (!read.present) return undefined;
-    const kind = [...read.manifest.kinds.values()].find((declared) => declared.fields?.some((field) => field.name === 'blob') === true && declared.fields?.some((field) => field.name === 'path') === true);
-    if (kind === undefined) return undefined;
-    const field = `all${typeNameOf(kind.name)}`;
+    // The kind and its roles are the product's declaration, or the catalogue's when its manifest names none (decision
+    // 0037): the engine holds no field name of its own.
+    const declared = fileTextKind(read.manifest) ?? undefined;
+    const roles = declared?.fileText ?? catalogueFileTextRole();
+    const kindName = declared?.name ?? roles.kind;
+    if (kindName === undefined) return undefined;
+    const field = `all${typeNameOf(kindName)}`;
     const answer = await this.graphql({
-      query: `query($repository: String!, $path: String!) { ${field}(where: { repository: { _eq: $repository }, path: { _eq: $path } }, first: 1) { edges { node { id blob language } } } }`,
+      query: `query($repository: String!, $path: String!) { ${field}(where: { ${roles.repository}: { _eq: $repository }, ${roles.path}: { _eq: $path } }, first: 1) { edges { node { id ${roles.blob} language } } } }`,
       variables: { repository, path },
     });
-    const body = answer.body as { data?: Record<string, { edges?: { node?: { id?: unknown; blob?: unknown; language?: unknown } }[] }>; errors?: unknown };
+    const body = answer.body as { data?: Record<string, { edges?: { node?: Record<string, unknown> }[] }>; errors?: unknown };
     const node = body.data?.[field]?.edges?.[0]?.node;
-    if (node === undefined || typeof node.blob !== 'string' || node.blob === '') return undefined;
+    const blob = node?.[roles.blob];
+    if (typeof blob !== 'string' || blob === '') return undefined;
     // The plugin reads the repository the product connected, and only that one: the request names it, and the host
     // checks it lies under the product's repos/ — or is the product's own repository, which is its folder
     // (src/knowledge/file-texts.ts).
@@ -2346,18 +2352,18 @@ export class KnowledgeProduct {
     // The read is a job on the store's one queue, answered by the fill role (madarch-u3vw.16): the queue carries the
     // request and the answer, and no store of its own is written. A reader's later ranges name the blob its first answer
     // held; a blob that moved restarts the view at its first line and says so, so two revisions are never interleaved.
-    const moved = options.blob !== undefined && options.blob !== node.blob;
+    const moved = options.blob !== undefined && options.blob !== blob;
     const from = moved ? 1 : Math.max(1, Math.trunc(options.from ?? 1));
     const fromColumn = moved ? null : options.fromColumn === undefined ? null : Math.max(1, Math.trunc(options.fromColumn));
     const queue = await this.fileTextQueue();
-    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, fromColumn, to: moved ? null : options.to === undefined ? null : Math.trunc(options.to) });
+    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob, from, fromColumn, to: moved ? null : options.to === undefined ? null : Math.trunc(options.to) });
     const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
     let asked = 0;
     while (Date.now() < deadline) {
       const held = await fileTextAnswer(queue, id);
       if (held !== null) {
         if ('error' in held) throw new WikiReadError(held.error);
-        return { ...held, blob: node.blob, from, repository, path, ...(moved ? { moved: true } : {}) };
+        return { ...held, blob, from, repository, path, ...(moved ? { moved: true } : {}) };
       }
       asked += 1;
       // A read whose worker died is recovered by the queue's own sweep: ask it now and then rather than wait the lease.

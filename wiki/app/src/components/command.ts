@@ -154,6 +154,10 @@ export interface ReaderSettingsAnswer {
   readonly role: string;
   readonly asked: boolean;
   readonly roles: readonly string[];
+  /** Whether this machine and its person chose to run plugins without isolation; null when nobody was asked. */
+  readonly pluginsUnconfined: boolean | null;
+  /** What the start probe found about this machine's plugin sandbox. */
+  readonly pluginIsolation: { readonly capable: boolean; readonly reason: string };
 }
 
 /** One place or entity a problem names. */
@@ -377,41 +381,6 @@ const query = (params: Record<string, string | undefined>): string => {
   return search.size === 0 ? '' : `?${search.toString()}`;
 };
 
-/** One file's text by (repository, blob id) through the plugin host (madarch-u3vw.16): the lines asked for, and whether it is text. */
-export interface FileTextAnswer {
-  readonly text: string;
-  readonly lines: number;
-  readonly bytes: number;
-  readonly binary: boolean;
-  readonly blob: string;
-  readonly from: number;
-  readonly repository: string;
-  readonly path: string;
-  /** The language the graph read for the file (`typescript`, `yaml`): the source view's grammar. */
-  readonly language?: string;
-  /** True when the answer reaches the end of the blob; false when the byte bound cut it. */
-  readonly complete: boolean;
-  /** Where a cut answer continues: the line, and the column inside it; null when the blob is complete. */
-  readonly next: { readonly line: number; readonly column: number } | null;
-  /** True when the blob the graph holds moved since the view's first answer: the view restarts at its first line. */
-  readonly moved?: boolean;
-}
-
-export const readFileText = (base: string, ask: {
-  readonly repository: string; readonly path: string; readonly from?: number; readonly to?: number;
-  /** The column inside `from` a cut line continues at; absent, the line's first character. */
-  readonly fromColumn?: number;
-  /** The blob the view is pinned to: a request after the first names it, and an answer from another says `moved`. */
-  readonly blob?: string;
-}): Promise<FileTextAnswer> =>
-  command<FileTextAnswer>(base, `/api/source${query({
-    repo: ask.repository, path: ask.path,
-    ...(ask.from === undefined ? {} : { from: String(ask.from) }),
-    ...(ask.to === undefined ? {} : { to: String(ask.to) }),
-    ...(ask.fromColumn === undefined ? {} : { fromColumn: String(ask.fromColumn) }),
-    ...(ask.blob === undefined ? {} : { blob: ask.blob }),
-  })}`);
-
 /** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
 export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal, pluginsOnly = false): Promise<FillPlanAnswer> {
   return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });
@@ -447,6 +416,9 @@ export const readReaderSettings = (base: string, signal?: AbortSignal): Promise<
 
 /** Keeps the reader's role on this machine. */
 export const saveReaderRole = (base: string, role: string): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ role }) });
+
+/** Keeps this machine's answer about running plugins without isolation. */
+export const saveReaderIsolation = (base: string, unconfined: boolean): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ pluginsUnconfined: unconfined }) });
 
 /** `GET /api/problems`: the open problems, grouped by rule. */
 export const readProblems = (base: string, signal?: AbortSignal): Promise<ProblemListing> => command(base, '/api/problems', signal === undefined ? {} : { signal });

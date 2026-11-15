@@ -9,14 +9,14 @@
  *   graph over the protocol and asks the host for outside data, which the host routes to the core plugin that owns the
  *   source — «text of blob X» goes to git.
  *
- * A capability is the name of one outside source, never a detail of a protocol: `repository` is git's object store read
+ * A capability is the name of one outside source, never a detail of a protocol: `git` is git's object store read
  * at the pinned revision, `filesystem` is the working tree git does not hold (untracked files), `network` is an address
  * on the product's allow-list, and `agents` is an LLM agent run over ACP. The host grants what is declared and refuses
  * the rest with a sentence naming the plugin and the access.
  */
 
 /** The outside sources a plugin may name: one gate per source (decision 0038). */
-export const CAPABILITY_NAMES = ['repository', 'filesystem', 'network', 'agents'] as const;
+export const CAPABILITY_NAMES = ['git', 'filesystem', 'network', 'agents'] as const;
 export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
 
 /** A plugin's tier: the gate to one source, or one that holds no environment at all. */
@@ -67,7 +67,7 @@ export function environmentOf(declaration: PluginCapabilities): PluginEnvironmen
   const core = declaration.tier === 'core';
   return {
     tier: declaration.tier,
-    repository: core && (declaration.capabilities.includes('repository') || declaration.capabilities.includes('filesystem')),
+    repository: core && (declaration.capabilities.includes('git') || declaration.capabilities.includes('filesystem')),
     filesystem: core && declaration.capabilities.includes('filesystem'),
     network: core && declaration.capabilities.includes('network'),
     agents: declaration.capabilities.includes('agents'),

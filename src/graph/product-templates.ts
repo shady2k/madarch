@@ -11,6 +11,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { readTemplate, type TemplateFile } from '../page-contract/template.js';
 import { generatedTableName } from './contract.js';
+import { startSpan } from '../obs/trace.js';
 import { pageTemplateKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
 import type { SqlExecutor } from '../sql-driver.js';
@@ -105,11 +106,15 @@ export async function readPublishedTemplates(executor: SqlExecutor, manifest: Ki
   const pathRole = declared?.['path'] ?? fallback.pathField;
   const column = (field: string): string => `"${field.replaceAll('"', '""')}"`;
   // A template is one page drawing another: its rows are the kind's, and the body is a declared text field.
-  const found = await executor.query<{ name: string | null; body: string | null; path: string | null }>(
+  const span = startSpan('graph.templates.read', { 'madarch.kinds': String(manifest.kinds.size) });
+  let found: { readonly rows: readonly { readonly name: string | null; readonly body: string | null; readonly path: string | null }[] };
+  try {
+    found = await executor.query<{ name: string | null; body: string | null; path: string | null }>(
     `SELECT n.key->>$1 AS name, o.${column(bodyRole)} AS body, ${pathRole === undefined ? 'NULL' : `o.${column(pathRole)}`} AS path
        FROM ${generatedTableName(kindName, 'vertex')} o JOIN node n ON n.id = o.node_id
       WHERE o.state = 'open' AND o.context_id = 1 AND n.context_id = 1 AND NOT n.removed
       ORDER BY n.key->>$1`, [nameRole]);
+  } finally { span.end(); }
   const files: TemplateFile[] = [];
   const bodies = new Map<string, string>();
   const findings: TemplateFinding[] = [];

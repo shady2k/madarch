@@ -51,6 +51,14 @@ export interface CgroupCounters {
 export interface SetupProblem {
   readonly code: 'cgroup-delegation' | 'user-namespaces' | 'sandbox-platform';
   readonly message: string;
+  /**
+   * For a cgroup delegation problem, which of the cgroup's own fields is short and which controllers it lacks: the
+   * files that were read, never the message's words, so a reader can say what the machine lacks without reading prose.
+   */
+  readonly delegation?: {
+    readonly kind: 'not-cgroup' | 'not-offered' | 'not-handed';
+    readonly missing: readonly string[];
+  };
 }
 
 /** The cgroup folder this process runs in, as `/proc/self/cgroup` names it. */
@@ -99,6 +107,7 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
   if (!existsSync(join(parent, 'cgroup.controllers'))) {
     return {
       code: 'cgroup-delegation',
+      delegation: { kind: 'not-cgroup', missing: [...REQUIRED_CONTROLLERS] },
       message: `${WHERE}:1: ${parent} is not a cgroup v2 folder: the sandbox puts every plugin in a cgroup of its own for its memory, cpu and pids bounds. Mount cgroup v2 at ${CGROUP_ROOT} and delegate a folder to madarch (docs/system/plugin-sandbox.md), then name it in MADARCH_PLUGIN_CGROUP`,
     };
   }
@@ -107,6 +116,7 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
   if (missing.length > 0) {
     return {
       code: 'cgroup-delegation',
+      delegation: { kind: 'not-offered', missing },
       message: `${WHERE}:1: ${parent} does not offer the ${missing.join(', ')} controller${missing.length === 1 ? '' : 's'}: the sandbox bounds a plugin's memory, cpu and processes. Enable ${missing.join(', ')} on the cgroup that holds madarch (systemd: start its unit with Delegate=yes and list the controllers in its unit file; docs/system/plugin-sandbox.md), then run again`,
     };
   }
@@ -117,6 +127,7 @@ export function checkCgroupDelegation(parent: string): SetupProblem | undefined 
     // which is the case the operations page names as the one to fix with a slice of its own.
     return {
       code: 'cgroup-delegation',
+      delegation: { kind: 'not-handed', missing: unhanded },
       message: `${WHERE}:1: ${parent} does not hand the ${unhanded.join(', ')} controller${unhanded.length === 1 ? '' : 's'} to its children (cgroup.subtree_control holds ${handed.length === 0 ? 'nothing' : handed.join(' ')}): madarch is not delegated a cgroup it may bound plugins in. Give madarch a cgroup of its own with the controllers enabled — systemd: a slice with Delegate=yes, for example systemd-run --slice=madarch.slice --scope true and MADARCH_PLUGIN_CGROUP=/sys/fs/cgroup/madarch.slice — and run again; docs/system/plugin-sandbox.md holds the whole setup`,
     };
   }

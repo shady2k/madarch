@@ -515,6 +515,24 @@ type SearchHit {
   line: String!
 }
 
+type SourceText {
+  text: String!
+  blob: String!
+  lines: Int!
+  byteLength: Int!
+  binary: Boolean!
+  from: Int!
+  complete: Boolean!
+  language: String
+  moved: Boolean
+  next: SourceTextNext
+}
+
+type SourceTextNext {
+  line: Int!
+  column: Int!
+}
+
 type TemplateFinding {
   file: String!
   line: Int!
@@ -538,6 +556,7 @@ type Query {
   search(text: String!, kinds: [String!], first: Int, after: String, lang: String): EntityConnection!
   bootstrap(lang: String): Bootstrap!
   navigation(lang: String): Navigation!
+  source(repository: String!, path: String!, from: Int, to: Int, fromColumn: Int, blob: String): SourceText
   templateFindings: [TemplateFinding!]!
   cochange(id: ID!, edge: String!, first: Int, lang: String): [Cochange!]!
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!

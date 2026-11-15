@@ -8,27 +8,55 @@
  */
 import { Marked, type Tokens } from 'marked';
 
+/** The characters a scheme is made of, per RFC 3986: a letter, then letters, digits, `+`, `-` or `.`. */
+const SCHEME_CHARACTERS = 'abcdefghijklmnopqrstuvwxyz0123456789+.-';
+
+/**
+ * The scheme an address opens with, read character by character rather than by a pattern: the letters before its first
+ * colon, when they are a scheme at all. An address with no colon before a `/`, `?` or `#` is relative.
+ */
+function schemeOf(address: string): string | undefined {
+  if (address === '') return undefined;
+  const first = address[0]!;
+  if (!(first >= 'a' && first <= 'z') && !(first >= 'A' && first <= 'Z')) return undefined;
+  for (const [at, character] of [...address].entries()) {
+    if (character === ':') return at < 2 ? undefined : address.slice(0, at).toLowerCase();
+    if (!SCHEME_CHARACTERS.includes(character.toLowerCase())) return undefined;
+  }
+  return undefined;
+}
+
 /** The address a link or an image may keep: http, https, mailto, or a relative one. */
 export function safeHref(href: string): string | undefined {
   const held = href.trim();
   if (held === '') return undefined;
-  const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(held);
-  if (scheme === null) {
-    // A relative address: a path, a fragment or a query. It is resolved against the page's own origin.
-    return held;
+  const scheme = schemeOf(held);
+  // A relative address: a path, a fragment or a query. It is resolved against the page's own origin.
+  if (scheme === undefined) return held;
+  return scheme === 'http' || scheme === 'https' || scheme === 'mailto' ? held : undefined;
+}
+
+/** The characters an HTML text escapes, each for what it means in markup. */
+const ESCAPES: readonly (readonly [string, string])[] = [['&', '&amp;'], ['"', '&quot;'], ['<', '&lt;'], ['>', '&gt;']];
+
+/** The text with every character markup would read replaced: no pattern decides it, one table of escapes does. */
+function escaped(value: string, escapes: readonly (readonly [string, string])[]): string {
+  let out = '';
+  for (const character of value) {
+    const held = escapes.find(([from]) => from === character);
+    out += held === undefined ? character : held[1];
   }
-  const name = scheme[1]!.toLowerCase();
-  return name === 'http' || name === 'https' || name === 'mailto' ? held : undefined;
+  return out;
 }
 
 /** The text of an attribute, escaped: an address is a reader's text, never markup. */
 function attribute(value: string): string {
-  return value.replace(/&/gu, '&amp;').replace(/"/gu, '&quot;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;');
+  return escaped(value, ESCAPES);
 }
 
 /** The text of a Markdown run, escaped: a character written as text is drawn as text. */
 function text(value: string): string {
-  return value.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;');
+  return escaped(value, ESCAPES.filter(([from]) => from !== '"'));
 }
 
 /** The one parser: raw HTML dropped, and links and images held to the addresses a page may reach. */
@@ -42,7 +70,7 @@ const parser = new Marked({
       const label = this.parser.parseInline(token.tokens);
       if (href === undefined) return label;
       const title = token.title === null || token.title === undefined ? '' : ` title="${attribute(token.title)}"`;
-      const external = /^https?:/iu.test(href);
+      const external = href.toLowerCase().startsWith('http:') || href.toLowerCase().startsWith('https:');
       return `<a href="${attribute(href)}"${title}${external ? ' rel="noreferrer"' : ''}>${label}</a>`;
     },
     image(token: Tokens.Image): string {

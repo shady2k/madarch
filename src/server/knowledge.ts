@@ -15,7 +15,8 @@ import type { ResetPlan } from '../knowledge/reset.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
-import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
+import { choosableRoles, readSettings, writePluginsUnconfined, writeRole } from '../knowledge/settings.js';
+import { probePluginSandbox } from '../plugin/sandbox-probe.js';
 import { readKinds } from '../product/manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
@@ -94,6 +95,13 @@ function languageOf(path: string): string {
 }
 
 /** The largest file the source view shows whole. */
+/** A git blob id: 40 or 64 hexadecimal digits, read character by character rather than by a pattern. */
+function isBlobId(value: string): boolean {
+  if (value.length !== 40 && value.length !== 64) return false;
+  for (const character of value) if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))) return false;
+  return true;
+}
+
 const SOURCE_VIEW_BYTES = 2 * 1024 * 1024;
 
 /** A write that is not JSON could be a form another site posted without a preflight: refused. */
@@ -321,7 +329,7 @@ function fillRefusalCode(message: string): string | undefined {
         const askedFrom = query.get('from');
         const askedTo = query.get('to');
         const askedColumn = query.get('fromColumn');
-        const askedBlob = query.get('blob');
+        const askedBlob = query.get('blobId');
         const from = askedFrom === null ? 1 : Number(askedFrom);
         const to = askedTo === null ? undefined : Number(askedTo);
         const fromColumn = askedColumn === null ? undefined : Number(askedColumn);
@@ -330,7 +338,7 @@ function fillRefusalCode(message: string): string | undefined {
         }
         // A reader's later ranges name the blob its first answer held (the owner's review of madarch-u3vw.16): a blob id
         // is 40 or 64 hexadecimal digits, and one that no longer stands answers the current revision, marked `moved`.
-        if (askedBlob !== null && !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(askedBlob)) return refused(400, { field: 'blob', message: '"blob" is the git blob id the first answer named: 40 or 64 hexadecimal digits' });
+        if (askedBlob !== null && !isBlobId(askedBlob)) return refused(400, { field: 'blobId', message: '"blobId" is the git blob id the first answer named: 40 or 64 hexadecimal digits' });
         const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }), ...(fromColumn === undefined ? {} : { fromColumn }), ...(askedBlob === null ? {} : { blob: askedBlob }) });
         if (held !== undefined) return { response: json(200, { repo, language: languageOf(path), ...held }) };
       }
@@ -462,14 +470,25 @@ function fillRefusalCode(message: string): string | undefined {
       const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
       // The roles are the product's own: the manifest declares them, the engine keeps none.
       const roles = choosableRoles(await product.declaredRoles());
-      if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env, roles)), roles }) };
+      if (request.method === 'GET') {
+        const probe = await probePluginSandbox();
+        const held = settled(() => readSettings(env, roles));
+        return { response: json(200, { ...held, pluginsUnconfined: held.pluginsUnconfined ?? null, roles, pluginIsolation: { capable: probe.state === 'confined', reason: probe.reason } }) };
+      }
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const role = (body as { role?: unknown } | null)?.role;
+      const asked = body as { role?: unknown; pluginsUnconfined?: unknown } | null;
+      if (asked?.pluginsUnconfined !== undefined) {
+        if (typeof asked.pluginsUnconfined !== 'boolean') return refused(400, { field: 'pluginsUnconfined', message: '"pluginsUnconfined" is true to run plugins without isolation on this machine, or false not to' });
+        return { response: json(200, { ...settled(() => ({ ...readSettings(env, roles), pluginsUnconfined: writePluginsUnconfined(env, asked.pluginsUnconfined as boolean) })), roles, pluginIsolation: { capable: (await probePluginSandbox()).state === 'confined', reason: (await probePluginSandbox()).reason } }) };
+      }
+      const role = asked?.role;
       if (typeof role !== 'string' || !roles.includes(role)) return refused(400, { field: 'role', accepted: roles.join(', '), message: `"role" is ${JSON.stringify(role)}: the roles are ${roles.join(', ')}` });
-      return { response: json(200, { ...settled(() => writeRole(env, role, roles)), roles }) };
+      settled(() => writeRole(env, role, roles));
+      const held = settled(() => readSettings(env, roles));
+      return { response: json(200, { ...held, pluginsUnconfined: held.pluginsUnconfined ?? null, roles, pluginIsolation: { capable: (await probePluginSandbox()).state === 'confined', reason: (await probePluginSandbox()).reason } }) };
     }),
     reset: guarded('start over', async (request) => {
       const crossSite = foreign(request);

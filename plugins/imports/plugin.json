@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "tier": "ordinary",
   "capabilities": [
-    "repository"
+    "git"
   ],
   "entry": "main.ts",
   "runtime": {

@@ -152,6 +152,13 @@ fields:
   nullable: true
   producers:
   - git
+# The kind's own declaration of a file's read (decision 0037): the entity names its repository and path, and the blob is
+# the bytes git serves for them. The engine reads a file's text by these roles, never by a field name of its own.
+file-text:
+  repository: repository
+  path: path
+  blob: blob
+
 key:
 - repository
 - path
