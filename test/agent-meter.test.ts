@@ -133,7 +133,36 @@ describe('the meter counts what the agent reports', () => {
     expect(meterOf({ budget }).overBudget()).toMatchObject({ scope: 'run', bound: 'tokens', spent: 550, limit: 500 });
   });
 
-  test('an agent that reports no usage is a row that says so, never a zero', async () => {
+  test('a turn that streams text is counted live: the cap stops it before the turn ends, by estimate', async () => {
+    // ACP gives no token counts until the turn ends, and this agent reports its usage only on completion: the cap must
+    // be held by what the stream carries, each chunk's tokens estimated from its text (owner's decision, 2026-11-15).
+    const session = await sessionOf({
+      steps: [
+        { say: 'word '.repeat(2_000) },
+        { end: { stopReason: 'end_turn', usage: { inputTokens: 10_100, outputTokens: 0, totalTokens: 10_100 } } },
+      ],
+    });
+    const budget = new AgentRunBudget({ tokens: 100 });
+    const meter = meterOf({ budget });
+    const turn = await meter.runTurn(session, 'a long answer', { field: 'definition' });
+    expect(turn.result.stopReason).toBe('cancelled');
+    expect(turn.stop).toMatchObject({ scope: 'run', bound: 'tokens', limit: 100 });
+    expect(turn.stop?.message).toContain('by estimate');
+    expect(budget.tokens).toBeGreaterThanOrEqual(100);
+    expect(meter.rows()[0]?.stopped).toBe('tokens');
+  });
+
+  test('a cache-only report spends nothing against the cap: capped tokens are input, output and cache writes', async () => {
+    const budget = new AgentRunBudget({ tokens: 100 });
+    const meter = meterOf({ budget });
+    const stop = await meter.endTurn({ usage: { inputTokens: 0, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 1000, totalTokens: 1000 } });
+    expect(stop).toBeUndefined();
+    expect(meter.spent().tokens).toBe(0);
+    expect(meter.spent().cachedReadTokens).toBe(1000);
+    expect(budget.tokens).toBe(0);
+  });
+
+  test('an agent that reports no usage is a row that says so, its spend the estimate of what it streamed', async () => {
     const where = folder();
     const connection = await connectAcpAgent({ id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--scenario', 'no-usage'] }, { cwd: where });
     connections.push(connection);
@@ -142,7 +171,11 @@ describe('the meter counts what the agent reports', () => {
     const meter = meterOf();
     await meter.runTurn(session, 'a turn that reports nothing', { field: 'definition', model: 'sonnet' });
     const [row] = meter.rows();
-    expect(row).toMatchObject({ field: 'definition', model: 'sonnet', inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: null, turns: 1, reported: false });
+    // The row says its numbers are not a report (`reported: false`), and its spend is what the streamed text estimates:
+    // an agent that never reports is still counted, never a silent zero.
+    expect(row).toMatchObject({ field: 'definition', model: 'sonnet', outputTokens: 0, cost: null, turns: 1, reported: false });
+    expect(row?.inputTokens).toBeGreaterThan(0);
+    expect(row?.totalTokens).toBe(row?.inputTokens);
   });
 
   test('a model the agent switches to is a row of its own', async () => {

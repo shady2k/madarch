@@ -62,19 +62,22 @@ export interface AgentUsageStop {
   /** The unit whose run stopped, and its plugin. */
   readonly unit: string;
   readonly plugin: string;
+  /**
+   * Whether the bound was reached by the tokens estimated from the turn's streamed text, before the agent reported the
+   * turn's usage: the tally is the stream's own, and the run says so.
+   */
+  readonly estimated?: true;
   /** The words a person reads: the file and site, the unit, what was spent and the bound. */
   readonly message: string;
 }
 
 /**
  * The tokens a token bound counts: input, output and cache writes, in the owner's decision of 2026-11-15 — never cache
- * reads, which an agent re-sends every step and which cost nothing to produce. A report that states only a total is one
- * the meter cannot split, and the total is then what it has to count.
+ * reads, which an agent re-sends every step and which cost nothing to produce — and never the report's own `totalTokens`,
+ * which mixes the three with the cache reads: a cache-only report spends nothing against the cap, whatever its total.
  */
-export function cappedTokensOf(tokens: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly totalTokens?: number }): number {
-  const parts = tokens.inputTokens + tokens.outputTokens + tokens.cachedWriteTokens;
-  if (parts > 0) return parts;
-  return tokens.totalTokens ?? 0;
+export function cappedTokensOf(tokens: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number }): number {
+  return tokens.inputTokens + tokens.outputTokens + tokens.cachedWriteTokens;
 }
 
 /** The most a token bound may be reached before the agent is told to finish: four fifths (owner's decision, 2026-11-15). */
@@ -122,6 +125,14 @@ export class AgentRunBudget {
   /** The tokens the run spent so far, as a token cap counts them. */
   get tokens(): number {
     return this.#tokens;
+  }
+
+  /**
+   * Takes back tokens a live estimate charged before the turn's own usage report corrected it: the estimate is the
+   * stream's provisional count, and only the report (or the estimate, when no report comes) is the spend.
+   */
+  adjust(tokens: number): void {
+    this.#tokens = Math.max(0, this.#tokens + tokens);
   }
 
   /** The cap the fill was pressed with, when it was pressed with one. */
@@ -213,6 +224,9 @@ export class AgentMeter {
   #stop: AgentUsageStop | undefined;
   /** The words the agent reads once a token bound is four fifths spent: stated once, and never after a stop. */
   #wrap: string | undefined;
+  /** The tokens this turn's streamed text estimates so far, and how much of that estimate the rows and the budget hold. */
+  #estimate = 0;
+  #estimated = 0;
 
   constructor(options: AgentMeterOptions) {
     if (options.run.trim() === '' || options.unit.trim() === '' || options.plugin.trim() === '' || options.kind.trim() === '') {
@@ -234,6 +248,8 @@ export class AgentMeter {
       field: options.field ?? '',
       model: options.model === undefined ? this.#turn.model : options.model,
     };
+    this.#estimate = 0;
+    this.#estimated = 0;
   }
 
   /**
@@ -244,6 +260,18 @@ export class AgentMeter {
   meterSessionUpdate(update: AcpUpdate): AgentUsageStop | undefined {
     if (update.kind === 'usage' && update.contextUsed !== undefined && update.contextSize !== undefined) {
       this.#context = { used: update.contextUsed, size: update.contextSize };
+    }
+    // ACP reports no token counts until a turn ends, so the cap is held by the text the turn streams: each chunk's
+    // tokens are estimated from its text (four code points a token), charged as the chunk arrives, and corrected by the
+    // turn's own usage at its end (owner's decision, 2026-11-15: the cap is enforced live). An estimate that crosses a
+    // bound cancels the turn at once, and the stop says the bound was reached by estimate.
+    if ((update.kind === 'message' || update.kind === 'thought') && typeof update.text === 'string' && update.text !== '') {
+      this.#estimate += Math.ceil([...update.text].length / 4);
+      const delta = this.#estimate - this.#estimated;
+      if (delta > 0) {
+        this.#estimated += delta;
+        this.#add({ input: delta, output: 0, cacheWrite: 0, cacheRead: 0, total: delta }, [], true);
+      }
     }
     if (update.kind === 'usage' && update.cost !== undefined) {
       const baseline = this.#baseline();
@@ -263,6 +291,9 @@ export class AgentMeter {
     const usage = result.usage;
     const row = this.#row();
     row.turns += 1;
+    // A report corrects the live estimate the stream charged: the report's own numbers are the turn's spend, and the
+    // estimate stands only for a turn that reports none (owner's decision, 2026-11-15).
+    if (usage !== undefined) this.#correctEstimate();
     let tokensIn = 0;
     let tokensOut = 0;
     let tokensWrite = 0;
@@ -291,8 +322,20 @@ export class AgentMeter {
       }
     }
     this.#writeSpan({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal });
+    this.#estimate = 0;
+    this.#estimated = 0;
     await this.#save();
     return this.#stop;
+  }
+
+  /** Takes the turn's live estimate back out of the rows and the shared budget: its report is the spend it states. */
+  #correctEstimate(): void {
+    if (this.#estimated === 0) return;
+    const row = this.#row();
+    row.inputTokens -= this.#estimated;
+    row.totalTokens -= this.#estimated;
+    this.#options.budget?.adjust(-this.#estimated);
+    this.#estimated = 0;
   }
 
   /** The bound that ended this run, when one did. */
@@ -435,7 +478,7 @@ export class AgentMeter {
   }
 
   /** Counts one increment into the turn's row, and checks the declared bounds against what is spent now. */
-  #add(tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number; readonly total: number }, cost: readonly AgentUsageAmount[]): void {
+  #add(tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number; readonly total: number }, cost: readonly AgentUsageAmount[], estimated = false): void {
     const row = this.#row();
     row.inputTokens += tokens.input;
     row.outputTokens += tokens.output;
@@ -447,12 +490,12 @@ export class AgentMeter {
     // The run's shared counter is spent here, with the same increment: it bounds the whole fill run, and the plugin's own
     // bound is checked against the meter's rows. Either may cross first; the first crossing is the reason the run stops.
     // The increment is what a cap counts — input, output and cache writes — never the cache reads the agent re-sent.
-    const increment = cappedTokensOf({ inputTokens: tokens.input, outputTokens: tokens.output, cachedWriteTokens: tokens.cacheWrite, totalTokens: tokens.total });
+    const increment = cappedTokensOf({ inputTokens: tokens.input, outputTokens: tokens.output, cachedWriteTokens: tokens.cacheWrite });
     const budget = this.#options.budget;
     const shared = budget === undefined ? undefined : budget.spend(increment);
     if (shared !== undefined) {
       row.stopped = shared.bound;
-      this.#stop = this.#stopOf('run', shared);
+      this.#stop = this.#stopOf('run', shared, estimated);
       return;
     }
     const spent = this.spent();
@@ -460,7 +503,7 @@ export class AgentMeter {
     if (bounds === undefined) return;
     if (bounds.tokens !== undefined && spent.tokens > bounds.tokens) {
       row.stopped = 'tokens';
-      this.#stop = this.#stopOf('plugin', { bound: 'tokens', spent: spent.tokens, limit: bounds.tokens, currency: null });
+      this.#stop = this.#stopOf('plugin', { bound: 'tokens', spent: spent.tokens, limit: bounds.tokens, currency: null }, estimated);
       return;
     }
     this.#maybeWrap(spent.tokens, bounds.tokens);
@@ -491,7 +534,7 @@ export class AgentMeter {
     this.#wrap = `You have spent ${tokensText(nearest.spent)} tokens of ${nearest.words} (${String(percent)}%). Finish with what you have: state every entity and relation you have already established, with its evidence, and end your answer now.`;
   }
 
-  #stopOf(scope: 'plugin' | 'run', crossed: { readonly bound: 'tokens' | 'cost'; readonly spent: number; readonly limit: number; readonly currency: string | null }): AgentUsageStop {
+  #stopOf(scope: 'plugin' | 'run', crossed: { readonly bound: 'tokens' | 'cost'; readonly spent: number; readonly limit: number; readonly currency: string | null }, estimated = false): AgentUsageStop {
     const kind = this.#turn.kind;
     const limitWords = crossed.bound === 'tokens' ? `${tokensText(crossed.limit)}-token` : `${String(crossed.limit)} ${String(crossed.currency)}`;
     const boundWords = scope === 'plugin'
@@ -506,7 +549,8 @@ export class AgentMeter {
       currency: crossed.currency,
       unit: this.#options.unit,
       plugin: this.#options.plugin,
-      message: `${WHERE}:AgentMeter: the plugin run ${this.#options.unit} spent ${spentWords} in the kind ${kind}, past the ${boundWords}: the run stops with that reason`,
+      ...(estimated ? { estimated: true as const } : {}),
+      message: `${WHERE}:AgentMeter: the plugin run ${this.#options.unit} spent ${spentWords} in the kind ${kind}, past the ${boundWords}${estimated ? ' (reached by estimate from the streamed text, before the turn reported its usage)' : ''}: the run stops with that reason`,
     };
   }
 
