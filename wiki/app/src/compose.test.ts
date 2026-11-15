@@ -52,9 +52,11 @@ test('every base template composes and is valid against the real schema', () => 
 });
 
 test('the text template composes on the type whose body it draws', () => {
-  const product = schema.getType('Product') as GraphQLObjectType | undefined;
-  expect(product?.getFields()['body']).toBeDefined();
-  expect(errorsOf({ template: 'text', kind: 'product', id: '00000000-0000-0000-0000-000000000003' })).toEqual([]);
+  // The product's page is `home`: what a product says about itself is its fields, not one stored text (madarch-64o5.109).
+  // A comment holds the text the text page draws, so the page is composed on it.
+  const comment = schema.getType('Comment') as GraphQLObjectType | undefined;
+  expect(comment?.getFields()['body']).toBeDefined();
+  expect(errorsOf({ template: 'text', kind: 'comment', id: '00000000-0000-0000-0000-000000000003' })).toEqual([]);
 });
 
 test('a page composes to one operation, and the split hands back each section', () => {

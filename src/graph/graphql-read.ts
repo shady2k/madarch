@@ -23,10 +23,9 @@ import { generatedTableName, type FieldType } from '../graph/contract.js';
 import { byCodePoint } from '../model/order.js';
 import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, typeNameOf } from '../graphql/names.js';
-import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
+import { publishedRelationWords, type PublishedEdge, type PublishedField, type PublishedKind, type PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
 import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
-import { relationWords } from '../knowledge/relation-labels.js';
 import { checkProductTemplates } from './template-check.js';
 import { join } from 'node:path';
 
@@ -984,12 +983,13 @@ export class ReadContext {
     return { entity: root, nodes, links, labels, groups: [...groups.values()], kindWords, kindPages, truncated };
   }
 
-  /** Relation vocabulary belongs to the published product declaration, not the engine or the checkout. */
+  /**
+   * The words a relation reads as, from the published catalogue alone: the edge kind's own `labels`, or the relation
+   * vocabulary's for a relation no edge carries. The engine holds no product words and derives none from a key (owner's
+   * decision, 2026-11-15); a relation the catalogue names no words for has none, and no key reaches a page or a diagram.
+   */
   private relationWord(name: string, lang: string | undefined, inverse: boolean): string {
-    const language = lang ?? this.lang;
-    const labels = this.manifest.catalog?.schema.relationLabels?.get(name);
-    const words = labels?.[language] ?? labels?.[language.split('-')[0]!];
-    return words?.[inverse ? 'in' : 'out'] ?? relationWords(name, language, inverse);
+    return publishedRelationWords(this.published, name, lang ?? this.lang, inverse);
   }
 
   // ---- links both ways ---------------------------------------------------------------------------------------
