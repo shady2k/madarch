@@ -9,6 +9,8 @@ export interface NavigationKind {
   readonly kind: string;
   readonly one: string;
   readonly many: string;
+  readonly definition: string | null;
+  readonly taken: boolean;
   readonly group: string | null;
   readonly count: number;
   /** The id of the kind's catalogue entity: the page its row opens. */
@@ -55,7 +57,7 @@ export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
   navigation(lang: $lang) {
     product
     groups { name labels short open parent }
-    kinds { kind one many group count entryId }
+    kinds { kind one many definition taken group count entryId }
     purposes { id labels }
   }
 }`;

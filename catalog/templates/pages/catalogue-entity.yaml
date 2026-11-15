@@ -16,9 +16,16 @@ sections:
     params:
       titlePath: label
       kindPath: kind
+  - id: fillKind
+    component: fill-kind
+    after: header
+    query: |
+      name
+    params:
+      kindPath: name
   - id: facts
     component: facts
-    after: header
+    after: fillKind
     title: { en: What it is, ru: Что это }
     query: |
       label

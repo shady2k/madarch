@@ -43,6 +43,8 @@ export interface GraphEvidence {
 
 export interface GraphEntity {
   key: string;
+  /** The entity's stable uid, when the read asked for it (a document's page is addressed by it). */
+  uid?: string;
   kind: string;
   label: string;
   properties: Record<string, unknown>;
@@ -525,7 +527,7 @@ export class GraphReader {
       // The scope a place is read in is its repository's node: a page's source block and its links resolve the
       // repository from it, the way every other entity's place does.
       const scope = String(nodeFacts.get(node)?.['scope'] ?? nodeFacts.get(node)?.['evidence_scope'] ?? '');
-      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
+      return { key, ...(typeof row['uid'] === 'string' ? { uid: row['uid'] } : {}), kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
     });
   }
 
@@ -680,6 +682,15 @@ export class GraphReader {
     // findings is not loaded whole to answer one page.
     const generated = this.generatedKind(kind);
     if (generated !== undefined) {
+      // A kind with no natural key has no key text to page by; its entities are read whole, bounded like any prefix.
+      if (generated.key.length === 0) {
+        return await this.run(async (tx) => {
+          const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed ORDER BY n.id LIMIT ${String(limit)}`);
+          const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
+          const entities = await this.generatedEntities(tx, generated, page.rows);
+          return { total: Number(counted.rows[0]?.n ?? '0'), rows: entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity) };
+        });
+      }
       return await this.run(async (tx) => {
         const values = generated.key.map((column) => `(n.key->>'${column.replaceAll("'", "''")}')`);
         const keyText = values.length === 1 ? values[0]! : `concat_ws('/', ${values.join(', ')})`;
@@ -690,7 +701,7 @@ export class GraphReader {
           params.push(after.slice(after.indexOf(':') + 1));
           condition += ` AND ${keyText} > $2`;
         }
-        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
+        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.uid, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
         const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
         const entities = await this.generatedEntities(tx, generated, page.rows);
         const rows = entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity);

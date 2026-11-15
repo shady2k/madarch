@@ -72,7 +72,7 @@ describe('the starter templates', () => {
       if (read.template !== undefined) templates.set(name, read.template);
     }
     for (const name of templateNames) expect(resolveTemplate(name, templates).findings).toEqual([]);
-    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'facts', 'records', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'records', 'diagram', 'outgoing', 'backlinks']);
     expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'body', 'diagram', 'outgoing', 'backlinks']);
   });
 

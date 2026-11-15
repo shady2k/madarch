@@ -236,7 +236,7 @@ sections:
 
 - **Addresses**: `/` (home); `/e/<kind>/<id>` for every entity — a record, a catalogue entity, a
   document page, a glossary term, a statement, a problem, a task; `/p/<template>?<name>=<value>` for
-  a template bound to no entity (product settings, fill runs, one fill run `?run=<id>`), whose query
+  a template bound to no entity (the catalogue and its selection mode, product settings, the preparation panel, the runs history, one fill run `?run=<id>`), whose query
   parameters become the operation's variables of the same name. Search is the `search` component in
   the base templates' header; the glossary is the page of its catalogue entity.
 - **Components**, generic, taking only their section's data and parameters: `header` (title, kind
@@ -250,10 +250,15 @@ sections:
   walks to that entity), `source` (a citation with its line range), `tabs` (sections as tabs). A
   diagram is drawn on the server because the same pictures are served to clients on request (HTTP
   and MCP), not only to the wiki; the browser makes the server's answer interactive and lays
-  nothing out. Command components: `fill` (choose and run;
-  the catalogue page's choose-for-fill mode), `run` (a fill run's progress), `settings-form`,
-  `problem-actions`; they call the command API and read what they show from the graph or the
-  retained command reads. The app names no kind.
+  nothing out. Command components: `catalogue` (the catalogue's reading and explicit selection
+  mode), `prepare` (the one preparation panel a press starts from), `runs` (the history of fills),
+  `fill-kind` (a kind page's press into that panel), `run` (a fill run's progress), `settings-form`,
+  `problem-actions`, `sources` (the Sources page's documents and repositories); they call the command
+  API and read what they show from the graph or the retained command reads. The app names no kind.
+  The top bar's «Заполнить…» entry opens the catalogue in selection mode while no run is live; a live
+  run replaces it with its progress. The old `/p/fill` address opens the same selection mode. The first
+  visit asks the reader's role once, through `/api/settings`; on an empty product the home page offers a
+  first-run card whose preparation is the same `prepare` panel with a recommended editable set.
 - **Component parameters** (all optional unless marked; `path` is a dot path into the section's
   data; texts are `{ en, ru }`): `header { titlePath*, kindPath, provenancePath }`;
   `facts { rows*: [{ label*, path*, format: text|number|date|bytes|link }] }`;
@@ -262,10 +267,10 @@ sections:
   pageSize }`; `bars { path* (groups), labelPath, valuePath }`; `timeseries { path* (buckets) }`;
   `treemap { path*, areaPath*, colourPath, groupPath }`; `diagram { depth = 1, aggregateAbove = 12 }`;
   `source { path* (evidence) }`; `tabs { sections*: [section ids] }`; `search { kinds }`;
-  `fill { mode: choose|run }`; `run { runVariable* }`; `settings-form { group* }`;
-  `problem-actions { path* }`. A template naming an unknown component, parameter or undeclared
-  query field produces a finding on the affected page and in Problems, with the file and line.
-  It does not refuse the product or prevent other pages from serving (owner clarification,
+  `catalogue`, `prepare`, `runs`, `first-run` and `sources` (no parameters); `fill-kind { kindPath* }`;
+  `run { runVariable* }`; `settings-form { group* }`; `problem-actions { path* }`. A template naming an unknown
+  component, parameter or undeclared query field produces a finding on the affected page and in Problems, with the file
+  and line. It does not refuse the product or prevent other pages from serving (owner clarification,
   2026-11-14, madarch-64o5.71).
 - **Cache**: answers are cached normalised by `Entity.id`, keyed by product, `structure` revision,
   language, role, operation and variables, each stamped with the `data` revision it was read at,
@@ -283,14 +288,18 @@ sections:
   /api/search (a `search(text, kinds, first)` root over labels and text fields), /api/facts,
   /api/statement, /api/neighborhood, /api/view, /api/glossary, /api/documents, /api/document,
   /api/authored and /api/authored-schema (authored entities are entities; the schema is the
-  GraphQL schema), /api/problems and /api/questions/question and /api/tasks/task (problems,
-  questions and tasks are entities), /e/<id>.md|.json, /kind/<kind>.md|.json, /llms.txt, and the
+  GraphQL schema), /api/questions/question and /api/tasks/task (questions and tasks are entities),
+  /e/<id>.md|.json, /kind/<kind>.md|.json, /llms.txt, and the
   MCP tools of src/mcp/records.ts and `read_entity` (replaced by `graph_schema` and `graph_query`).
 - **Retained, because they are not graph data**: /render/diagram (an entity's diagram in one of three
   formats, rendered on the server from the graph read layer and served to any client on request),
   /api/source (a file's text at the filled commit,
   from git), /api/events (the event stream), /api/status and /api/products and /api/product, the
-  fill commands and /api/fill-runs and /api/run (workflow state), /api/agents and /api/agent-choices
+  fill commands and /api/fill-plan and /api/fill-runs and /api/run (workflow state and the plan a
+  fill press offers), /api/problems (the computed consistency and fill findings the Problems page
+  groups, with `/api/problem-dismiss` and `/api/problem-task` as its commands) and /api/sources (the
+  Markdown documents the graph holds, read through the graph read layer for the Sources page, whose
+  per-document pages are the graph's), /api/agents and /api/agent-choices
   and /api/model-role, /api/settings and /api/product-settings, /api/journal, /api/kind-usage (agent
   metering), /api/refresh-plan, /api/reset, /api/graph-verdicts, /api/rewrite-pages,
   /api/start-fresh, the authored and problem and task writes, and GET and POST /sources, POST

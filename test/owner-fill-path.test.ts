@@ -6,11 +6,12 @@
 import { afterAll, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { excludedPath } from '../plugins/disk/reader.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const IDENTITY = { GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test' };
@@ -83,21 +84,6 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
   });
   if (folder === '') { expect(failures).toEqual([]); return; }
 
-  await step('1 the code kind declares no agent field, so the code fill is its plugins\'', async () => {
-    // The catalogue binds code.file.state_machines to the agent, and this product chooses no agent: under decision 0035 a
-    // plan that runs an agent unit is refused without one. The owner's code fill is its plugins' turn, so this product's
-    // own copy of the kind writes that field as a person's own (a product's kinds are the product's files).
-    const file = join(folder, 'madarch', 'kinds', 'code', 'structure', 'code.file.yaml');
-    const kind = parseYaml(readFileSync(file, 'utf8')) as { fields?: { name: string; binding?: unknown; producers?: string[] }[] };
-    const held = (kind.fields ?? []).find((field) => field.name === 'state_machines');
-    if (held === undefined || held.binding === undefined) throw new Error(`${file}:1: the code.file kind declares no agent-bound state_machines field`);
-    delete held.binding;
-    held.producers = ['person'];
-    writeFileSync(file, stringifyYaml(kind));
-    git(folder, ['add', '-A']);
-    git(folder, ['commit', '-q', '-m', 'The code fill is its plugins\' turn']);
-  });
-
   await step('2 madarch serve answers', async () => {
     run(['stop']);
     serve = Bun.spawn(['bun', CLI, 'serve', '--product', folder, '--port', '0', '--no-open'], { cwd: root, env: env(), stdout: 'pipe', stderr: 'pipe' });
@@ -128,11 +114,22 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
     if (data['bootstrap'] === undefined || data['navigation'] === undefined) throw new Error('the graph answered no bootstrap or navigation');
   });
 
+  await step('3 the plugins-only fill plan names the agent fields it leaves unfilled', async () => {
+    const planned = await fetch(`${address}/api/fill-plan`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], pluginsOnly: true }) });
+    const view = (await planned.json()) as { plan?: { needsAgent?: { kind: string; fields: string[] }[]; pluginsOnly?: boolean } };
+    if (planned.status !== 200) throw new Error(`POST /api/fill-plan answered ${String(planned.status)}: ${JSON.stringify(view)}`);
+    if (view.plan?.pluginsOnly !== true) throw new Error(`the plan is not plugins-only: ${JSON.stringify(view)}`);
+    const named = view.plan?.needsAgent?.find((need) => need.kind === 'code.file')?.fields ?? [];
+    if (!named.includes('state_machines')) throw new Error(`the plan does not name the agent's unfilled state_machines: ${JSON.stringify(view.plan?.needsAgent)}`);
+  });
+
   await step('3 the fill plan names the code kinds only, with plugin units and no agent', async () => {
-    const answer = await fetch(`${address}/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], agent: null, tokenCap: null }) });
-    const body = (await answer.json()) as { runId?: string; order?: string[]; error?: { message?: string } };
+    const answer = await fetch(`${address}/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], agent: null, tokenCap: null, pluginsOnly: true }) });
+    const body = (await answer.json()) as { runId?: string; order?: string[]; plan?: { needsAgent?: { kind: string; fields: string[] }[] }; error?: { message?: string } };
     if (answer.status !== 202) throw new Error(`POST /api/fill-selected answered ${String(answer.status)}: ${body.error?.message ?? JSON.stringify(body)}`);
     if (body.runId === undefined) throw new Error('the fill press answered no run id');
+    const left = body.plan?.needsAgent?.find((need) => need.kind === 'code.file')?.fields ?? [];
+    if (!left.includes('state_machines')) throw new Error(`the press does not name the agent field it leaves unfilled: ${JSON.stringify(body.plan?.needsAgent)}`);
     runId = body.runId;
     const order = [...(body.order ?? [])].sort();
     if (JSON.stringify(order) !== JSON.stringify(['code.directory', 'code.file', 'code.repository'])) throw new Error(`the plan is ${JSON.stringify(order)}, not the three code kinds`);
@@ -164,7 +161,13 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
   await step('5 the code-kind counts are the repository tree', async () => {
     const data = await graphql(`query { navigation { kinds { kind count } } allCodeFile(first: 1) { totalCount edges { node { id path } } } }`);
     const counts = new Map((data['navigation'].kinds as { kind: string; count: number }[]).map((one) => [one.kind, one.count] as const));
-    const files = git(folder, ['ls-files']).split('\n').filter(Boolean).concat(git(code, ['ls-files']).split('\n').filter(Boolean));
+    // The paths the product's own kinds leave out are no part of its knowledge: its declaration is the rule, and the
+    // plugin's matcher reads it here as the fill did (madarch-64o5.83).
+    const declared = readKinds(folder);
+    if (!declared.present) throw new Error('the product holds no manifest');
+    const patterns = [...new Set([...(declared.manifest.kinds.get('code.file')?.exclude ?? []), ...(declared.manifest.kinds.get('code.directory')?.exclude ?? [])])];
+    const listed = (repo: string): string[] => git(repo, ['ls-files']).split('\n').filter(Boolean).filter((path) => !excludedPath(path, patterns));
+    const files = listed(folder).concat(listed(code));
     // Every folder a file lies in, and every folder above it: the plugin makes one directory entity for each.
     const directories = new Set<string>();
     for (const path of files) {

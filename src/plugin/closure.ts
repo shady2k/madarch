@@ -74,6 +74,8 @@ export const PluginManifest = Type.Object(
     ]))),
     concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
     description: Type.Optional(Type.String({ minLength: 1 })),
+    /** The plugin's name for a reader, per interface language; absent leaves its id as the name. */
+    labels: Type.Optional(Type.Record(Type.String(), Type.String())),
     agent: Type.Optional(Type.Object({
       prompt: Type.String({ minLength: 1 }),
       catalogue: Type.Optional(Type.Boolean()),

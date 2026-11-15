@@ -11,7 +11,9 @@
     {
       "kind": "*",
       "fields": "*",
-      "reads": ["code.file"],
+      "reads": [
+        "code.file"
+      ],
       "coverage": "gaps"
     }
   ],
@@ -22,5 +24,9 @@
       "."
     ],
     "catalogue": true
+  },
+  "labels": {
+    "en": "Agent",
+    "ru": "Агент"
   }
 }

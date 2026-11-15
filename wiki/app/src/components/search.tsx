@@ -51,7 +51,6 @@ export function totalOfGroups(groups: readonly SearchGroup[]): number {
   return groups.reduce((sum, group) => sum + group.count, 0);
 }
 
-/** The answers grouped by kind: each kind's word and count, its best rows, and the way to the whole answer. */
 /** One row of the answers as the reader walks them with the arrow keys. */
 export interface SearchRow {
   readonly href: string;
@@ -77,6 +76,7 @@ export function rowsOf(groups: readonly SearchGroup[], base: string): SearchRow[
   return rows;
 }
 
+/** The answers grouped by kind: each kind's word and count, its best rows, and the way to the whole answer. */
 export function GroupsOf({ groups, base, open, resultsHref, testId, active = -1 }: {
   readonly groups: readonly SearchGroup[];
   readonly base: string;
@@ -120,10 +120,12 @@ export function GroupsOf({ groups, base, open, resultsHref, testId, active = -1 
 export function SearchPageSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t } = useTranslation();
   const groups = useMemo(() => (Array.isArray(context.data) ? (context.data as SearchGroup[]) : []), [context.data]);
+  // The words the address named, so the empty answer says what was searched rather than claiming nothing anywhere.
+  const words = typeof context.variables['text'] === 'string' ? context.variables['text'] : '';
   return (
     <Stack>
       <Metadata>{t('knowledge.searchResults')}</Metadata>
-      {groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty')}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} testId="search-page-results" />}
+      {groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty', { text: words })}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} testId="search-page-results" />}
     </Stack>
   );
 }
@@ -147,7 +149,7 @@ export function SearchSection({ context }: { readonly context: SectionContext })
       <FilterBar>
         <FilterField>
           {t('knowledge.searchLabel')}
-          <Input value={text} aria-label={t('knowledge.searchLabel')} placeholder={t('knowledge.searchPlaceholder')} onChange={(event) => { setText(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') void ask(); }} />
+          <Input value={text} aria-label={t('knowledge.searchLabel')} data-testid="page-search" placeholder={t('knowledge.searchPlaceholder')} onChange={(event) => { setText(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') void ask(); }} />
         </FilterField>
         <Button variant="default" size="sm" onClick={() => { void ask(); }}>{t('knowledge.searchButton')}</Button>
       </FilterBar>

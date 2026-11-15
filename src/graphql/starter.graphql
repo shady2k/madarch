@@ -3150,6 +3150,8 @@ type NavigationKind {
   kind: String!
   one: String!
   many: String!
+  definition: String
+  taken: Boolean!
   group: String
   count: Int!
   entryId: ID
