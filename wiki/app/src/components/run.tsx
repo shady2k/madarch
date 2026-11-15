@@ -171,7 +171,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           <Paragraph className="mt-3 text-small" data-testid="fill-run-time">
             {t('knowledge.fillRun.elapsed', { seconds: seconds(elapsed) })} · {run.remainingMs === null ? t('knowledge.fillRun.remainingUnknown') : t('knowledge.fillRun.remaining', { seconds: seconds(run.remainingMs) })}
           </Paragraph>
-          <Paragraph className="m-0 text-small" data-testid="fill-run-tokens">{agentUsage === null ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: agentUsage.inputTokens, output: agentUsage.outputTokens, total: agentUsage.totalTokens })}</Paragraph>
+          <Paragraph className="m-0 text-small" data-testid="fill-run-tokens">{agentUsage === null ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: agentUsage.inputTokens, output: agentUsage.outputTokens, cacheWrite: agentUsage.cachedWriteTokens, cacheRead: agentUsage.cachedReadTokens, total: agentUsage.totalTokens })}</Paragraph>
           <Paragraph className="m-0 text-small" data-testid="fill-run-records">{t('knowledge.fillRun.records', { count: run.records })}</Paragraph>
           {run.state === 'failed' ? <Alert variant="problem" className="mt-3"><AlertDescription>{t('knowledge.fillRun.failed')}</AlertDescription></Alert> : null}
           <Stack className="mt-4 flex flex-wrap gap-2">

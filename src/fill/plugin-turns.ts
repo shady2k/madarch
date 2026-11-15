@@ -309,7 +309,7 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
  */
 function unitStopped(id: string, code: string, message: string): Error {
   const named = `src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${code}): ${message}`;
-  const bound = code === 'agent-timeout' ? 'agent-time' : code === 'heartbeat-missed' ? 'plugin-silence' : code === 'run-timeout' ? 'run-time' : undefined;
+  const bound = code === 'agent-timeout' ? 'agent-time' : code === 'heartbeat-missed' ? 'plugin-silence' : code === 'run-timeout' ? 'run-time' : code === 'agent-budget' ? 'tokens' : undefined;
   return bound === undefined ? new Error(named) : new UnitBoundStop(bound, named);
 }
 
@@ -410,7 +410,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   })();
   // The agent's session is given madarch's own graph server (owner's decision, 2026-11-15): the agent reads what it
   // needs of the same graph the fill writes, and the task names only the kind it fills.
-  const agentGraph = wiring.agent === undefined || unit.plugin.contract?.agent === undefined ? undefined : startAgentGraphMcp({ owner: wiring.owner, manifest: wiring.manifest, contract: wiring.contract, folder: wiring.productFolder });
+  const agentGraph = wiring.agent === undefined || unit.plugin.contract?.agent === undefined ? undefined : startAgentGraphMcp({ owner: wiring.owner, manifest: wiring.manifest, contract: wiring.contract, folder: wiring.productFolder }, { notice: () => meter?.wrapNotice() });
   // How long this plugin's agent unit may run: the product's own minutes, or the host's thirty (owner's decision,
   // 2026-11-15 — the run's token cap is the other bound, and the host's minute-a-unit would stop every agent).
   const agentMinutes = unit.plugin.bounds?.minutes;
@@ -431,6 +431,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const author = `${unit.plugin.id}@${unit.lock.version}`;
   /** Whether the unit's own publication carries its requests: a unit that failed publishes nothing (see below). */
   let journaled = false;
+  /** What the unit's answer held, kept past the try so a bound that crossed after it still keeps the result. */
+  let producedCount = 0;
   try {
     const session = await host.open();
     const cancel = (): void => { void session.cancel(); };
@@ -464,7 +466,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
       const outcome = await session.runUnit(request);
       access.assertAllowed();
-      if (outcome.state !== 'extracted') throw unitStopped(id, outcome.cause.code, outcome.cause.message);
+      if (outcome.state !== 'extracted') {
+        // The agent part's own bound is a value on the meter, and a typed error cannot cross the plugin protocol: a unit
+        // that failed while its run's tokens are spent ends with that reason, and is not retried (owner's decision,
+        // 2026-11-15).
+        const spent = meter?.overBudget() ?? meter?.stop();
+        if (spent !== undefined) throw new UnitBoundStop('tokens', spent.message);
+        throw unitStopped(id, outcome.cause.code, outcome.cause.message);
+      }
+      producedCount = outcome.result.vertices.length + outcome.result.edges.length;
       access.assertWrites(outcome.result);
       for (const edge of outcome.result.edges) if (!ownsEdge(edge)) throw new Error(`${location}: plugin ${unit.plugin.id} output ${unit.kind.name}: write of unselected edge endpoints ${edge.kind} ${edge.from.kind} -> ${edge.to.kind}`);
       const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
@@ -485,7 +495,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         progress?.(`the plugin ${unit.plugin.id} abstained: ${reason}`);
         await meter?.flush();
         const stop = meter?.stop();
-        if (stop !== undefined) throw new UnitBoundStop('tokens', stop.message);
+        if (stop !== undefined) throw unitStopped(id, 'agent-budget', stop.message);
         return;
       }
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
@@ -569,7 +579,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     // rows say what it spent before it stopped.
     await meter?.flush();
     const stop: AgentUsageStop | undefined = meter?.stop();
-    if (stop !== undefined) throw new UnitBoundStop('tokens', stop.message);
+    if (stop !== undefined) {
+      // What the agent produced before the cap stands (owner's decision, 2026-11-15): the unit published it, and the run
+      // says it went over. A unit that produced nothing ends with the bound's reason, and the run never retries it.
+      if (producedCount === 0) throw unitStopped(id, 'agent-budget', stop.message);
+      progress?.(`the plugin ${unit.plugin.id} went over its bound after producing ${String(producedCount)}: its result stands. ${stop.message}`);
+    }
   } catch (error) {
     // What the unit spent is evidence whatever it published: a unit that failed still writes its rows.
     await meter?.flush().catch(() => undefined);

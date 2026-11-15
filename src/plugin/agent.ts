@@ -9,6 +9,7 @@ import { log } from '../obs/log.js';
 import type { AgentMeter } from '../fill/agent-meter.js';
 import { withSpan } from '../obs/trace.js';
 import type { PluginManifest } from './closure.js';
+import { UnitBoundStop } from '../fill/unit-bound.js';
 import type { GraphAnswerer } from './host.js';
 import { PluginUnitResult, type PluginContractDeclaration } from './protocol.js';
 import { validateUnitResult } from './results.js';
@@ -170,11 +171,21 @@ export class PluginAgentBridge {
         const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(task ?? null)}`;
         const meter = this.options.meter;
         meter?.beginSession();
-        const turn = meter === undefined ? undefined : await meter.runTurn(session, prompt, { model: session.model, signal: controller.signal });
-        if (turn?.stop !== undefined) throw new Error(turn.stop.message);
-        const answer = turn?.result ?? await session.prompt(prompt, { signal: controller.signal });
+        // No prompt is asked under a spent bound: the unit ends with its reason before the model spends anything
+        // (owner's decision, 2026-11-15). Once four fifths are spent the agent is told to finish with what it has, in
+        // the words of its prompt and in every tool answer it reads.
+        const over = meter?.overBudget();
+        if (over !== undefined) throw new UnitBoundStop('tokens', over.message);
+        const notice = meter?.wrapNotice();
+        const asked = notice === undefined ? prompt : `${prompt}\n\n${notice}`;
+        const turn = meter === undefined ? undefined : await meter.runTurn(session, asked, { model: session.model, signal: controller.signal });
+        const answer = turn?.result ?? await session.prompt(asked, { signal: controller.signal });
         if (controller.signal.aborted || this.closed) throw new Error(`${WHERE}: agent turn cancelled`);
-        if (answer.stopReason !== 'end_turn') throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
+        const stop = turn?.stop ?? meter?.stop();
+        // A cap crossed while the agent worked throws away nothing the agent produced (owner's decision, 2026-11-15): a
+        // complete answer stands, and the caller records that the unit went over. A turn with no answer at all ends the
+        // unit with the bound's reason; any other non-answer is the protocol's.
+        if (answer.stopReason !== 'end_turn' && stop === undefined) throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
         const usage = session.usage();
         span.setAttribute('madarch.agent.model', session.model ?? 'not reported');
         span.setAttribute('madarch.agent.session', session.sessionId);
@@ -183,12 +194,19 @@ export class PluginAgentBridge {
         if (usage.inputTokens !== undefined) span.setAttribute('madarch.agent.inputTokens', usage.inputTokens);
         if (usage.outputTokens !== undefined) span.setAttribute('madarch.agent.outputTokens', usage.outputTokens);
         this.options.onSession?.({ unitId, agentId: this.options.adapter.id, sessionId: session.sessionId, model: session.model, usage: session.usage() });
-        const raw: unknown = JSON.parse(answer.text);
-        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${WHERE}: agent answer is not a JSON object`);
+        /** A stop ends the unit where the answer cannot be used: it is the bound's reason, and the run does not retry it. */
+        const unusable = (reason: string): Error => stop === undefined ? new Error(`${WHERE}: ${reason}`) : new UnitBoundStop('tokens', `${stop.message}; ${reason}`);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(answer.text);
+        } catch {
+          throw unusable('the agent answer is no JSON');
+        }
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw unusable('the agent answer is not a JSON object');
         const result = { ...raw, unitId };
-        if (!Value.Check(PluginUnitResult, result)) throw new Error(`${WHERE}: invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
+        if (!Value.Check(PluginUnitResult, result)) throw unusable(`invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
         const checked = validateUnitResult(this.outputs, result);
-        if (!checked.ok) throw new Error(`${WHERE}: ${checked.refusal.message}`);
+        if (!checked.ok) throw unusable(checked.refusal.message);
         for (const item of [...(result.vertices ?? []), ...(result.edges ?? [])]) {
           const evidence = item.evidence;
           if (typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);

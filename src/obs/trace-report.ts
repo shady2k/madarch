@@ -62,6 +62,10 @@ export interface AgentUsageLine {
   readonly plugin: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** The tokens the agent wrote into its cache: counted by a token cap (owner's decision, 2026-11-15). */
+  readonly cachedWriteTokens: number;
+  /** The tokens the agent read back from its cache: shown, never counted by a token cap. */
+  readonly cachedReadTokens: number;
   /** The tokens the agent reported for the line: the largest of its total and the sum of its parts. */
   readonly totalTokens: number;
   readonly cost: readonly { readonly currency: string; readonly amount: number }[];
@@ -76,6 +80,8 @@ export interface AgentUsageReport {
   readonly lines: readonly AgentUsageLine[];
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly cachedWriteTokens: number;
+  readonly cachedReadTokens: number;
   readonly totalTokens: number;
   readonly cost: readonly { readonly currency: string; readonly amount: number }[];
   readonly turns: number;
@@ -113,7 +119,7 @@ function spanNumber(attributes: Readonly<Record<string, unknown>>, name: string)
  * tokens are the largest of the span's total and the sum of its parts, the same reading the meter bounds by.
  */
 export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
-  interface Held { kind: string; field: string; model: string; plugin: string; input: number; output: number; total: number; cost: Map<string, number>; turns: number; stopped: AgentUsageLine['stopped'] }
+  interface Held { kind: string; field: string; model: string; plugin: string; input: number; output: number; cacheWrite: number; cacheRead: number; total: number; cost: Map<string, number>; turns: number; stopped: AgentUsageLine['stopped'] }
   const lines = new Map<string, Held>();
   const stops: { kind: string; field: string; model: string; bound: 'tokens' | 'cost'; scope: 'plugin' | 'run' }[] = [];
   for (const span of spans) {
@@ -123,11 +129,13 @@ export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
     const model = typeof span.attributes['agent.model'] === 'string' ? span.attributes['agent.model'] : '';
     const plugin = typeof span.attributes['agent.plugin'] === 'string' ? span.attributes['agent.plugin'] : '';
     const key = `${kind}\u0000${field}\u0000${model}`;
-    const held = lines.get(key) ?? { kind, field, model, plugin, input: 0, output: 0, total: 0, cost: new Map<string, number>(), turns: 0, stopped: null };
+    const held = lines.get(key) ?? { kind, field, model, plugin, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0, cost: new Map<string, number>(), turns: 0, stopped: null };
     const input = spanNumber(span.attributes, 'agent.tokens.input');
     const output = spanNumber(span.attributes, 'agent.tokens.output');
     held.input += input;
     held.output += output;
+    held.cacheWrite += spanNumber(span.attributes, 'agent.tokens.cache_write');
+    held.cacheRead += spanNumber(span.attributes, 'agent.tokens.cache_read');
     held.total += Math.max(spanNumber(span.attributes, 'agent.tokens.total'), input + output);
     held.turns += 1;
     for (const [name, value] of Object.entries(span.attributes)) {
@@ -154,11 +162,13 @@ export function agentUsageOf(spans: readonly TraceSpan[]): AgentUsageReport {
   return {
     lines: ordered.map((line) => ({
       kind: line.kind, field: line.field, model: line.model, plugin: line.plugin,
-      inputTokens: line.input, outputTokens: line.output, totalTokens: line.total,
+      inputTokens: line.input, outputTokens: line.output, cachedWriteTokens: line.cacheWrite, cachedReadTokens: line.cacheRead, totalTokens: line.total,
       cost: money([line]), turns: line.turns, stopped: line.stopped,
     })),
     inputTokens: ordered.reduce((sum, line) => sum + line.input, 0),
     outputTokens: ordered.reduce((sum, line) => sum + line.output, 0),
+    cachedWriteTokens: ordered.reduce((sum, line) => sum + line.cacheWrite, 0),
+    cachedReadTokens: ordered.reduce((sum, line) => sum + line.cacheRead, 0),
     totalTokens: ordered.reduce((sum, line) => sum + line.total, 0),
     cost: money(ordered),
     turns: ordered.reduce((sum, line) => sum + line.turns, 0),
@@ -553,10 +563,10 @@ export function renderTraceReport(report: TraceReport): string {
   if (report.agentUsage.lines.length > 0) {
     const usage = report.agentUsage;
     lines.push('');
-    lines.push(`Agent usage: ${String(usage.turns)} prompt turns, ${String(usage.inputTokens)} tokens in, ${String(usage.outputTokens)} out, ${String(usage.totalTokens)} total${usage.cost.length === 0 ? '' : `, cost ${usage.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}`);
+    lines.push(`Agent usage: ${String(usage.turns)} prompt turns, ${String(usage.inputTokens)} tokens in, ${String(usage.outputTokens)} out, ${String(usage.cachedWriteTokens)} written to cache, ${String(usage.cachedReadTokens)} read from cache, ${String(usage.totalTokens)} total${usage.cost.length === 0 ? '' : `, cost ${usage.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}`);
     for (const line of usage.lines) {
       const where = `${line.plugin} ${line.kind}${line.field === '' ? '' : `/${line.field}`}${line.model === '' ? '' : ` on ${line.model}`}`;
-      lines.push(`  ${String(line.inputTokens).padStart(9)} in  ${String(line.outputTokens).padStart(9)} out  ${String(line.totalTokens).padStart(9)} total${line.cost.length === 0 ? '' : `  ${line.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}  ${where}${line.stopped === null ? '' : `  [stopped: ${line.stopped.bound}, ${line.stopped.scope} bound]`}`);
+      lines.push(`  ${String(line.inputTokens).padStart(9)} in  ${String(line.outputTokens).padStart(9)} out  ${String(line.cachedWriteTokens).padStart(9)} cache-write  ${String(line.cachedReadTokens).padStart(12)} cache-read  ${String(line.totalTokens).padStart(9)} total${line.cost.length === 0 ? '' : `  ${line.cost.map((one) => `${String(one.amount)} ${one.currency}`).join(', ')}`}  ${where}${line.stopped === null ? '' : `  [stopped: ${line.stopped.bound}, ${line.stopped.scope} bound]`}`);
     }
     for (const stop of usage.stops) lines.push(`  stopped: the ${stop.scope} ${stop.bound} bound ended the ${stop.kind}${stop.field === '' ? '' : `/${stop.field}`} turn${stop.model === '' ? '' : ` of ${stop.model}`}`);
   }

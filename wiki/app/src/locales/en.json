@@ -92,7 +92,7 @@
       "remainingUnknown": "Remaining time: not known yet",
       "remaining": "Approximately {{seconds}} s remaining",
       "tokensUnknown": "Tokens: not reported",
-      "tokens": "Tokens: {{input}} input · {{output}} output · {{total}} total",
+      "tokens": "Tokens: {{input}} input · {{output}} output · {{cacheWrite}} cache write · {{cacheRead}} cache read · {{total}} total",
       "records": "Facts written: {{count}}",
       "stopWords": "Stop this run? Records already written will stay.",
       "log": "Run log",

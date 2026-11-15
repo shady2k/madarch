@@ -16,6 +16,8 @@ const SCHEMA = [
     model text,
     input_tokens bigint NOT NULL CHECK (input_tokens >= 0),
     output_tokens bigint NOT NULL CHECK (output_tokens >= 0),
+    cache_write_tokens bigint NOT NULL DEFAULT 0 CHECK (cache_write_tokens >= 0),
+    cache_read_tokens bigint NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
     total_tokens bigint NOT NULL CHECK (total_tokens >= 0),
     cost_amount numeric(20, 6),
     cost_currency text,
@@ -31,6 +33,10 @@ const SCHEMA = [
   `CREATE UNIQUE INDEX IF NOT EXISTS agent_usage_identity ON agent_usage (run_id, unit, kind, field, model) NULLS NOT DISTINCT`,
   // The kind's page reads the runs of one kind, newest first.
   `CREATE INDEX IF NOT EXISTS agent_usage_kind ON agent_usage (kind, updated_at)`,
+  // A store written before the owner's accounting decision of 2026-11-15 has the row without the cache counts: the two
+  // columns are added in place, so the store's own spend stays and the next write states them.
+  `ALTER TABLE agent_usage ADD COLUMN IF NOT EXISTS cache_write_tokens bigint NOT NULL DEFAULT 0`,
+  `ALTER TABLE agent_usage ADD COLUMN IF NOT EXISTS cache_read_tokens bigint NOT NULL DEFAULT 0`,
 ];
 
 /** Makes this module's table in a store that has none; a second call runs no DDL (`schema-stamp.ts`). */

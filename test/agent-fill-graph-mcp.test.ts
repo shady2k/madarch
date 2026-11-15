@@ -122,7 +122,10 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   }
   appendFileSync(recordPath, JSON.stringify({ prompt, task, servers, tools, calls, answer }) + '\\n');
   send({ method: 'session/update', params: { sessionId: m.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(answer) } } } });
-  send({ id: m.id, result: { stopReason: 'end_turn' } });
+  // What one turn spent, as an agent that re-sends its prompt from the cache reports it: the cache reads are huge,
+  // and the tokens a cap counts — input, output and cache writes — are the 460 beside them (owner's decision,
+  // 2026-11-15).
+  send({ id: m.id, result: { stopReason: 'end_turn', usage: { inputTokens: 300, outputTokens: 150, cachedWriteTokens: 10, cachedReadTokens: 1_000_000, totalTokens: 1_000_460 } } });
 });
 `;
 
@@ -221,6 +224,53 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
         { name: 'Identity', evidence: [expect.objectContaining({ repository: 'app', path: 'src/identity/login.ts', line_start: 1, line_end: 2 })] },
         { name: 'Orders', evidence: [expect.objectContaining({ repository: 'app', path: 'src/orders/create-order.ts', line_start: 1, line_end: 2 })] },
       ]);
+    } finally {
+      await owner.close();
+      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
+      else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
+    }
+  }, 180_000);
+
+  test('a turn that reports a million cache reads spends only its input, output and cache writes, and a result past the cap is kept', async () => {
+    // The owner's real run (madarch-64o5.112): Claude Code reported 1 000 639 tokens, of which almost all were cache
+    // reads re-sent every step, and the finished result was thrown away. Here the same report meets a 300-token cap: the
+    // domain turn spends the 460 the cap counts, its answer is kept and published, and the next unit is not prompted at
+    // all — it ends with the cap's reason, once, and is not retried.
+    const f = fixture();
+    const declarations = readKinds(f.product);
+    if (!declarations.present) return;
+    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
+    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
+    try {
+      const run = await runFill({
+        product: f.product, targets: { kinds: ['domain', 'code.module'], requested: ['domain', 'code.module'] },
+        tokenCap: 300, database: owner,
+        prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+        home: f.home, steps: ['plugin-turns'], workers: 1,
+        pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record] }, connect: connectAcpAgent },
+      });
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      // One agent unit runs first and its result stands; the next finds the cap spent, ends with that reason once, and
+      // is not retried (one attempt, where a plain failure spends three).
+      const units = run.units.filter((unit) => unit.unitId.startsWith('plugin-turns/agent-fill:'));
+      expect(units.map((unit) => unit.state).sort()).toEqual(['failed', 'published']);
+      expect(units.find((unit) => unit.state === 'failed')?.attempts).toBe(1);
+      expect(run.state).toBe('completed_partial');
+      // What the first agent produced stands, with its evidence: the cap took nothing away from it.
+      const domains = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT n.key->>'name' AS name FROM ${generatedTableName('domain', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
+      const modules = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT n.key->>'name' AS name FROM ${generatedTableName('code.module', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
+      expect([domains.rows.map((row) => row.name), modules.rows.map((row) => row.name)].filter((held) => held.length > 0)).toEqual([expect.any(Array)]);
+      // The run says it went over, and the unit that went over the cap says why it ended.
+      const events = await owner.transaction('snapshot', async (tx) => await tx.query<{ kind: string; unit_id: string; summary: string }>('SELECT kind, unit_id, summary FROM fill_event ORDER BY seq'));
+      expect(events.rows.some((event) => event.kind === 'unit-progress' && event.summary.includes('went over its bound after producing'))).toBe(true);
+      const failed = events.rows.find((event) => event.kind === 'unit-failed' && event.unit_id === units.find((unit) => unit.state === 'failed')?.unitId);
+      expect(failed?.summary).toContain('was stopped by its tokens bound and is not retried');
+      expect(failed?.summary).toContain('cache reads are not counted');
+      // Only one turn asked the model anything: the second unit ended before its prompt.
+      const turns = readFileSync(f.record, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { task: { kind: string } });
+      expect(turns.map((turn) => turn.task.kind)).toHaveLength(1);
     } finally {
       await owner.close();
       if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];

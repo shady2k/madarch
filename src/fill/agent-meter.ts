@@ -24,9 +24,17 @@
  *
  * The bounds are declared, never picked here: a plugin's `bounds:` in the product's manifest (decision 0035, item 22:
  * "a token and cost bound per run") is the unit meter's own bound, and the catalogue's token cap for the whole fill run
- * (`fill_selection_settings`, the person's press) is the one counter its plugin runs share, an `AgentRunBudget`. A
- * crossed bound is a value, `AgentUsageStop`, that names the unit, the scope and the numbers; `runTurn` cancels the
- * turn on it, and the caller ends the unit with it.
+ * (`fill_selection_settings`, the person's press) is the one counter its plugin runs share, an `AgentRunBudget`.
+ *
+ * What a token bound counts is the owner's decision (2026-11-15, «Только токены без кэша»): input, output and cache
+ * writes, never cache reads — an agent that re-reads a large prompt from its cache every step reports a total far above
+ * what it produced, and the run's cap is about the work, not about the re-reads. Cache reads are counted and shown
+ * beside the other three, and money is shown and never capped by the fill's settings.
+ *
+ * The bounds are enforced live: at four fifths of a token bound the meter states a notice the agent reads with its next
+ * tool answer (`wrapNotice`), so it finishes with what it has; at the bound the turn is cancelled. A crossed bound is a
+ * value, `AgentUsageStop`, that names the unit, the scope and the numbers; the caller keeps whatever the agent
+ * produced before it and ends the unit with the reason, and never retries it.
  *
  * The spend is written through `src/adapters/agent-usage.ts` after every turn (a crash costs the turn in flight, never
  * the run), and each turn's increment is one `agent.usage` span of the run's trace, so `madarch trace` and the run page
@@ -59,12 +67,18 @@ export interface AgentUsageStop {
 }
 
 /**
- * The tokens one row spent: the largest of the total the agent reported and the sum of its parts, so a bound counts
- * what the agent itself said it spent and never less.
+ * The tokens a token bound counts: input, output and cache writes, in the owner's decision of 2026-11-15 — never cache
+ * reads, which an agent re-sends every step and which cost nothing to produce. A report that states only a total is one
+ * the meter cannot split, and the total is then what it has to count.
  */
-export function spentTokensOf(tokens: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number }): number {
-  return Math.max(tokens.totalTokens, tokens.inputTokens + tokens.outputTokens);
+export function cappedTokensOf(tokens: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly totalTokens?: number }): number {
+  const parts = tokens.inputTokens + tokens.outputTokens + tokens.cachedWriteTokens;
+  if (parts > 0) return parts;
+  return tokens.totalTokens ?? 0;
 }
+
+/** The most a token bound may be reached before the agent is told to finish: four fifths (owner's decision, 2026-11-15). */
+export const WRAP_AT = 0.8;
 
 /** One number as the report of a turn states it, when it is a number a meter can count. */
 function counted(value: unknown): number | undefined {
@@ -105,9 +119,14 @@ export class AgentRunBudget {
     this.#limit = options.tokens;
   }
 
-  /** The tokens the run spent so far. */
+  /** The tokens the run spent so far, as a token cap counts them. */
   get tokens(): number {
     return this.#tokens;
+  }
+
+  /** The cap the fill was pressed with, when it was pressed with one. */
+  get limit(): number | undefined {
+    return this.#limit;
   }
 
   /** Spends one increment, and answers the bound it crossed, if it crossed one. */
@@ -132,6 +151,8 @@ interface MeterRow {
   readonly model: string | null;
   inputTokens: number;
   outputTokens: number;
+  cachedWriteTokens: number;
+  cachedReadTokens: number;
   totalTokens: number;
   readonly cost: Map<string, number>;
   turns: number;
@@ -143,6 +164,8 @@ interface MeterRow {
 interface SessionBaseline {
   inputTokens?: number;
   outputTokens?: number;
+  cachedWriteTokens?: number;
+  cachedReadTokens?: number;
   totalTokens?: number;
   readonly cost: Map<string, number>;
 }
@@ -188,6 +211,8 @@ export class AgentMeter {
   #turn: Required<MeterTurnOptions>;
   #context: { readonly used: number; readonly size: number } | undefined;
   #stop: AgentUsageStop | undefined;
+  /** The words the agent reads once a token bound is four fifths spent: stated once, and never after a stop. */
+  #wrap: string | undefined;
 
   constructor(options: AgentMeterOptions) {
     if (options.run.trim() === '' || options.unit.trim() === '' || options.plugin.trim() === '' || options.kind.trim() === '') {
@@ -225,7 +250,7 @@ export class AgentMeter {
       const last = baseline.cost.get(update.cost.currency);
       const delta = incrementOf(update.cost.amount, last);
       baseline.cost.set(update.cost.currency, update.cost.amount);
-      if (delta > 0) this.#add(0, 0, 0, [{ amount: delta, currency: update.cost.currency }]);
+      if (delta > 0) this.#add({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 }, [{ amount: delta, currency: update.cost.currency }]);
     }
     return this.#stop;
   }
@@ -240,24 +265,32 @@ export class AgentMeter {
     row.turns += 1;
     let tokensIn = 0;
     let tokensOut = 0;
+    let tokensWrite = 0;
+    let tokensRead = 0;
     let tokensTotal = 0;
     if (usage !== undefined) {
       const baseline = this.#baseline();
       const input = counted(usage.inputTokens);
       const output = counted(usage.outputTokens);
+      const write = counted(usage.cachedWriteTokens);
+      const read = counted(usage.cachedReadTokens);
       const total = counted(usage.totalTokens);
       tokensIn = input === undefined ? 0 : incrementOf(input, baseline.inputTokens);
       tokensOut = output === undefined ? 0 : incrementOf(output, baseline.outputTokens);
+      tokensWrite = write === undefined ? 0 : incrementOf(write, baseline.cachedWriteTokens);
+      tokensRead = read === undefined ? 0 : incrementOf(read, baseline.cachedReadTokens);
       tokensTotal = total === undefined ? 0 : incrementOf(total, baseline.totalTokens);
       if (input !== undefined) baseline.inputTokens = input;
       if (output !== undefined) baseline.outputTokens = output;
+      if (write !== undefined) baseline.cachedWriteTokens = write;
+      if (read !== undefined) baseline.cachedReadTokens = read;
       if (total !== undefined) baseline.totalTokens = total;
-      if (input !== undefined || output !== undefined || total !== undefined) {
+      if (input !== undefined || output !== undefined || write !== undefined || read !== undefined || total !== undefined) {
         row.reported = true;
-        this.#add(tokensIn, tokensOut, tokensTotal, []);
+        this.#add({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal }, []);
       }
     }
-    this.#writeSpan(tokensIn, tokensOut, tokensTotal);
+    this.#writeSpan({ input: tokensIn, output: tokensOut, cacheWrite: tokensWrite, cacheRead: tokensRead, total: tokensTotal });
     await this.#save();
     return this.#stop;
   }
@@ -284,6 +317,8 @@ export class AgentMeter {
       model: row.model,
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,
+      cachedWriteTokens: row.cachedWriteTokens,
+      cachedReadTokens: row.cachedReadTokens,
       totalTokens: row.totalTokens,
       cost: sortedAmounts(row.cost)[0] ?? null,
       turns: row.turns,
@@ -292,15 +327,59 @@ export class AgentMeter {
     }));
   }
 
-  /** The run's spend as it stands: tokens in, out and total, and the cost per currency. */
-  spent(): { readonly tokens: number; readonly cost: readonly AgentUsageAmount[] } {
-    let tokens = 0;
+  /**
+   * The run's spend as it stands: the four token counts the agent reports, the tokens a cap counts (input, output and
+   * cache writes), and the cost per currency.
+   */
+  spent(): {
+    readonly tokens: number;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly cachedWriteTokens: number;
+    readonly cachedReadTokens: number;
+    readonly totalTokens: number;
+    readonly cost: readonly AgentUsageAmount[];
+  } {
+    const sum = { inputTokens: 0, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 0, totalTokens: 0 };
     const cost = new Map<string, number>();
     for (const row of this.#rows.values()) {
-      tokens += spentTokensOf(row);
+      sum.inputTokens += row.inputTokens;
+      sum.outputTokens += row.outputTokens;
+      sum.cachedWriteTokens += row.cachedWriteTokens;
+      sum.cachedReadTokens += row.cachedReadTokens;
+      sum.totalTokens += row.totalTokens;
       for (const [currency, amount] of row.cost) cost.set(currency, (cost.get(currency) ?? 0) + amount);
     }
-    return { tokens, cost: sortedAmounts(cost) };
+    return { tokens: cappedTokensOf(sum), ...sum, cost: sortedAmounts(cost) };
+  }
+
+  /**
+   * The words the agent reads once a token bound is four fifths spent, so it finishes with what it has (owner's
+   * decision, 2026-11-15): with its next prompt and with every tool answer it reads. Undefined before that and after a
+   * stop.
+   */
+  wrapNotice(): string | undefined {
+    if (this.#stop === undefined) this.#maybeWrap(this.spent().tokens, this.#options.bounds?.tokens);
+    return this.#wrap;
+  }
+
+  /**
+   * The bound this run has already spent past, if it has: no prompt is asked under it (owner's decision, 2026-11-15).
+   * The numbers are the counted ones — input, output and cache writes — and the shared budget carries what this unit's
+   * earlier plugin runs spent, so it is read first.
+   */
+  overBudget(): AgentUsageStop | undefined {
+    if (this.#stop !== undefined) return this.#stop;
+    const budget = this.#options.budget;
+    if (budget?.limit !== undefined && budget.tokens > budget.limit) {
+      return this.#stopOf('run', { bound: 'tokens', spent: budget.tokens, limit: budget.limit, currency: null });
+    }
+    const bounds = this.#options.bounds;
+    if (bounds?.tokens !== undefined) {
+      const spent = this.spent().tokens;
+      if (spent > bounds.tokens) return this.#stopOf('plugin', { bound: 'tokens', spent, limit: bounds.tokens, currency: null });
+    }
+    return undefined;
   }
 
   /**
@@ -349,23 +428,26 @@ export class AgentMeter {
     if (held !== undefined) return held;
     const made: MeterRow = {
       unit: this.#options.unit, kind: this.#turn.kind, field: this.#turn.field, model: this.#turn.model,
-      inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: new Map(), turns: 0, reported: false, stopped: null,
+      inputTokens: 0, outputTokens: 0, cachedWriteTokens: 0, cachedReadTokens: 0, totalTokens: 0, cost: new Map(), turns: 0, reported: false, stopped: null,
     };
     this.#rows.set(key, made);
     return made;
   }
 
   /** Counts one increment into the turn's row, and checks the declared bounds against what is spent now. */
-  #add(inputTokens: number, outputTokens: number, totalTokens: number, cost: readonly AgentUsageAmount[]): void {
+  #add(tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number; readonly total: number }, cost: readonly AgentUsageAmount[]): void {
     const row = this.#row();
-    row.inputTokens += inputTokens;
-    row.outputTokens += outputTokens;
-    row.totalTokens += totalTokens;
+    row.inputTokens += tokens.input;
+    row.outputTokens += tokens.output;
+    row.cachedWriteTokens += tokens.cacheWrite;
+    row.cachedReadTokens += tokens.cacheRead;
+    row.totalTokens += tokens.total;
     for (const amount of cost) row.cost.set(amount.currency, (row.cost.get(amount.currency) ?? 0) + amount.amount);
     if (this.#stop !== undefined) return;
     // The run's shared counter is spent here, with the same increment: it bounds the whole fill run, and the plugin's own
     // bound is checked against the meter's rows. Either may cross first; the first crossing is the reason the run stops.
-    const increment = this.#incrementTokens(inputTokens, outputTokens, totalTokens);
+    // The increment is what a cap counts — input, output and cache writes — never the cache reads the agent re-sent.
+    const increment = cappedTokensOf({ inputTokens: tokens.input, outputTokens: tokens.output, cachedWriteTokens: tokens.cacheWrite, totalTokens: tokens.total });
     const budget = this.#options.budget;
     const shared = budget === undefined ? undefined : budget.spend(increment);
     if (shared !== undefined) {
@@ -381,6 +463,7 @@ export class AgentMeter {
       this.#stop = this.#stopOf('plugin', { bound: 'tokens', spent: spent.tokens, limit: bounds.tokens, currency: null });
       return;
     }
+    this.#maybeWrap(spent.tokens, bounds.tokens);
     const limit = bounds.cost;
     if (limit !== undefined) {
       const held = spent.cost.find((amount) => amount.currency === limit.currency);
@@ -391,9 +474,21 @@ export class AgentMeter {
     }
   }
 
-  /** The tokens one increment spent: the largest of the reported total and the sum of its parts. */
-  #incrementTokens(inputTokens: number, outputTokens: number, totalTokens: number): number {
-    return spentTokensOf({ inputTokens, outputTokens, totalTokens });
+  /**
+   * States the wrap notice once a token bound is four fifths spent: the agent reads it with its next tool answer and
+   * finishes with what it has. The nearest bound — the run's cap or the plugin's own — is the one named.
+   */
+  #maybeWrap(spent: number, pluginBound: number | undefined): void {
+    if (this.#wrap !== undefined) return;
+    const budget = this.#options.budget;
+    const limits = [
+      ...(budget?.limit === undefined ? [] : [{ spent: budget.tokens, limit: budget.limit, words: `the fill run's ${tokensText(budget.limit)}-token cap` }]),
+      ...(pluginBound === undefined ? [] : [{ spent, limit: pluginBound, words: `the plugin's ${tokensText(pluginBound)}-token bound` }]),
+    ];
+    const nearest = limits.sort((left, right) => right.spent / right.limit - left.spent / left.limit)[0];
+    if (nearest === undefined || nearest.spent < nearest.limit * WRAP_AT) return;
+    const percent = Math.floor((nearest.spent / nearest.limit) * 100);
+    this.#wrap = `You have spent ${tokensText(nearest.spent)} tokens of ${nearest.words} (${String(percent)}%). Finish with what you have: state every entity and relation you have already established, with its evidence, and end your answer now.`;
   }
 
   #stopOf(scope: 'plugin' | 'run', crossed: { readonly bound: 'tokens' | 'cost'; readonly spent: number; readonly limit: number; readonly currency: string | null }): AgentUsageStop {
@@ -402,7 +497,7 @@ export class AgentMeter {
     const boundWords = scope === 'plugin'
       ? `${limitWords} bound the product's manifest declares for one run of the plugin`
       : `${limitWords} cap the fill's settings declare for the whole run`;
-    const spentWords = crossed.bound === 'tokens' ? `${tokensText(crossed.spent)} tokens` : `${String(crossed.spent)} ${String(crossed.currency)}`;
+    const spentWords = crossed.bound === 'tokens' ? `${tokensText(crossed.spent)} tokens (input, output and cache writes; cache reads are not counted)` : `${String(crossed.spent)} ${String(crossed.currency)}`;
     return {
       scope,
       bound: crossed.bound,
@@ -416,7 +511,7 @@ export class AgentMeter {
   }
 
   /** One span of the run's trace for the turn's increment: what this turn's model calls cost. */
-  #writeSpan(inputTokens: number, outputTokens: number, totalTokens: number): void {
+  #writeSpan(tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number; readonly total: number }): void {
     const row = this.#row();
     const attributes: Record<string, string | number | boolean> = {
       'agent.run': this.#options.run,
@@ -426,14 +521,19 @@ export class AgentMeter {
       'agent.kind': row.kind,
       'agent.field': row.field,
       'agent.model': row.model ?? '',
-      'agent.tokens.input': inputTokens,
-      'agent.tokens.output': outputTokens,
-      'agent.tokens.total': totalTokens,
+      'agent.tokens.input': tokens.input,
+      'agent.tokens.output': tokens.output,
+      'agent.tokens.cache_write': tokens.cacheWrite,
+      'agent.tokens.cache_read': tokens.cacheRead,
+      'agent.tokens.total': tokens.total,
+      'agent.tokens.capped': cappedTokensOf({ inputTokens: tokens.input, outputTokens: tokens.output, cachedWriteTokens: tokens.cacheWrite }),
       'agent.turns': 1,
       'agent.reported': row.reported,
       'agent.row.tokens.input': row.inputTokens,
       'agent.row.tokens.output': row.outputTokens,
-      'agent.row.tokens': spentTokensOf(row),
+      'agent.row.tokens.cache_write': row.cachedWriteTokens,
+      'agent.row.tokens.cache_read': row.cachedReadTokens,
+      'agent.row.tokens': cappedTokensOf(row),
     };
     for (const amount of this.#incrementCosts(row)) attributes[`agent.cost.${amount.currency}`] = amount.amount;
     if (this.#context !== undefined) {

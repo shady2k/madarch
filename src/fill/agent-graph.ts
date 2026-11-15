@@ -17,7 +17,7 @@ const MAX_BODY_BYTES = 256 * 1024;
  * streamable HTTP transport with one JSON answer per POST, as the hand-written unit server speaks it: the client's
  * `initialize`, its `tools/list` and its `tools/call`, answered by the same code that answers them over stdio.
  */
-export function startAgentGraphMcp(source: AgentGraphSource): { readonly server: AcpMcpServer; close(): Promise<void> } {
+export function startAgentGraphMcp(source: AgentGraphSource, options: { readonly notice?: () => string | undefined } = {}): { readonly server: AcpMcpServer; close(): Promise<void> } {
   const token = randomUUID();
   const running = Bun.serve({
     hostname: '127.0.0.1',
@@ -36,7 +36,13 @@ export function startAgentGraphMcp(source: AgentGraphSource): { readonly server:
       const answered = await answerUnitMcpMessage(message, {
         tools: AGENT_GRAPH_TOOLS,
         info: { name: 'madarch', version: runningVersion() },
-        call: async (tool, args) => await callAgentGraphTool(source, tool, args),
+        call: async (tool, args) => {
+          const held = await callAgentGraphTool(source, tool, args);
+          // The fill's wrap notice rides every tool answer once a token bound is four fifths spent: the agent reads it
+          // where it looks, and finishes with what it has (owner's decision, 2026-11-15).
+          const note = options.notice?.();
+          return note === undefined ? held : { ...held, note };
+        },
       });
       if (answered === null) return new Response(null, { status: 202 });
       return Response.json(answered);
