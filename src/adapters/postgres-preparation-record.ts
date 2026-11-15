@@ -73,19 +73,22 @@ export function comparablePath(path: string, platform: NodeJS.Platform = process
 }
 
 /**
- * Whether this program is initdb or PostgreSQL running on exactly this data directory: an argument that is `-D <path>`,
- * `-D<path>` or `--pgdata=<path>` and whose path is that folder — never a folder whose name merely begins with it
- * (`C:\\store\\pgdata-other` is another store's server).
+ * Whether this program is initdb or PostgreSQL running on exactly this data directory. The data directory is the one the
+ * last `-D <path>`, `-D<path>` or `--pgdata=<path>` names — PostgreSQL reads the last, so `-D pgdata -D other` serves
+ * `other` — and it must be that folder, never a folder whose name merely begins with it (`C:\\store\\pgdata-other` is
+ * another store's server). A program with no explicit one is never ours: its `PGDATA` is not this process's to read.
  */
 export function runsOnDataDir(program: string, argv: readonly string[], dataDir: string, platform: NodeJS.Platform = process.platform): boolean {
   if (!/(?:^|[\\/])(?:initdb|postgres)(?:\.exe)?$/i.test(program)) return false;
-  const wanted = comparablePath(dataDir, platform);
-  const named = (value: string | undefined): boolean => value !== undefined && comparablePath(value, platform) === wanted;
+  let named: string | undefined;
   for (let index = 1; index < argv.length; index++) {
     const argument = argv[index]!;
-    if (argument === '-D' || argument === '--pgdata') { if (named(argv[index + 1])) return true; continue; }
-    if (argument.startsWith('-D') && argument.length > 2) { if (named(argument.slice(2))) return true; continue; }
-    if (argument.startsWith('--pgdata=')) { if (named(argument.slice('--pgdata='.length))) return true; }
+    if (argument === '-D' || argument === '--pgdata') {
+      if (argv[index + 1] !== undefined) { named = argv[index + 1]; index++; }
+      continue;
+    }
+    if (argument.startsWith('-D') && argument.length > 2) { named = argument.slice(2); continue; }
+    if (argument.startsWith('--pgdata=')) named = argument.slice('--pgdata='.length);
   }
-  return false;
+  return named !== undefined && comparablePath(named, platform) === comparablePath(dataDir, platform);
 }

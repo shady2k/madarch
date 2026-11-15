@@ -42,6 +42,11 @@ test('a folder is matched by the -D argument, never as a prefix of another folde
   // Windows folds case and separators; another program's -D is not ours.
   expect(runsOnDataDir('POSTGRES.EXE', argv('C:\\tools\\postgres.exe -D c:/STORE/PGDATA'), dataDir, 'win32')).toBe(true);
   expect(runsOnDataDir('notepad.exe', argv(`C:\\Windows\\notepad.exe -D ${dataDir}`), dataDir, 'win32')).toBe(false);
+  // PostgreSQL reads the last data directory: an earlier -D is not the one it serves.
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe -D ${dataDir} -D C:\\other\\pgdata`), dataDir, 'win32')).toBe(false);
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe -D C:\\other\\pgdata -D ${dataDir}`), dataDir, 'win32')).toBe(true);
+  // No explicit -D is no store of ours (its PGDATA is not ours to read).
+  expect(runsOnDataDir('postgres.exe', argv('C:\\tools\\postgres.exe -p 5432'), dataDir, 'win32')).toBe(false);
 });
 
 test('a timeout after initdb exited signals no pid, only what names the folder', () => {
