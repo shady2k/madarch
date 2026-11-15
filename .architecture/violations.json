@@ -1,5 +1,2955 @@
 [
   {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "readProblemsCount"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "readProduct"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "readReaderSettings"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "readFillPlan"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/first-run.tsx",
+    "symbol": "readFillStatus"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/overview.tsx",
+    "symbol": "readFillRuns"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/overview.tsx",
+    "symbol": "readProblemsCount"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "readAgentChoices"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "readAgents"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "readFillPlan"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "readFillStatus"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "readProduct"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "readProductSettings"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "readProblems"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/repositories.tsx",
+    "symbol": "readSources"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/role-first.tsx",
+    "symbol": "readReaderSettings"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/run-indicator.tsx",
+    "symbol": "readFillRun"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/run-indicator.tsx",
+    "symbol": "readFillStatus"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "readFillPlan"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "readFillRun"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "readFillRuns"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "readAgentChoices"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "readAgents"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "readProductSettings"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "readReaderSettings"
+  },
+  {
+    "rule": "app-graph-reads",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "readSources"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/contracts/code.channel.yaml",
+    "symbol": "definition"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/contracts/code.channel.yaml",
+    "symbol": "directions"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/contracts/code.contract.yaml",
+    "symbol": "definition"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/contracts/code.operation.yaml",
+    "symbol": "definition"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/structure/code.file.yaml",
+    "symbol": "languages"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/structure/code.file.yaml",
+    "symbol": "state_machines"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/structure/code.module.yaml",
+    "symbol": "state_machines"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/structure/code.service.yaml",
+    "symbol": "state_machines"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/code/structure/code.symbol.yaml",
+    "symbol": "state_machines"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/common/attachment/comment.yaml",
+    "symbol": "about"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/common/attachment/link.yaml",
+    "symbol": "relation"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/common/attachment/link.yaml",
+    "symbol": "source"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/common/attachment/link.yaml",
+    "symbol": "target"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/common/values/value-set-entry.yaml",
+    "symbol": "set"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/data/storage/code.column.yaml",
+    "symbol": "check"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/data/storage/code.index.yaml",
+    "symbol": "columns"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/administrator-guide.yaml",
+    "symbol": "findings"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/administrator-guide.yaml",
+    "symbol": "links"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/administrator-guide.yaml",
+    "symbol": "relates"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/administrator-guide.yaml",
+    "symbol": "sources"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/administrator-guide.yaml",
+    "symbol": "statements"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/administrator-guide.yaml",
+    "symbol": "ungrounded"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/document.yaml",
+    "symbol": "anchors"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/document.yaml",
+    "symbol": "links"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/user-guide.yaml",
+    "symbol": "findings"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/user-guide.yaml",
+    "symbol": "links"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/user-guide.yaml",
+    "symbol": "relates"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/user-guide.yaml",
+    "symbol": "sources"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/user-guide.yaml",
+    "symbol": "statements"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/document/user-guide.yaml",
+    "symbol": "ungrounded"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/correction.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/enrichment.yaml",
+    "symbol": "findings"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/enrichment.yaml",
+    "symbol": "links"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/enrichment.yaml",
+    "symbol": "relates"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/enrichment.yaml",
+    "symbol": "sources"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/enrichment.yaml",
+    "symbol": "statements"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/enrichment.yaml",
+    "symbol": "ungrounded"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/documentation/feedback/problem-dismissal.yaml",
+    "symbol": "by"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/rd/decision/doc.decision.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/requirements/statement/doc.requirement.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/requirements/statement/doc.rule.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/requirements/statement/doc.term.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/requirements/statement/doc.use-case.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/direction/principle.yaml",
+    "symbol": "examples"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/direction/principle.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/domain.yaml",
+    "symbol": "findings"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/domain.yaml",
+    "symbol": "links"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/domain.yaml",
+    "symbol": "relates"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/domain.yaml",
+    "symbol": "sources"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/domain.yaml",
+    "symbol": "statements"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/domain.yaml",
+    "symbol": "ungrounded"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/product.yaml",
+    "symbol": "findings"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/product.yaml",
+    "symbol": "links"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/product.yaml",
+    "symbol": "relates"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/product.yaml",
+    "symbol": "sources"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/product.yaml",
+    "symbol": "statements"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/strategy/product/product.yaml",
+    "symbol": "ungrounded"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/testing/case/code.test-quarantine.yaml",
+    "symbol": "latest_result"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/testing/case/code.test-quarantine.yaml",
+    "symbol": "since"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/testing/case/code.test-quarantine.yaml",
+    "symbol": "task"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/testing/case/code.test-quarantine.yaml",
+    "symbol": "test"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/handoff.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/handoff.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/handoff.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/question.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/question.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/question.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/question.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/reservation.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/reservation.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/coordination/reservation.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/bug.yaml",
+    "symbol": "comments"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/bug.yaml",
+    "symbol": "dependencies"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/bug.yaml",
+    "symbol": "issue_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/bug.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/bug.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/bug.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/lifecycle-step.yaml",
+    "symbol": "executor_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "comments"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "dependencies"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "front"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "issue_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/task.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/time-cost.yaml",
+    "symbol": "entity"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/execution/time-cost.yaml",
+    "symbol": "executor_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/epic.yaml",
+    "symbol": "comments"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/epic.yaml",
+    "symbol": "dependencies"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/epic.yaml",
+    "symbol": "issue_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/epic.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/epic.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/epic.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/feature.yaml",
+    "symbol": "comments"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/feature.yaml",
+    "symbol": "dependencies"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/feature.yaml",
+    "symbol": "issue_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/feature.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/feature.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/feature.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/milestone.yaml",
+    "symbol": "comments"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/milestone.yaml",
+    "symbol": "dependencies"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/milestone.yaml",
+    "symbol": "issue_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/milestone.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/milestone.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/milestone.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/stage.yaml",
+    "symbol": "comments"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/stage.yaml",
+    "symbol": "dependencies"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/stage.yaml",
+    "symbol": "issue_type"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/stage.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/stage.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/planning/stage.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/evidence.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/evidence.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/evidence.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/merge.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/merge.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/merge.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/review-finding.yaml",
+    "symbol": "labels"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/review-finding.yaml",
+    "symbol": "priority"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/sync/review-finding.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/code-convention.yaml",
+    "symbol": "paths"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/code-convention.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/constitution.yaml",
+    "symbol": "precedence"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/constitution.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/practice.yaml",
+    "symbol": "applies_to"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/practice.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/skill.yaml",
+    "symbol": "checks"
+  },
+  {
+    "rule": "catalogue-pointers",
+    "file": "catalog/work/ways/skill.yaml",
+    "symbol": "status"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/adapters/postgres-preparation-record.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/adapters/queue-definition.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/acp.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/orchestrator-host.ts",
+    "symbol": "node:fs/promises"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/fill/prime-runtime.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/graph/authored.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/agents.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/agents.ts",
+    "symbol": "node:fs/promises"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/catalog-files.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/changed-pages.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/fill-role.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/fill-run.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/graph-verdict-store.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/product.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/product.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/product.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/product.ts",
+    "symbol": "node:fs/promises"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/reset.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/knowledge/settings.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/loop/answer.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/loop/plan.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/loop/views.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/mcp/cli.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/model/raise.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/obs/log.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/obs/trace-report.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/page-contract/compose.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/manifestless.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/release-assets.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/release-assets.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/serve.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product-wiki/serve.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/daemon-fills.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/demo.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/entity-cli.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/fill-runtime.ts",
+    "symbol": "node:fs/promises"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "execFileSync()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/fill-wizard.ts",
+    "symbol": "node:fs/promises"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/identity.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/list.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/manifest-watch.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/manifest.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "execFile()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/self-command.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/store.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/upgrade.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/upgrade.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/upgrade.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/upgrade.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/windows-daemon-stop.ts",
+    "symbol": "node:child_process"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/windows-daemon-stop.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/product/windows-daemon-stop.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/render/archify-vendor.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/render/diagram.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/server/http.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/server/http.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/server/http.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/server/sources.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/server/wiki-app.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "src/writer/journal.ts",
+    "symbol": "node:fs"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "wiki/app/src/address.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "extraction-boundary",
+    "file": "wiki/app/src/client.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "layout: navigation"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "layout: shell"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/bars.tsx",
+    "symbol": "—"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "testId: catalogue-area"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "testId: catalogue-fill-filter"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "testId: catalogue-taken-filter"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
+    "symbol": "loading: lazy"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
+    "symbol": "title: archify"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/diagram-panes/likec4-pane.tsx",
+    "symbol": "viewId: index"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
+    "symbol": "+"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
+    "symbol": "−"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/diagram.tsx",
+    "symbol": "testId: diagram-renderer"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/kinds.tsx",
+    "symbol": "—"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/overview.tsx",
+    "symbol": "align: baseline"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/plugin-names.tsx",
+    "symbol": ","
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "."
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "layout: reading"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "·"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "«"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "·"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "»"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/relations.tsx",
+    "symbol": "←"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/relations.tsx",
+    "symbol": "→"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "·"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/search.tsx",
+    "symbol": "testId: search-page-results"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": ":"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "testId: settings-language"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "testId: settings-reader"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/source.tsx",
+    "symbol": "—"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/table.tsx",
+    "symbol": "←"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/components/table.tsx",
+    "symbol": "→"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/frame.tsx",
+    "symbol": "align: end"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/frame.tsx",
+    "symbol": "side: left"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "+1"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "1–2 / 2"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "2"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "activeId: kit-intro"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "background: var(--text)"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "const value = 1;"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "d: M0 40 L120 0"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "d: M20 20 L180 80"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "defaultValue: one"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "display: bar"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "example.ts"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Card"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Checkbox"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Choice"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Code"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Confirmation"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Icon"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Inline"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Progress"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Quote"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: RadioGroup"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Segmented"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Switch"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Text"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "label: Toggle"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "testId: kit-segmented"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Badge / Alert / Card / Skeleton"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Button"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Checkbox / Radio / Switch / Toggle"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Dialog"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Disclosure / Figure / Contents"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Embedded"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: FilterBar"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Graph"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Input / Textarea"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Menus"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Navigation"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Reading"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Search"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Table"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Tabs"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "title: Typography"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "width: 100%"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "width: lg"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "×"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/problems.tsx",
+    "symbol": ":"
+  },
+  {
+    "rule": "i18n-text",
+    "file": "wiki/app/src/problems.tsx",
+    "symbol": "—"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/agent-usage.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/authored-import.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "connect()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/pg-boss-queue.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/pg-boss-queue.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "connect()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "listen()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "mkdir()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "rename()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "createWriteStream()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/postgres-install.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/prepare-store.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/queue-definition.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/queue-definition.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schema-stamp.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/agent-usage.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/graph-contract.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/graph.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/history.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/schemas/queue.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/sql-history.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/adapters/store-readiness.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp.ts",
+    "symbol": "connect()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp.ts",
+    "symbol": "request()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/acp.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/prime-runtime.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/fill/state-store.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/authored.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/authored.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/consistency.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/graphql-execute.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/manifest-publication.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/one-graph.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/plugin-turns.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/producer-outcomes.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/read-worker.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/records.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/start-entity.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/graph/write.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/agents.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/agents.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/agents.ts",
+    "symbol": "rm()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/catalog-files.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/catalog-files.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/changed-pages.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/changed-pages.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/fill-role.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/fill-run.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/fill-run.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/graph-verdict-store.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/graph-verdict-store.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/graph-verdict-store.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "mkdir()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "rename()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "rm()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "writeFile()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/product.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/reset.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/reset.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/settings.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/settings.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/settings.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/knowledge/settings.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/loop/views.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/model/raise.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/obs/trace-report.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/obs/trace.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/obs/trace.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/obs/trace.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/obs/trace.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/obs/trace.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/page-contract/compose.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/agent.ts",
+    "symbol": "connect()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/agent.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/agent.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bundled-files.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "createWriteStream()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/bwrap-install.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/cgroup.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/cgroup.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/cgroup.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/cli.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/closure.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/dependency-files.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/dependency-files.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/elf-runtime.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/elf-runtime.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/filesystem-inputs.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/filesystem-inputs.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/filesystem-inputs.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/filesystem-inputs.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/host.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/host.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/product-files.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/product-files.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/repository-input.ts",
+    "symbol": "execFile()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/repository-input.ts",
+    "symbol": "rm()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "execFile()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox-darwin.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox-darwin.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox-darwin.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/sandbox.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/snapshot.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/snapshot.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/snapshot.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/snapshot.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/snapshot.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/snapshot.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/system-git.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/system-git.ts",
+    "symbol": "execFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/system-git.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/tools.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/tools.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/plugin/tools.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/app.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/manifestless.ts",
+    "symbol": "stat()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/release-assets.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/release-assets.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product-wiki/serve.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/cli.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/cli.ts",
+    "symbol": "mkdir()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/cli.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon-fills.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon-fills.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "listen()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/daemon.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/demo.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/demo.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/demo.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/draft.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/draft.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/draft.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/draft.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/entity-cli.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-runtime.ts",
+    "symbol": "readFile()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "execFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/fill-wizard.ts",
+    "symbol": "readFile()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/git.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/list.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/list.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/manifest.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "execFile()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/store-preparation.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/store-preparation.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/store-preparation.ts",
+    "symbol": "request()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/store-preparation.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/upgrade.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/upgrade.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/upgrade.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/upgrade.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/windows-daemon-stop.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/windows-daemon-stop.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/product/windows-daemon-stop.ts",
+    "symbol": "spawnSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/archify-vendor.ts",
+    "symbol": "mkdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/archify-vendor.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/archify-vendor.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/archify-vendor.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/diagram.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/diagram.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/diagram.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/diagram.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/render/read-worker.ts",
+    "symbol": "rmSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/http.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/http.ts",
+    "symbol": "spawn()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/http.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/sources.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/sources.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/sources.ts",
+    "symbol": "rename()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/sources.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/sources.ts",
+    "symbol": "writeFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/wiki-app.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/server/wiki-app.ts",
+    "symbol": "statSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/writer/journal.ts",
+    "symbol": "readFileSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "src/writer/journal.ts",
+    "symbol": "readdirSync()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/address.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/client.ts",
+    "symbol": "exec()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/client.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/components/command.ts",
+    "symbol": "fetch()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/components/command.ts",
+    "symbol": "query()"
+  },
+  {
+    "rule": "io-spans",
+    "file": "wiki/app/src/components/diagram.tsx",
+    "symbol": "fetch()"
+  },
+  {
     "rule": "no-kind-names",
     "file": "src/knowledge/graph-verdict-rules.ts",
     "symbol": "code.author"
@@ -105,6 +3055,2751 @@
     "symbol": "code.test-case"
   },
   {
+    "rule": "no-product-data",
+    "file": "src/adapters/agent-usage.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/adapters/authored-import.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/adapters/prepare-store.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/adapters/schemas/graph-contract.ts",
+    "symbol": "table"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/adapters/schemas/graph.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/adapters/store-readiness.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/acp-choices.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/acp.ts",
+    "symbol": "mode"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/acp.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/acp.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/facts.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/orchestrator-store.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "database"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/orchestrator.ts",
+    "symbol": "stage"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "code.file"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "owner"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/read-record.ts",
+    "symbol": "span"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/run-jobs.ts",
+    "symbol": "owner"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/run.ts",
+    "symbol": "database"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stage.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stage.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stage.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stage.ts",
+    "symbol": "question"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stage.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stages/git-contract.ts",
+    "symbol": "code.author"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stages/git-contract.ts",
+    "symbol": "code.commit"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stages/git-contract.ts",
+    "symbol": "code.directory"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stages/git-contract.ts",
+    "symbol": "code.file"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stages/git-contract.ts",
+    "symbol": "code.gitlink"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/stages/git-contract.ts",
+    "symbol": "code.repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/state-store.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/fill/state-store.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/consistency.ts",
+    "symbol": "email"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/consistency.ts",
+    "symbol": "hash"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/consistency.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/contract.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "blob"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-execute.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "blob"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "body"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "removed_at"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "target"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/manifest-contract.ts",
+    "symbol": "workflow"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/manifest-publication.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/manifest-publication.ts",
+    "symbol": "workflow"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/one-graph.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/one-graph.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/plugin-turns.ts",
+    "symbol": "code.file"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/plugin-turns.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/producer-outcomes.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/read-worker.ts",
+    "symbol": "body"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/read-worker.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/read-worker.ts",
+    "symbol": "stage"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "algorithm"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "author_date"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "author_offset_min"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "blob"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "bytes"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "change"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "commit_date"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "commit_hash"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "commit_offset_min"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "default_branch"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "form"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "history_shallow"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "languages"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "mode"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "other_repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "subject"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/records.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/template-check.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/write.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graph/write.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graphql/schema.ts",
+    "symbol": "body"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graphql/schema.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graphql/schema.ts",
+    "symbol": "producer"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graphql/schema.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graphql/schema.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/graphql/schema.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/history-assertions.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/agents.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/anchors.ts",
+    "symbol": "anchors"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/anchors.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/catalog-starter.ts",
+    "symbol": "document"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/catalog-starter.ts",
+    "symbol": "markdown"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/fill-role.ts",
+    "symbol": "database"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/fill-run.ts",
+    "symbol": "owner"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "author_date"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "class"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "commit_date"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "default_branch"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "email"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "hash"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "languages"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "merge"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "subject"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.author"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.channel"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.column"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.commit"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.database"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.env-definition"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.env-var"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.file"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.image"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.index"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.k8s-deployment"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.migration"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.operation"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.route"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.service"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.symbol"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.table"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.task"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "code.test-case"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "database"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "digest"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "driver"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdict-rules.ts",
+    "symbol": "target"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "budget"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "rule"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/graph-verdicts.ts",
+    "symbol": "span"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/guide-outputs.ts",
+    "symbol": "administrator-guide"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/guide-outputs.ts",
+    "symbol": "user-guide"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/import-authored.ts",
+    "symbol": "body"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/import-authored.ts",
+    "symbol": "front"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/import-authored.ts",
+    "symbol": "legacy_id"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "branch"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/index/index.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/index/queries.ts",
+    "symbol": "span"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "body"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "body_line"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "digest"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "producer"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "relates"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "statements"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "ungrounded"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/markdown.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/product.ts",
+    "symbol": "markdown"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/product.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/product.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/product.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/product.ts",
+    "symbol": "source_text"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/reset.ts",
+    "symbol": "domain"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/reset.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/resolve.ts",
+    "symbol": "document"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/semantics.ts",
+    "symbol": "actor"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/semantics.ts",
+    "symbol": "rule"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/sources.ts",
+    "symbol": "markdown"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/knowledge/sources.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/entities.ts",
+    "symbol": "correction"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/entities.ts",
+    "symbol": "question"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "about"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "branch"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "by"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "closed_at"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "correction"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "dismissal_reason"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "email"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "front"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "identity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "place"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "problem-dismissal"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "producer"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "question"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "rule"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "slug"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/graph.ts",
+    "symbol": "why"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/impact.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/plan.ts",
+    "symbol": "correction"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/plan.ts",
+    "symbol": "question"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "problem-dismissal"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/views.ts",
+    "symbol": "correction"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/loop/views.ts",
+    "symbol": "question"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/mcp/authored.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/mcp/cli.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/model/schema.ts",
+    "symbol": "domain"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/compose.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/compose.ts",
+    "symbol": "subject"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "bytes"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "class"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "columns"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "component"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "hash"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "subject"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/schema.ts",
+    "symbol": "table"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/template.ts",
+    "symbol": "component"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/page-contract/template.ts",
+    "symbol": "subject"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/agent.ts",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/agent.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/agent.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "markdown"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "producer"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "relates"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/cli.ts",
+    "symbol": "check"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/product-files.ts",
+    "symbol": "blob"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/repository-input.ts",
+    "symbol": "remote"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "blob"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "why"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/tools.ts",
+    "symbol": "bytes"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/plugin/wire.ts",
+    "symbol": "note"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "by"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "class"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.cycle"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.debt"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.dependency"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.env-definition"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.env-var"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.file"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.input"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.operation"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.package"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.route"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.sql-build"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.sql-sink"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "code.symbol"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "rule"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "secret"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/code.ts",
+    "symbol": "test"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/index.ts",
+    "symbol": "bug"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/index.ts",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/index.ts",
+    "symbol": "rule"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/index.ts",
+    "symbol": "subject"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/types.ts",
+    "symbol": "bug"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/problems/types.ts",
+    "symbol": "vulnerability"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/cli.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/cli.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/cli.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/cli.ts",
+    "symbol": "remote"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/cli.ts",
+    "symbol": "upgrade"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/cli.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/demo.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/demo.ts",
+    "symbol": "remote"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/draft.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/entity-cli.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "remote"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "remote"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/manifest.ts",
+    "symbol": "branch"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/manifest.ts",
+    "symbol": "tag"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/manifest.ts",
+    "symbol": "url"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "document"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "markdown"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "merge"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/product/own-wiki.ts",
+    "symbol": "remote"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/likec4.ts",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/likec4.ts",
+    "symbol": "style"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/likec4.ts",
+    "symbol": "tag"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/likec4.ts",
+    "symbol": "technology"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/mermaid.ts",
+    "symbol": "class"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/mermaid.ts",
+    "symbol": "style"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/render/read-worker.ts",
+    "symbol": "stage"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/server/http.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/server/http.ts",
+    "symbol": "protocol"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/server/knowledge.ts",
+    "symbol": "entity"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/server/knowledge.ts",
+    "symbol": "markdown"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/server/knowledge.ts",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/server/knowledge.ts",
+    "symbol": "question"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/sql-driver.ts",
+    "symbol": "snapshot"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "src/writer/journal.ts",
+    "symbol": "statements"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/command.ts",
+    "symbol": "change"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
+    "symbol": "change"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/diagram-panes/likec4-pane.tsx",
+    "symbol": "style"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
+    "symbol": "change"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/facts.tsx",
+    "symbol": "class"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/facts.tsx",
+    "symbol": "hash"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/facts.tsx",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/format.ts",
+    "symbol": "bytes"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "product"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "model"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/source.tsx",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/table.tsx",
+    "symbol": "columns"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/table.tsx",
+    "symbol": "repository"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/table.tsx",
+    "symbol": "table"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/ui/breadcrumb.tsx",
+    "symbol": "span"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/ui/button.tsx",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/ui/button.tsx",
+    "symbol": "link"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/ui/segmented-choice.tsx",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/components/ui/shell.tsx",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "approval"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "content"
+  },
+  {
+    "rule": "no-product-data",
+    "file": "wiki/app/src/page.tsx",
+    "symbol": "table"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "/\"/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "/(?:\\bFROM|\\bINTO|\\bUPDATE|\\bTABLE|\\bJOIN)\\s+(?:IF\\s+(?:NOT\\s+)?EXISTS\\s+)?([A-Za-z_][A-Za-z0-9_.]*)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/database-owner.ts",
+    "symbol": "/^\\s*(?:\\/\\*[\\s\\S]*?\\*\\/\\s*)*([A-Za-z]+)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "/[:.]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "/^(?:initdb|postgres|cmd)\\.exe$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/postgres-cluster.ts",
+    "symbol": "/^\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/postgres-preparation-record.ts",
+    "symbol": "/(?:^|[\\\\/])(?:initdb|postgres)(?:\\.exe)?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/postgres-preparation-record.ts",
+    "symbol": "/\\//"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/postgres-preparation-record.ts",
+    "symbol": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/queue-definition.ts",
+    "symbol": "/^[\\w.\\-/]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/schemas/graph-contract.ts",
+    "symbol": "/^-?\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/schemas/graph-contract.ts",
+    "symbol": "/^[0-9a-f]{4,}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/schemas/graph-contract.ts",
+    "symbol": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/schemas/graph-contract.ts",
+    "symbol": "/^[a-z][a-z0-9_]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/sql-history.ts",
+    "symbol": "/\\?/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/adapters/sql-history.ts",
+    "symbol": "/^/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "/([?&](?:access_token|token)=)[^\\s&\"']+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "/(\\/\\/[^\\s:@/]+:)[^\\s@]+@/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "/(_(?:authToken|auth|password)\"?\\s*[=:]\\s*\"?)\\S+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "/\\b(Bearer|token)\\s+\"?[A-Za-z0-9._~+/=-]{8,}/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/acp-install.ts",
+    "symbol": "/\\bnpm_[A-Za-z0-9]{8,}\\b/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/acp-probe.ts",
+    "symbol": "/^[A-Za-z0-9_@%+=:,./-]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/facts.ts",
+    "symbol": "/\\\\/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/facts.ts",
+    "symbol": "/^[A-Za-z]:[\\\\/]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/facts.ts",
+    "symbol": "/^\\.\\//"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/fsm-core.ts",
+    "symbol": "/^(?:\\/|[A-Za-z]:[\\\\/])[^:]*:\\d+:\\d+:/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/plugin-turns.ts",
+    "symbol": "/\\/$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/prime-runtime.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/fill/stage.ts",
+    "symbol": "/^[A-Za-z][A-Za-z0-9._-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/authored.ts",
+    "symbol": "/@[^@]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/authored.ts",
+    "symbol": "/^-?\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/authored.ts",
+    "symbol": "/^[0-9a-f]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/authored.ts",
+    "symbol": "/^[1-9][0-9]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/authored.ts",
+    "symbol": "/^field \"([^\"]+)\"/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/consistency.ts",
+    "symbol": "/\"/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/contract.ts",
+    "symbol": "/[^a-z0-9]+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/contract.ts",
+    "symbol": "/^_+|_+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "/^-?\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graph-writes.ts",
+    "symbol": "/^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-execute.ts",
+    "symbol": "/canceling statement due to statement timeout|cancelled statement|canceling statement due to user request/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/%/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/[.*+?^${}()|[\\]\\\\]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/\\s+\\S*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/^(.*)Opinions$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/^(.*)OpinionsCount$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/^[0-9a-f]{7,64}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "/_/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/graphql-read.ts",
+    "symbol": "new RegExp"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "/\\.[^.]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/product-templates.ts",
+    "symbol": "/\\.ya?ml$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/records.ts",
+    "symbol": "/(?:Z|[+-]\\d{2}:?\\d{2})$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/write.ts",
+    "symbol": "/^-?\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/write.ts",
+    "symbol": "/^[a-z][a-z0-9_]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graph/write.ts",
+    "symbol": "/^\\d{4}-\\d{2}-\\d{2}T/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/graphql/names.ts",
+    "symbol": "/[._-]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/catalog.ts",
+    "symbol": "/\\s/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/graph-read.ts",
+    "symbol": "/^[a-z][a-z0-9_]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/product.ts",
+    "symbol": "/Z$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/product.ts",
+    "symbol": "/[-:.]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/product.ts",
+    "symbol": "/^\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/product.ts",
+    "symbol": "/could not serialize access/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/product.ts",
+    "symbol": "/deadlock detected/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/product.ts",
+    "symbol": "/published\\s+(\\d+)\\s+facts?/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/relation-labels.ts",
+    "symbol": "/(?=[A-Z])/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/relation-labels.ts",
+    "symbol": "/([a-z0-9])([A-Z])/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/relation-labels.ts",
+    "symbol": "/[-_]+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/resolve.ts",
+    "symbol": "/\\.(md|markdown)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/seed.ts",
+    "symbol": "/\\/$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/starter-templates.ts",
+    "symbol": "/^templates\\/[^/]+\\.yaml$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/knowledge/unit-kind.ts",
+    "symbol": "/[#@]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/entities.ts",
+    "symbol": "/[.!?…]$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/entities.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/entities.ts",
+    "symbol": "/^(product|domain):[a-z][a-z0-9-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/entities.ts",
+    "symbol": "/^.*[:#/]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "/-+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/problem-files.ts",
+    "symbol": "/^-|-$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/views.ts",
+    "symbol": "/^(question|correction):/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/loop/views.ts",
+    "symbol": "/^repos\\/([^/]+)\\/(.+)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/mcp/authored.ts",
+    "symbol": "/[^A-Za-z0-9._-]+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/mcp/authored.ts",
+    "symbol": "/^-+|-+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/mcp/authored.ts",
+    "symbol": "/^\\/.+:\\d+:/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/model/raise.ts",
+    "symbol": "/\\(?([^\\s()]+):(\\d+):(\\d+)\\)?\\s*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/model/raise.ts",
+    "symbol": "/^\\s*at\\s+([^\\s(]+)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/model/schema.ts",
+    "symbol": "new RegExp"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/model/yaml-position.ts",
+    "symbol": "/^\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/model/yaml-position.ts",
+    "symbol": "/~0/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/model/yaml-position.ts",
+    "symbol": "/~1/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/obs/trace-report.ts",
+    "symbol": "/[^A-Za-z0-9._-]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/obs/trace-report.ts",
+    "symbol": "/\\.jsonl$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/obs/trace.ts",
+    "symbol": "/[^A-Za-z0-9._-]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/obs/trace.ts",
+    "symbol": "/\\.jsonl$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/page-contract/compose.ts",
+    "symbol": "/\\$([A-Za-z_][A-Za-z0-9_]*)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/page-contract/compose.ts",
+    "symbol": "/^(.+)_(first|after)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/page-contract/validate.ts",
+    "symbol": "new RegExp"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/agent.ts",
+    "symbol": "/\\/$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "/\\r$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "/\\r\\n/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/authored-import-source.ts",
+    "symbol": "/^[^:\\s]+:\\S+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/cgroup.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/closure.ts",
+    "symbol": "/\\.(?:[cm]?[jt]sx?)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/closure.ts",
+    "symbol": "/\\.[cm]?ts$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/closure.ts",
+    "symbol": "/\\.d\\.[cm]?ts$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/closure.ts",
+    "symbol": "/\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/|\"(?:\\\\[\\s\\S]|[^\"\\\\])*\"|'(?:\\\\[\\s\\S]|[^'\\\\])*'|`(?:\\\\[\\s\\S]|[^`\\\\])*`|[A-Za-z_$][\\w$]*|[^\\s]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/closure.ts",
+    "symbol": "/^#![^\\n]*/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/dependency-files.ts",
+    "symbol": "/^(?:@[a-z0-9_.-]+\\/)?[a-z0-9_][a-z0-9_.-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/filesystem-inputs.ts",
+    "symbol": "/^[a-z][a-z0-9-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/lock.ts",
+    "symbol": "/^[0-9a-f]{64}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/lock.ts",
+    "symbol": "/^[a-z][a-z0-9-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/lock.ts",
+    "symbol": "/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/product-files.ts",
+    "symbol": "/\\/+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/product-source.ts",
+    "symbol": "/\\/+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "/(\\S+)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "/^([0-9a-f]{40}) blob (\\d+)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "/^[0-9a-f]{40}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/repository-snapshot.ts",
+    "symbol": "/^\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/sandbox.ts",
+    "symbol": "/^[a-z][a-z0-9-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/plugin/system-git.ts",
+    "symbol": "/^git version (\\d+)\\.(\\d+)(?:\\.(\\d+))?(?:\\.|\\s|$)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/problems/code.ts",
+    "symbol": "/(^|\\/)(tests?|__tests__)\\//"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/problems/code.ts",
+    "symbol": "/\\.(test|spec)\\.[a-z]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/problems/code.ts",
+    "symbol": "/_test\\.go$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product-wiki/release-assets.ts",
+    "symbol": "/^(.*?[\\\\/](?:\\$bunfs|~BUN)[\\\\/]root)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product-wiki/serve.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/cli.ts",
+    "symbol": "/Z$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/cli.ts",
+    "symbol": "/[-:.]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/cli.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/cli.ts",
+    "symbol": "/^(y|yes)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/cli.ts",
+    "symbol": "/^[1-9][0-9]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/cli.ts",
+    "symbol": "/^\\/[^\\n]*:\\d+:/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/draft.ts",
+    "symbol": "/ENOENT|not recognized|No such file or directory|spawnSync|Executable not found/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/draft.ts",
+    "symbol": "/^\\d{4}-\\d{2}-\\d{2}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/entity-cli.ts",
+    "symbol": "/^\\/.+:\\d+:/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/entity-cli.ts",
+    "symbol": "/^field \"([^\"]+)\"/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/fill-agents.ts",
+    "symbol": "/(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth(?:orization)?|secret|password|credential|private[_-]?key|client[_-]?secret|_token$)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/fill-agents.ts",
+    "symbol": "/(?:sk-ant-[A-Za-z0-9_-]{8,}|(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET(?:[_-]ACCESS[_-]KEY)?|PASSWORD|CREDENTIAL|PRIVATE[_-]?KEY))[\\\"']?\\s*[:=]\\s*[\\\"']?[^\\\"'\\s,;}]+|(?:api[_-]?key|token|secret)[=: ]+[^\\s,;]+|Bearer\\s+[^\\s]+)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/fill-stages.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/fill-updates.ts",
+    "symbol": "/^refs\\/heads\\//"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/identity.ts",
+    "symbol": "/[/\\\\]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "/[/\\\\]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "/[\\u0000-\\u001f]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/lifecycle.ts",
+    "symbol": "/\\/+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/'/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/:\\s/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/[/\\\\\\u0000-\\u001f]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/[/\\\\]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/[\\u0000-\\u001f\\u007f\"\\\\]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/[\\u0000-\\u001f\\u007f]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/\\r?\\n/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/\\s+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/\\s/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^(---|\\.\\.\\.) /"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^(null|~)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^(true|false)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^(true|false|null)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^-(\\s|$)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^[ \\t]*/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^[+-]?(\\d+\\.\\d*|\\.\\d+)([eE][+-]?\\d+)?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^[+-]?\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^[0-9a-fA-F]{4}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest.ts",
+    "symbol": "/^[A-Za-z_][A-Za-z0-9 ._+-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/[.+^${}()|[\\]\\\\]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/\\s/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^([a-z][a-z0-9-]*)@(\\d+)\\.([a-z][a-z0-9_]*)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^[A-Za-z]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^[A-Za-z][A-Za-z0-9_.-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^[A-Za-z_][\\w.-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^[a-z][a-z0-9-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^[a-z][a-z0-9_-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^[a-z][a-z0-9_]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "/^\\d+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/manifest/kinds.ts",
+    "symbol": "new RegExp"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/self-command.ts",
+    "symbol": "/[/\\\\](?:\\$bunfs|~BUN)[/\\\\]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/store.ts",
+    "symbol": "/[/\\\\]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/store.ts",
+    "symbol": "/^[A-Za-z0-9][A-Za-z0-9._-]*$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/upgrade.ts",
+    "symbol": "/\\s+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/upgrade.ts",
+    "symbol": "/^(y|yes)$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/upgrade.ts",
+    "symbol": "/^[0-9a-f]{64}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/product/upgrade.ts",
+    "symbol": "/^v[a-zA-Z0-9.-]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/diagram.ts",
+    "symbol": "/[^A-Za-z0-9_-]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/diagram.ts",
+    "symbol": "/^[A-Za-z]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/likec4.ts",
+    "symbol": "/[\"\\\\\\b\\f\\n\\r\\t\\v\\u0000]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/likec4.ts",
+    "symbol": "/[^A-Za-z0-9_-]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/likec4.ts",
+    "symbol": "/^[A-Za-z]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/mermaid.ts",
+    "symbol": "/[\"&<>#|`\\u0000-\\u001f\\u007f]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/mermaid.ts",
+    "symbol": "/[\\\\`*_[\\]<>|]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/mermaid.ts",
+    "symbol": "/[\\u0000-\\u001f\\u007f]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/render/mermaid.ts",
+    "symbol": "/[^A-Za-z0-9_]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/http.ts",
+    "symbol": "/[\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/http.ts",
+    "symbol": "/\\/{2,}/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/http.ts",
+    "symbol": "/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{1,9}))?(Z|[+-]\\d{2}:\\d{2})$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/http.ts",
+    "symbol": "/^\\/products\\/([^/]+)(?:\\/(.*))?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/knowledge.ts",
+    "symbol": "/^\"[0-9]+\"$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/knowledge.ts",
+    "symbol": "/^\\/products\\/[^/]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/knowledge.ts",
+    "symbol": "/^run-[A-Za-z0-9-]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/sources.ts",
+    "symbol": "/[\\u0000-\\u001F\\u007F-\\u009F]/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/sources.ts",
+    "symbol": "/^[0-9A-F]{2}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/sources.ts",
+    "symbol": "/^[a-z0-9._-]$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/server/wiki-app.ts",
+    "symbol": "/^\\/+/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "src/writer/journal.ts",
+    "symbol": "/^run-[A-Za-z0-9-]+\\.jsonl$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/address.ts",
+    "symbol": "/^\\/e\\/([^/]+)\\/([^/]+)\\/?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/address.ts",
+    "symbol": "/^\\/p\\/([^/]+)\\/?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/client.ts",
+    "symbol": "/^(\\/products\\/[^/]+)(?:\\/|$)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/format.ts",
+    "symbol": "/^-?\\d+(?:\\.\\d+)?$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/format.ts",
+    "symbol": "/^[0-9a-f]{7,64}$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/plan-words.ts",
+    "symbol": "/([a-z])([A-Z])/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "/^\\/e\\/[^/:]+\\/[^/]+$/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/ui/filter-bar.tsx",
+    "symbol": "/(auto|scroll)/"
+  },
+  {
+    "rule": "no-regex",
+    "file": "wiki/app/src/components/ui/table-of-contents.tsx",
+    "symbol": "/(auto|scroll)/"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schema-stamp.ts",
+    "symbol": "a table named by a statement built across literals"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/agent-usage.ts",
+    "symbol": "agent_usage"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_chain"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_run"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_run_lease"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_transition"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_unit"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_unit_generation"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/fill-state.ts",
+    "symbol": "fill_unit_lease"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/graph.ts",
+    "symbol": "a table named by a statement built across literals"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/history.ts",
+    "symbol": "assertions"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/history.ts",
+    "symbol": "source_commits"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/history.ts",
+    "symbol": "source_registry"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_control"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_end"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_event"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_publication"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_run_configuration"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_run_stage"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_unit_draft"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_unit_draft_part"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_unit_plan"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_unit_read"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/orchestrator.ts",
+    "symbol": "fill_unit_split"
+  },
+  {
+    "rule": "one-table-source",
+    "file": "src/adapters/schemas/queue.ts",
+    "symbol": "a table named by a statement built across literals"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/api/daemon"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/api/events"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/graphql"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/graphql/schema"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/models"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/render/diagram"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/sources"
+  },
+  {
+    "rule": "route-aliases",
+    "file": "src/server/http.ts",
+    "symbol": "/views"
+  },
+  {
     "rule": "sql-only-in-storage-layer",
     "file": "src/fill/orchestrator-host.ts",
     "symbol": "src/adapters/database-owner.ts"
@@ -178,5 +5873,530 @@
     "rule": "sql-only-in-storage-layer",
     "file": "src/product/cli.ts",
     "symbol": "src/adapters/database-owner.ts"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "className on <Alert>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/app.tsx",
+    "symbol": "element <main>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <ChevronDownIcon>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Disclosure>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <DisclosureSummary>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <FieldLabel>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <InlineGroup>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Input>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <SectionTitle>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Select>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <SmallTitle>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/catalogue.tsx",
+    "symbol": "className on <TextLink>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/commit.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/connection-banner.tsx",
+    "symbol": "className on <Alert>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/connection-banner.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/connection-banner.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
+    "symbol": "className on <DrawingSurface>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
+    "symbol": "className on <EmbeddedFrame>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram-panes/likec4-pane.tsx",
+    "symbol": "className on <ReactLikeC4>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram-panes/likec4-pane.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
+    "symbol": "className on <DiagramZoomBox>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
+    "symbol": "element <div>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/diagram.tsx",
+    "symbol": "element <div>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/first-run.tsx",
+    "symbol": "className on <InlineGroup>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/first-run.tsx",
+    "symbol": "className on <OrderedList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/first-run.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/first-run.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/overview.tsx",
+    "symbol": "className on <InlineGroup>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/overview.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/overview.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <Alert>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <Disclosure>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <DisclosureSummary>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <FieldLabel>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <InlineGroup>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <RadioGroup>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/prepare.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <DisclosureSummary>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <FieldLabel>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/problems.tsx",
+    "symbol": "className on <Textarea>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/relations.tsx",
+    "symbol": "element <section>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/repositories.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/repositories.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/repositories.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/repositories.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/role-first.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Alert>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Badge>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Button>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Disclosure>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/run.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <Button>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <Disclosure>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <DisclosureSummary>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/runs.tsx",
+    "symbol": "className on <TextLink>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/search.tsx",
+    "symbol": "element <div>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <FieldLabel>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <Select>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/settings.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <FieldLabel>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <ListItem>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <Paragraph>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <PlainList>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <SectionTitle>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/sources.tsx",
+    "symbol": "className on <Text>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/tabs.tsx",
+    "symbol": "element <div>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/components/text.tsx",
+    "symbol": "className on <ReadingContent>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/frame.tsx",
+    "symbol": "className on <Input>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "className on <Progress>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "className on <Skeleton>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "className on <Stack>"
+  },
+  {
+    "rule": "ui-kit-only",
+    "file": "wiki/app/src/kit-page.tsx",
+    "symbol": "className on <Text>"
   }
 ]

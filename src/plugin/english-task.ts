@@ -10,20 +10,23 @@
  * (madarch-64o5.107, the review of this change).
  */
 
+import { LABEL_LANGUAGES } from '../product/manifest/kinds.js';
+
 /** The language an agent is given, always. */
 export const AGENT_LANGUAGE = 'en';
 
 /** The keys the manifest declares localized: their values are locale maps and nothing else is. */
 export const LOCALIZED_KEYS: readonly string[] = ['labels', 'description', 'descriptions', 'definition'];
 
-/** A key a locale map names a language by: a two-letter tag, with a region or a script behind a dash when it has one. */
-const LANGUAGE_TAG = /^[a-z]{2}(?:[-_][A-Za-z0-9]{1,8})*$/u;
-
-/** Whether a *declared localized* value is a map of languages to texts: every key a language tag and at least one entry. */
-export function isLocaleMap(value: unknown): value is Readonly<Record<string, unknown>> {
+/**
+ * Whether a *declared localized* value is a map of languages to texts: at least one entry, and every key a language the
+ * manifest declares (its `LABEL_LANGUAGES`). A key that only looks like a tag — `en-GB`, `de`, a JSON schema's `en` and
+ * `ru` beside `required` — is not a language of the product's, and the value is data.
+ */
+export function isLocaleMap(value: unknown, languages: readonly string[] = LABEL_LANGUAGES): value is Readonly<Record<string, unknown>> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  return keys.length > 0 && keys.every((key) => LANGUAGE_TAG.test(key));
+  return keys.length > 0 && keys.every((key) => languages.includes(key));
 }
 
 /** The English text of one declared locale map: its `en` value resolved, or undefined when it holds none. */
