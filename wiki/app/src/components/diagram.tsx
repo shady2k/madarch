@@ -11,7 +11,7 @@ import { valueAt } from '../../../../src/page-contract/index.js';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Button } from './ui/button.js';
 import { InlineGroup } from './ui/typography.js';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.js';
+import { SegmentedChoice } from './ui/segmented-choice.js';
 import { Paragraph, Stack } from './ui/typography.js';
 import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
@@ -83,13 +83,19 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   }, [address, answers, id, failure, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
   const held = answers[address(tab)];
+  // One picture, one place: the renderers are a choice inside the figure, not three tabs beside each other — the page's
+  // own tabs stay for the page's sections (madarch-64o5.83).
   return (
-    <Tabs value={tab} onValueChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}>
-      <TabsList aria-label="diagram">
-        {TABS.map((one) => <TabsTrigger key={one.id} value={one.id}>{one.label}</TabsTrigger>)}
-      </TabsList>
+    <Stack>
+      <SegmentedChoice
+        label={t('knowledge.diagramRenderer')}
+        testId="diagram-renderer"
+        value={tab}
+        options={TABS.map((one) => ({ value: one.id, label: one.label, testId: `diagram-renderer-${one.id}` }))}
+        onChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}
+      />
       {(
-        <TabsContent value={tab}>
+        <div>
           {tab === 'archify' ? (
             <ArchifyPane src={address('archify')} root={root} open={context.open} />
           ) : held === undefined ? (
@@ -109,8 +115,8 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
           ) : (
             <MermaidPane answer={held as MermaidAnswer} open={(path) => { context.open(path); }} />
           )}
-        </TabsContent>
+        </div>
       )}
-    </Tabs>
+    </Stack>
   );
 }

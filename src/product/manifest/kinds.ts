@@ -392,6 +392,8 @@ export interface KindDecl {
    * default rule names the class of every other entity.
    */
   classes?: readonly KindClassRule[];
+  /** The paths this kind's producer leaves out, as the catalogue declares them. */
+  exclude?: readonly string[];
   /** Explicit ordinary plugin output for these fields; overlap requires named refinements. */
   agent?: { readonly plugin: string; readonly fields: '*' | readonly string[]; readonly refines?: readonly string[] };
   line: number;
@@ -640,7 +642,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 export const KIND_FIELDS: readonly string[] = [
   'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes', 'exclude',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ];
@@ -1892,6 +1894,13 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       });
       if (classes.length > 0 && !classes.some((rule) => rule.default === true)) problem(['classes'], 'one class is the default: true, so every entity has a class');
     }
+    // The paths this kind's producer leaves out: the product's patterns, never an engine list of names (madarch-64o5.83).
+    let exclude: string[] | undefined;
+    const rawExclude = decl['exclude'];
+    if (rawExclude !== undefined) {
+      if (!Array.isArray(rawExclude) || rawExclude.length === 0 || rawExclude.some((one) => typeof one !== 'string' || one.trim() === '')) problem(['exclude'], '"exclude" is a list of path patterns the producer leaves out, such as "**/node_modules/**"');
+      else exclude = (rawExclude as string[]).map((one) => one.trim());
+    }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
@@ -1954,6 +1963,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
       ...(classes.length === 0 ? {} : { classes }),
+      ...(exclude === undefined ? {} : { exclude }),
       ...(agent === undefined ? {} : { agent }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),

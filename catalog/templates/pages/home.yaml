@@ -18,6 +18,11 @@ sections:
       titlePath: label
       # The product's own name (its files' name, the top bar's), not the home entity's page title.
       productTitle: true
+  # Who the product is and what needs a person now: the open problems and the last fill, before the counts (madarch-64o5.83).
+  - id: overview
+    component: product-overview
+    after: header
+    title: { en: Overview, ru: Обзор }
   - id: firstRun
     component: first-run
     after: header

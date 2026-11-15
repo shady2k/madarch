@@ -95,6 +95,9 @@ export function parseAddress(pathname: string, search: string, base: string): Ap
   const template = /^\/p\/([^/]+)\/?$/u.exec(path);
   if (template !== null) {
     const name = decode(template[1]!);
+    // A search is shared as `?q=`, and the search template names its words `text`: a link in the other spelling searches
+    // the same words instead of quietly answering nothing (madarch-64o5.83).
+    if (name === 'search' && params['text'] === undefined && params['q'] !== undefined) params['text'] = params['q']!;
     // A section of the frame answers at its own name; any other name is a template the product's files hold.
     if (Object.hasOwn(FRAME_PAGES, name)) return { page: shared, home: false, unknown: false, frame: name as FramePage };
     return { page: { ...shared, template: name }, home: false, unknown: false, frame: null };

@@ -120,10 +120,12 @@ export function GroupsOf({ groups, base, open, resultsHref, testId, active = -1 
 export function SearchPageSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t } = useTranslation();
   const groups = useMemo(() => (Array.isArray(context.data) ? (context.data as SearchGroup[]) : []), [context.data]);
+  // The words the address named, so the empty answer says what was searched rather than claiming nothing anywhere.
+  const words = typeof context.variables['text'] === 'string' ? context.variables['text'] : '';
   return (
     <Stack>
       <Metadata>{t('knowledge.searchResults')}</Metadata>
-      {groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty')}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} testId="search-page-results" />}
+      {groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty', { text: words })}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} testId="search-page-results" />}
     </Stack>
   );
 }
