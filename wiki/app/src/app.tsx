@@ -12,7 +12,8 @@ import { CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageCo
 import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
-import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
+import { readFillStatus, readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type FillStatusAnswer, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
+import { MissingManifest } from './components/missing-manifest.js';
 import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
@@ -51,7 +52,7 @@ function storedRole(): string {
   try {
     return window.localStorage.getItem(ROLE_KEY) ?? 'everything';
   } catch {
-    return 'all';
+    return 'everything';
   }
 }
 
@@ -84,6 +85,8 @@ export function App(): ReactElement {
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product', (signal) => readProduct(base, signal));
+  // The product's own state: a product with no kinds manifest has no graph a page could ask (madarch-64o5.133).
+  const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
   const savedRole = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [lastDataAt, setLastDataAt] = useState<number | null>(null);
@@ -310,6 +313,15 @@ export function App(): ReactElement {
     <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} changed={changedKinds} />
   );
   const [menuOpen, setMenuOpen] = useState(false);
+  // A product that has no kinds manifest has no graph to ask: the frame names the file and the guide that writes one,
+  // instead of the failure the empty catalogue would raise (madarch-64o5.133).
+  if (bootstrap === null && !connection.offline && status.data?.manifest === 'no-manifest') {
+    return (
+      <ShellError>
+        <MissingManifest product={identity.data?.name ?? null} status={status.data} />
+      </ShellError>
+    );
+  }
   // The graph could not be read at all, or the server cannot be reached: the frame says so instead of a page.
   if (bootstrap === null && (failure !== null || connection.offline)) {
     return (

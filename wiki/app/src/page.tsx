@@ -9,6 +9,7 @@ import { HeaderSection } from './components/header.js';
 import { at } from './components/format.js';
 import { edgesOf } from './components/connection.js';
 import { FactsSection } from './components/facts.js';
+import { FactSection } from './components/fact.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
 import { TableSection } from './components/table.js';
@@ -101,6 +102,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
   switch (section.component) {
     case 'header': return <HeaderSection context={context} />;
     case 'facts': return <FactsSection context={context} />;
+    case 'fact': return <FactSection context={context} />;
     case 'text': return <TextSection context={context} />;
     case 'relations': return <RelationsSection context={context} />;
     case 'table': return <TableSection context={context} />;

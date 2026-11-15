@@ -19,7 +19,7 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'facts', 'fact', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
   'product-overview', 'repositories',
@@ -80,6 +80,16 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     required: ['rows'],
   },
   text: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  /** One graph fact as a card (madarch-64o5.133): the kind it counts, the field its rows group by and how it is drawn. */
+  fact: {
+    parameters: {
+      kind: { type: 'string' },
+      display: { type: 'string', enum: ['number', 'bar', 'treemap', 'timeline'] },
+      /** The field the answer groups, buckets or ranks by, named as the graph names it and shown in the ground. */
+      by: { type: 'string' },
+    },
+    required: ['kind', 'display'],
+  },
   relations: {
     parameters: {
       path: { type: 'string' },

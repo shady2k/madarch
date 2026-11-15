@@ -12,6 +12,7 @@
  */
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
+import { MANIFESTS_GUIDE } from './guides.js';
 import { commandLanguage, rememberedLanguage, type CommandLanguage } from './command-language.js';
 import { wikiWords } from './wiki-words.js';
 import { stopChildWithin } from './child-stop.js';
@@ -555,12 +556,6 @@ export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined 
   if (choice === 'move' || choice === 'clone') return choice;
   return undefined;
 }
-
-/**
- * The manifests guide a product with no starter set needs (docs/guides/how-to-write-a-product-s-manifests.md): the
- * same address the wiki's no-manifest page links to, kept on the repository the release is published from.
- */
-const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
 
 /** A terminal chooses a starter; scripts without an explicit choice leave the manifest to the wiki. */
 async function templateChoice(parsed: Parsed, language: CommandLanguage = commandLanguage()): Promise<string> {

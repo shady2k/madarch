@@ -263,6 +263,14 @@ export interface FillStatusAnswer {
   readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
   /** Whether a fill ever succeeded on this product. */
   readonly filled?: boolean;
+  /** `no-manifest` when the product has no kinds manifest: a fill has nothing to read yet. */
+  readonly manifest?: 'ok' | 'not-filled' | 'no-manifest';
+  /** The manifest file the product reads, named on the home when it is absent. */
+  readonly manifestFile?: string;
+  /** The guide that writes a product's manifests. */
+  readonly manifestGuide?: string;
+  /** A repository's fill stopped before its last commit: the graph holds part of it. */
+  readonly incomplete?: boolean;
   /** madarch's own wiki is documentation: it offers no fill. */
   readonly own?: boolean;
 }

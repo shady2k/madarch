@@ -19,7 +19,7 @@ import { Skeleton } from './ui/skeleton.js';
 import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import {
   isOffline, pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
-  type FillPlanView, type FillRunDetail, type FillRunGroup,
+  type FillPlanView, type FillRunDetail, type FillRunEvent, type FillRunGroup,
 } from './command.js';
 import { RUNS_PAGE } from '../address.js';
 import { InlineCode } from './ui/inline-content.js';
@@ -81,21 +81,34 @@ function shortMoment(iso: string, language: string): string {
   return new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
+/** One event of a run as a person reads it: the run's own word, or the kind and plugin the unit touched. */
+export function eventWordsOf(event: FillRunEvent, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction): string | undefined {
+  const word = EVENT_WORDS[event.type];
+  if (word === undefined) return undefined;
+  if (word.startsWith('unit') || word === 'stagePlanned' || word === 'foundNothing') {
+    const group = groupOf(groups, event.unitId !== '' ? event.unitId : event.stage);
+    const kind = group === undefined ? undefined : labelOf(group.kind);
+    if (group === undefined || kind === undefined) return undefined;
+    return t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(group.plugin) ?? group.plugin });
+  }
+  return t(`knowledge.fillRun.event.${word}`);
+}
+
+/** The last thing a run did, in the same words as its log: the newest event the run's own vocabulary names. */
+export function latestEventWords(run: FillRunDetail, labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction): string | undefined {
+  for (let at = run.events.length - 1; at >= 0; at -= 1) {
+    const words = eventWordsOf(run.events[at]!, run.groups, labelOf, pluginName, t);
+    if (words !== undefined) return words;
+  }
+  return undefined;
+}
+
 /** The run's log as a person reads it: state changes and work per kind, never the engine's own sentences. */
-function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): { at: string; text: string }[] {
+function logLines(run: FillRunDetail, labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): { at: string; text: string }[] {
   const lines: { at: string; text: string }[] = [];
   for (const event of run.events.slice(-200)) {
-    const word = EVENT_WORDS[event.type];
-    if (word === undefined) continue;
-    const group = groupOf(groups, event.unitId !== '' ? event.unitId : event.stage);
-    if (word.startsWith('unit') || word === 'stagePlanned' || word === 'foundNothing') {
-      if (group === undefined) continue;
-      const kind = labelOf(group.kind);
-      if (kind === undefined) continue;
-      lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(group.plugin) ?? group.plugin }) });
-      continue;
-    }
-    lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`) });
+    const words = eventWordsOf(event, run.groups, labelOf, pluginName, t);
+    if (words !== undefined) lines.push({ at: event.at, text: words });
   }
   return lines.map((line) => ({ at: new Date(line.at).toLocaleTimeString(language), text: line.text }));
 }
@@ -141,7 +154,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
     return group?.labels[language] ?? group?.labels['en'] ?? held.group;
   };
   const names = (run?.order ?? run?.selected ?? []).map((kind) => labelOf(kind)).filter((label): label is string => label !== undefined);
-  const lines = run === null ? [] : logLines(run, run.groups, labelOf, pluginName, t, language);
+  const lines = run === null ? [] : logLines(run, labelOf, pluginName, t, language);
 
   const act = (action: 'pause' | 'stop'): void => {
     if (connection.offline || run === null) return;

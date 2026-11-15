@@ -60,8 +60,11 @@ export interface TemplateRead {
   readonly findings: readonly TemplateFinding[];
 }
 
-/** The names a section's `roles.show` may hold when it holds none: every role, and the reader with none chosen. */
-export const EVERY_ROLE = 'all';
+/**
+ * The role that stands for every role at once, as the reader's own settings name it (`/api/settings`, decision 0031): a
+ * section whose `roles.show` holds it opens for every reader, and a page composed without a role opens as that reader.
+ */
+export const EVERY_ROLE = 'everything';
 
 function asRecord(node: unknown): Pair<unknown, unknown>[] {
   return isMap(node as Node) ? ((node as { items: Pair<unknown, unknown>[] }).items) : [];
@@ -243,8 +246,11 @@ export function resolveTemplate(name: string, templates: ReadonlyMap<string, Tem
   return { findings, resolved: { name, sections: ordered, variables } };
 }
 
-/** A section shown to the asked role: its `roles.show` holds the role, `all`, or nothing at all. */
+/**
+ * A section shown to the asked role: its `roles.show` names the role, names `everything`, or names nothing at all; and
+ * a reader who reads as `everything` opens every section, since that role is every role at once.
+ */
 export function sectionShownFor(section: PageSection, role: string): boolean {
   const show = section.roles?.show;
-  return show === undefined || show.length === 0 || show.includes(EVERY_ROLE) || show.includes(role);
+  return show === undefined || show.length === 0 || show.includes(EVERY_ROLE) || role === EVERY_ROLE || show.includes(role);
 }

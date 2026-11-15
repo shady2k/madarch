@@ -10,7 +10,7 @@
  */
 import { typeNameOf } from '../graphql/names.js';
 import { byCodePoint } from '../model/order.js';
-import { sectionShownFor, readTemplate, resolveTemplate, type LocalizedText, type PageSection, type TemplateFile, type TemplateVariable } from './template.js';
+import { EVERY_ROLE, sectionShownFor, readTemplate, resolveTemplate, type LocalizedText, type PageSection, type TemplateFile, type TemplateVariable } from './template.js';
 import type { TemplateFinding } from './validate.js';
 
 /** The bootstrap the app reads once (section 1): the home, the templates, what opens each page and the roles. */
@@ -156,7 +156,7 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
   findings.push(...resolved.findings);
   const empty: PageComposition = { template, operation: '', variables: {}, sections: [], findings };
   if (resolved.resolved === undefined) return empty;
-  const role = address.role ?? 'all';
+  const role = address.role ?? EVERY_ROLE;
   const lang = address.lang;
   const sections = resolved.resolved.sections.filter((section) => sectionShownFor(section, role));
   const subjectSections = sections.filter((section) => section.on === 'subject' && (section.query ?? '').trim() !== '');

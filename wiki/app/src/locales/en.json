@@ -23,11 +23,18 @@
     "ground": "Grounds",
     "kind": "Kind",
     "measure": "Measure",
+    "measures": {
+      "count": "A count of the records",
+      "groupBy": "Grouped by one field",
+      "histogram": "Ages in buckets",
+      "topN": "The first records by one field"
+    },
     "field": "Field",
     "buckets": "Buckets",
     "limit": "Limit",
     "total": "Entities counted",
     "missing": "Missing values",
+    "unaccounted": "Records in no shown row",
     "computedAt": "Computed at"
   },
   "authored": {
@@ -1644,10 +1651,6 @@
     "fillAgent": "The agent",
     "showSelected": "Show selected",
     "showAll": "Show all",
-    "shown_one": "{{count}} kind shown",
-    "shown_few": "{{count}} kinds shown",
-    "shown_many": "{{count}} kinds shown",
-    "shown_other": "{{count}} kinds shown",
     "noMatch": "No kind matches.",
     "selectGroup": "Choose {{count}}",
     "selectedCount_one": "{{count}} kind chosen",
@@ -1672,6 +1675,10 @@
     "stepOne": "Check the set of kinds the wiki should hold.",
     "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
     "stepThree": "Start the fill and follow its run.",
+    "created": "The product was created",
+    "noManifest": "The graph is empty. The product has no kinds manifest yet, so a fill has nothing to read.",
+    "manifestFile": "Its manifest is {{file}}.",
+    "manifestGuide": "How to write a product's manifests",
     "manual": "Choose in the catalogue"
   },
   "prepare": {

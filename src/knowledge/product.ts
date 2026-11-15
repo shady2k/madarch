@@ -29,6 +29,7 @@ import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
+import { MANIFESTS_GUIDE } from '../product/guides.js';
 import { productRepositoryId } from '../product/identity.js';
 import { KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManifest } from '../product/manifest/kinds.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
@@ -1965,6 +1966,7 @@ export class KnowledgeProduct {
       // it into the graph yet (`not-filled`), or the graph holds it (`ok`).
       manifest: read.present ? 'not-filled' : existsSync(manifestFile) ? 'not-filled' : 'no-manifest',
       manifestFile,
+      manifestGuide: MANIFESTS_GUIDE,
       language: read.present ? read.manifest.language ?? 'en' : 'en',
       kinds: [],
       groups: read.present ? groupViews(read.manifest) : [],
@@ -2077,7 +2079,7 @@ export class KnowledgeProduct {
     const file = join(product.folder, KINDS_FILE);
     return {
       product: { name: product.name, id: product.id },
-      manifest: existsSync(file) ? 'not-filled' : 'no-manifest', manifestFile: file,
+      manifest: existsSync(file) ? 'not-filled' : 'no-manifest', manifestFile: file, manifestGuide: MANIFESTS_GUIDE,
       language: 'en', kinds: [], groups: [],
       repositories: this.repositories().map((repo) => ({ name: repo.name, filled: false })),
       filled: false, incomplete: false, fill: this.fill, writer: this.writerOf(),
