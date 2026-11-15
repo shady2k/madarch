@@ -1362,11 +1362,6 @@
   {
     "rule": "i18n-text",
     "file": "wiki/app/src/frame.tsx",
-    "symbol": "align: start"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/frame.tsx",
     "symbol": "side: left"
   },
   {
