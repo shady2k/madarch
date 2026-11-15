@@ -10,6 +10,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { excludedPath } from '../plugins/disk/reader.js';
+import { readKinds } from '../src/product/manifest/kinds.js';
 
 const CLI = fileURLToPath(new URL('../scripts/madarch.ts', import.meta.url));
 const IDENTITY = { GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test' };
@@ -159,7 +161,13 @@ test('the owner starts a fresh product, serves it, plans and runs the code fill,
   await step('5 the code-kind counts are the repository tree', async () => {
     const data = await graphql(`query { navigation { kinds { kind count } } allCodeFile(first: 1) { totalCount edges { node { id path } } } }`);
     const counts = new Map((data['navigation'].kinds as { kind: string; count: number }[]).map((one) => [one.kind, one.count] as const));
-    const files = git(folder, ['ls-files']).split('\n').filter(Boolean).concat(git(code, ['ls-files']).split('\n').filter(Boolean));
+    // The paths the product's own kinds leave out are no part of its knowledge: its declaration is the rule, and the
+    // plugin's matcher reads it here as the fill did (madarch-64o5.83).
+    const declared = readKinds(folder);
+    if (!declared.present) throw new Error('the product holds no manifest');
+    const patterns = [...new Set([...(declared.manifest.kinds.get('code.file')?.exclude ?? []), ...(declared.manifest.kinds.get('code.directory')?.exclude ?? [])])];
+    const listed = (repo: string): string[] => git(repo, ['ls-files']).split('\n').filter(Boolean).filter((path) => !excludedPath(path, patterns));
+    const files = listed(folder).concat(listed(code));
     // Every folder a file lies in, and every folder above it: the plugin makes one directory entity for each.
     const directories = new Set<string>();
     for (const path of files) {
