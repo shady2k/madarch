@@ -21,22 +21,25 @@ import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
+import { OfflineAction } from './ui/offline-action.js';
+import { useConnection } from '../connection.js';
 import { agentUsable } from './agent-words.js';
 import {
-  chooseAgent, CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveProductSettings, startFillSelection, useCommandRead,
+  chooseAgent, CommandError, isOffline, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveProductSettings, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { fillEstimate } from './prepare-estimate.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation } from '../client.js';
-import { catalogueSelectionAddress, PAGE_ADDRESSES, runAddress } from '../address.js';
+import { catalogueSelectionAddress, PAGE_ADDRESSES, prepareAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
 const PLUGINS_ONLY = 'plugins-only';
 const labelOf = (navigation: Navigation | null, kind: string): string => navigation?.kinds.find((one) => one.kind === kind)?.many ?? kind;
-export function PrepareSection({ context }: { readonly context: SectionContext }): ReactElement {
+export function PrepareSection({ context, inline = false }: { readonly context: SectionContext; readonly inline?: boolean }): ReactElement {
   const { t, i18n } = useTranslation();
+  const connection = useConnection();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
   const navigation = context.navigation;
   const base = context.base;
@@ -55,15 +58,15 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const key = requested.join(',');
-  const agents = useCommandRead<AgentsAnswer>('prepare-agents', (signal) => readAgents(base, signal));
+  const agents = useCommandRead<AgentsAnswer>('agents', (signal) => readAgents(base, signal));
   const savedWho = agents.data?.chosen?.id ?? null;
   const who = picked ?? (context.variables['pluginsOnly'] === '1' ? PLUGINS_ONLY : savedWho ?? PLUGINS_ONLY);
   const pluginsOnly = who === PLUGINS_ONLY;
   const agent = pluginsOnly ? null : who;
   const planRead = useCommandRead<{ plan: FillPlanView }>(`prepare-plan:${key}:${String(pluginsOnly)}`, (signal) => readFillPlan(base, requested, signal, pluginsOnly), requested.length > 0);
-  const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('prepare-product', (signal) => readProduct(base, signal));
-  const status = useCommandRead<FillStatusAnswer>('prepare-status', (signal) => readFillStatus(base, signal));
-  const settings = useCommandRead<ProductSettingsAnswer>('prepare-settings', (signal) => readProductSettings(base, signal));
+  const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('product', (signal) => readProduct(base, signal));
+  const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
+  const settings = useCommandRead<ProductSettingsAnswer>('product-settings', (signal) => readProductSettings(base, signal));
   const plan = planRead.data?.plan;
   const needsAgent = plan?.needsAgent ?? [];
   const requiresAgent = needsAgent.length > 0;
@@ -106,6 +109,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   }, [context.variables]);
 
   const sync = (only: boolean): void => {
+    // The first-run wizard stands inside the home page: its toggles belong to the page, not to a preparation address.
+    if (inline) return;
     const query = new URLSearchParams({ kinds: key });
     if (only) query.set('pluginsOnly', '1');
     try { window.history.replaceState({}, '', `${base}/p/prepare?${query.toString()}`); } catch { /* no history */ }
@@ -128,7 +133,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       .then(() => { setSavedDefaults('saved'); settings.reload(); }, (error: unknown) => { setSavedDefaults('failed'); setFailure(error instanceof Error ? error.message : String(error)); });
   };
   const run = (): void => {
-    if (plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady) return;
+    if (connection.offline || plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, {
@@ -143,7 +148,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       (error: unknown) => {
         setBusy(false);
         const code = error instanceof CommandError ? error.code : undefined;
-        setFailure(code === 'fill/agent-required' ? t('prepare.agentRequired') : code === 'fill/token-cap' ? t('prepare.capRequired') : error instanceof Error ? error.message : String(error));
+        setFailure(isOffline(error) ? null : code === 'fill/agent-required' ? t('prepare.agentRequired') : code === 'fill/token-cap' ? t('prepare.capRequired') : error instanceof Error ? error.message : String(error));
       },
     );
   };
@@ -161,7 +166,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     : t('prepare.estimateTime', { minutes });
   return (
     <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
-      {wizard ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro')}</AlertDescription></Alert> : null}
+      {wizard && !inline ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro')}</AlertDescription></Alert> : null}
       <Stack className="flex flex-wrap items-center justify-between gap-3">
         <Paragraph className="m-0 text-secondary">{t('prepare.intro')}</Paragraph>
         <TextLink href={base + catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)} onClick={(event) => { event.preventDefault(); context.open(catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)); }} data-testid="prepare-change">
@@ -193,6 +198,17 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       <Card data-testid="prepare-set">
         <CardHeader><CardTitle>{t('prepare.finalSet')}</CardTitle></CardHeader>
         <CardContent>
+          {inline ? (
+            // The home's guide states the size of the set and keeps the whole list one press away: the wizard there is
+            // for changing and starting, not for reading eighty kind rows before the first fill.
+            <Stack className="flex flex-wrap items-center gap-3" data-testid="prepare-inline-set">
+              <Paragraph className="m-0 text-secondary">{t('prepare.inlineSet', { count: plan.selectedKinds.length })}</Paragraph>
+              <Button variant="outline" size="default" onClick={() => context.open(prepareAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested, pluginsOnly, true))} data-testid="prepare-open-plan">
+                {t('prepare.openPlan')}
+              </Button>
+            </Stack>
+          ) : (
+            <>
           <PlainList className="m-0 grid list-none gap-2 p-0">
             {plan.selectedKinds.map((kind, at) => {
               const filled = filledBy(planKindOf(plan, kind));
@@ -221,6 +237,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                 ))}
               </PlainList>
             </Stack>
+          )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -284,7 +302,9 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={capText} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
               {modelChoice === null && reasoningChoice === null ? null : (
-                <Button variant="default" size="default" disabled={savedDefaults === 'saving' || !agentReady || !settingsReady} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
+                <OfflineAction offline={connection.offline}>
+                  <Button variant="default" size="default" disabled={connection.offline || savedDefaults === 'saving' || !agentReady || !settingsReady} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
+                </OfflineAction>
               )}
             </Stack>
           ) : null}
@@ -294,9 +314,11 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady} onClick={run} data-testid="prepare-run">
-              {t(busy ? 'prepare.starting' : 'prepare.run')}
-            </Button>
+            <OfflineAction offline={connection.offline}>
+              <Button variant="default" size="default" disabled={connection.offline || busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady} onClick={run} data-testid="prepare-run">
+                {t(busy ? 'prepare.starting' : 'prepare.run')}
+              </Button>
+            </OfflineAction>
             {runnable ? <Text className="text-small text-muted" data-testid="prepare-estimate">{estimate}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
           </Stack>
         </CardContent>

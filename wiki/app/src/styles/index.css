@@ -716,6 +716,22 @@ main tbody tr:nth-child(odd) {
   font-size: var(--fs-small);
 }
 
+/* Sections stand apart by the reading rhythm: a card with no heading (the first run's own content) keeps the same
+ * space under the section above it as a section that opens with a heading. */
+.shell-document main > article > section + section {
+  margin-block-start: 1.5em;
+}
+
+/* A kind a unit publication just changed (madarch-64o5.91): its row or sidebar link flashes once, then settles. */
+[data-changed="true"] {
+  animation: ui-changed 2s ease-out;
+}
+
+@keyframes ui-changed {
+  from { background-color: var(--surface-active); }
+  to { background-color: transparent; }
+}
+
 /* 4.4 A rule between sections. */
 main hr {
   border: 0;
@@ -2353,6 +2369,26 @@ a.graph-diagram-element-label:hover {
 .dg-picture .diagram-mermaid { border: 0; border-radius: 0; margin: 0; }
 /* A frame the diagram is bigger than: it scrolls sideways at the diagram's natural size instead of shrinking it. */
 .dg-frame-box { position: relative; background: var(--surface-page); overflow-x: auto; }
+/* A diagram fits its box by default: the box scrolls at the reader's zoom, and a drag inside pans it (madarch-64o5.96). */
+.dg-zoom-box { overflow: auto; max-height: 72vh; touch-action: none; }
+.dg-zoom-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; }
+.dg-zoom-bar .ui-button { cursor: pointer; }
+.dg-pannable { cursor: grab; }
+/* The page's own entity in a Mermaid picture: the kit's focus pair, painted here because Mermaid's class grammar takes
+   no CSS variables (madarch-64o5.96). */
+.dg-mermaid g.madarch-focus > rect,
+.dg-mermaid g.madarch-focus .label-container {
+  fill: var(--surface-soft) !important;
+  stroke: var(--text) !important;
+  stroke-width: 2px !important;
+}
+.dg-mermaid g.madarch-focus .label,
+.dg-mermaid g.madarch-focus .label span,
+.dg-mermaid g.madarch-focus .label p {
+  color: var(--text) !important;
+  fill: var(--text) !important;
+}
+.dg-pannable:active { cursor: grabbing; }
 .dg-frame-box > * { min-width: 0; }
 .dg-likec4-view {
   width: 100%; height: 540px; min-height: 360px;
@@ -2375,6 +2411,21 @@ a.graph-diagram-element-label:hover {
   --likec4-palette-relation-stroke: var(--border);
   --likec4-palette-relation-label: var(--text);
   --likec4-palette-relation-label-bg: var(--surface-page);
+  /* The runtime's own canvas and text tokens: the white React Flow canvas and the black labels of a dark page come from
+     these defaults, so they are the kit's tokens too (madarch-64o5.96). */
+  --colors-diagram-background: var(--surface-page);
+  --colors-diagram-background-pattern: var(--border-subtle);
+  --colors-text-default: var(--text);
+  --colors-text-bright: var(--text);
+  --colors-text-dimmed: var(--text-muted);
+  --colors-text-heading: var(--text);
+  --colors-text-display: var(--text);
+  --colors-text-link: var(--link);
+  --colors-surface-default: var(--surface-card);
+  --colors-surface-canvas: var(--surface-page);
+  --colors-surface-sunken: var(--surface-soft);
+  --colors-border-default: var(--border);
+  --colors-border-outline: var(--border);
 }
 @media (max-width: 700px) { .dg-likec4-view { height: 420px; } }
 .dg-full .dg-likec4-view { height: calc(100vh - 190px); min-height: 360px; }

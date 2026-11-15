@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { postQuery } from './client.js';
+import { useConnection } from './connection.js';
 import { Alert, AlertDescription } from './components/ui/alert.js';
 import { BulletList, ListItem, Metadata, PageHeader, PageSection, PageTitle, Paragraph, SectionTitle } from './components/ui/typography.js';
 
@@ -14,6 +15,7 @@ interface TemplateFinding {
 /** The template checks only: other product checks are not part of this read. */
 export function ProblemsPage({ base }: { readonly base: string }): ReactElement {
   const { t } = useTranslation();
+  const connection = useConnection();
   const [findings, setFindings] = useState<readonly TemplateFinding[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
@@ -26,7 +28,11 @@ export function ProblemsPage({ base }: { readonly base: string }): ReactElement 
           base, 'query TemplateFindings { templateFindings { file line path message } }', {},
         );
         if (!current) return;
-        if (answer.errors.length > 0) {
+        if (answer.offline === true) {
+          // The frame's calm state says the server cannot be reached; the page asks again when it returns.
+          setFindings(null);
+          setFailure(null);
+        } else if (answer.errors.length > 0) {
           setFailure(answer.errors.map(({ message }) => message).join('; '));
         } else if (answer.data?.templateFindings == null) {
           setFailure('the graph answered no template findings');
@@ -38,7 +44,7 @@ export function ProblemsPage({ base }: { readonly base: string }): ReactElement 
       }
     })();
     return () => { current = false; };
-  }, [base]);
+  }, [base, connection.generation]);
   return (
     <>
       <PageHeader><PageTitle>{t('loop.problemsTitle')}</PageTitle></PageHeader>

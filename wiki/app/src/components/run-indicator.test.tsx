@@ -10,7 +10,7 @@ await import('../i18n.js');
 afterAll(() => { GlobalRegistrator.unregister(); });
 
 function run(state: string) {
-  return { runId: 'run-1', state, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), finishedAt: null, elapsedMs: 10, remainingMs: 0, selected: [], order: [], vertex: null, groups: [], units: [], events: [], records: 0, publishedUnits: 0, agentUsage: null };
+  return { runId: 'run-1', state, phase: state === 'completed_partial' ? 'partial' : state === 'cancelled' ? 'stopped' : state, final: ['succeeded', 'completed_partial', 'failed', 'cancelled', 'blocked'].includes(state), startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), finishedAt: null, elapsedMs: 10, remainingMs: 0, selected: [], order: [], vertex: null, groups: [], units: [], events: [], records: 0, publishedUnits: 0, agentUsage: null };
 }
 
 async function render(runState: string): Promise<{ readonly shown: boolean; close: () => Promise<void> }> {
