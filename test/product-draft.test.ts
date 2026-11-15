@@ -125,6 +125,38 @@ describe('createDraft', () => {
     expect(git(['status', '--porcelain'], draft.folder).stdout).toBe('');
   });
 
+  test('a machine with no git identity is refused before any work, with the two commands to set one (madarch-64o5.84)', () => {
+    // A machine whose git names no author: an empty home, no global configuration, no author environment. Git's own
+    // answer here is "Author identity unknown", and the person needs the commands, not git's words.
+    const empty = tempFolder('madarch-products-no-identity-');
+    const home = tempFolder('madarch-products-no-identity-home-');
+    const draft = createDraft({
+      home,
+      today: EXAMPLE_DAY,
+      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: '', GIT_AUTHOR_EMAIL: '', GIT_COMMITTER_NAME: '', GIT_COMMITTER_EMAIL: '', EMAIL: '' },
+    });
+    expect(draft.outcome).toBe('refused');
+    const message = draft.outcome === 'refused' ? draft.message : '';
+    expect(message).toContain('git config --global user.name');
+    expect(message).toContain('git config --global user.email');
+    expect(message).not.toContain('Author identity unknown');
+    // Nothing is half-made: the home holds no product folder.
+    expect(existsSync(home) ? readdirSync(home) : []).toEqual([]);
+  });
+
+  test('the refusal speaks Russian when the machine reads Russian (madarch-64o5.84)', () => {
+    const empty = tempFolder('madarch-products-no-identity-ru-');
+    const home = tempFolder('madarch-products-no-identity-ru-home-');
+    const draft = createDraft({
+      home,
+      today: EXAMPLE_DAY,
+      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: '', GIT_AUTHOR_EMAIL: '', GIT_COMMITTER_NAME: '', GIT_COMMITTER_EMAIL: '', EMAIL: '', MADARCH_LANG: 'ru' },
+    });
+    expect(draft.outcome).toBe('refused');
+    expect(draft.outcome === 'refused' ? draft.message : '').toContain('git config --global user.name');
+    expect(draft.outcome === 'refused' ? draft.message : '').toContain('Задайте имя и почту');
+  });
+
   test('the complete starter is staged without exceeding the Windows command-line limit', () => {
     const spawn = spyOn(childProcess, 'spawnSync');
     try {

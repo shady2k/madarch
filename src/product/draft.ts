@@ -14,7 +14,8 @@
  * reports them.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
@@ -192,6 +193,42 @@ function removeDraftFolder(folder: string): string | undefined {
   }
 }
 
+
+/**
+ * Whether git can name an author here, asked the way git itself asks: `git var GIT_AUTHOR_IDENT` reads the same
+ * configuration, the same environment and the same defaults a commit does. A machine with an empty home and no
+ * configuration answers nothing, and no product is made.
+ */
+function gitNamesAnAuthor(gitEnv: GitEnv | undefined): boolean {
+  // Asked in an empty folder, not in the caller's checkout: a repository's own configuration answers there and would
+  // hide the machine's missing identity, which is what the product's first commit needs.
+  const neutral = mkdtempSync(join(tmpdir(), 'madarch-author-identity-'));
+  try {
+    const asked = runGit(neutral, ['var', 'GIT_AUTHOR_IDENT'], gitEnv !== undefined && Object.keys(gitEnv).length > 0 ? { ...gitEnv } : undefined);
+    // A git that cannot run at all is named by the step that needs it, with its own error, as it was before; every other
+    // answer git gives to "who are you" — no identity, an empty one — is this refusal.
+    const cannotRun = /ENOENT|not recognized|No such file or directory|spawnSync|Executable not found/u.test(asked.output);
+    return asked.ok || cannotRun;
+  } finally {
+    rmSync(neutral, { recursive: true, force: true });
+  }
+}
+
+/** The reader's language for a command that has no product yet: `MADARCH_LANG`, else the machine's locale. */
+function commandLanguage(gitEnv: GitEnv | undefined): 'en' | 'ru' {
+  const chosen = (gitEnv?.['MADARCH_LANG'] ?? process.env['MADARCH_LANG'] ?? process.env['LC_ALL'] ?? process.env['LC_MESSAGES'] ?? process.env['LANG'] ?? '').toLowerCase();
+  return chosen.startsWith('ru') ? 'ru' : 'en';
+}
+
+/** What init says when git has no author identity: the fact, and the two commands that set one. */
+function noIdentityMessage(gitEnv: GitEnv | undefined): string {
+  const commands = 'git config --global user.name "Ваше имя"\ngit config --global user.email "you@example.com"';
+  const english = 'git config --global user.name "Your Name"\ngit config --global user.email "you@example.com"';
+  return commandLanguage(gitEnv) === 'ru'
+    ? `madarch init не может создать продукт: git не знает, кто автор, а первый коммит продукта — ваш. Задайте имя и почту и повторите:\n  ${commands.replace('Ваше имя', 'Ваше имя')}`
+    : `madarch init cannot make a product yet: git has no author identity, and the product's first commit is yours. Set a name and an email, then run it again:\n  ${english}`;
+}
+
 /**
  * Creates a draft product repository under the products home the caller
  * names. Nothing is refused half-done: the home is judged before any product
@@ -207,6 +244,10 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
   if (template === undefined) {
     return { outcome: 'refused', message: `no starter template is called ${JSON.stringify(templateId)}: the templates are ${starterTemplateIds().join(', ')}` };
   }
+
+  // A product's first commit is the person's, so git must name an author before any folder is made: git's own refusal
+  // ("Author identity unknown") names neither the two commands nor the work it would leave behind (madarch-64o5.84).
+  if (!gitNamesAnAuthor(options.gitEnv)) return { outcome: 'refused', message: noIdentityMessage(options.gitEnv) };
 
   // The home is madarch's own decision: the `--home` the command was given,
   // over `MADARCH_HOME`, over the machine's default (productsHome).
