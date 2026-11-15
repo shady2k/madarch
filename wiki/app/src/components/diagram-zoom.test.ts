@@ -24,3 +24,9 @@ test('a picture larger than its box pans, whatever its scale', () => {
   expect(pans({ width: 2000, height: 300 }, 0.3, { width: 390, height: 800 })).toBe(true);
   expect(pans({ width: 200, height: 100 }, 1, { width: 390, height: 800 })).toBe(false);
 });
+
+test('a picture far taller than its box fits exactly: the minimum scale clamps only manual zoom', () => {
+  // 600 × 16 000 in an 800 px-wide box capped at 648 px: the fit is 646/16000 (~4.04 %), below the manual floor.
+  expect(fitScale({ width: 600, height: 16000 }, { width: 800, height: 648 })).toBeCloseTo(646 / 16000, 6);
+  expect(zoomStep(0.06, 1 / 1.25)).toBe(0.05);
+});
