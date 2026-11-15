@@ -14,6 +14,7 @@
 import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
+import { readRunAgentExchanges } from '../fill/agent-exchange.js';
 import { cancelRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
@@ -2185,7 +2186,11 @@ export class KnowledgeProduct {
     const records = runId === undefined ? await readRuns(owner, product.name) : [await readRun(owner, runId)];
     return await Promise.all(records.filter((run) => run !== null && run.product === product.name).map(async (run) => {
       const summary = (await this.runViewOf(run!.runId))!;
-      return (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+      const detail = (await readFillRunDetail(owner, run!.runId, { now: (this.options.now?.() ?? new Date()).getTime(), summary }))!;
+      // One run's agent exchanges are read only for a page that names that run (madarch-64o5.88): the history lists
+      // runs and reads no folder for them. A run whose trace was trimmed, or whose agent never ran, kept none.
+      const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
+      return { ...detail, agentExchanges: exchanges };
     }));
   }
 

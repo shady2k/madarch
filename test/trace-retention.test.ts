@@ -42,6 +42,9 @@ test('only the newest N run traces stand', () => {
   for (let at = 0; at < 25; at += 1) {
     writeFileSync(join(folder, `fill-${String(at).padStart(2, '0')}.jsonl`), '{}\n');
     writeFileSync(join(folder, `fill-${String(at).padStart(2, '0')}.log.jsonl`), '{}\n');
+    // A run's agent exchanges stand beside its trace, and go when the trace goes (madarch-64o5.88).
+    mkdirSync(join(folder, `fill-${String(at).padStart(2, '0')}.agents`), { recursive: true });
+    writeFileSync(join(folder, `fill-${String(at).padStart(2, '0')}.agents`, 'unit.json'), '{}\n');
   }
   const trace = openTrace({ store, runId: 'newest', keep: 20 });
   closeTrace(trace);
@@ -49,5 +52,8 @@ test('only the newest N run traces stand', () => {
   expect(names).toHaveLength(20);
   expect(names).toContain('newest.jsonl');
   expect(names).not.toContain('fill-00.jsonl');
+  expect(readdirSync(folder)).not.toContain('fill-00.agents');
+  // Every trace kept keeps its exchanges: a run's record goes whole.
+  for (const name of names.filter((held) => held !== 'newest.jsonl')) expect(readdirSync(folder)).toContain(name.replace(/\.jsonl$/u, '.agents'));
   rmSync(root, { recursive: true, force: true });
 });

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
+import { agentExchangeFolder, AgentExchangeRecorder } from '../fill/agent-exchange.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
@@ -43,6 +44,11 @@ export interface PluginAgentOptions {
   readonly meter?: AgentMeter;
   /** Host attribution writer receives the actual session identity and its reported usage. */
   readonly onSession?: (metadata: PluginAgentReport) => void;
+  /**
+   * Where the unit's whole ACP exchange is kept (madarch-64o5.88): the fill run it belongs to and the store's `traces`
+   * folder. Left out, the unit runs as before and madarch keeps no exchange of its own.
+   */
+  readonly exchange?: { readonly run: string; readonly traces: string };
 }
 
 type AgentPart = NonNullable<PluginManifest['agent']>;
@@ -90,6 +96,14 @@ export class PluginAgentBridge {
       this.activeUnits.add(unitId);
       const controller = new AbortController();
       this.turns.add(controller);
+      // The exchange is madarch's own record of the unit (madarch-64o5.88): it starts before the agent does, so a unit
+      // that never answered still leaves what it was given and why it failed.
+      const exchange = this.options.exchange === undefined ? undefined : new AgentExchangeRecorder({
+        folder: agentExchangeFolder(this.options.exchange.traces, this.options.exchange.run),
+        run: this.options.exchange.run, unit: unitId, agent: this.options.adapter.id,
+      });
+      const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(task ?? null)}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(this.outputs)}`;
+      exchange?.setGiven({ prompt, task: task ?? null, files: [...byPath.keys()].sort(byCodePoint) });
       let connection: PluginAgentConnection | undefined;
       let sessionId: string | undefined;
       const checkSession = (id: string): void => {
@@ -111,7 +125,14 @@ export class PluginAgentBridge {
               const lines = content.split('\n');
               const start = (params.line ?? 1) - 1;
               const limit = params.limit ?? undefined;
-              return { content: params.line == null && limit === undefined ? content : lines.slice(start, limit === undefined ? undefined : start + limit).join('\n') };
+              const shown = params.line == null && limit === undefined ? content : lines.slice(start, limit === undefined ? undefined : start + limit).join('\n');
+              // Which file the unit opened, and how much it was shown, is the record's own answer to «what did it do».
+              exchange?.fileOpen({
+                repository: String(file.key['repository']), path: String(file.key['path']),
+                ...(params.line == null ? {} : { line: params.line }), ...(params.limit == null ? {} : { limit: params.limit }),
+                bytes: Buffer.byteLength(shown, 'utf8'),
+              });
+              return { content: shown };
             },
             writeTextFile: async (params) => {
               checkSession(params.sessionId);
@@ -136,7 +157,7 @@ export class PluginAgentBridge {
             },
           },
           onRefused: (refusal) => log.warn('plugin agent tool refused', { unitId, method: refusal.method }),
-          onUpdate: (update) => log.debug('plugin agent update', { unitId, kind: update.kind }),
+          onUpdate: (update) => { log.debug('plugin agent update', { unitId, kind: update.kind }); exchange?.step(update); },
         });
         this.connections.add(connection);
         if (this.paused) connection.freeze?.();
@@ -144,6 +165,7 @@ export class PluginAgentBridge {
         await connection.initialize();
         const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd() });
         sessionId = session.sessionId;
+        exchange?.setSession(session.sessionId, session.model);
         const choices = choicesOf(session);
         for (const kind of ['model', 'reasoning'] as const) {
           const wanted = this.options.preferences?.[kind];
@@ -153,15 +175,18 @@ export class PluginAgentBridge {
           if (choice.configId === null) await session.setModel(wanted);
           else await session.setConfigOption(choice.configId, wanted);
         }
-        const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(task ?? null)}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(this.outputs)}`;
         const meter = this.options.meter;
         meter?.beginSession();
         const turn = meter === undefined ? undefined : await meter.runTurn(session, prompt, { model: session.model, signal: controller.signal });
-        if (turn?.stop !== undefined) throw new Error(turn.stop.message);
         const answer = turn?.result ?? await session.prompt(prompt, { signal: controller.signal });
-        if (controller.signal.aborted || this.closed) throw new Error(`${WHERE}: agent turn cancelled`);
-        if (answer.stopReason !== 'end_turn') throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
+        // What it returned and what it cost is recorded before any check refuses the answer: a turn that ended short,
+        // or a result madarch refuses, still left both.
         const usage = session.usage();
+        exchange?.answer(answer.text, answer.stopReason);
+        exchange?.setUsage(usage);
+        if (turn?.stop !== undefined) throw new Error(turn.stop.message);
+        if (controller.signal.aborted || this.closed) { exchange?.cancelled(); throw new Error(`${WHERE}: agent turn cancelled`); }
+        if (answer.stopReason !== 'end_turn') throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
         span.setAttribute('madarch.agent.model', session.model ?? 'not reported');
         span.setAttribute('madarch.agent.session', session.sessionId);
         span.setAttribute('madarch.agent.usage_reported', usage.reported);
@@ -187,10 +212,14 @@ export class PluginAgentBridge {
         }
         log.info('plugin agent result validated', { unitId, vertices: result.vertices?.length ?? 0, edges: result.edges?.length ?? 0 });
         return result;
+      } catch (error) {
+        exchange?.failed(error);
+        throw error;
       } finally {
         this.activeUnits.delete(unitId);
         this.turns.delete(controller);
         if (connection !== undefined) { this.connections.delete(connection); await connection.close(); }
+        exchange?.finish();
       }
     });
   }

@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectAcpAgent } from '../src/fill/acp.js';
+import { readRunAgentExchanges } from '../src/fill/agent-exchange.js';
 import type { PluginAgentReport } from '../src/plugin/agent.js';
 import { parseDocument } from 'yaml';
 import { readKinds } from '../src/product/manifest/kinds.js';
@@ -160,6 +161,19 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       expect(sessions[0]?.agentId).toBe('fixture-acp');
       expect(sessions[0]?.model).toBe('fixture-model');
       expect(sessions[0]?.usage.context).toEqual({ used: 31, size: 1000 });
+      // The unit's whole exchange is madarch's own record (madarch-64o5.88): what it was given, the files it opened,
+      // what it returned and the context it reported — not only what the agent chose to keep in its own transcript.
+      const exchanges = readRunAgentExchanges(join(f.home, 'traces'), run.runId);
+      expect(exchanges.problems).toEqual([]);
+      const unit = exchanges.units.find((one) => one.unit === 'probe-summary:probe.summary');
+      expect(unit).toBeDefined();
+      expect(unit?.state).toBe('turned');
+      expect(unit?.given.prompt).toContain('Read both allowed documents and state one evidenced summary.');
+      expect(unit?.given.prompt).toContain('Task:');
+      expect(unit?.given.files).toEqual(['repo/docs/a.md', 'repo/docs/b.md']);
+      expect(unit?.opened.map((open) => open.path)).toEqual(['docs/a.md', 'docs/b.md']);
+      expect(unit?.returned?.text).toBe(JSON.stringify(answer));
+      expect(unit?.usage?.context).toEqual({ used: 31, size: 1000 });
     } finally { await owner.close(); }
   }, 120_000);
 
