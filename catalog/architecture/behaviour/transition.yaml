@@ -7,14 +7,52 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
   - triggers
   in:
   - partOf
-template-policy: none
+template-policy: member
+source: graph
+fields:
+- name: machine
+  type: json
+  reference: state-machine
+  binding:
+    agent: The state machine the transition belongs to, by the key of that machine in the graph.
+- name: from
+  type: json
+  reference: state
+  binding:
+    agent: The state the move leaves, by its key.
+- name: to
+  type: json
+  reference: state
+  binding:
+    agent: The state the move enters, by its key.
+- name: event
+  type: json
+  nullable: true
+  reference: event
+  binding:
+    agent: The event that causes the move, where the machine names one.
+- name: guard
+  type: text
+  nullable: true
+  binding:
+    agent: The condition that must hold for the move to happen, as the code or the document states it.
+key:
+- machine
+- from
+- to
+derives-from:
+- code.symbol
+member:
+  relation: partOf
+  direction: out
+  parentKind: state-machine
 labels:
   en:
     one: Transition

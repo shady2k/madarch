@@ -6,76 +6,38 @@ sources:
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
 acquisition:
-- document
+- agent-from-graph
 - conversation
-- not-implemented
 relation-constraints:
   out:
   - hasPart
+  - dependsOn
   in:
   - partOf
-template-policy: none
+  - dependsOn
+template-policy: page
+source: graph
 fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the part, such as Catalogue rewrite; it is the stage's key.
+- name: acceptance_criterion
+  type: text
+  nullable: true
+  binding:
+    agent: What a person checks to accept the stage.
 - name: status
   type: json
+  nullable: true
   reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: Where the stage stands, as the work kinds keep it.
+key:
+- name
 labels:
   en:
     one: Stage

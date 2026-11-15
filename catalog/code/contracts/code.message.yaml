@@ -5,6 +5,7 @@ definition: A message is the shape of one piece of data sent over a channel.
 sources:
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
+- agent-from-graph
 - extractor contracts
 relation-constraints:
   out:
@@ -13,11 +14,40 @@ relation-constraints:
   - hasPart
 template-policy: page
 source: graph
-card: true
 details:
 - channel
 - eventTypes
 - path
+fields:
+- name: contract
+  type: json
+  reference: code.contract
+  binding:
+    agent: The contract that declares the message, by the key of that contract in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the contract gives the message.
+- name: channel
+  type: json
+  nullable: true
+  reference: code.channel
+  binding:
+    agent: The channel the message travels on, where the contract says so.
+- name: event_types
+  type: json
+  nullable: true
+  binding:
+    agent: The event types the message may carry, as the contract names them.
+key:
+- contract
+- name
+derives-from:
+- code.contract
+card: true
 labels:
   en:
     one: Event

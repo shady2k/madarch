@@ -10,13 +10,46 @@ relation-constraints:
   out:
   - partOf
   in:
-  - partOf
+  - hasPart
 template-policy: page
 source: graph
 details:
 - workingDirectory
 - steps
 - uses
+fields:
+- name: workflow
+  type: text
+  reference: code.ci-workflow
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: working_directory
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: steps
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: uses
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- workflow
+- name
+derives-from:
+- code.ci-workflow
 labels:
   en:
     one: CI job

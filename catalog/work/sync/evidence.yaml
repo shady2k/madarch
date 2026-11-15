@@ -6,64 +6,42 @@ sources:
 - https://glossary.istqb.org/en_US/term/test-evidence
 - https://glossary.istqb.org/en_US/term/acceptance-testing
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
 relation-constraints:
   out:
-  - evidences
   - verifies
+  - evidences
   in:
   - evidences
   - verifies
 template-policy: none
+origin: agent
 fields:
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  nullable: true
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
+- name: check
+  type: text
+  binding:
+    agent: The check that was run, such as the catalogue check or a test file; it names the checked claim.
+- name: result
   type: text
   nullable: true
-  producers:
-  - person
-- name: owner
+  binding:
+    agent: 'What the check answered: passed, failed, or the number it reported.'
+- name: where
   type: text
   nullable: true
-  producers:
-  - person
-- name: created_at
+  binding:
+    agent: 'Where the result can be seen: an address, a file and a line, or the run it belongs to.'
+- name: at
   type: timestamp
   nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: When the check ran.
+key:
+- check
+- at
 labels:
   en:
     one: Evidence

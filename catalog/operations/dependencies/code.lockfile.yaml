@@ -7,10 +7,12 @@ sources:
 acquisition:
 - extractor operations
 relation-constraints:
-  out: []
-  in:
+  out:
   - partOf
+  - dependsOn
+  in:
   - generates
+  - partOf
 template-policy: page
 source: graph
 details:
@@ -19,6 +21,40 @@ details:
 - modules
 - packages
 - devOnlyPackages
+fields:
+- name: repository
+  type: text
+  reference: code.repository
+  producers:
+  - operations
+- name: path
+  type: text
+  labels:
+    en: Path
+    ru: Путь
+  producers:
+  - operations
+- name: format
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: lockfile_version
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: packages
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- repository
+- path
+derives-from:
+- code.file
+- code.package
 labels:
   en:
     one: Lock file

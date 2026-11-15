@@ -31,9 +31,6 @@ fields:
 key:
 - database
 - name
-terms:
-- '**/*.ts'
-- '**/*.tsx'
 card: true
 er: links
 details:

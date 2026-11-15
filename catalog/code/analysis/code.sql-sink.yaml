@@ -5,14 +5,40 @@ definition: An SQL sink is a call that sends SQL text to a database for executio
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
+  - code.writes-table
+  - code.reads-table
   - dependsOn
+  - partOf
   in:
+  - partOf
   - dependsOn
 template-policy: page
 source: graph
+fields:
+- name: repository
+  type: json
+  reference: code.repository
+  binding:
+    agent: The repository the call stands in, by the key of that repository in the graph.
+- name: path
+  type: text
+  binding:
+    agent: The path of the file that holds the call.
+- name: line
+  type: integer
+  binding:
+    agent: The line the call stands on.
+key:
+- repository
+- path
+- line
+derives-from:
+- code.file
+- code.table
 labels:
   en:
     one: SQL sink

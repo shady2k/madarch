@@ -5,12 +5,14 @@ definition: A debt marker is a TODO or FIXME comment left in the code, which poi
 sources:
 - https://arc42.org/overview
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
-  - refines
+  - partOf
+  - evidences
   in:
-  - refines
+  - partOf
 template-policy: page
 source: graph
 details:
@@ -18,6 +20,35 @@ details:
 - text
 - path
 - line
+fields:
+- name: repository
+  type: json
+  reference: code.repository
+  binding:
+    agent: The repository the marker stands in, by the key of that repository in the graph.
+- name: path
+  type: text
+  binding:
+    agent: The path of the file the marker stands in, as the file entity holds it.
+- name: line
+  type: integer
+  binding:
+    agent: The line the marker stands on.
+- name: marker
+  type: text
+  binding:
+    agent: The word that marks the work, such as TODO or FIXME.
+- name: text
+  type: text
+  nullable: true
+  binding:
+    agent: What the marker says, in the words the comment gives it.
+key:
+- repository
+- path
+- line
+derives-from:
+- code.file
 labels:
   en:
     one: Debt marker

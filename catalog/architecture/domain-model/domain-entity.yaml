@@ -7,13 +7,31 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
   in:
   - hasPart
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the domain gives this thing, such as Order or Invoice; it is the entity's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the entity is and what keeps it distinct, in one or two sentences, from the glossary terms and the modules that use it in the graph.
+key:
+- name
+derives-from:
+- domain
 labels:
   en:
     one: Domain entity

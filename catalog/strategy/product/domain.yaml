@@ -33,6 +33,14 @@ fields:
     ru: Описание
   binding:
     agent: 'What the domain answers for in this product, in one or two sentences: the part of the business it holds and what the modules and folders it covers do for it, read from the text of their files in the graph.'
+- name: type
+  type: text
+  nullable: true
+  labels:
+    en: Type
+    ru: Тип
+  binding:
+    agent: 'How much of the product''s own advantage this part of the business carries: core, supporting or generic, as the product states it.'
 key:
 - name
 # What a domain's discovery reads: the folders that hold the product's code and the files in them (owner's decision,

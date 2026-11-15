@@ -6,9 +6,8 @@ sources:
 - https://glossary.istqb.org/en_US/term/epic
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
 acquisition:
-- document
+- agent-from-graph
 - conversation
-- not-implemented
 relation-constraints:
   out:
   - hasPart
@@ -16,68 +15,40 @@ relation-constraints:
   in:
   - partOf
   - realises
-template-policy: none
+template-policy: page
+source: graph
 fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the need, such as Offline orders; it is the epic's key.
+- name: need
+  type: text
+  nullable: true
+  binding:
+    agent: The stakeholder need the epic meets, in one or two sentences.
+- name: outcome
+  type: text
+  nullable: true
+  binding:
+    agent: What is true once the epic is met.
 - name: status
   type: json
+  nullable: true
   reference: value-set-entry
-  producers:
-  - person
+  binding:
+    agent: Where the epic stands, as the work kinds keep it.
 - name: priority
   type: json
+  nullable: true
   reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: How urgent the epic is compared with the others.
+key:
+- name
 labels:
   en:
     one: Epic

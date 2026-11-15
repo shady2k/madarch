@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - hasHost
+  - partOf
   in:
   - hasHost
 template-policy: page
@@ -16,6 +17,39 @@ source: graph
 details:
 - binary
 - command
+fields:
+- name: service
+  type: text
+  reference: code.service
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: binary
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: command
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: port
+  type: integer
+  nullable: true
+  producers:
+  - operations
+key:
+- service
+- name
+derives-from:
+- code.service
 labels:
   en:
     one: Process

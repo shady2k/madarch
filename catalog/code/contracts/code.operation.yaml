@@ -5,42 +5,19 @@ definition: An API operation is one action an OpenAPI or a gRPC contract declare
 sources:
 - https://spec.openapis.org/oas/v3.1.1.html
 acquisition:
+- agent-from-graph
 - extractor contracts
 relation-constraints:
   out:
+  - partOf
+  - hasInput
+  - hasOutput
   - providesApi
   in:
-  - partOf
+  - implements
+  - documents
 template-policy: page
 source: graph
-fields:
-- name: repository
-  type: text
-  nullable: true
-  binding:
-    agent: 'Read the declared repositories: repository name, or null for the product repository.'
-- name: path
-  type: text
-  binding:
-    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-- name: name
-  type: text
-  binding:
-    agent: 'Read the defining source file: fully qualified symbol name, API operation identity (method and route or RPC name),
-      or channel address, unique within this file.'
-- name: definition
-  type: json
-  nullable: true
-  binding:
-    agent: 'Read the contract source files **/* for this entity: complete structured definition {spec:{text,lines},document?,protobuf?,descriptions?,selection?,diagnostics?},
-      preserving the full spec text and source lines; use null when no definition applies.'
-key:
-- repository
-- path
-- name
-card: true
-definition-block: operation
-listing: operations
 details:
 - method
 - path
@@ -53,6 +30,52 @@ details:
 - rpc
 - servers
 - summary
+fields:
+- name: contract
+  type: json
+  reference: code.contract
+  binding:
+    agent: The contract that declares the operation, by the key of that contract in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: 'The name the contract gives the operation: its operation id, or the RPC name.'
+- name: method
+  type: text
+  nullable: true
+  binding:
+    agent: The HTTP method the operation answers, where the contract is an HTTP one.
+- name: path
+  type: text
+  nullable: true
+  binding:
+    agent: The path the operation answers, where the contract is an HTTP one.
+- name: rpc
+  type: text
+  nullable: true
+  binding:
+    agent: The RPC name and stream shape the operation declares, where the contract is a gRPC one.
+- name: summary
+  type: text
+  nullable: true
+  binding:
+    agent: What the operation does, in the words the contract gives it.
+- name: public
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the contract marks the operation as open to callers outside the product.
+key:
+- contract
+- name
+derives-from:
+- code.contract
+card: true
+definition-block: operation
+listing: operations
 labels:
   en:
     one: API operation

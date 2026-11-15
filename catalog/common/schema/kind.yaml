@@ -1,14 +1,13 @@
 id: manifest.kinds
 purpose: structure
 audience: [architect, product-lead]
-definition: A kind is a declared type of entity in the product's manifest, with its concept, sources, status and rules.
+definition: A kind is one declared type of entity of the product, with the fields it holds, its natural key and the page it shows.
 sources:
 - https://doc.anytype.io/anytype/organize/types
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - defines
@@ -16,7 +15,33 @@ relation-constraints:
   in:
   - defines
   - partOf
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The kind's key in the manifest, such as domain or code.module.
+- name: concept
+  type: text
+  nullable: true
+  binding:
+    agent: 'The canonical concept the kind declares, such as c4.container: one concept has one kind.'
+- name: definition
+  type: text
+  nullable: true
+  binding:
+    agent: What the kind is, in one sentence, as its declaration words it.
+- name: template_policy
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the kind shows: a page of its own, a member row on another page, or nothing yet.'
+key:
+- name
 labels:
   en:
     one: Kind
@@ -25,5 +50,5 @@ labels:
     one: Вид
     many: Виды
 description:
-  en: 'A kind declares one type of thing the product''s catalogue knows: what it is, where the definition came from, how it may be acquired, which relations it may carry and whether it appears in its own right. A document, a service or a test case is a kind.'
-  ru: 'Вид объявляет один тип вещей, который знает каталог продукта: что это, откуда взято определение, как он может появляться, какие связи допускает и показывается ли сам по себе. Документ, сервис или тест — это виды.'
+  en: 'A kind is the product’s declaration of a type of entity: what it is, the sources it was taken from, how its entities are acquired, the relations it may carry and what its page shows. The catalogue is made of kinds, and the engine reads the product’s kinds as entities of the graph like any other.'
+  ru: 'Вид — объявление продуктом типа сущности: что это, из каких источников взято, как сущности появляются, какие связи допустимы и что показывает страница. Каталог состоит из видов, и движок читает виды продукта как сущности графа наравне с остальными.'

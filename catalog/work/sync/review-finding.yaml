@@ -6,6 +6,7 @@ sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
 - https://glossary.istqb.org/en_US/term/review
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -21,52 +22,31 @@ relation-constraints:
   - evidences
 template-policy: none
 fields:
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  nullable: true
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
+- name: severity
   type: text
   nullable: true
-  producers:
-  - person
-- name: owner
+  binding:
+    agent: How serious the finding is, in the words the review grades its findings by.
+- name: text
+  type: text
+  binding:
+    agent: What the review says is wrong, in its own words.
+- name: place
+  type: json
+  nullable: true
+  reference: code.file
+  binding:
+    agent: The file the finding stands in, by the key of that file in the graph.
+- name: line
+  type: integer
+  nullable: true
+  binding:
+    agent: The line the finding stands on.
+- name: resolution
   type: text
   nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: 'What was done about it: fixed, argued down or left open.'
 labels:
   en:
     one: Review finding

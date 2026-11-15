@@ -6,14 +6,38 @@ sources:
 - https://endoflife.date/
 acquisition:
 - document
-- conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - dependsOn
+  - partOf
   in:
   - dependsOn
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the technology is known by, such as Bun, PostgreSQL or Kubernetes; it is the technology's key.
+- name: version
+  type: text
+  nullable: true
+  binding:
+    agent: The version the product requires, where the documents or the code state one.
+- name: purpose
+  type: text
+  nullable: true
+  binding:
+    agent: What the product builds on it for, in one sentence, from the modules and the documents that name it in the graph.
+key:
+- name
+derives-from:
+- code.repository
+- document
 labels:
   en:
     one: Technology

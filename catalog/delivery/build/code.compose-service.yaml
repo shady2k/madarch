@@ -9,10 +9,51 @@ acquisition:
 relation-constraints:
   out:
   - dependsOn
+  - partOf
+  - code.runs
   in:
   - partOf
 template-policy: page
 source: graph
+fields:
+- name: file
+  type: text
+  reference: code.file
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: image
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: ports
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: depends_on
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: environment
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- file
+- name
+derives-from:
+- code.file
+- code.image
 labels:
   en:
     one: Compose service

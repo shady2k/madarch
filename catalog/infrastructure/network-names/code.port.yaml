@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - appliesTo
+  - partOf
   in:
   - appliesTo
 template-policy: page
@@ -16,6 +17,26 @@ source: graph
 details:
 - port
 - service
+fields:
+- name: service
+  type: text
+  reference: code.service
+  producers:
+  - operations
+- name: port
+  type: integer
+  producers:
+  - operations
+- name: protocol
+  type: text
+  nullable: true
+  producers:
+  - operations
+key:
+- service
+- port
+derives-from:
+- code.service
 labels:
   en:
     one: Port

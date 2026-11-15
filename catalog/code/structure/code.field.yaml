@@ -5,6 +5,7 @@ definition: A field is a named value that a type or an object holds.
 sources:
 - https://c4model.com/abstractions
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
@@ -13,16 +14,59 @@ relation-constraints:
   - hasPart
 template-policy: member
 source: graph
-member:
-  relation: code.contains
-  direction: in
-  parentKind: code.symbol
 details:
 - symbolKind
 - qualifiedName
 - typeText
 - value
 - language
+fields:
+- name: symbol
+  type: json
+  reference: code.symbol
+  binding:
+    agent: The type or the object that holds the field, by the key of that symbol in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code gives the field.
+- name: symbol_kind
+  type: text
+  nullable: true
+  binding:
+    agent: Whether the holder is a class, an interface, a struct or a type alias.
+- name: qualified_name
+  type: text
+  nullable: true
+  binding:
+    agent: The fully qualified name of the field, as the code declares it.
+- name: type_text
+  type: text
+  nullable: true
+  binding:
+    agent: The type the field is declared with, in the words of the language.
+- name: value
+  type: text
+  nullable: true
+  binding:
+    agent: The value the field is declared with, where the code gives one.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language the holder is written in.
+key:
+- symbol
+- name
+derives-from:
+- code.symbol
+member:
+  relation: code.contains
+  direction: in
+  parentKind: code.symbol
 labels:
   en:
     one: Field

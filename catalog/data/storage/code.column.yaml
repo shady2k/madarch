@@ -43,9 +43,6 @@ fields:
 key:
 - table
 - name
-terms:
-- '**/*.ts'
-- '**/*.tsx'
 details:
 - type
 - nullable

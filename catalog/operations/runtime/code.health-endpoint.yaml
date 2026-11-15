@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - providesApi
+  - implements
   in:
   - providesApi
 template-policy: page
@@ -19,6 +20,40 @@ details:
 - ports
 - statusOk
 - service
+fields:
+- name: service
+  type: text
+  reference: code.service
+  producers:
+  - operations
+- name: path
+  type: text
+  labels:
+    en: Path
+    ru: Путь
+  producers:
+  - operations
+- name: method
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: ports
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: status_ok
+  type: integer
+  nullable: true
+  producers:
+  - operations
+key:
+- service
+- path
+derives-from:
+- code.service
+- code.route
 labels:
   en:
     one: Health endpoint

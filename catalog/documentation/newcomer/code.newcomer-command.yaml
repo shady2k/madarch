@@ -5,10 +5,12 @@ definition: A newcomer command is a command the README tells a newcomer to run.
 sources:
 - https://diataxis.fr/
 acquisition:
+- agent-from-graph
 - extractor operations
 relation-constraints:
   out:
   - documents
+  - partOf
   in:
   - documents
 template-policy: page
@@ -18,6 +20,32 @@ details:
 - folder
 - purpose
 - order
+fields:
+- name: repository
+  type: text
+  reference: code.repository
+  binding:
+    agent: The repository whose README the command belongs to, by the key of that repository in the graph.
+- name: command
+  type: text
+  binding:
+    agent: The command as a newcomer runs it, in the words the repository gives it.
+- name: purpose
+  type: text
+  nullable: true
+  binding:
+    agent: What the command does, in one sentence, from the documents that mention it in the graph.
+- name: order
+  type: integer
+  nullable: true
+  binding:
+    agent: Where the command stands in the setup, lowest first, from the order the documents give.
+key:
+- repository
+- command
+derives-from:
+- document
+- code.repository
 labels:
   en:
     one: Setup command

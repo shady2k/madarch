@@ -42,6 +42,7 @@ fields:
 - name: latest_result
   type: json
   nullable: true
+  reference: test-result
   binding: test-quarantine@1.latest_result
 key:
 - repository

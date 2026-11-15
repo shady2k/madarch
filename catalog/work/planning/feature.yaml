@@ -6,79 +6,46 @@ sources:
 - https://cucumber.io/docs/gherkin/reference/
 - https://support.atlassian.com/jira-software-cloud/docs/what-is-an-epic/
 acquisition:
-- document
+- agent-from-graph
 - conversation
-- not-implemented
 relation-constraints:
   out:
+  - realises
+  - hasPart
+  - implements
+  - refines
+  in:
   - partOf
   - refines
   - realises
-  in:
-  - hasPart
-  - refines
-template-policy: none
+template-policy: page
+source: graph
 fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the service it offers, such as Pay by card; it is the feature's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What a person can do once the feature exists, in one or two sentences.
+- name: value
+  type: text
+  nullable: true
+  binding:
+    agent: The need the feature meets and why it is worth doing.
 - name: status
   type: json
+  nullable: true
   reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: issue_type
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: dependencies
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: comments
-  type: json
-  nullable: true
-  producers:
-  - person
+  binding:
+    agent: Where the feature stands, as the work kinds keep it.
+key:
+- name
 labels:
   en:
     one: Feature

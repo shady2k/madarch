@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - contains
+  - partOf
   in:
   - partOf
 template-policy: page
@@ -16,6 +17,23 @@ source: graph
 origin: history
 details:
 - commit
+fields:
+- name: repository
+  type: text
+  reference: code.repository
+  producers:
+  - operations
+- name: commit
+  type: text
+  reference: code.commit
+  producers:
+  - operations
+key:
+- repository
+- commit
+derives-from:
+- code.repository
+- code.commit
 labels:
   en:
     one: Repository landmark

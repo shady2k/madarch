@@ -9,10 +9,36 @@ acquisition:
 relation-constraints:
   out:
   - generates
+  - partOf
   in:
   - partOf
 template-policy: page
 source: graph
+fields:
+- name: file
+  type: text
+  reference: code.file
+  producers:
+  - operations
+- name: base_image
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: stages
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: exposed_ports
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- file
+derives-from:
+- code.file
 labels:
   en:
     one: Dockerfile

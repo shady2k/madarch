@@ -9,6 +9,8 @@ acquisition:
 relation-constraints:
   out:
   - partOf
+  - mentions
+  - documents
   in:
   - hasPart
 template-policy: page
@@ -17,6 +19,49 @@ details:
 - heading
 - level
 - path
+fields:
+- name: document
+  type: text
+  reference: document
+  producers:
+  - operations
+- name: anchor
+  type: text
+  labels:
+    en: Anchor
+    ru: Якорь
+  producers:
+  - operations
+- name: heading
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: level
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: path
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: line_start
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: line_end
+  type: integer
+  nullable: true
+  producers:
+  - operations
+key:
+- document
+- anchor
+derives-from:
+- document
 labels:
   en:
     one: Document section

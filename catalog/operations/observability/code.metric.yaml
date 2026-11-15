@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - measures
+  - partOf
   in:
   - measures
 template-policy: page
@@ -21,6 +22,44 @@ details:
 - library
 - definitionFormat
 - service
+fields:
+- name: service
+  type: text
+  reference: code.service
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: metric_type
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: help
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: labels
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: library
+  type: text
+  nullable: true
+  producers:
+  - operations
+key:
+- service
+- name
+derives-from:
+- code.service
 labels:
   en:
     one: Metric

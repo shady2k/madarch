@@ -6,45 +6,52 @@ sources:
 - https://diataxis.fr/
 acquisition:
 - document
-- conversation
+- agent-from-graph
 relation-constraints:
   out:
-  - hasDocumentation
+  - hasPart
+  - linksTo
+  - documents
+  - partOf
   in:
   - documents
+  - partOf
 template-policy: page
 source: graph
 fields:
-- name: commit
+- name: repository
   type: text
+  reference: code.repository
   binding:
-    agent: 'Read each **/*.md source file at the pinned repository revision: the exact commit that grounds its Markdown, heading
-      anchors and line extents.'
+    agent: The repository the document stands in, by the key of that repository in the graph.
 - name: path
   type: text
+  labels:
+    en: Path
+    ru: Путь
   binding:
-    agent: 'Read each **/*.md source file: repository-relative path of the document.'
-- name: repository
+    agent: The path of the document in the repository.
+- name: title
   type: text
   nullable: true
   binding:
-    agent: 'Read each **/*.md source file: the repository name, or null for the product repository.'
-- name: markdown
+    agent: The title the document gives itself.
+- name: format
   type: text
+  nullable: true
   binding:
-    agent: 'Read each **/*.md source file: the full document Markdown.'
-- name: anchors
-  type: json
+    agent: 'The form the document is written in: Markdown, reStructuredText, AsciiDoc or plain text.'
+- name: commit
+  type: text
+  nullable: true
+  reference: code.commit
   binding:
-    agent: 'Read each **/*.md source file: map each Markdown heading anchor to {title, start, end, markdown}, preserving source
-      line numbers and full section Markdown.'
-- name: links
-  type: json
-  binding:
-    agent: 'Read each **/*.md source file: an array of Markdown link targets for document navigation.'
+    agent: The commit whose text the document was read at, where the graph holds one.
 key:
 - repository
 - path
+derives-from:
+- code.file
 labels:
   en:
     one: Document

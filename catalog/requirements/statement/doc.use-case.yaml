@@ -5,17 +5,56 @@ definition: A use case is a way an actor reaches a goal with the system, as the 
 sources:
 - https://arc42.org/overview
 acquisition:
+- agent-from-graph
 - document
 - conversation
 relation-constraints:
   out:
+  - hasPart
+  - realises
   - refines
-  - satisfies
+  - partOf
   in:
+  - documents
   - refines
 template-policy: page
 source: graph
 origin: person
+fields:
+- name: identifier
+  type: text
+  labels:
+    en: Identifier
+    ru: Идентификатор
+  binding:
+    agent: The number the use case is known by, such as UC-1; it is the use case's key.
+- name: name
+  type: text
+  binding:
+    agent: 'What the use case is, in one line: the goal the actor reaches.'
+- name: goal
+  type: text
+  nullable: true
+  binding:
+    agent: What the actor gets done when the use case ends well.
+- name: primary_actor
+  type: json
+  nullable: true
+  reference: role
+  binding:
+    agent: The role that starts the use case, by the key of that role in the graph.
+- name: preconditions
+  type: text
+  nullable: true
+  binding:
+    agent: What holds before the use case starts.
+- name: postconditions
+  type: text
+  nullable: true
+  binding:
+    agent: What holds once the use case ends well.
+key:
+- identifier
 labels:
   en:
     one: Use case
@@ -26,4 +65,3 @@ labels:
 description:
   en: A use case describes a sequence of interactions in which an actor — a person or another system — reaches a goal with the product, including what can go wrong. It is written from outside, so it shows the product as its users meet it.
   ru: Сценарий описывает последовательность взаимодействий, в которых действующее лицо — человек или другая система — достигает цели с помощью продукта, включая то, что может пойти не так. Он написан снаружи, поэтому показывает продукт таким, каким его встречают пользователи.
-key: []

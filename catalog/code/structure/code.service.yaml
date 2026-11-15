@@ -5,42 +5,78 @@ definition: A service is a deployable part of the system, with the interfaces it
 sources:
 - https://c4model.com/abstractions
 acquisition:
-- extractor operations
+- agent-from-graph
+- conversation
 relation-constraints:
   out:
+  - contains
   - providesApi
+  - consumesApi
+  - publishes
+  - subscribes
   - dependsOn
   - ownedBy
   in:
   - partOf
 template-policy: page
 source: graph
-fields:
-- name: repository
-  type: text
-  nullable: true
-  binding:
-    agent: 'Read the declared repositories: repository name, or null for the product repository.'
-- name: path
-  type: text
-  binding:
-    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-key:
-- repository
-- path
-relations:
-- type: code.contains
-  to: code.package:{span.path|dirname}
-card: true
-history: membership
-views:
-- c4-component
-system: container
 details:
 - language
 - frameworks
 - infrastructure
 - testFramework
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the people who run the product give this service, such as madarch or billing-api; it is the service's key.
+- name: repository
+  type: json
+  nullable: true
+  reference: code.repository
+  binding:
+    agent: The repository whose folder holds the service, by the key of that repository in the graph.
+- name: path
+  type: text
+  nullable: true
+  binding:
+    agent: The folder inside the repository where the service stands, as the folder entity holds it in the graph.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language most of the service is written in, from its files in the graph.
+- name: frameworks
+  type: json
+  nullable: true
+  binding:
+    agent: The frameworks the service is built with, from the packages it imports in the graph.
+- name: runtime
+  type: text
+  nullable: true
+  binding:
+    agent: What runs the service, from the images, deployments and processes that carry it in the graph.
+- name: purpose
+  type: text
+  nullable: true
+  binding:
+    agent: What the service answers for, in one or two sentences, from its modules, the operations and channels it serves and the documents that mention it in the graph.
+key:
+- name
+derives-from:
+- code.directory
+- code.file
+- code.module
+card: true
+views: [c4-component]
+system: container
+history: membership
+relations:
+  - type: code.contains
+    to: code.package:{span.path|dirname}
 labels:
   en:
     one: Service

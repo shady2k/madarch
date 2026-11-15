@@ -6,63 +6,52 @@ sources:
 - https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges
 - https://github.com/shady2k/madarch/blob/main/docs/vision/architecture-talk-2026-11-01.md
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
 relation-constraints:
   out:
   - contains
+  - approves
   in:
   - partOf
-  - approves
 template-policy: none
 fields:
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  nullable: true
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
+- name: source
   type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
+  binding:
+    agent: 'What is merged: the branch or the change request it comes from.'
+- name: target
   type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
+  binding:
+    agent: The line of development it is merged into.
+- name: merged_at
   type: timestamp
   nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
+  binding:
+    agent: When the merge happened.
+- name: merged_by
+  type: json
   nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
+  reference: person
+  binding:
+    agent: The person who allowed the merge.
+- name: commit
+  type: json
   nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
+  reference: code.commit
+  binding:
+    agent: The commit the merge made, where it made one.
+- name: conditions
+  type: json
   nullable: true
-  producers:
-  - person
+  binding:
+    agent: 'What had to hold for the merge: the checks that passed and the approvals given.'
+key:
+- source
+- target
+- merged_at
 labels:
   en:
     one: Merge

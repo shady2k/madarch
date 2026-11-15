@@ -1,14 +1,13 @@
 id: manifest.responsibility
 purpose: structure
 audience: [architect, product-lead]
-definition: Responsibility is the shared part of a kind that names the responsible person who answers for an entity and the executor, a person or an agent, who carries out the work.
+definition: Responsibility is the part of an entity that names the person who answers for it and the person or agent who carries its work out.
 sources:
 - https://scrumguides.org/scrum-guide.html
 - https://support.atlassian.com/jira-software-cloud/docs/edit-the-assignee-of-an-issue-with-your-keyboard/
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - assigns
@@ -16,7 +15,26 @@ relation-constraints:
   in:
   - defines
   - partOf
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: responsible
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who answers for the entity.
+- name: executor_type
+  type: text
+  nullable: true
+  binding:
+    agent: 'Who carries the work out: a person or an agent.'
+- name: executor
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who carries the work out, where a person does it.
 labels:
   en:
     one: Responsibility
@@ -25,5 +43,5 @@ labels:
     one: Ответственность
     many: Ответственности
 description:
-  en: 'Responsibility is the common part of a kind''s declaration that records two people: the responsible person who answers for the entity, and the executor — a person or an agent — who does the work.'
-  ru: 'Ответственность — общая часть объявления вида, которая записывает двоих: ответственного человека, который отвечает за сущность, и исполнителя — человека или агента, — который выполняет работу.'
+  en: Responsibility is the shared part of a kind that names who answers for an entity and who carries its work out. It becomes a reference field of every kind that takes it, so the person and the role stand in the graph rather than in a string.
+  ru: Ответственность — общая часть вида, которая называет, кто отвечает за сущность и кто выполняет работу. Она становится полем-ссылкой каждого вида, который её берёт, поэтому человек и роль стоят в графе, а не в строке.

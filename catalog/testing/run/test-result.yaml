@@ -5,15 +5,41 @@ definition: A test result is the outcome of one test case in one run, with the t
 sources:
 - https://glossary.istqb.org/en_US/term/test-result
 acquisition:
-- document
-- conversation
-- not-implemented
+- extractor test-quarantine
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
+  - evidences
   in:
-  - partOf
-template-policy: none
+  - hasPart
+  - evidences
+template-policy: page
+source: graph
+fields:
+- name: test
+  type: json
+  reference: code.test-case
+  binding:
+    agent: The test case the result belongs to, by the key of that case in the graph.
+- name: outcome
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the run answered: passed, failed or skipped.'
+- name: at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the test ran.
+- name: duration
+  type: integer
+  nullable: true
+  binding:
+    agent: How long the test took, in milliseconds.
+key:
+- test
+- at
 labels:
   en:
     one: Test result

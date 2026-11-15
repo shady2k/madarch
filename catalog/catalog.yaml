@@ -122,7 +122,6 @@ groups:
   data.storage: { en: "Storage", ru: "Хранилища", short: { en: "Storage", ru: "Хранилища" }, parent: data }
   data.model: { en: "Model and catalog", ru: "Модель и каталог", short: { en: "Model and catalog", ru: "Модель" }, parent: data }
   data.job: { en: "Jobs and quality", ru: "Задания и качество", short: { en: "Jobs and quality", ru: "Задания" }, parent: data }
-  data.provenance: { en: "Provenance", ru: "Происхождение", short: { en: "Provenance", ru: "Происхождение" }, parent: data }
   messaging.messaging: { en: "Messaging", ru: "Обмен сообщениями", short: { en: "Messaging", ru: "Сообщения" }, parent: messaging }
   messaging.cache: { en: "Caches", ru: "Кэши", short: { en: "Caches", ru: "Кэши" }, parent: messaging }
   messaging.storage: { en: "Storage services", ru: "Сервисы хранения", short: { en: "Storage", ru: "Хранилища" }, parent: messaging }
@@ -494,6 +493,7 @@ catalog:
     constrains: {"labels": {"en": {"out": "constrains", "in": "constrains"}, "ru": {"out": "ограничивает", "in": "constrains"}}}
     consumesApi: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "consumes API", "in": "consumesApi"}, "ru": {"out": "использует API", "in": "consumesApi"}}}
     contains: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "contains", "in": "contained in"}, "ru": {"out": "содержит", "in": "содержится в"}}}
+    decides: {"labels": {"en": {"out": "decides", "in": "decided by"}, "ru": {"out": "решает", "in": "решено"}}}
     defines: {"labels": {"en": {"out": "defines", "in": "defines"}, "ru": {"out": "определяет", "in": "defines"}}}
     dependsOn: {"source": "https://backstage.io/docs/features/software-catalog/well-known-relations", "labels": {"en": {"out": "depends on", "in": "dependsOn"}, "ru": {"out": "зависит от", "in": "dependsOn"}}}
     derivesFrom: {"labels": {"en": {"out": "derives from", "in": "derivesFrom"}, "ru": {"out": "происходит от", "in": "derivesFrom"}}}
@@ -501,11 +501,13 @@ catalog:
     evidences: {"labels": {"en": {"out": "evidences", "in": "evidences"}, "ru": {"out": "обосновывает", "in": "evidences"}}}
     fixedBy: {"labels": {"en": {"out": "fixed by", "in": "fixedBy"}, "ru": {"out": "исправляется", "in": "fixedBy"}}}
     fixedIn: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "fixed in", "in": "fixedIn"}, "ru": {"out": "исправлено в", "in": "fixedIn"}}}
+    flowsTo: {"source": "https://www.omg.org/spec/BPMN/", "labels": {"en": {"out": "flows to", "in": "flows from"}, "ru": {"out": "переходит в", "in": "получен из"}}}
     foundBy: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "found by", "in": "foundBy"}, "ru": {"out": "обнаружено", "in": "foundBy"}}}
     generates: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "generates", "in": "generates"}, "ru": {"out": "порождает", "in": "generates"}}}
     grants: {"labels": {"en": {"out": "grants", "in": "grants"}, "ru": {"out": "предоставляет", "in": "grants"}}}
     handles: {"labels": {"en": {"out": "handles", "in": "handles"}, "ru": {"out": "обрабатывает", "in": "handles"}}}
     hasAcceptanceCriterion: {"labels": {"en": {"out": "has acceptance criterion", "in": "hasAcceptanceCriterion"}, "ru": {"out": "имеет критерий приёмки", "in": "hasAcceptanceCriterion"}}}
+    hasAccessRole: {"labels": {"en": {"out": "has access role", "in": "access role of"}, "ru": {"out": "имеет роль доступа", "in": "роль доступа для"}}}
     hasDeclaredLicense: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has declared license", "in": "hasDeclaredLicense"}, "ru": {"out": "имеет заявленную лицензию", "in": "hasDeclaredLicense"}}}
     hasDependencyManifest: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has dependency manifest", "in": "hasDependencyManifest"}, "ru": {"out": "имеет манифест зависимостей", "in": "hasDependencyManifest"}}}
     hasDistributionArtifact: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "has distribution artifact", "in": "hasDistributionArtifact"}, "ru": {"out": "имеет артефакт поставки", "in": "hasDistributionArtifact"}}}
@@ -546,6 +548,7 @@ catalog:
     verifies: {"labels": {"en": {"out": "verifies", "in": "verifies"}, "ru": {"out": "верифицирует", "in": "verifies"}}}
     as-is: {"labels": {"en": {"out": "as is", "in": "as-is"}, "ru": {"out": "текущее состояние", "in": "as-is"}}}
     history: {"labels": {"en": {"out": "history", "in": "history"}, "ru": {"out": "история", "in": "history"}}}
+    holds: {"labels": {"en": {"out": "holds", "in": "held by"}, "ru": {"out": "исполняет", "in": "исполняется"}}}
     parent: {"labels": {"en": {"out": "parent", "in": "parent"}, "ru": {"out": "родитель", "in": "parent"}}}
     touched: {"labels": {"en": {"out": "touched", "in": "touched"}, "ru": {"out": "затронул", "in": "touched"}}}
     authored: {"labels": {"en": {"out": "authored", "in": "authored"}, "ru": {"out": "автор", "in": "authored"}}}
@@ -625,3 +628,26 @@ edges:
   - { name: mentions, from: [any], to: [any], repeats: true, discriminator: place }
   - { name: linksTo, from: [any], to: [any], repeats: true, discriminator: place }
   - { name: grounds, from: [any], to: [any], repeats: true, discriminator: place }
+  # The control flow of a business process or an activity: one node to the next, with the condition that allows it. A flow
+  # is an edge of the graph, never a vertex of its own (ADR 0034, item 5), so BPMN and activity diagrams draw it from here.
+  - { name: flowsTo, from: [process-step, bpmn.gateway, bpmn.event], to: [process-step, bpmn.gateway, bpmn.event], repeats: true, discriminator: place }
+  # A library a manifest declares is an edge, not an entity (the catalogue audit of 2026-11-15): the version and the scope
+  # it is declared in are the edge's attributes, so the same package may be declared twice for two scopes.
+  - name: package.dependsOn
+    from: [code.manifest]
+    to: [code.package]
+    repeats: true
+    discriminator: package
+    fields:
+      - { name: package, type: text, producers: [imports] }
+      - { name: version, type: text, nullable: true, producers: [imports] }
+      - { name: scope, type: text, nullable: true, producers: [imports] }
+      - { name: exact, type: boolean, nullable: true, producers: [imports] }
+  # Ownership is a dated edge, not an entity (the catalogue audit of 2026-11-15): who answers for a thing, from when and
+  # until when, stands on the edge between the thing and its owner.
+  - name: ownedBy
+    from: [any]
+    to: [any]
+    fields:
+      - { name: since, type: timestamp, nullable: true, producers: [agent] }
+      - { name: until, type: timestamp, nullable: true, producers: [agent] }

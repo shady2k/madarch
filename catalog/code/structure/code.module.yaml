@@ -10,6 +10,8 @@ relation-constraints:
   out:
   - contains
   - dependsOn
+  - providesApi
+  - consumesApi
   in:
   - partOf
 template-policy: page

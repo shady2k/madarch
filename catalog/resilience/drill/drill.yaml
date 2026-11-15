@@ -5,6 +5,7 @@ definition: A drill is a planned exercise in which a disruption is simulated and
 sources:
 - https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -13,7 +14,33 @@ relation-constraints:
   - verifies
   in:
   - verifies
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: What the drill practises, in one line; it is the drill's key.
+- name: objectives_met
+  type: json
+  nullable: true
+  binding:
+    agent: Which objectives the drill reached, as the record states them.
+- name: duration
+  type: integer
+  nullable: true
+  binding:
+    agent: How long the drill took, in seconds.
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the drill ran.
+key:
+- name
 labels:
   en:
     one: Drill

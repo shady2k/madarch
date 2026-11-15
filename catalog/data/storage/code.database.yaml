@@ -5,12 +5,15 @@ definition: A database is an organised store of data that a service owns, with i
 sources:
 - https://www.postgresql.org/docs/
 acquisition:
+- agent-from-graph
 - extractor data-model
 relation-constraints:
   out:
   - contains
+  - ownedBy
   in:
   - dependsOn
+  - partOf
 template-policy: page
 source: graph
 fields:
@@ -20,11 +23,20 @@ fields:
 - name: repository
   type: text
   binding: db-schema@1.repository
+- name: service
+  type: json
+  nullable: true
+  reference: code.service
+  binding:
+    agent: 'The service that owns the database, by the key of that service in the graph.'
+- name: path
+  type: text
+  nullable: true
+  binding:
+    agent: 'The path of the file that declares the database, as the file entity holds it.'
 key:
+- repository
 - name
-terms:
-- '**/*.ts'
-- '**/*.tsx'
 card: true
 er: tables
 system: data-store

@@ -1,21 +1,46 @@
 id: manifest.link-types
 purpose: structure
 audience: [architect, product-lead]
-definition: 'A link type declares a kind of connection between entities: its name, the kinds it may join and the labels at each end.'
+definition: A link type is one kind of connection the product declares between entities, with the kinds it may join and the words at each end.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/link-issues/
 - https://doc.anytype.io/anytype/create/links
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - defines
   - constrains
   in:
   - defines
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the connection is written by, such as blocks or relates.
+- name: from_kinds
+  type: json
+  nullable: true
+  binding:
+    agent: The kinds the connection starts at.
+- name: to_kinds
+  type: json
+  nullable: true
+  binding:
+    agent: The kinds the connection reaches.
+- name: labels
+  type: json
+  nullable: true
+  binding:
+    agent: The words each end of the connection is shown by, in each interface language.
+key:
+- name
 labels:
   en:
     one: Link type
@@ -24,5 +49,5 @@ labels:
     one: Тип связи
     many: Типы связей
 description:
-  en: A link type names a relationship that entities may have, such as uses, contains or depends on, and states which kinds may stand at each end and what the ends are called. Every link of that relationship follows the type's declaration.
-  ru: 'Тип связи называет отношение, которое может быть между сущностями: использует, содержит или зависит от, — и говорит, какие виды могут стоять на каждом конце и как эти концы называются. Каждая связь такого отношения следует объявлению типа.'
+  en: 'A link type declares a connection between entities: its name, the kinds at each end and the words the link reads as in each direction. Every relation a kind carries is a link type the catalogue declares.'
+  ru: 'Тип связи объявляет связь между сущностями: её имя, виды на каждом конце и слова, которыми связь читается в каждую сторону. Каждая связь вида — объявленный каталогом тип связи.'

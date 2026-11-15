@@ -9,6 +9,8 @@ acquisition:
 relation-constraints:
   out:
   - hasPart
+  - code.runs
+  - partOf
   in:
   - partOf
 template-policy: page
@@ -20,6 +22,49 @@ details:
 - probePath
 - probePaths
 - envFrom
+fields:
+- name: namespace
+  type: text
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: image
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: replicas
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: container_ports
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: probes
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: env_from
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- namespace
+- name
+derives-from:
+- code.file
+- code.image
 labels:
   en:
     one: Kubernetes deployment
