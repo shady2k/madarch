@@ -1312,7 +1312,10 @@
     "diagramFailed": "The diagram could not be built.",
     "diagramTooLarge": "The diagram is too large to show.",
     "diagramBadRequest": "The server refused the diagram request.",
-    "diagramRenderer": "Renderer"
+    "diagramRenderer": "Renderer",
+    "diagramFit": "Fit",
+    "diagramZoomIn": "Zoom in",
+    "diagramZoomOut": "Zoom out"
   },
   "loop": {
     "questionsTitle": "Questions",

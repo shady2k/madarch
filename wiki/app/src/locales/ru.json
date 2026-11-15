@@ -1312,7 +1312,10 @@
     "diagramFailed": "Не удалось построить диаграмму.",
     "diagramTooLarge": "Диаграмма слишком велика, чтобы её показать.",
     "diagramBadRequest": "Сервер отклонил запрос диаграммы.",
-    "diagramRenderer": "Отрисовка"
+    "diagramRenderer": "Отрисовка",
+    "diagramFit": "По размеру",
+    "diagramZoomIn": "Увеличить",
+    "diagramZoomOut": "Уменьшить"
   },
   "loop": {
     "questionsTitle": "Вопросы",

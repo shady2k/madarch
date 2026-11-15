@@ -5,7 +5,7 @@ Base: ef989dae1b707459a69421ca1d4bdee54cd6904b
 Tasks: madarch-64o5.87
 Kind: no-behavior
 
-## Rationale
+## Intent
 
 The owner met a fill that ended in 14 seconds but still read as hung: four units stayed `blocked`, the progress line was
 empty, «Осталось: пока неизвестно» stayed on the page, and the final state was a small word in the date line. A later
@@ -18,21 +18,23 @@ A run whose process died was left `running` until a five-minute age fallback. Th
 recovery now follows a lease the running process renews, claims that lease under the same lock planning uses, and never
 reads process identity from `/proc`.
 
-## Preserved contracts
+## Out of scope
 
-- product-wiki/fill-state: a run still walks its persisted planning, running, pause, cancel and terminal steps; the
-  public phase is the one every reader maps through, and a final run never leaves a unit waiting, blocked or planned.
-- product-wiki/run-page: pause and stop remain available while the run is live; a failed or partial run still names its
-  cause and the retry action, while a successful or stopped run carries no failure alert.
-- product-wiki/internationalization: all new run, unit and status words exist in English and Russian.
+A stage that blocks the event loop longer than the lease bound (madarch-64o5.116); the Logs page and the run's detailed journal (madarch-64o5.88).
+
+## Rationale
+
+One public machine for a run and its units, read by the store, the API and the page alike, so no reader can show a run as live after it ended; a lease the owner renews replaces reading process identity, which failed on Linux tokens set at runtime and on macOS. Checks: `bun run check` clean; fill and plugin suites 614 pass, 0 fail; wiki app 111 pass; mutation not run, filed per the stage rule; Codex review of PR #318 and its re-check; run-page shots at 1440 and 390.
+
+## Preserved contracts
+- fill-orchestrator/cancel: pause and stop still revoke authority before a run settles; only the final state words change.
+- fill-orchestrator/completion: a run still finishes with what it covered; every unit of a final run is now final too.
+- fill-orchestrator/recovery: what an attempt left unpublished is still worked again; recovery now follows the run lease.
 
 ## Coverage
-
-- static: `bun run check` — clean (36 known architecture entries, 0 UI violations).
-- test: affected fill suites — 247 pass, 0 fail; wiki app — 96 pass, 0 fail.
-- mutation: not run, filed per the stage rule.
-- review: coordinator review of PR #318 and the owner's successful and failed run screenshots; fresh run-page evidence at
-  1440 and 390 CSS pixels.
+- fill-orchestrator/cancel: static, test, mutation, review
+- fill-orchestrator/completion: static, test, mutation, review
+- fill-orchestrator/recovery: static, test, mutation, review
 
 ## Where it is seen
 
