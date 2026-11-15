@@ -355,3 +355,27 @@ test('an initdb that does not finish is ended with its whole tree, and the open 
   while (written.some((pid) => alive(pid)) && Date.now() < deadline) await Bun.sleep(50);
   expect(written.filter((pid) => alive(pid))).toEqual([]);
 }, 60_000);
+
+test('a descendant of initdb that holds its stdout does not keep the process alive', async () => {
+  // initdb's bootstrap descendant inherits its pipes. A start that waited for them outlived initdb, and the process
+  // stayed alive on a pipe no one would close (measured before: Bun exited only when the descendant ended, 6 s later).
+  const store = storeOf('initdb stdout');
+  const bin = join(root, 'fake-bin-stdout');
+  mkdirSync(bin, { recursive: true });
+  const pids = join(root, 'fake-initdb-stdout-pids.txt');
+  writeFileSync(join(bin, 'initdb'), `#!/bin/sh\necho $$ > "${pids}"\nsleep 30 &\necho $! >> "${pids}"\nexit 0\n`);
+  writeFileSync(join(bin, 'pg_ctl'), '#!/bin/sh\nexit 1\n');
+  chmodSync(join(bin, 'initdb'), 0o755);
+  chmodSync(join(bin, 'pg_ctl'), 0o755);
+  const started = performance.now();
+  const run = Bun.spawn(['bun', join(import.meta.dir, 'postgres-cluster-owner-driver.ts'), 'open-and-exit', store, bin], { stdout: 'pipe', stderr: 'pipe' });
+  const code = await run.exited;
+  const elapsed = performance.now() - started;
+  expect(code).toBe(0);
+  expect(elapsed).toBeLessThan(10_000);
+  const written = readFileSync(pids, 'utf8').trim().split('\n').map((line) => Number(line));
+  expect(written).toHaveLength(2);
+  const deadline = Date.now() + 5_000;
+  while (written.some((pid) => alive(pid)) && Date.now() < deadline) await Bun.sleep(50);
+  expect(written.filter((pid) => alive(pid))).toEqual([]);
+}, 60_000);

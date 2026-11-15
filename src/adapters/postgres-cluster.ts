@@ -602,6 +602,11 @@ async function runInitdb(program: string, args: readonly string[], named: (pid: 
       finish({ code: null, timedOut: true });
     }, timeoutMs);
   });
+  // initdb has ended, one way or the other: what it started is ended with it, and both of its pipes are closed here.
+  // A bootstrap descendant that survived initdb holds its stdout, and a pipe left open keeps this process alive after
+  // the start is over (measured: Bun exited only when the descendant ended, 6 s later).
+  endInitdbTree(child.pid);
+  child.stdout.destroy();
   child.stderr.destroy();
   if (outcome.timedOut) {
     throw new Error(`${program}:1: ${[...args].join(' ')} did not finish within ${String(timeoutMs)} ms, so initdb and everything it started were ended (src/adapters/postgres-cluster.ts)`);
