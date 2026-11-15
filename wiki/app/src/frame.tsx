@@ -29,7 +29,6 @@ import { SearchContainer } from './components/ui/search-results.js';
 import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { RunIndicator } from './components/run-indicator.js';
-import { FillEntry } from './components/fill-entry.js';
 import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage } from './address.js';
@@ -321,7 +320,6 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, on
       {menu}
       <SearchBox base={base} open={open} />
       <ShellActions>
-        <FillEntry open={open} />
         <RunIndicator base={base} open={open} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
