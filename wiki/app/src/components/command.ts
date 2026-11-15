@@ -187,6 +187,14 @@ export interface Problem {
   readonly source?: string;
   readonly by: { readonly name: string; readonly email: string; readonly verified: string } | null;
   readonly at: string | null;
+  /** The task a person already opened from this problem: the page links to it instead of offering a second. */
+  readonly task?: ProblemLink;
+}
+
+/** One press of «Создать задачу»: the task the problem has, and whether this press made it or found it. */
+export interface ProblemTaskAnswer {
+  readonly task: ProblemLink;
+  readonly state: 'created' | 'existing';
 }
 
 export interface ProblemCategory {
@@ -382,8 +390,8 @@ export const readProblemsCount = (base: string, signal?: AbortSignal): Promise<P
 /** Records that a problem is not one, in the product's repository. */
 export const dismissProblem = (base: string, id: string, reason: string): Promise<unknown> => command(base, '/api/problem-dismiss', { method: 'POST', body: JSON.stringify({ id, reason }) });
 
-/** Opens the task a problem names. */
-export const makeProblemTask = (base: string, id: string): Promise<unknown> => command(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
+/** Presses «Создать задачу»: the task the problem has, made now or found from an earlier press. */
+export const makeProblemTask = (base: string, id: string): Promise<ProblemTaskAnswer> => command<ProblemTaskAnswer>(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
 
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });

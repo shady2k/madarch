@@ -48,16 +48,21 @@ function ProblemRow({ problem, base, open, refresh }: {
       (failure: unknown) => { setWorking(null); setError(message(failure)); },
     );
   };
+  // A problem that already has its task opens it: the page never writes a second one (madarch-64o5.104).
   const task = (): void => {
+    if (problem.task !== undefined && problem.task.href !== null) {
+      open(problem.task.href);
+      return;
+    }
     setWorking('task');
     setError(null);
     makeProblemTask(base, problem.id).then(
       (answer) => {
         setWorking(null);
-        const title = answer !== null && typeof answer === 'object' && 'task' in answer
-          ? (answer as { task?: { title?: unknown } }).task?.title
-          : undefined;
-        setDone(typeof title === 'string' ? t('loop.problemTaskCreated', { title }) : t('loop.problemTaskCreated', { title: problem.rule }));
+        if (answer.state === 'existing' && answer.task.href !== null) { open(answer.task.href); return; }
+        setDone(t('loop.problemTaskCreated', { title: answer.task.label }));
+        // The row now links to the task: the listing is read again so the page says «есть задача» at once.
+        refresh();
       },
       (failure: unknown) => { setWorking(null); setError(message(failure)); },
     );
@@ -82,13 +87,18 @@ function ProblemRow({ problem, base, open, refresh }: {
           {t('loop.problemEvidence')} {problem.evidence.map((link, at) => <Text key={`${String(at)}:${link.label}`}>{at > 0 ? ' → ' : ''}<Place link={link} base={base} open={open} /></Text>)}
         </Paragraph>
       )}
+      {problem.task === undefined ? null : (
+        <Paragraph className="mb-0 mt-1 text-small" data-testid="problem-task">
+          {t('loop.problemHasTask')} <Place link={problem.task} base={base} open={open} />
+        </Paragraph>
+      )}
       <Paragraph className="mb-0 mt-1 text-small text-muted">
         <InlineCode>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</InlineCode>
         {problem.by === null || problem.at === null ? null : <Text> · {t('loop.by', { name: problem.by.name, email: problem.by.email })}</Text>}
       </Paragraph>
       <Stack className="mt-2 flex flex-wrap items-center gap-2">
         <Button size="default" variant="ghost" disabled={working !== null} onClick={() => setAsking((held) => !held)} data-testid="problem-not-a-problem">{t('loop.problemNotAProblem')}</Button>
-        <Button size="default" variant="ghost" disabled={working !== null} onClick={task} data-testid="problem-create-task">{t('loop.problemCreateTask')}</Button>
+        <Button size="default" variant="ghost" disabled={working !== null} onClick={task} data-testid="problem-create-task">{problem.task === undefined ? t('loop.problemCreateTask') : t('loop.problemOpenTask')}</Button>
         {done === null ? null : <Text className="text-small text-muted" data-testid="problem-done">{done}</Text>}
         {error === null ? null : <Text className="text-small" role="alert" data-testid="problem-action-error">{error}</Text>}
       </Stack>

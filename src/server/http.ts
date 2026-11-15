@@ -706,7 +706,6 @@ export function createHandler(dependencies: {
         { method: 'GET', path: API.journal, handle: (request: Request) => dependencies.knowledge!.journal(request) },
         { method: 'GET', path: API.refreshPlan, handle: (request: Request) => dependencies.knowledge!.refreshPlan(request) },
         { method: 'POST', path: API.taskPropose, handle: (request: Request) => dependencies.knowledge!.proposeTask(request) },
-        { method: 'POST', path: API.taskCreate, handle: (request: Request) => dependencies.knowledge!.createTask(request) },
         { method: 'POST', path: API.taskClose, handle: (request: Request) => dependencies.knowledge!.closeTask(request) },
         { method: 'POST', path: API.taskRun, handle: (request: Request) => dependencies.knowledge!.runTask(request) },
         { method: 'GET', path: API.reset, handle: (request: Request) => dependencies.knowledge!.reset(request) },

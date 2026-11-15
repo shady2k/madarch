@@ -1454,6 +1454,8 @@
     "problemEntity": "Entity:",
     "problemEvidence": "Evidence:",
     "problemCreateTask": "Create a task",
+    "problemHasTask": "Has task:",
+    "problemOpenTask": "Open the task",
     "problemNotAProblem": "Not a problem",
     "problemDismissPrompt": "Why is this not a problem? The reason is kept as a file in the product repository.",
     "problemDismissConfirm": "Save the reason",

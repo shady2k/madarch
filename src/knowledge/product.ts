@@ -71,7 +71,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { Resolver } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
-import { type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { type PlannedTask } from '../loop/tasks.js';
 import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { StoredProductFiles } from '../plugin/product-source.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
@@ -82,6 +82,10 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
+import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal } from '../loop/problem-task.js';
+import type { Author } from '../loop/entities.js';
+import type { ProblemLink } from '../problems/types.js';
+import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
@@ -98,7 +102,7 @@ import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgre
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readProductTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -2267,11 +2271,6 @@ export class KnowledgeProduct {
     throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: create an authored entity from its kind instead. Task lifecycle commands are not available.`);
   }
 
-  /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
-  async createTask(_input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
-  }
-
   /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
   async closeTask(_id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
     throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
@@ -2428,11 +2427,45 @@ export class KnowledgeProduct {
   }
 
   /**
-   * «Создать задачу»: a task scoped to exactly the place the problem names (madarch-m38l.14's task format).
-   * A problem that names no place a person can change says why instead of opening an empty task.
+   * «Создать задачу» (madarch-64o5.104, the owner's rule of 2026-11-13): the problem becomes a task entity through the one
+   * write path MCP and the agent use, and the write's source is the person who pressed. The task names the problem, its
+   * place and its statement; a problem that already has its task answers that task, so a second press opens it instead of
+   * writing another. A refusal is said in the language the pages are written in, and names no file of this machine.
    */
-  async createProblemTask(_id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+  async createProblemTask(id: string): Promise<{ task: ProblemLink; state: 'created' | 'existing' }> {
+    const read = await this.manifestRead(this.folder);
+    const language = problemTaskLanguage(read.present ? read.manifest.language : undefined);
+    const listing = await this.problems();
+    const problem = listing.problems.find((candidate) => candidate.id === id);
+    if (problem === undefined) throw new LoopRefusal(404, problemTaskRefusal(language, 'not-listed'));
+    if (problem.task !== undefined) return { task: problem.task, state: 'existing' };
+    let by: Author;
+    try {
+      by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    } catch {
+      throw new LoopRefusal(409, problemTaskRefusal(language, 'no-identity'));
+    }
+    const rule = listing.categories.find((category) => category.rule === problem.rule);
+    const record = problemTaskRecord(problem, { language, ...(rule?.label === undefined ? {} : { label: rule.label }) });
+    // The press is what the write rests on: the problem and the finding's own words, said by the person.
+    const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, at: (this.options.now?.() ?? new Date()).toISOString(), words: record.statement }];
+    let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
+    try {
+      written = await this.putEntity({ producer: 'person', version: `${by.name} <${by.email}>` }, {
+        kind: PROBLEM_TASK_KIND,
+        values: { title: record.title, body: record.body, front: record.front },
+        evidence,
+        words: language === 'ru' ? 'Создать задачу' : 'Create a task',
+      });
+    } catch (error) {
+      // The graph's own refusal is said in the reader's language, and their reason is kept in the server's log; every other
+      // failure is a defect of this process and is not dressed up as the reader's.
+      if (!(error instanceof WriteRefusal)) throw error;
+      throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    }
+    if (written.uid === undefined) throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    this.notify();
+    return { task: { label: record.title, href: entityPageAddress(PROBLEM_TASK_KIND, written.uid), key: `task:${written.uid}` }, state: 'created' };
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {
