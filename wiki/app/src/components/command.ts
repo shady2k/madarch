@@ -552,6 +552,9 @@ export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Pr
   loader.current = load;
   const held = useRef<ReadEntry | null>(null);
   const connection = useConnection();
+  // The banner's probe owns the retry schedule while the link is away; a retained page must not keep pressing beside it.
+  const offline = useRef(connection.offline);
+  offline.current = connection.offline;
   useEffect(() => {
     if (!enabled) {
       held.current = null;
@@ -567,6 +570,7 @@ export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Pr
     const returned = connection.generation !== entry.generation;
     entry.generation = connection.generation;
     const fresh = entry.hasAnswer && !entry.stale && entry.changeCount === changes && !returned;
+    if (connection.offline && !entry.hasAnswer) return;
     if (returned) start(entry);
     else if (!entry.busy && !fresh) start(entry);
     return () => {
@@ -583,7 +587,7 @@ export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Pr
   }, [key, enabled, connection.generation]);
   const reload = useCallback(() => {
     const entry = held.current;
-    if (entry !== null) requestReload(entry);
+    if (entry !== null && !offline.current) requestReload(entry);
   }, []);
   return { data: state.data, error: state.error, busy: state.busy, reload };
 }

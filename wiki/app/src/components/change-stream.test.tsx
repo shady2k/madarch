@@ -7,9 +7,9 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const { act, createElement } = await import('react');
+const { act, createElement, useEffect } = await import('react');
 const { createRoot } = await import('react-dom/client');
-const { useChangeStream } = await import('./command.js');
+const { useChangeStream, useCommandRead } = await import('./command.js');
 const { reportOffline, reportOnline } = await import('../connection.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
@@ -81,5 +81,30 @@ test('a revision that moved while the stream was away is a change', async () => 
   } finally {
     await act(async () => { root.unmount(); });
     host.remove();
+  }
+});
+
+test('a read does not press the server while the link is away', async () => {
+  let calls = 0;
+  let reload: (() => void) | undefined;
+  function ReadOnce(): null {
+    const read = useCommandRead<{ ok: boolean }>('offline-read', async () => { calls += 1; return { ok: true }; });
+    useEffect(() => { reload = read.reload; }, [read.reload]);
+    return null;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => { root.render(createElement(ReadOnce)); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  try {
+    expect(calls).toBe(1);
+    await act(async () => { reportOffline(); });
+    await act(async () => { reload?.(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(calls).toBe(1);
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+    reportOnline();
   }
 });
