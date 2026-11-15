@@ -172,6 +172,34 @@ describe('gate 9: every visible string through i18n', () => {
     });
     expect(i18nViolations(home).map((violation) => violation.symbol)).toEqual(['Save', 'title: Hello']);
   });
+
+  test('a prop that names a test, a key or a style is structure, not words a reader reads', async () => {
+    const home = fixture({
+      'wiki/app/src/components/page.tsx': [
+        'export const Page = () => (<Stack>',
+        '  <Select testId="a-model" display="timeline" checked="indeterminate" />',
+        '  <svg viewBox="0 0 20 20"><path d="M20 20 L180 80" /></svg>',
+        '  <Text label="Checkbox" emptyText="nothing yet" />',
+        '</Stack>);',
+      ].join('\n'),
+    });
+    // `label` and `emptyText` end in a text word and are read; the rest name a test, a variant, a control's state, a path.
+    expect(i18nViolations(home).map((violation) => violation.symbol)).toEqual(['emptyText: nothing yet', 'label: Checkbox']);
+  });
+
+  test('a dash, a slash or a bracket standing for an empty value is layout, not a sentence', async () => {
+    const home = fixture({
+      'wiki/app/src/components/page.tsx': 'export const Page = () => (<Text>—</Text>);\nexport const Sep = () => (<Text> / </Text>);\n',
+    });
+    expect(i18nViolations(home)).toEqual([]);
+  });
+
+  test('an aria-label is heard by a screen reader, so its literal is refused', async () => {
+    const home = fixture({
+      'wiki/app/src/components/page.tsx': 'export const Page = () => (<Button aria-label="next" />);\n',
+    });
+    expect(i18nViolations(home).map((violation) => violation.symbol)).toEqual(['aria-label: next']);
+  });
 });
 
 describe('gate 10: I/O runs inside a span', () => {
