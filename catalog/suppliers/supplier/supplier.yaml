@@ -24,3 +24,5 @@ labels:
 description:
   en: A supplier is an outside organisation that provides something the product needs, such as cloud capacity, a software library, a payment service or support. The product's organisation keeps track of each supplier because its failures and its duties reach the product.
   ru: 'Поставщик — внешняя организация, которая даёт продукту то, что ему нужно: вычислительные мощности, программную библиотеку, платёжный сервис или поддержку. Организация продукта ведёт учёт поставщиков, потому что их сбои и обязанности касаются продукта.'
+derives-from:
+- product

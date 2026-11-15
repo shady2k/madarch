@@ -24,3 +24,5 @@ labels:
 description:
   en: A support answer records what support told a person who asked for help, and whether that resolved the problem. Reused answers become the basis of FAQ entries and troubleshooting steps.
   ru: Ответ поддержки фиксирует, что поддержка сказала человеку, обратившемуся за помощью, и решило ли это проблему. Повторно использованные ответы становятся основой частых вопросов и шагов устранения неполадок.
+derives-from:
+- support-request

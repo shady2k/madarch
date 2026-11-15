@@ -50,3 +50,6 @@ labels:
 description:
   en: A test result states whether one test case passed, failed or was skipped, how long it took and, on failure, what went wrong and where. Results put side by side across runs show what changed.
   ru: Результат теста говорит, прошёл ли один тест, упал или был пропущен, сколько он занял и при сбое — что и где пошло не так. Сравнив результаты разных запусков, видно, что изменилось.
+derives-from:
+- code.test-case
+- test-run

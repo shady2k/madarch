@@ -44,7 +44,7 @@ fields:
 key:
 - name
 derives-from:
-- document
+- doc.use-case
 labels:
   en:
     one: Guide

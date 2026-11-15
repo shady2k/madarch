@@ -25,3 +25,5 @@ labels:
 description:
   en: 'A usability finding describes one difficulty that a usability test brought to light: what the person tried to do, where they got stuck and what it cost them. It points back to the session where it happened, so others can watch it themselves.'
   ru: 'Находка юзабилити-теста описывает одну трудность, которую выявил тест: что человек пытался сделать, где он застрял и чего это ему стоило. Она указывает на сессию, где это произошло, чтобы другие могли посмотреть сами.'
+derives-from:
+- usability-test

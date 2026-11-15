@@ -24,3 +24,5 @@ labels:
 description:
   en: A build platform is the hosted or self-run service that executed a build, such as a continuous integration service or a build cluster. Its identity, version and address are recorded so a verifier can ask how the artifact was made.
   ru: 'Платформа сборки — размещённая или своя служба, которая выполняла сборку: служба непрерывной интеграции или кластер сборки. Её имя, версия и адрес записываются, чтобы проверяющий мог выяснить, как сделан артефакт.'
+derives-from:
+- deployment-node

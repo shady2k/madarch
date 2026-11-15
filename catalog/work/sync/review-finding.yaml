@@ -57,3 +57,6 @@ labels:
 description:
   en: 'A review finding names one problem that a reviewer saw in a change: what is wrong, how serious it is and where. It ends as fixed, or as declined with the reason the team accepted.'
   ru: 'Находка ревью называет одну проблему, которую проверяющий увидел в изменении: что не так, насколько это серьёзно и где. Она заканчивается исправлением или отказом с причиной, которую команда приняла.'
+derives-from:
+- code.file
+- pull-request-review

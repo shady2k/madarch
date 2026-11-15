@@ -1,0 +1,82 @@
+id: practice.product-profile
+purpose: understand
+audience:
+- product
+- architect
+- developer
+definition: A product profile states the technical areas that apply to a product.
+sources:
+- https://backstage.io/docs/features/software-catalog/system-model/
+- https://github.com/github-linguist/linguist
+acquisition:
+- conversation
+- document
+- agent-from-graph
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+source: graph
+fields:
+- name: product
+  type: json
+  reference: product
+  binding:
+    agent: The product this profile describes, by its key.
+- name: deployment
+  type: json
+  nullable: true
+  binding:
+    agent: Deployment platforms, including Kubernetes and Docker, with present, absent or unknown applicability and evidence
+      for each.
+- name: data_stores
+  type: json
+  nullable: true
+  binding:
+    agent: Data stores with present, absent or unknown applicability and evidence.
+- name: web_ui
+  type: json
+  nullable: true
+  binding:
+    agent: 'Web UI applicability: present, absent or unknown, with evidence.'
+- name: mobile
+  type: json
+  nullable: true
+  binding:
+    agent: 'Mobile applicability: present, absent or unknown, with evidence.'
+- name: ml
+  type: json
+  nullable: true
+  binding:
+    agent: 'Machine learning applicability: present, absent or unknown, with evidence.'
+- name: messaging
+  type: json
+  nullable: true
+  binding:
+    agent: 'Messaging applicability: present, absent or unknown, with evidence.'
+- name: languages
+  type: json
+  nullable: true
+  binding:
+    agent: Languages selected or in use, and evidence; unknown when not decided.
+- name: frameworks
+  type: json
+  nullable: true
+  binding:
+    agent: Frameworks selected or in use, and evidence; unknown when not decided.
+key:
+- product
+derives-from:
+- product
+labels:
+  en:
+    one: Product profile
+    many: Product profiles
+  ru:
+    one: Профиль продукта
+    many: Профили продукта
+description:
+  en: A product profile records whether deployment platforms, data stores, web interfaces, mobile clients, machine learning
+    and messaging apply, and the languages and frameworks in use. Unknown is distinct from absent.
+  ru: Профиль продукта указывает применимость платформ развёртывания, хранилищ данных, веб-интерфейсов, мобильных клиентов,
+    машинного обучения и обмена сообщениями, а также используемые языки и каркасы. Неизвестность отличается от отсутствия.

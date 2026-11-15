@@ -75,3 +75,6 @@ labels:
 description:
   en: 'A correction records a person saying that a statement in the product''s documents is wrong, and why they think so: a changed fact, a different rule, an example that contradicts it. It is kept beside the statement until someone confirms and rewrites it.'
   ru: 'Поправка фиксирует, что человек считает утверждение в документах продукта неверным, и почему: изменился факт, правило другое, пример противоречит. Её держат рядом с утверждением, пока кто-то не подтвердит и не перепишет его.'
+derives-from:
+- document
+- person

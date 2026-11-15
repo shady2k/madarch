@@ -59,6 +59,7 @@ key:
 - service
 - name
 derives-from:
+- code.file
 - code.service
 labels:
   en:

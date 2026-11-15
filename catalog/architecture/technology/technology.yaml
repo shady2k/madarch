@@ -36,8 +36,7 @@ fields:
 key:
 - name
 derives-from:
-- code.repository
-- document
+- product-profile
 labels:
   en:
     one: Technology

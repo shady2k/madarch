@@ -43,7 +43,8 @@ key:
 - namespace
 - name
 derives-from:
-- code.k8s-deployment
+- k8s-pod
+- product-profile
 labels:
   en:
     one: Kubernetes service

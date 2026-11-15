@@ -24,3 +24,6 @@ labels:
 description:
   en: An escalation policy names who is contacted first, who next and after how long, when an alert is not acknowledged. It makes sure an alert does not wait forever on someone who is asleep.
   ru: Политика эскалации называет, кого извещают первым, кого следующим и через сколько времени, если оповещение не подтвердили. Она не даёт оповещению ждать вечно того, кто спит.
+derives-from:
+- alert-route
+- on-call-schedule

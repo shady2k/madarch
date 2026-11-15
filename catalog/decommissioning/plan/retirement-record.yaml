@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A retirement record closes the life of a system: the date it stopped, who carried out the retirement, what data was migrated, archived or destroyed, and where the remaining records are. It is the evidence that nothing was left running by accident.'
   ru: 'Запись о выводе закрывает жизнь системы: когда она остановилась, кто выполнил вывод, какие данные перенесли, сохранили или уничтожили и где лежат оставшиеся записи. Она служит доказательством, что ничего не осталось работать по недосмотру.'
+derives-from:
+- data-destruction
+- decommission-plan

@@ -51,3 +51,5 @@ labels:
 description:
   en: A milestone marks a date by which a set of epics is planned to be finished, such as a public release or a contract deadline. It gives the plan a fixed point against which progress can be measured.
   ru: Веха отмечает дату, к которой планируют завершить набор эпиков, например публичный выпуск или срок по договору. Она даёт плану неподвижную точку, с которой сверяют ход работы.
+derives-from:
+- epic

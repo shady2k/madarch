@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A DNS record is one entry in a zone that answers a question about a name: which address belongs to it, which mail server handles it, or which other name is its alias. The record type says which kind of answer it gives.'
   ru: 'Запись DNS — одна строка в зоне, которая отвечает на вопрос об имени: какой адрес ему принадлежит, какой почтовый сервер его обслуживает или какое другое имя является его псевдонимом. Тип записи говорит, какой это ответ.'
+derives-from:
+- domain-name
+- product-profile

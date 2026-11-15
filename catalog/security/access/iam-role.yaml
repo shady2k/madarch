@@ -46,3 +46,5 @@ labels:
 description:
   en: 'An access role is a named set of permissions a system grants together: what a program or a person may read and change, as a cloud policy or an application role states it. A business role holds access roles; the access role is what the system checks, and the business role is what people mean.'
   ru: 'Роль доступа — именованный набор прав, которые система выдаёт вместе: что программа или человек может читать и менять, как это задаёт политика облака или роль приложения. Роль исполняет роли доступа; роль доступа проверяет система, а роль — это то, что имеют в виду люди.'
+derives-from:
+- software-system

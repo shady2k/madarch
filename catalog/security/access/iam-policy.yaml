@@ -24,3 +24,6 @@ labels:
 description:
   en: An IAM policy collects statements that allow or deny actions on resources for subjects, often with conditions such as a network or a time. The provider evaluates the policies that apply and answers yes or no.
   ru: 'Политика IAM собирает утверждения, которые разрешают или запрещают действия с ресурсами для субъектов, часто с условиями: сетью или временем. Поставщик оценивает применимые политики и отвечает да или нет.'
+derives-from:
+- iam-role
+- permission

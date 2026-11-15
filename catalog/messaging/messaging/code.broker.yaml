@@ -39,6 +39,7 @@ key:
 - name
 derives-from:
 - code.service
+- product-profile
 labels:
   en:
     one: Message broker

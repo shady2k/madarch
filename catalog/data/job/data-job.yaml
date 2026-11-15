@@ -45,3 +45,7 @@ labels:
 description:
   en: A data job is a step of data processing — a query, a script, a pipeline stage — that takes some datasets as input and produces others. Its namespace and name identify it, and its runs show when it worked and what it touched.
   ru: 'Задача обработки данных — шаг обработки: запрос, сценарий, этап конвейера, — который берёт одни наборы данных и создаёт другие. Пространство имён и имя отличают её, а запуски показывают, когда она работала и что затронула.'
+derives-from:
+- code.service
+- dataset
+- product-profile

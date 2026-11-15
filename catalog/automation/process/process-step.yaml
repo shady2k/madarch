@@ -62,3 +62,5 @@ labels:
 description:
   en: A process step is one action inside a business process, such as checking a document or sending a notification. A person, a program or an agent can carry it out, and it takes defined inputs and produces a defined result for the steps that follow.
   ru: Шаг процесса — одно действие внутри бизнес-процесса, например проверить документ или отправить уведомление. Его может выполнять человек, программа или агент; шаг получает определённые входные данные и даёт определённый результат следующим шагам.
+derives-from:
+- business-process

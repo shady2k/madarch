@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A threat actor is who might attack the product: an outsider, a customer with an account, a supplier, an insider, an automated bot. Its capabilities and its motives decide which threats are worth taking seriously.'
   ru: 'Субъект угрозы — тот, кто может атаковать продукт: посторонний, клиент с учётной записью, поставщик, свой сотрудник, автоматический робот. Его возможности и мотивы решают, какие угрозы стоит воспринимать серьёзно.'
+derives-from:
+- threat-model

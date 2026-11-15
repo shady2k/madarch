@@ -44,3 +44,6 @@ labels:
 description:
   en: 'Accounting is the shared part of a kind that keeps what the work on its entities took: the work spans, each with its duration, tokens, cost, model and outcome. The spans themselves are work-span entities the accounting part points at.'
   ru: 'Учёт — общая часть вида, которая хранит, сколько работы потребовали его сущности: промежутки работы, у каждого длительность, токены, стоимость, модель и итог. Сами промежутки — сущности вида «промежуток работы», на которые учёт указывает.'
+derives-from:
+- kind
+- person

@@ -24,3 +24,5 @@ labels:
 description:
   en: A savings plan names a change that should reduce spending — a smaller instance, a reserved capacity, a removed duplicate — and estimates what it will save. Comparing the saving with the cost of the change shows whether it is worth doing.
   ru: 'План экономии называет изменение, которое должно снизить расходы: меньший сервер, зарезервированную мощность, убранного дубля, — и оценивает, сколько оно сэкономит. Сравнив экономию с ценой изменения, видно, стоит ли его делать.'
+derives-from:
+- forecast

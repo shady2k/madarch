@@ -61,3 +61,7 @@ labels:
 description:
   en: A requirement states something the product must do or must be, such as a function, a limit or a quality, and is often numbered so it can be referred to. Its type says whether it is functional, non-functional or another kind of requirement.
   ru: 'Требование формулирует то, что продукт должен делать или каким должен быть: функцию, ограничение или качество, — и часто имеет номер, чтобы на него можно было сослаться. Тип говорит, функциональное это требование, нефункциональное или иное.'
+derives-from:
+- constraint
+- doc.use-case
+- user-story

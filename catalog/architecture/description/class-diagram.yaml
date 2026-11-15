@@ -44,8 +44,8 @@ fields:
 key:
 - name
 derives-from:
-- code.symbol
 - code.field
+- code.symbol
 - domain-entity
 labels:
   en:

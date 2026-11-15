@@ -43,7 +43,8 @@ fields:
 key:
 - name
 derives-from:
-- document
+- business-capability
+- role
 labels:
   en:
     one: Business process

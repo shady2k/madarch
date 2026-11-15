@@ -45,3 +45,6 @@ labels:
 description:
   en: Responsibility is the shared part of a kind that names who answers for an entity and who carries its work out. It becomes a reference field of every kind that takes it, so the person and the role are named as entities rather than as text.
   ru: Ответственность — общая часть вида, которая называет, кто отвечает за сущность и кто выполняет работу. Она становится полем-ссылкой каждого вида, который её берёт, поэтому человек и роль названы сущностями, а не текстом.
+derives-from:
+- kind
+- person

@@ -47,6 +47,7 @@ key:
 - name
 derives-from:
 - code.contract
+- product-profile
 card: true
 labels:
   en:

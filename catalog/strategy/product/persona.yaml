@@ -25,3 +25,5 @@ labels:
 description:
   en: 'A persona is a portrait of one kind of user, built from interviews and observations: their goals, habits, frustrations and the words they use. It helps a team decide for a real kind of person rather than an average nobody.'
   ru: 'Персона — портрет одного вида пользователей, собранный из интервью и наблюдений: их цели, привычки, трудности и слова. Она помогает команде решать за настоящий вид человека, а не за никого среднего.'
+derives-from:
+- research-finding

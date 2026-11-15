@@ -59,3 +59,5 @@ labels:
 description:
   en: A constitution is the one place where a product states the principles, practices and conventions in force, in the order that settles which wins when two disagree. The product's instructions for its agents are made from it, so a new rule is changed once and reaches every agent.
   ru: Конституция — одно место, где продукт называет действующие принципы, практики и соглашения, в порядке, который решает, что важнее при расхождении. Из неё строят инструкции продукта для агентов, поэтому новое правило меняют один раз и оно доходит до каждого агента.
+derives-from:
+- product

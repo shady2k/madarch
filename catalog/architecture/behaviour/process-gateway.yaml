@@ -55,3 +55,5 @@ labels:
 description:
   en: 'A process gateway is a decision point in a BPMN process: the flow either splits into paths chosen by conditions, or several paths meet and continue as one. It shows where the process can go differently.'
   ru: 'Шлюз процесса — точка решения в процессе BPMN: поток либо разделяется на пути по условиям, либо несколько путей сходятся и продолжаются одним. Он показывает, где процесс может пойти по-разному.'
+derives-from:
+- business-process

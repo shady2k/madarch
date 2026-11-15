@@ -24,3 +24,5 @@ labels:
 description:
   en: A department groups teams and people under one part of the organisation, such as finance, engineering or customer service. It usually has its own leader, budget and responsibilities.
   ru: 'Подразделение объединяет команды и людей в одну часть организации: финансы, разработку или обслуживание клиентов. У него обычно есть руководитель, бюджет и свои обязанности.'
+derives-from:
+- organization

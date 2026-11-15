@@ -24,3 +24,6 @@ labels:
 description:
   en: An interview is a conversation in which a researcher asks a person about their work, their needs and their difficulties, and records what they say. The conversation is later read for findings rather than taken as a vote.
   ru: Интервью — разговор, в котором исследователь расспрашивает человека о его работе, нуждах и трудностях и записывает сказанное. Позднее из разговора выводят находки, а не считают его голосом на голосовании.
+derives-from:
+- person
+- research-question

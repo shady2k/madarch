@@ -61,3 +61,7 @@ labels:
 description:
   en: A handoff gives a branch and the work in it to another responsible person, together with what is finished and what still has to be done. It keeps two people from continuing the same work at once.
   ru: Передача — переход ветки и работы в ней к другому ответственному человеку вместе со сведениями о том, что сделано и что осталось. Она нужна, чтобы одну и ту же работу не продолжали двое сразу.
+derives-from:
+- branch
+- person
+- task

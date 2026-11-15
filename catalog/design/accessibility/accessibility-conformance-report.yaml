@@ -24,3 +24,5 @@ labels:
 description:
   en: An accessibility conformance report goes through the WCAG success criteria that apply to a product and records, for each, whether it conforms and what evidence shows that. It lets buyers and auditors see the accessibility of the product without testing it themselves.
   ru: Отчёт о соответствии доступности проходит по критериям успеха WCAG, применимым к продукту, и по каждому записывает, выполняется ли он и какие доказательства это показывают. По нему покупатели и аудиторы видят доступность продукта, не проверяя его сами.
+derives-from:
+- accessibility-evaluation

@@ -52,3 +52,6 @@ labels:
 description:
   en: 'A comment is a short remark someone attaches to an entity: a question, a warning, an explanation or a note for later. It keeps the author and the time, so a reader knows who said it and when.'
   ru: 'Комментарий — короткое замечание, которое человек или агент прикрепляет к сущности: вопрос, предупреждение, пояснение или заметку на будущее. В нём остаются автор и время, чтобы читатель знал, кто и когда это сказал.'
+derives-from:
+- person
+- product

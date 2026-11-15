@@ -24,3 +24,6 @@ labels:
 description:
   en: A Terraform provider is a program that teaches Terraform the resources of one platform — its cloud, its database service or its DNS — and how to create, read, change and delete them. Each provider has its own version, and its upgrades can change what a definition does.
   ru: 'Провайдер Terraform — программа, которая учит Terraform ресурсам одной платформы: облака, службы баз данных или DNS, — и тому, как их создавать, читать, менять и удалять. У каждого провайдера своя версия, а обновление может изменить поведение описания.'
+derives-from:
+- product-profile
+- technology

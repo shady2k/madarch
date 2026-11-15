@@ -30,7 +30,7 @@ test('a starter product publishes its catalogue and the page lists the new kinds
     owner = await createTestDatabaseOwner({ graphContract: withManifestContract(graphContractOf(manifest)) });
     await publishValidatedManifests(owner, validation.value);
     const total = await executeGraphql(owner, { manifest, folder }, { query: '{ allCatalogueEntity(first: 1) { totalCount } }' });
-    expect((total.body as MessageBody).data).toMatchObject({ allCatalogueEntity: { totalCount: 498 } });
+    expect((total.body as MessageBody).data).toMatchObject({ allCatalogueEntity: { totalCount: 500 } });
     // Every kind the owner agreed is a catalogue entity a reader reaches, with its name in both languages.
     for (const kind of ['person', 'role', 'permission', 'iam-role', 'activity', 'activity-node', 'class-diagram', 'logical-data-model', 'use-case-step', 'scenario-step', 'process-event', 'state-machine', 'event', 'proposed-kind', 'doc.decision', 'business-process', 'runtime-scenario', 'work-span', 'container-health-check']) {
       const page = await executeGraphql(owner, { manifest, folder }, { query: `{ catalogueEntity(name: "${kind}", lang: "ru") { name label } }` });

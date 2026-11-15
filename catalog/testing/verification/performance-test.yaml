@@ -24,3 +24,6 @@ labels:
 description:
   en: A performance test measures response time, throughput and resource use under a stated load. Its variants — smoke, load, stress, capacity — answer different questions about speed and limits.
   ru: Тест производительности измеряет время ответа, пропускную способность и расход ресурсов при заданной нагрузке. Его виды — дымовой, нагрузочный, стрессовый, ёмкостный — отвечают на разные вопросы о скорости и пределах.
+derives-from:
+- performance-budget
+- test-plan

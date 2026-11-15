@@ -1,19 +1,22 @@
 id: backstage.domain
 purpose: understand
 audience: [product, analyst, architect, developer]
-definition: A domain is a part of the business the product serves, which groups the modules and folders of the product's code that answer for it, and the words it uses.
+definition: A domain is a part of the business the product serves, with its own responsibilities and language.
 sources:
 - https://backstage.io/docs/features/software-catalog/system-model
 acquisition:
-- agent-from-graph
+- document
 - conversation
-# The code the domain covers is stated as an edge, not as text (owner's rule, 2026-11-15): a domain covers modules and
-# folders of the product's code, and both stand in the graph the agent reads.
+- agent-from-graph
 relation-constraints:
   out:
   - contains
   - uses
-  in: []
+  - domain.contains
+  in:
+  - domain.contains
+  - architecture.serves-domain
+  - term.in-domain
 template-policy: page
 source: graph
 title: name
@@ -24,7 +27,8 @@ fields:
     en: Name
     ru: Имя
   binding:
-    agent: 'The name the business gives this part of itself, one or two words such as Payments, Orders or Identity; it is the domain''s key.'
+    agent: The name the business gives this part of itself, one or two words such as Payments, Orders or Identity; it is the
+      domain's key.
 - name: description
   type: text
   nullable: true
@@ -32,7 +36,9 @@ fields:
     en: Description
     ru: Описание
   binding:
-    agent: 'What the domain answers for in this product, in one or two sentences: the part of the business it holds and what the modules and folders it covers do for it, read from the text of their files in the graph.'
+    agent: What this business area answers for. Use stated intent and documents in the graph first, then code evidence. Without
+      documents, code-based proposals remain unconfirmed until a person approves them. If no source answers, open a question
+      instead of guessing; conflicting sources remain an open question.
 - name: type
   type: text
   nullable: true
@@ -40,14 +46,12 @@ fields:
     en: Type
     ru: Тип
   binding:
-    agent: 'How much of the product''s own advantage this part of the business carries: core, supporting or generic, as the product states it.'
+    agent: 'How much of the product''s own advantage this part of the business carries: core, supporting or generic, as the
+      product states it.'
 key:
 - name
-# What a domain's discovery reads: the folders that hold the product's code and the files in them (owner's decision,
-# 2026-11-15: a fill of a domain reads the code it covers from the graph, so those kinds are filled before it).
 derives-from:
-- code.file
-- code.directory
+- product
 labels:
   en:
     one: Domain
@@ -56,5 +60,7 @@ labels:
     one: Домен
     many: Домены
 description:
-  en: A domain is one area of the business — payments, orders, identity — that the product serves, and it groups the modules and folders of the product's code that answer for that area. It is a business division; its systems are the code, and the domain names them.
-  ru: 'Домен — часть бизнеса, которую обслуживает продукт: оплата, заказы, идентификация. Он объединяет модули и папки кода продукта, которые отвечают за эту часть. Это деление бизнеса; его системы — это код, и домен их называет.'
+  en: A domain is a business area such as payments, orders or identity, with its own responsibilities and language. It may
+    contain smaller domains. A system or component may serve several domains without being copied.
+  ru: Домен — область бизнеса, например оплата, заказы или идентификация, со своими обязанностями и языком. Он может содержать
+    меньшие домены. Система или компонент может обслуживать несколько доменов без копирования.

@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An assessment records how the organisation judges something that shapes its direction: how strong a driver is, whether a goal is met, how well a capability performs. It states the judgement and the evidence or reasoning behind it.'
   ru: 'Оценка фиксирует суждение организации о том, что влияет на её курс: насколько сильна движущая сила, достигнута ли цель, как работает способность. В ней изложены само суждение и доводы или доказательства за ним.'
+derives-from:
+- driver
+- goal

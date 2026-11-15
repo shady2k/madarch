@@ -24,3 +24,6 @@ labels:
 description:
   en: A domain name is the address people and programs use to reach the product, such as example.com, registered for a period and kept in a DNS zone. It also carries trust, because certificates and mail rules are tied to it.
   ru: Доменное имя — адрес, по которому люди и программы находят продукт, например example.com; его регистрируют на срок и держат в зоне DNS. С ним связаны и доверие, и почтовые правила, и сертификаты.
+derives-from:
+- product
+- product-profile

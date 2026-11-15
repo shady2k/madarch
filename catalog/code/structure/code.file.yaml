@@ -241,5 +241,4 @@ description:
   en: 'A file is a named unit of content in a repository: for example a source file, a configuration file, a document or an image. Its path places it in a folder, and its content is what a person or a program reads or runs.'
   ru: 'Файл — именованная единица содержимого в репозитории: например, исходный код, настройки, документ или изображение. Путь указывает его место в папках, а содержимое читает человек или программа.'
 derives-from:
-- code.repository
 - code.directory

@@ -40,8 +40,9 @@ key:
 - repository
 - path
 derives-from:
-- code.file
 - code.database
+- code.file
+- product-profile
 labels:
   en:
     one: Migration

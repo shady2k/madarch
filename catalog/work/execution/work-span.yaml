@@ -69,6 +69,7 @@ key:
 - started_at
 - step
 derives-from:
+- person
 - task
 labels:
   en:

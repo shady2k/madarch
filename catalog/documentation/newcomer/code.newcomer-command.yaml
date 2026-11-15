@@ -45,7 +45,6 @@ key:
 - command
 derives-from:
 - document
-- code.repository
 labels:
   en:
     one: Setup command

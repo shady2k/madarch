@@ -42,3 +42,5 @@ labels:
 description:
   en: A field set is a named group of fields that several kinds declare alike, such as the status and priority a work item carries. Naming it once keeps the declarations of the kinds that share it the same.
   ru: 'Набор полей — именованная группа полей, которые несколько видов объявляют одинаково: например, статус и приоритет рабочей записи. Названный один раз, он держит объявления этих видов одинаковыми.'
+derives-from:
+- product

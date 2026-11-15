@@ -49,8 +49,8 @@ key:
 - service
 - file
 derives-from:
-- code.service
 - code.file
+- code.service
 labels:
   en:
     one: Logger

@@ -48,7 +48,8 @@ key:
 - from
 - to
 derives-from:
-- code.symbol
+- event
+- state
 member:
   relation: partOf
   direction: out

@@ -48,6 +48,7 @@ key:
 - symbol
 derives-from:
 - code.file
+- code.symbol
 labels:
   en:
     one: Entry point

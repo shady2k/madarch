@@ -32,7 +32,6 @@ key:
 - repository
 - commit
 derives-from:
-- code.repository
 - code.commit
 labels:
   en:

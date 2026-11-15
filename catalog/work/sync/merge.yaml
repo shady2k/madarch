@@ -62,3 +62,6 @@ labels:
 description:
   en: A merge brings the changes of a branch or a pull request into the line of development they target. Its record says who allowed the merge, when it happened and which review conditions it met.
   ru: Слияние вносит изменения ветки или пул-реквеста в ту линию разработки, для которой они предназначены. В записи о слиянии указано, кто его разрешил, когда оно произошло и при каких условиях проверки.
+derives-from:
+- code.commit
+- pull-request-review

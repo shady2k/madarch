@@ -24,3 +24,5 @@ labels:
 description:
   en: An aggregate groups domain objects that must stay consistent together, with one entity as its root; the outside world reaches the others only through the root. A transaction usually changes one aggregate at a time.
   ru: Агрегат объединяет объекты предметной области, которые должны сохранять согласованность вместе, и один объект в нём — корень; снаружи к остальным обращаются только через корень. Одна транзакция обычно меняет один агрегат.
+derives-from:
+- bounded-context

@@ -48,7 +48,7 @@ key:
 - machine
 - name
 derives-from:
-- code.symbol
+- state-machine
 member:
   relation: partOf
   direction: out

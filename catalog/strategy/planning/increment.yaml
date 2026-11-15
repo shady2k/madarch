@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An increment is the part of the product that becomes usable at the end of a sprint: a finished feature, a fix, an improvement that a user can already benefit from. It must meet the definition of done, and it adds to what previous increments built.'
   ru: 'Инкремент — часть продукта, которая становится пригодной к концу спринта: законченная возможность, исправление или улучшение, которым пользователь уже может воспользоваться. Он должен соответствовать определению готовности и добавляется к тому, что построили прежние инкременты.'
+derives-from:
+- definition-of-done
+- sprint

@@ -55,5 +55,6 @@ description:
   en: A database is a store where a service keeps its data in tables that relate to one another, protected by its own accounts and backup. It is changed through migrations, so its structure has a history.
   ru: База данных — хранилище, где сервис держит свои данные в связанных таблицах, со своими учётными записями и резервными копиями. Её меняют миграциями, поэтому у её устройства есть история.
 derives-from:
-- code.repository
 - code.file
+- code.service
+- product-profile

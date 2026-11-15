@@ -52,3 +52,5 @@ labels:
 description:
   en: 'A link behaviour states what a link type allows and what happens to the links when an entity changes: how many an end may hold, whether the other end shows it back, whether it is required, and how it is copied or removed with its entity.'
   ru: 'Поведение связи говорит, что тип связи допускает и что происходит со связями при изменении сущности: сколько их может держать конец, показывает ли их другой конец, обязательна ли связь и как она копируется или удаляется вместе с сущностью.'
+derives-from:
+- link-type

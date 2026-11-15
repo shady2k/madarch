@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An AI impact assessment examines who an AI system touches, how it may help or harm them, and which measures keep the harm small: human review, transparency, the option to appeal. It is done before the system is used and updated when the system changes.'
   ru: 'Оценка воздействия ИИ рассматривает, кого затрагивает система ИИ, чем она может помочь или навредить и какие меры уменьшают вред: участие человека, прозрачность, возможность оспорить решение. Её делают до применения системы и обновляют, когда система меняется.'
+derives-from:
+- ai-risk
+- product-profile

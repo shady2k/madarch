@@ -24,3 +24,5 @@ labels:
 description:
   en: A test session is one time-boxed stretch in which a tester explores the product against a charter, notes what happened and records findings. Its record says how long it lasted, what was covered and what was found.
   ru: Тестовая сессия — ограниченный по времени отрезок, в котором проверяющий исследует продукт по миссии, отмечает происходящее и записывает находки. В её записи сказано, сколько она длилась, что было охвачено и что нашли.
+derives-from:
+- test-charter

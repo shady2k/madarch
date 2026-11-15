@@ -51,3 +51,5 @@ labels:
 description:
   en: 'A link type declares a connection between entities: its name, the kinds at each end and the words the link reads as in each direction. Every relation a kind carries is a link type the catalogue declares.'
   ru: 'Тип связи объявляет связь между сущностями: её имя, виды на каждом конце и слова, которыми связь читается в каждую сторону. Каждая связь вида — объявленный каталогом тип связи.'
+derives-from:
+- kind

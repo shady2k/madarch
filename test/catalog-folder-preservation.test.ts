@@ -13,13 +13,13 @@ test('everything copies each whole declaration and preserves every baseline kind
   try {
     const written = seedStarterSet(folder, 'everything');
     expect(existsSync(join(folder, 'madarch/kinds.yaml'))).toBe(false);
-    expect(written.filter((path) => path.startsWith('madarch/kinds/')).length).toBe(Object.keys(sourcesBefore).length);
+    expect(written.filter((path) => path.startsWith('madarch/kinds/')).length).toBe(Object.keys(sourcesBefore).length + 2);
     for (const file of starterFilesFor({ id: 'everything', title: {en: '', ru: ''}, description: {en: '', ru: ''}, kinds: 'all' })) {
       if (file.path.startsWith('madarch/kinds/')) expect(file.content).toBe(CATALOG_FILES[file.path.slice('madarch/kinds/'.length)]!);
     }
     const read = readKinds(folder);
     if (!read.present || read.manifest.catalog === undefined) throw new Error('the everything product must declare its catalogue');
-    expect(Object.fromEntries([...read.manifest.catalog.kinds].map(([name, row]) => [name, row.sources]))).toEqual(sourcesBefore);
+    expect(Object.fromEntries([...read.manifest.catalog.kinds].map(([name, row]) => [name, row.sources]))).toEqual({ ...Object.fromEntries(Object.entries(sourcesBefore).filter(([name]) => name !== 'backlog-item')), ...Object.fromEntries(['idea', 'product-profile', 'c4.component', 'doc.term'].map((name) => [name, read.manifest.catalog!.kinds.get(name)!.sources])) });
     expect(read.manifest.findings.filter((finding) => !finding.message.startsWith('"documents.expect" names the kind'))).toEqual([]);
   } finally { rmSync(folder, { recursive: true, force: true }); }
 }, 30_000);

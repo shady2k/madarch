@@ -8,7 +8,7 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 test('a selected catalogue keeps roles named by its kinds even when those roles lead no selected group', () => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-selected-roles-'));
   try {
-    seedStarterSet(folder, 'fixture', [{ id: 'fixture', title: { en: 'Fixture', ru: 'Пример' }, description: { en: 'Fixture', ru: 'Пример' }, kinds: ['code.repository', 'code.directory', 'code.file'] }]);
+    seedStarterSet(folder, 'fixture', [{ id: 'fixture', title: { en: 'Fixture', ru: 'Пример' }, description: { en: 'Fixture', ru: 'Пример' }, kinds: ['product', 'product-profile', 'role', 'code.repository', 'code.directory', 'code.file'] }]);
     const read = readKinds(folder);
     expect(read.present).toBe(true);
     if (!read.present) throw new Error(`${folder}/madarch/catalog.yaml:1: missing selected catalogue`);

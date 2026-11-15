@@ -24,3 +24,6 @@ labels:
 description:
   en: 'An audit finding states one thing an audit concluded: what was examined, what the auditor saw and which requirement or control it concerns. It may confirm compliance, note a gap or recommend a change.'
   ru: 'Находка аудита излагает один вывод аудита: что проверяли, что увидел аудитор и какое требование или контроль затронут. Она может подтвердить соответствие, отметить пробел или предложить изменение.'
+derives-from:
+- audit
+- evidence

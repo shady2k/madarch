@@ -11,8 +11,10 @@ acquisition:
 relation-constraints:
   out:
   - hasPart
+  - data-catalog.contains
   in:
   - partOf
+  - data-catalog.contains
 template-policy: none
 labels:
   en:
@@ -24,3 +26,6 @@ labels:
 description:
   en: A data catalog gathers descriptions of datasets that one publisher makes available, with the metadata that helps someone find and judge them. DCAT defines such a catalog as a set of dataset records published together.
   ru: Каталог данных собирает описания наборов, которые один издатель делает доступными, с метаданными, помогающими найти их и оценить. DCAT определяет такой каталог как набор записей о наборах, опубликованных вместе.
+derives-from:
+- product
+- product-profile

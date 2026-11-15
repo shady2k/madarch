@@ -54,6 +54,7 @@ key:
 derives-from:
 - code.file
 - code.image
+- code.service
 labels:
   en:
     one: Compose service

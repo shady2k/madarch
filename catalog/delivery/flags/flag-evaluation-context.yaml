@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A flag evaluation context carries what the rules of a feature flag need to know about the caller: a user or account identifier, a country, a plan, a device, a percentage bucket. The same flag can serve different variants to different contexts.'
   ru: 'Контекст оценки флага несёт то, что правилам флага нужно знать о вызывающем: идентификатор пользователя или учётной записи, страну, тариф, устройство, номер процентной группы. Один флаг может давать разные варианты разным контекстам.'
+derives-from:
+- feature-flag

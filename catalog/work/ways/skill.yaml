@@ -66,3 +66,5 @@ labels:
 description:
   en: 'A skill tells an agent how to do one kind of work: when the work calls for it, the steps to follow and what to check before calling the work done. A skill is written for a repeated task, so the agent does not work it out again each time.'
   ru: 'Навык говорит агенту, как выполнять один вид работы: когда она этого требует, какие шаги пройти и что проверить, прежде чем считать её сделанной. Навык пишут для повторяющейся задачи, чтобы агент не выяснял её заново каждый раз.'
+derives-from:
+- practice

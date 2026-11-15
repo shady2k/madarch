@@ -52,3 +52,6 @@ labels:
 description:
   en: 'Evidence shows that an acceptance check was made: what was checked, what it showed and where the result can be seen, such as a test output, a report or a screenshot. It is kept with the check that produced it, so a later reader can judge the claim.'
   ru: 'Доказательство показывает, что проверку приёмки действительно провели: что проверяли, что получилось и где это видно — вывод теста, отчёт или снимок экрана. Его хранят вместе с проверкой, которая его дала, чтобы позднее можно было судить об утверждении.'
+derives-from:
+- assessment-finding
+- test-result

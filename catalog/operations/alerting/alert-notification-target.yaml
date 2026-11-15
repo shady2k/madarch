@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An alert notification target is one destination for alerts: a chat channel, an e-mail list, a paging service or a ticket queue. Each target has its own urgency and its own people.'
   ru: 'Получатель оповещений — одно место доставки: канал чата, список рассылки, служба вызова или очередь заявок. У каждого получателя своя срочность и свои люди.'
+derives-from:
+- team

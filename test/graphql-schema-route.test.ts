@@ -73,7 +73,7 @@ test('POST /graphql answers the product graph through the one executor', async (
   const catalogue = await post({ query: '{ allCatalogueEntity(first: 1) { totalCount edges { node { name taken } } } }' });
   expect(catalogue.status).toBe(200);
   expect(catalogue.body.errors).toBeUndefined();
-  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(498);
+  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(500);
 });
 
 test('POST /graphql refuses a query deeper than six levels', async () => {
