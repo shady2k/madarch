@@ -548,9 +548,16 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     const empty = [...plan.fieldProducers(kind)].filter(([field, producers]) => producers.length === 0 && !authored.has(field)).map(([field]) => field);
     if (empty.length === 0) continue;
     if (!askedSet.has(kind)) {
-      // A kind this fill pulls in only as a prerequisite or input is not asked for: its agent-bound fields are unfilled
-      // here, and named so the page can say so, rather than refused or silently filled (madarch-64o5.102, 64o5.63).
-      skipped.push({ kind, fields: empty.sort(byCodePoint), reason: 'the agent fills it, and this fill does not ask for this kind' });
+      // A kind this fill pulls in only as a prerequisite or input is not asked for: its agent-filled fields are unfilled
+      // here, and named so the page can say so (madarch-64o5.102, 64o5.63). A field bound to a plugin the manifest does
+      // not hold is still the manifest's error, exactly as for an asked kind — a pull-in hides no manifest mistake.
+      const missing = empty.filter((field) => fieldOf(kind, field)?.binding?.kind === 'plugin' && manifest.plugins?.has((fieldOf(kind, field)!.binding as { plugin: string }).plugin) !== true);
+      if (missing.length > 0) {
+        const error = fillPlanError(manifest, kind);
+        if (error !== undefined) errors.push({ ...error, fields: missing });
+      }
+      const rest = empty.filter((field) => !missing.includes(field)).sort(byCodePoint);
+      if (rest.length > 0) skipped.push({ kind, fields: rest, reason: 'the agent fills it, and this fill does not ask for this kind' });
       continue;
     }
     const named = empty.filter((field) => fieldOf(kind, field)?.binding?.kind === 'plugin' && manifest.plugins?.has((fieldOf(kind, field)!.binding as { plugin: string }).plugin) !== true);

@@ -404,3 +404,14 @@ test('a page that names its plan\'s kinds does not turn a pulled-in dependency i
   expect(plan.errors).toEqual([]);
   expect(plan.skipped).toEqual([{ kind: 'File', fields: ['state_machines'], reason: 'the agent fills it, and this fill does not ask for this kind' }]);
 });
+
+test('a pulled-in kind still names a field bound to a plugin the manifest lacks', () => {
+  // A pull-in must not hide a manifest error: File.body binds to the absent plugin `missing` while the titles are filled.
+  const file = { ...kind('File', ['title', 'body']), file: '/product/kinds.yaml', line: 4 };
+  const manifest = manifestOf([file, kind('Domain', ['title'], ['File'])], [plugin('index', [output('File', ['title']), output('Domain', ['title'])]), general(['File'])]);
+  const bound = manifest.kinds.get('File') as unknown as { fields: { name: string; binding?: { kind: string; plugin?: string } }[] };
+  bound.fields = bound.fields.map((field) => field.name === 'body' ? { ...field, binding: { kind: 'plugin', plugin: 'missing' } } : field);
+  const plan = planManifestFill(manifest, '/product', ['File', 'Domain'], true, ['Domain']);
+  expect(plan.errors.map((error) => error.kind)).toEqual(['File']);
+  expect(plan.skipped).toEqual([]);
+});
