@@ -30,6 +30,8 @@ fields:
     agent: What happens when the event occurs, in one sentence, from the transitions it causes in the graph.
 key:
 - name
+derives-from:
+- code.symbol
 labels:
   en:
     one: Event

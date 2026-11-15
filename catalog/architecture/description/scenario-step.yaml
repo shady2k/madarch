@@ -67,6 +67,8 @@ member:
   relation: partOf
   direction: out
   parentKind: runtime-scenario
+derives-from:
+- runtime-scenario
 labels:
   en:
     one: Scenario step

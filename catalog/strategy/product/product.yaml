@@ -17,6 +17,8 @@ relation-constraints:
   - partOf
 template-policy: page
 source: graph
+# The product's page is titled by the name the product gives itself.
+title: name
 fields:
 - name: name
   type: text

@@ -1,7 +1,7 @@
 id: manifest.kinds
 purpose: structure
 audience: [architect, product-lead]
-definition: A kind is one declared type of entity of the product, with the fields it holds, its natural key and the page it shows.
+definition: A kind is one declared type of entity of the product, with the fields it holds, its natural key and what a reader sees of it.
 sources:
 - https://doc.anytype.io/anytype/organize/types
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0021-product-repository-contract.md
@@ -50,5 +50,5 @@ labels:
     one: Вид
     many: Виды
 description:
-  en: 'A kind is the product’s declaration of a type of entity: what it is, the sources it was taken from, how its entities are acquired, the relations it may carry and what its page shows. The catalogue is made of kinds, and the engine reads the product’s kinds as entities of the graph like any other.'
-  ru: 'Вид — объявление продуктом типа сущности: что это, из каких источников взято, как сущности появляются, какие связи допустимы и что показывает страница. Каталог состоит из видов, и движок читает виды продукта как сущности графа наравне с остальными.'
+  en: 'A kind is the product’s declaration of a type of entity: what it is, the sources it was taken from, how its entities are acquired, the relations it may carry and what a reader sees of its entities. The catalogue is made of kinds, and a kind is itself an entity a reader can open.'
+  ru: 'Вид — объявление продуктом типа сущности: что это, из каких источников взято, как сущности появляются, какие связи допустимы и что видит читатель. Каталог состоит из видов, и сам вид — сущность, которую читатель может открыть.'

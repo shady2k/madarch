@@ -65,7 +65,7 @@ fields:
   nullable: true
   binding:
     agent: 'What the decision settled: accepted, rejected, «this is really kind Y», a value chosen, a question closed.'
-- name: reason
+- name: decision_reason
   type: text
   nullable: true
   binding:

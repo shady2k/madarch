@@ -42,6 +42,8 @@ fields:
     agent: The role that answers for the process, from the roles named on its steps in the graph.
 key:
 - name
+derives-from:
+- document
 labels:
   en:
     one: Business process

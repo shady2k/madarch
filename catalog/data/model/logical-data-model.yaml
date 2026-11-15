@@ -1,0 +1,53 @@
+id: practice.logical-data-model
+purpose: structure
+audience: [analyst, architect, developer]
+definition: A logical data model is the set of data entities one domain holds, with the relations between them, drawn as one ER model.
+sources:
+- https://www.postgresql.org/docs/
+acquisition:
+- agent-from-graph
+- conversation
+relation-constraints:
+  out:
+  - hasPart
+  - documents
+  - partOf
+  in:
+  - documents
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the model is known by, such as the catalogue's data; it is the model's key.
+- name: domain
+  type: json
+  nullable: true
+  reference: domain
+  binding:
+    agent: The domain whose data the model draws, by the key of that domain in the graph.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the model holds, in one or two sentences, from the entities it groups in the graph.
+key:
+- name
+derives-from:
+- domain
+- code.table
+er: tables
+labels:
+  en:
+    one: Logical data model
+    many: Logical data models
+  ru:
+    one: Логическая модель данных
+    many: Логические модели данных
+description:
+  en: 'A logical data model is the picture of what one domain stores: its data entities, what identifies each of them and how they relate. It stands between the domain model, which says what the business means, and the tables the product keeps, which say how the data is stored.'
+  ru: 'Логическая модель данных — картина того, что хранит один домен: его сущности данных, что отличает каждую и как они связаны. Она стоит между моделью домена, которая говорит, что означает бизнес, и таблицами продукта, которые говорят, как данные хранятся.'

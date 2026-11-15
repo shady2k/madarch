@@ -1,7 +1,7 @@
 id: practice.work-span
 purpose: operations
 audience: [developer, product-lead, operations]
-definition: A work span is one stretch of work a person, an agent or a plugin did on something, with how long it took, which model helped and what it cost.
+definition: A work span is one stretch of work a person or an agent did on something, with how long it took, which model helped and what it cost.
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
 - https://openai.github.io/openai-agents-python/tracing/
@@ -68,6 +68,8 @@ fields:
 key:
 - started_at
 - step
+derives-from:
+- task
 labels:
   en:
     one: Work span
@@ -76,5 +78,5 @@ labels:
     one: Промежуток работы
     many: Промежутки работы
 description:
-  en: 'A work span is one stretch of work on an entity: a person writing a page, an agent filling a kind, a plugin reading a repository. It keeps how long the work took, which model helped and what it cost in tokens and money, and spans add up to what the work has taken so far.'
-  ru: 'Промежуток работы — один отрезок работы над сущностью: человек пишет страницу, агент заполняет вид, плагин читает репозиторий. В нём остаются длительность, какая модель помогала и сколько это стоило токенов и денег; из промежутков складывается, сколько работа уже забрала.'
+  en: 'A work span is one stretch of work on an entity: a person writing a description, an agent reading a kind, a program reading a repository. It keeps how long the work took, which model helped and what it cost in tokens and money, and spans add up to what the work has taken so far.'
+  ru: 'Промежуток работы — один отрезок работы над сущностью: человек пишет описание, агент читает вид, программа читает репозиторий. В нём остаются длительность, какая модель помогала и сколько это стоило токенов и денег; из промежутков складывается, сколько работа уже забрала.'

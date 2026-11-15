@@ -77,6 +77,12 @@ fields:
   nullable: true
   binding:
     agent: What has to hold for the task to be done, in the words of its acceptance.
+- name: labels
+  type: json
+  nullable: true
+  reference: value-set-entry
+  binding:
+    agent: 'The labels the task carries, by the keys of those value-set entries in the graph.'
 key:
 - tracker
 - key

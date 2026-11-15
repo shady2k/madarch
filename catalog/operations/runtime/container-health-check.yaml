@@ -70,6 +70,9 @@ key:
 - platform
 - name
 - type
+derives-from:
+- code.compose-service
+- code.k8s-deployment
 labels:
   en:
     one: Container health check

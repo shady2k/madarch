@@ -614,7 +614,19 @@ edges:
   - { name: fixedBy, from: [code.test-quarantine], to: [task], capability: test-quarantine }
   - { name: code.has-column, from: [code.table], to: [code.column], capability: db-schema }
   - { name: code.has-index, from: [code.table], to: [code.index], capability: db-schema }
-  - { name: code.foreign-key, from: [code.column], to: [code.column], repeats: true, discriminator: column, capability: db-schema }
+  # A foreign key is a relationship of the ER model: an edge between two columns, never a vertex (ADR 0034, item 5). The
+  # constraint's own attributes stand on the edge, and the logical data model draws the tables it joins.
+  - name: code.foreign-key
+    from: [code.column]
+    to: [code.column]
+    repeats: true
+    discriminator: column
+    capability: db-schema
+    fields:
+      - { name: target_column, type: text, nullable: true, producers: [db-schema] }
+      - { name: constraint, type: text, nullable: true, producers: [db-schema] }
+      - { name: on_delete, type: text, nullable: true, producers: [db-schema] }
+      - { name: on_update, type: text, nullable: true, producers: [db-schema] }
   - { name: code.declared-in, from: [code.table], to: [code.file], capability: db-schema }
   # The code a domain covers and the terms it speaks, and the modules a module depends on (owner's decision, 2026-11-15):
   # both ends stand in the graph, so the agent reads them there and the kind's fields stay what the thing is. One edge
@@ -630,7 +642,7 @@ edges:
   - { name: grounds, from: [any], to: [any], repeats: true, discriminator: place }
   # The control flow of a business process or an activity: one node to the next, with the condition that allows it. A flow
   # is an edge of the graph, never a vertex of its own (ADR 0034, item 5), so BPMN and activity diagrams draw it from here.
-  - { name: flowsTo, from: [process-step, bpmn.gateway, bpmn.event], to: [process-step, bpmn.gateway, bpmn.event], repeats: true, discriminator: place }
+  - { name: flowsTo, from: [process-step, process-gateway, process-event, activity-node], to: [process-step, process-gateway, process-event, activity-node], repeats: true, discriminator: place }
   # A library a manifest declares is an edge, not an entity (the catalogue audit of 2026-11-15): the version and the scope
   # it is declared in are the edge's attributes, so the same package may be declared twice for two scopes.
   - name: package.dependsOn

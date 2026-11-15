@@ -42,6 +42,8 @@ fields:
 key:
 - process
 - name
+derives-from:
+- business-process
 member:
   relation: partOf
   direction: out

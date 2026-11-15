@@ -45,5 +45,5 @@ labels:
     one: Роль
     many: Роли
 description:
-  en: 'A role is a part a person plays: a user, an administrator, an operator, a tester, a product owner, an analyst, an architect or a developer. It is the actor on use cases and process diagrams, the role a person reads the wiki with, and the holder of access roles and permissions. The same names are the kinds’ audiences and the roles that escalated problems go to.'
-  ru: 'Роль — часть, которую человек играет: пользователь, администратор, эксплуатация, тестировщик, продукт, аналитик, архитектор или разработчик. Она действует в сценариях и на схемах процессов, с ней человек читает вики и она держит роли доступа и права. Те же имена — аудитории видов и роли, которым уходят эскалированные проблемы.'
+  en: 'A role is a part a person plays: a user, an administrator, an operator, a tester, a product owner, an analyst, an architect or a developer. It is the actor on use cases and process diagrams, the role a person reads the product with, and the holder of access roles and permissions. The same names are the kinds’ audiences and the roles that escalated problems go to.'
+  ru: 'Роль — часть, которую человек играет: пользователь, администратор, эксплуатация, тестировщик, продукт, аналитик, архитектор или разработчик. Она действует в сценариях и на схемах процессов, с ней человек читает продукт и она держит роли доступа и права. Те же имена — аудитории видов и роли, которым уходят эскалированные проблемы.'

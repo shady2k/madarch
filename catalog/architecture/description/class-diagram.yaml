@@ -1,0 +1,59 @@
+id: uml.class-diagram
+purpose: structure
+audience: [architect, developer]
+definition: A class diagram is a view of the types one part of the product declares, with their fields and the relations between them.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- agent-from-graph
+- conversation
+relation-constraints:
+  out:
+  - hasPart
+  - documents
+  - partOf
+  in:
+  - documents
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the view is known by, such as the fill's types or the domain model of orders; it is the view's key.
+- name: level
+  type: text
+  nullable: true
+  binding:
+    agent: 'Whether the view draws code types or domain entities: code or domain.'
+- name: module
+  type: json
+  nullable: true
+  reference: code.module
+  binding:
+    agent: The module whose types the view draws, by the key of that module in the graph.
+- name: domain
+  type: json
+  nullable: true
+  reference: domain
+  binding:
+    agent: The domain whose entities the view draws, by the key of that domain in the graph.
+key:
+- name
+derives-from:
+- code.symbol
+- code.field
+- domain-entity
+labels:
+  en:
+    one: Class diagram
+    many: Class diagrams
+  ru:
+    one: Диаграмма классов
+    many: Диаграммы классов
+description:
+  en: 'A class diagram is a view: it picks the types of one module or the entities of one domain and draws them with their fields, what they inherit, what they implement and what they refer to. Nothing in it is a new fact: it shows the types, their fields and the relations between them as they already are.'
+  ru: 'Диаграмма классов — это представление: она берёт типы одного модуля или сущности одного домена и рисует их с полями, наследованием, реализациями и ссылками. Ничего нового в ней нет: она показывает типы, их поля и связи между ними такими, какие они есть.'
