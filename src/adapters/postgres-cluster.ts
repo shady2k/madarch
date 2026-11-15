@@ -542,14 +542,34 @@ function initdbWhole(dataDir: string): boolean {
  * Moves a folder madarch would prepare again aside, by a rename in the store's own folder: a store's files are never
  * deleted, however little they are expected to hold — a table in `postgres`, a database in a tablespace and a cluster a
  * person restored all live outside what a folder's own shape says. The name carries the UTC moment so two moves of one
- * store are told apart, and the folder stands beside the store until a person checks it and removes it by hand. A
- * rename the filesystem refuses is the caller's to refuse the start with.
+ * store are told apart, and the folder stands beside the store until a person checks it and removes it by hand.
+ *
+ * A move never replaces anything already there. POSIX `rename` replaces an empty directory at its destination, so the
+ * name is first taken exclusively with `mkdir`: the only directory a move can replace is that placeholder, made a
+ * moment earlier by this call. Windows never replaces a directory on rename, so the placeholder only proves the name
+ * free there. When the name is taken, the next counter is tried, never the folder found at it. A rename the
+ * filesystem refuses — a name taken after the placeholder, a file inside it — is the caller's to refuse the start with.
+ * A test names the moment, so it can hold a name of the very one a move would take.
  */
-function moveAside(dataDir: string): string {
-  const stamp = new Date().toISOString().replace(/[:.]/gu, '-');
-  const target = `${dataDir}.abandoned-${stamp}`;
-  renameSync(dataDir, target);
-  return target;
+export function moveAside(dataDir: string, moment: Date = new Date()): string {
+  const stamp = moment.toISOString().replace(/[:.]/gu, '-');
+  for (let attempt = 1; attempt <= 1_000; attempt++) {
+    const target = attempt === 1 ? `${dataDir}.abandoned-${stamp}` : `${dataDir}.abandoned-${stamp}-${String(attempt)}`;
+    try { mkdirSync(target); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
+    try {
+      if (process.platform === 'win32') rmdirSync(target);
+      renameSync(dataDir, target);
+    } catch (error) {
+      try { rmdirSync(target); } catch { /* the placeholder is gone already, or a rename took it */ }
+      throw error;
+    }
+    return target;
+  }
+  throw new Error(`${dataDir}:1: a thousand names beside this folder are taken, so the folder is left as it stands and this store does not open: move it by hand and open the store again (src/adapters/postgres-cluster.ts)`);
 }
 
 

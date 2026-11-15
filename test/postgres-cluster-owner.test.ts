@@ -10,7 +10,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSyn
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { awaitServerAnswering, clusterPaths, clusterQuery, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
+import { awaitServerAnswering, clusterPaths, clusterQuery, moveAside, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-cluster-owner-'));
@@ -395,6 +395,28 @@ for (const shape of ['unreadable', 'foreign'] as const) {
     expect(readFileSync(sentinel, 'utf8')).toBe('kept\n');
   }, 120_000);
 }
+
+test('a folder is never moved onto a name already taken, and the store opens', async () => {
+  // POSIX `rename` replaces an empty directory at its destination: the name is taken with `mkdir` first, so a folder
+  // somebody left at the very name of this move stands untouched, empty as it was, and the move takes the next counter
+  // (madarch-64o5.81 review).
+  const store = storeOf('abandoned name taken');
+  const { dataDir } = clusterPaths(store);
+  const first = await openCluster({ ...clusterPaths(store) });
+  await first.stop();
+  const sentinel = join(dataDir, 'madarch.test-sentinel');
+  writeFileSync(sentinel, 'kept\n');
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf());
+  const taken = `${dataDir}.abandoned-2026-11-15T12-00-00-000Z`;
+  mkdirSync(taken);
+  const target = moveAside(dataDir, new Date('2026-11-15T12:00:00.000Z'));
+  expect(target).toBe(`${taken}-2`);
+  expect(readFileSync(join(target, 'madarch.test-sentinel'), 'utf8')).toBe('kept\n');
+  expect(readdirSync(taken)).toEqual([]);
+  const second = await openCluster({ ...clusterPaths(store) });
+  try { await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1'); } finally { await second.stop(); }
+}, 120_000);
 
 test('a table in postgres survives in the folder a preparation moves aside', async () => {
   // What a folder holds is no proof of what a store is worth: a table lives in the `postgres` database itself, and a
