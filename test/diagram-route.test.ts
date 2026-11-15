@@ -94,6 +94,27 @@ test('the archify format answers its self-contained interactive page, each node 
   expect(answer.html).toContain("madarch:'open'");
 }, 60_000);
 
+test('every diagram link stands under the product base the request came in on', async () => {
+  // A products-home server answers a wiki under /products/<folder>/, so a node's page must carry that prefix in all
+  // three formats; without it the server answers a different address (madarch-64o5.98).
+  const base = '/products/shop';
+  const mermaid = await renderDiagram(product, { entity: '1', format: 'mermaid', base });
+  if (!('body' in mermaid)) throw new Error('the Mermaid answer is not JSON');
+  const source = (mermaid.body as { source: string }).source;
+  expect(source).toContain(`click n0 href "${base}/e/code.repository/1"`);
+  expect(source).toContain(`click n1 href "${base}/e/code.file/2"`);
+  const likec4 = await renderDiagram(product, { entity: '1', format: 'likec4', base });
+  if (!('body' in likec4)) throw new Error('the LikeC4 answer is not JSON');
+  expect((likec4.body as { links: Record<string, string> }).links['n1']).toBe(`${base}/e/code.file/2`);
+  const archify = await renderDiagram(product, { entity: '1', format: 'archify', base });
+  if (!('html' in archify)) throw new Error('the archify answer is not HTML');
+  expect(archify.html).toContain(`${base}/e/code.file/2`);
+  // The folded node opens the list under the same prefix.
+  const folded = await renderDiagram({ ...(product as object), diagramNeighbourhood: async () => ({ ...neighbourhood, kindPages: new Map([['code.file', '/e/catalogue/x']]) }) } as unknown as KnowledgeProduct, { entity: '1', format: 'mermaid', base, aggregateAbove: 1 });
+  if (!('body' in folded)) throw new Error('the folded answer is not JSON');
+  expect((folded.body as { source: string }).source).toContain(`click n1 href "${base}/e/catalogue/x"`);
+}, 60_000);
+
 test('the same graph revision answers the same bytes', async () => {
   const first = await renderDiagram(product, { entity: '1', format: 'mermaid' });
   const second = await renderDiagram(product, { entity: '1', format: 'mermaid' });

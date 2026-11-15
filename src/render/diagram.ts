@@ -52,10 +52,13 @@ export function pageOf(kind: string, id: string): string {
  * is its entities, one edge each to the root; a group above it is one node with the count and the page that lists them,
  * drawn as a single edge. The layout therefore never sees more nodes than the groups and the small groups' rows.
  */
-export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number): DiagramGraph {
+export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number, base = ''): DiagramGraph {
   const entity = neighbourhood.entity;
   const labelOf = (uid: string): string => neighbourhood.labels.get(uid) ?? uid;
-  const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: pageOf(entity.kind, entity.uid) };
+  // Every node's page stands under the product's own base (madarch-64o5.98): a server that serves several products
+  // answers `/products/<folder>/e/...`, and a link without the prefix is a different address of that server.
+  const page = (kind: string, id: string): string => `${base}${pageOf(kind, id)}`;
+  const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: page(entity.kind, entity.uid) };
   const nodes = new Map<string, DiagramNode>([[root.id, root]]);
   const edges: DiagramEdge[] = [];
   let folded = 0;
@@ -64,8 +67,8 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     if (group.total > aggregateAbove) {
       const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
       const id = `fold:${group.side}:${group.relation}:${group.kind}`;
-      const href = neighbourhood.kindPages.get(group.kind);
-      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(href === undefined ? {} : { href }) });
+      const listed = neighbourhood.kindPages.get(group.kind);
+      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(listed === undefined ? {} : { href: `${base}${listed}` }) });
       folded += group.total;
       edges.push(group.side === 'out' ? { from: root.id, to: id, label: word, both: false } : { from: id, to: root.id, label: word, both: false });
       continue;
@@ -73,7 +76,7 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     for (const uid of group.nodes) {
       const held = neighbourhood.nodes.get(uid);
       if (held === undefined) continue;
-      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: pageOf(held.kind, uid) });
+      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: page(held.kind, uid) });
       edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
     }
   }

@@ -239,7 +239,12 @@ function fillRefusalCode(message: string): string | undefined {
         return refused(400, { field: 'aggregateAbove', message: `${here()}: "aggregateAbove" is a whole number of neighbours, 1 or more; it was ${JSON.stringify(askedAbove)}` });
       }
       const lang = url.searchParams.get('lang') ?? undefined;
-      const answer = await renderDiagram(product, { entity: entity.trim(), format, ...(depth === undefined ? {} : { depth }), ...(aggregateAbove === undefined ? {} : { aggregateAbove }), ...(lang === undefined ? {} : { lang }) });
+      // The product's own base, as the products-home server names it on the forwarded request: the product's handler
+      // sees the path after the prefix, so the home passes the prefix in a header, and every node's page stands under
+      // it (madarch-64o5.98). A server that serves one product at its root names none.
+      const namedBase = request.headers.get('x-madarch-base') ?? '';
+      const base = /^\/products\/[^/]+$/u.test(namedBase) ? namedBase : '';
+      const answer = await renderDiagram(product, { entity: entity.trim(), format, ...(base === '' ? {} : { base }), ...(depth === undefined ? {} : { depth }), ...(aggregateAbove === undefined ? {} : { aggregateAbove }), ...(lang === undefined ? {} : { lang }) });
       if ('error' in answer) {
         // A picture that could not be drawn answers its own words and the depth a reader may try, not a server wait.
         const held = answer as { status: number; error: string; code?: string };

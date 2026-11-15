@@ -53,6 +53,7 @@ import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 import { API } from '../knowledge/addresses.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
+import { productsHomePage, type HomeProduct } from './home-page.js';
 import { MANIFEST_FILE, readProduct } from '../product/manifest.js';
 import { isExistingDirectoryWithoutManifest } from '../product-wiki/manifestless.js';
 import { listProducts } from '../product/list.js';
@@ -461,13 +462,32 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     return new Response(null, { status: 302, headers: { location: `/products/${encodeURIComponent(name)}/`, 'cache-control': 'no-store' } });
   };
   /** One built app file at the home's own /assets and /fonts: the stylesheet of a product's wiki names its fonts by absolute path; anything else is a named 404, never an app shell. */
-  const serveHomeAssets = (pathname: string): Response => {
+  const serveHomeAssets = (request: Request, pathname: string): Response => {
     const answered = appFolder === undefined ? undefined : serveAppAssets(appFolder, pathname);
     if (answered !== undefined) return answered;
-    if (appFolder === undefined) return notServed(`this server serves a products home: each product's wiki answers under /products/<folder>/`);
-    return notServed(`no built app file answers "${pathname}" under the app folder ${JSON.stringify(appFolder)}: the wiki reads the styles and fonts the app's own build ships`);
+    if (appFolder === undefined) return notServedFor(request, `this server serves a products home: each product's wiki answers under /products/<folder>/`);
+    return notServedFor(request, `no built app file answers "${pathname}" under the app folder ${JSON.stringify(appFolder)}: the wiki reads the styles and fonts the app's own build ships`);
   };
 const notServed = (message: string): Response => Response.json({ message }, { status: 404 });
+  /** A browser asked for a page; an API client did not. */
+  const wantsHtml = (request: Request): boolean => (request.headers.get('accept') ?? '').toLowerCase().includes('text/html');
+  /** The products the home serves, for the page that names them with links. */
+  const homeProducts = (): HomeProduct[] => {
+    refreshProducts();
+    return [...productEntries.entries()].map(([folder, entry]) => ({ name: entry.product.name, folder, ...(entry.own ? { own: true } : {}) }));
+  };
+  /**
+   * An address the home does not serve: a browser gets a page in its language that names the products with links,
+   * an API client the JSON it reads (madarch-64o5.98).
+   */
+  const notServedFor = (request: Request, message: string): Response => {
+    if (!wantsHtml(request)) return notServed(message);
+    const acceptLanguage = request.headers.get('accept-language');
+    return new Response(productsHomePage({ path: new URL(request.url).pathname, products: homeProducts(), ...(acceptLanguage === null ? {} : { acceptLanguage }) }), {
+      status: 404,
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  };
   /** The app shell's absolute asset references must answer under the product's own prefix. */
   const withProductPrefix = async (response: Response, prefix: string): Promise<Response> => {
     if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
@@ -480,7 +500,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   const handleProductsHome = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname === '/' || url.pathname === '') return rootPage(request);
-    if (url.pathname === '/assets' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/')) return serveHomeAssets(url.pathname);
+    if (url.pathname === '/assets' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/')) return serveHomeAssets(request, url.pathname);
     // The products the wiki's selector offers (decision 0029: the product is chosen at the top left): one answer for the whole home.
     if (url.pathname === '/api/products' && request.method === 'GET') return Response.json({ products: productNames() });
     // The fill's unit tools answer for the process, not for one served product: a unit's own MCP server
@@ -490,18 +510,25 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     // (madarch-64o5.80).
     if (url.pathname === '/api/daemon') return handle(request);
     const match = /^\/products\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
-    if (match === null) return notServed(`this server serves a products home: the products are listed at ${new URL('/', url).href}, and each product's wiki answers under /products/<folder>/`);
+    if (match === null) return notServedFor(request, `this server serves a products home: the products are listed at ${new URL('/', url).href}, and each product's wiki answers under /products/<folder>/`);
     let name: string;
-    try { name = decodeURIComponent(match[1]!); } catch { return notServed(`the product path ${JSON.stringify(url.pathname)} holds a percent escape the server cannot read: ask for the product by its folder name`); }
+    try { name = decodeURIComponent(match[1]!); } catch { return notServedFor(request, `the product path ${JSON.stringify(url.pathname)} holds a percent escape the server cannot read: ask for the product by its folder name`); }
     refreshProducts();
     const entry = productEntries.get(name);
-    if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
+    if (entry === undefined) return notServedFor(request, `no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
     if (opensPage(request) && manifestPublicationReady(entry.product.folder)) knowledgeHost.of(entry.product.folder).warm();
     const rest = match[2] === undefined ? '/' : `/${match[2]}`.replace(/\/{2,}/g, '/');
     const forwardedUrl = new URL(url);
     forwardedUrl.pathname = rest;
     const forwarded = new Request(forwardedUrl, request);
-    const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
+    // The product's own address prefix, for the pages it answers: its handler sees the path after the prefix, so a
+    // diagram's links could not otherwise stand under it (madarch-64o5.98).
+    forwarded.headers.set('x-madarch-base', `/products/${encodeURIComponent(name)}`);
+    let answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
+    // A browser that reaches a path the product's wiki does not serve gets the home's page, never the API's JSON.
+    if (wantsHtml(request) && answered.status === 404 && (answered.headers.get('content-type') ?? '').includes('application/json')) {
+      answered = notServedFor(request, `the wiki of the product ${JSON.stringify(name)} serves no such path`);
+    }
     // The page a reader opens is the product this browser opens at the root next time.
     if ((answered.headers.get('content-type') ?? '').includes('text/html') && answered.status === 200 && !entry.own) answered.headers.append('set-cookie', `${LAST_PRODUCT_COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=31536000; SameSite=Lax`);
     return answered;
