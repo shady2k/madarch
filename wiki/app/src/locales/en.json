@@ -1,4 +1,7 @@
 {
+  "connection": {
+    "offline": "No connection to the madarch server. Trying again…"
+  },
   "facts": {
     "loading": "Reading facts…",
     "empty": "No facts are declared for this reader role.",

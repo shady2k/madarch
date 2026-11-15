@@ -11,6 +11,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { App } = await import('./app.js');
+const { resetConnection } = await import('./connection.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -93,6 +94,7 @@ function answerFor(query: string, variables: Record<string, unknown>): unknown {
 beforeEach(() => {
   requests.length = 0;
   readerRole = 'everything';
+  resetConnection();
   try { window.localStorage.clear(); } catch { /* no storage */ }
   // The frame's «Заполнить…» button reads the product's command state, and the change stream is silent here.
   (globalThis as { EventSource?: unknown }).EventSource = undefined;
@@ -189,6 +191,38 @@ test('the saved role is the active role at start', async () => {
   }
 });
 
+test('a server that cannot be reached shows one calm state and comes back by itself', async () => {
+  const reachableFetch = globalThis.fetch;
+  let reachable = false;
+  let failures = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (!reachable) {
+      failures += 1;
+      throw new TypeError('Failed to fetch');
+    }
+    return await (reachableFetch as typeof fetch)(input, init);
+  }) as typeof fetch;
+  window.history.pushState({}, '', '/');
+  const page = await render();
+  try {
+    expect(page.container.querySelector('[data-testid="wiki-offline"]')?.textContent).toContain('No connection to the madarch server. Trying again…');
+    expect(page.container.textContent).not.toContain('Failed to fetch');
+    const before = failures;
+    // The probe comes by itself, at the first backoff step, and fails again while the server is down.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 800)); });
+    expect(failures).toBeGreaterThan(before);
+    reachable = true;
+    // The next probe lifts the calm state, and the frame reads the page again.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_500)); });
+    await settle();
+    expect(page.container.querySelector('[data-testid="wiki-offline"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="wiki-app"]')).not.toBeNull();
+    expect(page.container.textContent).not.toContain('Failed to fetch');
+  } finally {
+    await page.close();
+  }
+}, 10_000);
+
 test('a change event refreshes the navigation and asks the current page again', async () => {
   class FakeSource {
     static last: FakeSource | undefined;
@@ -244,7 +278,16 @@ for (const obsoleteError of [false, true]) {
   test(`a superseded page ${obsoleteError ? 'error' : 'answer'} cannot replace the current page`, async () => {
     window.history.pushState({}, '', `/e/catalogue/${ID}`);
     const pending: ((value: Response) => void)[] = [];
-    globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
+    globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+      const path = String(url);
+      if (!path.endsWith('/graphql')) {
+        const command = path.includes('/api/settings')
+          ? { role: readerRole, asked: true, roles: ['analyst', 'everything'] }
+          : path.includes('/api/problems')
+            ? { open: 3, closed: 0, dismissed: 0, sections: { code: 3, documents: 0, wiki: 0 } }
+            : path.includes('/api/status') ? { fill: { state: 'idle' } } : {};
+        return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
       if (body.query.includes('bootstrap')) return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})));
       return await new Promise<Response>((resolve) => { pending.push(resolve); });

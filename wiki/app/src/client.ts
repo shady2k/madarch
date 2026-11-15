@@ -3,6 +3,7 @@
  * app imports no other API function; a page's data comes from the graph and nowhere else.
  */
 import type { Bootstrap } from '../../../src/page-contract/index.js';
+import { reportOffline, reportOnline } from './connection.js';
 
 /** One kind of the product's navigation: its names in the reader's language, its group and what the graph holds. */
 export interface NavigationKind {
@@ -72,6 +73,8 @@ export interface GraphqlError {
 export interface GraphqlAnswer<T> {
   readonly data?: T;
   readonly errors: readonly GraphqlError[];
+  /** The server could not be reached at all: the frame says so once, and no page shows the request's own words. */
+  readonly offline?: boolean;
 }
 
 /** The base path the app is served under: a products home serves each product's wiki below `/products/<name>`. */
@@ -82,12 +85,25 @@ export function basePathOf(pathname: string): string {
 
 /** One operation through the product's one read API. */
 export async function postQuery<T>(base: string, query: string, variables: Record<string, unknown>): Promise<GraphqlAnswer<T>> {
-  const response = await fetch(`${base}/graphql`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ query, variables }),
-    credentials: 'same-origin',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}/graphql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ query, variables }),
+      credentials: 'same-origin',
+    });
+  } catch {
+    reportOffline();
+    return { errors: [], offline: true };
+  }
+  // A proxy in front of the server answers these when the server behind it is not there; the link, not the graph, is
+  // what failed.
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    reportOffline();
+    return { errors: [], offline: true };
+  }
+  reportOnline();
   if (!response.ok) {
     return { errors: [{ message: `the graph answered ${String(response.status)}` }] };
   }
@@ -96,8 +112,9 @@ export async function postQuery<T>(base: string, query: string, variables: Recor
 }
 
 /** The bootstrap and the navigation, or the message the page shows when they could not be read. */
-export async function readBootstrap(base: string, lang: string): Promise<{ bootstrap?: Bootstrap; navigation?: Navigation; message?: string }> {
+export async function readBootstrap(base: string, lang: string): Promise<{ bootstrap?: Bootstrap; navigation?: Navigation; message?: string; offline?: boolean }> {
   const answer = await postQuery<{ bootstrap?: Bootstrap; navigation?: Navigation }>(base, BOOTSTRAP_QUERY, { lang });
+  if (answer.offline === true) return { offline: true };
   if (answer.errors.length > 0) return { message: answer.errors.map((error) => error.message).join('; ') };
   if (answer.data?.bootstrap === undefined || answer.data.navigation === undefined) return { message: 'the graph answered no bootstrap' };
   return { bootstrap: answer.data.bootstrap, navigation: answer.data.navigation };

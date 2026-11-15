@@ -5,6 +5,8 @@
  * its controls are workflow state, not graph data, and they are read here.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { reportOffline, reportOnline, useConnection } from '../connection.js';
+import { i18n } from '../i18n.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
@@ -301,6 +303,14 @@ export class CommandError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
 }
 
+/** Whether a failed read or press could not reach the server at all, rather than being refused by it. */
+export function isOffline(error: unknown): boolean {
+  return error instanceof CommandError && error.code === 'offline';
+}
+
+/** The reader's one calm line for a server that cannot be reached; a press that fails shows it instead of a request's words. */
+export const offlineWords = (): string => i18n.t('connection.offline');
+
 function errorOf(body: unknown, status: number): { message: string; code?: string } {
   if (body !== null && typeof body === 'object') {
     const held = body as { message?: unknown; error?: { message?: unknown; code?: unknown } };
@@ -318,9 +328,15 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
       ...init,
       headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
     });
-  } catch (error) {
-    throw new CommandError(`the request failed (${error instanceof Error ? error.message : String(error)})`);
+  } catch {
+    reportOffline();
+    throw new CommandError(offlineWords(), 'offline');
   }
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    reportOffline();
+    throw new CommandError(offlineWords(), 'offline');
+  }
+  reportOnline();
   let body: unknown;
   try {
     body = await response.json();
@@ -431,6 +447,8 @@ export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Pr
   const [nonce, setNonce] = useState(0);
   const loader = useRef(load);
   loader.current = load;
+  // A return from offline is a new reason to read: the frame's one calm state lifts, and every open page asks again.
+  const connection = useConnection();
   useEffect(() => {
     if (!enabled) {
       setData(null);
@@ -442,10 +460,16 @@ export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Pr
     setBusy(true);
     loader.current(controller.signal).then(
       (answer) => { if (alive) { setData(answer); setError(null); setBusy(false); } },
-      (failure: unknown) => { if (alive && !controller.signal.aborted) { setError(failure instanceof Error ? failure.message : String(failure)); setBusy(false); } },
+      (failure: unknown) => {
+        if (alive && !controller.signal.aborted) {
+          // The frame already says the server cannot be reached: a page does not repeat it in a request's words.
+          setError(isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure));
+          setBusy(false);
+        }
+      },
     );
     return () => { alive = false; controller.abort(); };
-  }, [key, enabled, nonce]);
+  }, [key, enabled, nonce, connection.generation]);
   const reload = useCallback(() => { setNonce((at) => at + 1); }, []);
   return { data, error, busy, reload };
 }
@@ -457,7 +481,11 @@ export function useChangeStream(base: string, onChange: () => void): void {
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
     const stream = new EventSource(eventsAddress(base));
+    // The stream is the app's continuous line to the server: its loss is the frame's calm state even when the reader
+    // presses nothing, and its return is what lifts it.
     stream.addEventListener('change', () => { listener.current(); });
+    stream.addEventListener('error', () => { reportOffline(); });
+    stream.addEventListener('open', () => { reportOnline(); });
     return () => { stream.close(); };
   }, [base]);
 }

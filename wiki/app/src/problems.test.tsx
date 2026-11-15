@@ -6,6 +6,7 @@ GlobalRegistrator.register({ url: 'http://localhost/products/example/p/problems'
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { App } = await import('./app.js');
+const { resetConnection } = await import('./connection.js');
 await import('./i18n.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
@@ -18,8 +19,17 @@ beforeEach(() => {
   requests.length = 0;
   answer = { data: { templateFindings: [finding] } };
   failNetwork = false;
+  resetConnection();
   window.history.pushState({}, '', '/products/example/p/problems');
   globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+    const path = String(url);
+    // The frame's command reads answer on their own routes; only the graph is the walk's subject here.
+    if (!path.endsWith('/graphql')) {
+      const command = path.includes('/api/problems')
+        ? { open: 0, closed: 0, dismissed: 0, sections: {} }
+        : path.includes('/api/settings') ? { role: 'everything', asked: true, roles: [] } : { fill: { state: 'idle' } };
+      return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     const { query } = JSON.parse(init?.body ?? '{}') as { query: string };
     requests.push({ url, query });
     if (query.includes('bootstrap')) return new Response(JSON.stringify({ data: {
@@ -71,9 +81,15 @@ for (const mode of ['graphql', 'network', 'missing'] as const) {
     if (mode === 'missing') answer = { data: {} };
     const page = await render();
     try {
-      expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(
-        mode === 'graphql' ? 'Template check failed' : mode === 'network' ? 'Network unavailable' : 'the graph answered no template findings',
-      );
+      if (mode === 'network') {
+        // A server that cannot be reached is the frame's one calm line, never the request's own words.
+        expect(page.container.querySelector('[data-testid="wiki-offline"]')?.textContent).toContain('No connection to the madarch server. Trying again…');
+        expect(page.container.textContent).not.toContain('Network unavailable');
+      } else {
+        expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(
+          mode === 'graphql' ? 'Template check failed' : 'the graph answered no template findings',
+        );
+      }
       expect(page.container.querySelector('main')?.textContent).not.toContain('No template findings.');
     } finally { await page.close(); }
   });
