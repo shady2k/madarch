@@ -136,7 +136,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const lines = run === null ? [] : logLines(run, run.groups, labelOf, pluginName, t, language);
 
   const act = (action: 'pause' | 'stop'): void => {
-    if (run === null) return;
+    if (connection.offline || run === null) return;
     setBusy(true);
     setFailure(null);
     const work = action === 'pause' ? pauseFillRun(context.base, run.runId) : stopFillRun(context.base, run.runId);
@@ -235,7 +235,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           <DialogHeader><DialogTitle>{t('knowledge.fillPage.stopTitle')}</DialogTitle></DialogHeader>
           <DialogBody><DialogDescription>{t('knowledge.fillRun.stopWords')}</DialogDescription></DialogBody>
           <DialogFooter>
-            <Button variant="default" size="default" disabled={busy} onClick={() => act('stop')} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
+            <Button variant="default" size="default" disabled={connection.offline || busy} onClick={() => act('stop')} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
             <Button size="default" disabled={busy} onClick={() => setConfirming(false)}>{t('knowledge.fillPage.stopCancel')}</Button>
           </DialogFooter>
         </DialogContent>
