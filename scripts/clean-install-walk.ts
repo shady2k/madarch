@@ -4,7 +4,6 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { stopWindowsDaemon } from '../src/product/windows-daemon-stop.js';
 import { prepareStoreAcceptanceFixture } from './clean-install-fixture.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 import { stopChildWithin } from '../src/product/child-stop.js';
@@ -269,6 +268,9 @@ async function serveCheck(): Promise<void> {
         if (process.platform === 'win32') {
           // This foreground serve is the walk's child, not the daemon named in the home's state file.
           // Sweep its stores too: force-killing the npm shell alone leaves PostgreSQL holding scratch files.
+          // Loaded here, never at the top: the walk reads no madarch runtime it does not use, and a Linux run
+          // (which installs no packages) never reaches a module that would ask for a tracing dependency.
+          const { stopWindowsDaemon } = await import('../src/product/windows-daemon-stop.js');
           if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
         } else {
           // The serve and everything it started are one process group. A role that will not leave, or one whose
