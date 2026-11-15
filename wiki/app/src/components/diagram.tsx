@@ -28,14 +28,6 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'archify', label: 'archify' },
 ];
 
-/**
- * The format a failed one falls back to: LikeC4's runtime hands the picture to Mermaid's renderer, which either draws it
- * or reports its own failure. archify answers no failure of its own, so it is never a fallback (madarch-64o5.134).
- */
-function nextFormat(format: Tab): Tab | undefined {
-  return format === 'likec4' ? 'mermaid' : undefined;
-}
-
 /** The format the reader opened last; the first visit draws the server's own LikeC4 picture until the reader picks another. */
 const PREFERRED_KEY = 'madarch-wiki-diagram';
 
@@ -56,9 +48,8 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
   const [tab, setTab] = useState<Tab>(() => preferredTab() ?? 'likec4');
   // A renderer that fails hands the picture to the next one, and the page says which one drew it (madarch-64o5.134).
-  const [fallbackTo, setFallbackTo] = useState<Readonly<Record<string, Tab>>>({});
   const [full, setFull] = useState(false);
-  const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
+  const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string; place?: string }>>({});
   const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
   const address = useMemo(() => {
@@ -81,8 +72,11 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     try {
       const answer = await fetch(key, { signal: stop.signal });
       if (!answer.ok) {
-        const said = (await answer.json().catch(() => ({}))) as { code?: string };
-        setAnswers((held) => ({ ...held, [key]: { failed: failure(said.code) } }));
+        // The server's own words stay data: the place and the cause it names are what a reader can act on, and the
+        // sentence around them is the interface's (madarch-64o5.134).
+        const said = (await answer.json().catch(() => ({}))) as { code?: string; message?: unknown };
+        const place = typeof said.message === 'string' ? said.message : '';
+        setAnswers((held) => ({ ...held, [key]: { failed: failure(said.code), ...(place === '' ? {} : { place }) } }));
         return;
       }
       const body = (await answer.json()) as Record<string, unknown>;
@@ -94,40 +88,27 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     }
   }, [address, answers, id, failure, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
-  // The renderer whose answer the picture shows: the reader's choice, or the one it fell back to for this address.
-  const took = fallbackTo[address(tab)] ?? tab;
-  const held = answers[address(took)];
-  useEffect(() => {
-    if (held === undefined || !('failed' in held) || took !== tab) return;
-    const next = nextFormat(tab);
-    if (next === undefined) return;
-    setFallbackTo((current) => ({ ...current, [address(tab)]: next }));
-    void ask(next);
-  }, [held, tab, took, ask]);
+  const held = answers[address(tab)];
   // One picture, one place: the renderers are a choice inside the figure, not three tabs beside each other — the page's
   // own tabs stay for the page's sections (madarch-64o5.83).
-  const label = (format: Tab): string => TABS.find((one) => one.id === format)?.label ?? format;
-  const note = took !== tab && held !== undefined && !('failed' in held)
-    ? <Metadata data-testid="diagram-fallback">{t('knowledge.diagramFellBack', { renderer: label(took), failed: label(tab) })}</Metadata>
-    : null;
   const picture = (
     <div data-testid="diagram-picture">
-      {took === 'archify' ? (
+      {tab === 'archify' ? (
         <ArchifyPane src={address('archify')} root={root} open={context.open} />
       ) : held === undefined ? (
         <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
       ) : 'failed' in held ? (
         <Stack>
           <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+          {held.place === undefined ? null : <Metadata data-testid="diagram-failure-place">{held.place}</Metadata>}
           <InlineGroup>
             <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
-              setAnswers((current) => { const next = { ...current }; delete next[address(took)]; return next; });
-              setFallbackTo((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
-              void ask(took);
+              setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
+              void ask(tab);
             }}>{t('knowledge.retry')}</Button>
           </InlineGroup>
         </Stack>
-      ) : took === 'likec4' ? (
+      ) : tab === 'likec4' ? (
         <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
       ) : (
         <MermaidPane answer={held as MermaidAnswer} open={(path) => { context.open(path); }} />
@@ -149,7 +130,6 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
         />
         <Button size="sm" data-testid="diagram-fullscreen" onClick={() => { setFull(true); }}>{t('knowledge.fullScreen')}</Button>
       </InlineGroup>
-      {note}
       {full ? null : picture}
       <Dialog open={full} onOpenChange={setFull}>
         <DialogContent size="window" closeLabel={t('knowledge.close')}>

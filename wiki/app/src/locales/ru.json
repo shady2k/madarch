@@ -1323,7 +1323,6 @@
     "diagramRenderer": "Отрисовка",
     "templateFindings": "Замечания шаблона",
     "fullScreen": "Во весь экран",
-    "diagramFellBack": "Нарисовано {{renderer}}: {{failed}} не дал картинку",
     "diagramFit": "По размеру",
     "diagramZoomIn": "Увеличить",
     "diagramZoomOut": "Уменьшить"

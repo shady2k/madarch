@@ -322,7 +322,7 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   }
 });
 
-test('a failed picture speaks the reader\'s language, never the server\'s', async () => {
+test('a failed picture says what happened in the reader\'s language and names the place the server reported', async () => {
   const real = globalThis.fetch;
   (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ code: 'FAILED', message: 'the picture did not draw within 2 s' }), { status: 500 })) as unknown as typeof fetch;
   try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
@@ -331,7 +331,7 @@ test('a failed picture speaks the reader\'s language, never the server\'s', asyn
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const words = page.container.textContent ?? '';
     expect(words).toContain('The diagram could not be built.');
-    expect(words).not.toContain('did not draw');
+    expect(page.container.querySelector('[data-testid="diagram-failure-place"]')?.textContent).toBe('the picture did not draw within 2 s');
   } finally {
     (globalThis as { fetch: typeof fetch }).fetch = real;
     await page.close();

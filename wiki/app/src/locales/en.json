@@ -1323,7 +1323,6 @@
     "diagramRenderer": "Renderer",
     "templateFindings": "Template findings",
     "fullScreen": "Full screen",
-    "diagramFellBack": "Drawn by {{renderer}}: {{failed}} did not answer its picture",
     "diagramFit": "Fit",
     "diagramZoomIn": "Zoom in",
     "diagramZoomOut": "Zoom out"

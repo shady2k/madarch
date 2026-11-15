@@ -60,7 +60,7 @@ sections:
     query: |
       id
     params:
-      depth: 2
+      depth: 1
       aggregateAbove: 12
   - id: outgoing
     component: relations
