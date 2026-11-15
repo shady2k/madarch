@@ -1529,6 +1529,8 @@
     "problemEntity": "Сущность:",
     "problemEvidence": "Обоснование:",
     "problemCreateTask": "Создать задачу",
+    "problemHasTask": "Есть задача:",
+    "problemOpenTask": "Открыть задачу",
     "problemNotAProblem": "Не проблема",
     "problemDismissPrompt": "Почему это не проблема? Причина сохранится файлом в репозитории продукта.",
     "problemDismissConfirm": "Сохранить причину",

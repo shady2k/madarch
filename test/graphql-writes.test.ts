@@ -14,6 +14,7 @@ import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
+import { generatedTableName } from '../src/graph/contract.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
 import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
@@ -258,6 +259,30 @@ describe('the agent writes the graph', () => {
     const restated = await putEntityOpinion(owner, agent, { kind: 'demo.repository', key: { name: 'u1' }, values: { description: 'a' }, evidence: [{ type: 'url', url: 'https://example.test/4', at: '2026-11-13T12:00:00Z' }] });
     expect(restated.uid).toBe(a.uid);
     expect(a.uid).not.toBe(b.uid);
+  });
+
+  test('a uid that belongs to another kind is refused, naming the uid, its kind and the kind asked', async () => {
+    const evidence = [{ type: 'url' as const, url: 'https://example.test/cross', at: '2026-11-13T12:00:00Z' }];
+    await putEntityOpinion(owner, agent, { kind: 'demo.repository', key: { name: 'cross' }, values: { description: 'a repository' }, evidence });
+    const file = await putEntityOpinion(owner, agent, {
+      kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'cross' } }, path: 'src/a.ts' }, values: { lines: 3 }, evidence,
+    });
+    // A keyless kind's uid may be a file's: the write must not attach its opinion to that file's node.
+    const refused = await putEntityOpinion(owner, agent, { kind: 'demo.note', id: file.uid, values: { label: 'a note on a file' }, evidence }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(WriteRefusal);
+    expect((refused as WriteRefusal).status).toBe(409);
+    expect((refused as WriteRefusal).message).toContain(String(file.uid));
+    expect((refused as WriteRefusal).message).toContain('"demo.file"');
+    expect((refused as WriteRefusal).message).toContain('"demo.note"');
+    const notes = await owner.run((tx) => tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM "${generatedTableName('demo.note', 'vertex')}" o JOIN node n ON n.id = o.node_id WHERE n.uid = $1::uuid`, [file.uid]));
+    expect(notes.rows[0]!.n).toBe('0');
+    // And the other way: a note's uid asked as a file names the kind the uid belongs to, not "no entity of the kind".
+    const note = await putEntityOpinion(owner, agent, { kind: 'demo.note', values: { label: 'a note' }, evidence });
+    const reverse = await putEntityOpinion(owner, agent, { kind: 'demo.file', id: note.uid, values: { lines: 1 }, evidence }).catch((error: unknown) => error);
+    expect(reverse).toBeInstanceOf(WriteRefusal);
+    expect((reverse as WriteRefusal).status).toBe(409);
+    expect((reverse as WriteRefusal).message).toContain('"demo.note"');
+    expect((reverse as WriteRefusal).message).toContain('"demo.file"');
   });
 
   test('a retraction names its evidence, and the journal keeps why', async () => {

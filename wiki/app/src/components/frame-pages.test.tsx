@@ -37,13 +37,21 @@ const PROBLEMS = {
       place: { label: 'domain:payments', href: '/e/demo.page/uid-1', key: 'domain:payments' }, entity: { label: 'payments', href: '/e/demo.page/uid-1', key: 'p' }, evidence: [], page: 'p', pageTitle: 'Payments',
       statement: 'refund-check', sentence: 'A refund is checked.', target: 'madarch:missing', reason: 'Ссылка никуда не ведёт.', file: 'docs/payments.md', line: 12,
       by: null, at: null,
+      task: { label: 'Исправить: Битая ссылка — docs/payments.md:12', href: '/e/task/uid-task-1', key: 'task:uid-task-1' },
+    },
+    {
+      id: 'dead-export\u0000c', identity: 'c', section: 'code', rule: 'dead-export', kind: 'dead-export', sonar: 'code-smell', severity: 'minor', fixer: 'person', closed: false,
+      place: { label: 'src/old.ts:4', href: '/e/code.file/uid-2', key: 'code.file:src/old.ts' }, entity: null, evidence: [], page: null, pageTitle: null,
+      statement: null, sentence: null, target: null, reason: 'Экспорт никому не нужен.', file: 'src/old.ts', line: 4,
+      by: null, at: null,
     },
   ],
   categories: [
     { rule: 'large-file', kind: 'large-file', section: 'code', sonar: 'code-smell', severity: 'minor', fixer: 'person', count: 1, open: 1, closed: 0, label: { en: 'Large file', ru: 'Большой файл' } },
+    { rule: 'dead-export', kind: 'dead-export', section: 'code', sonar: 'code-smell', severity: 'minor', fixer: 'person', count: 1, open: 1, closed: 0, label: { en: 'Exported but unused', ru: 'Экспорт без использования' } },
     { rule: 'wiki.broken-link', kind: 'broken-link', section: 'wiki', sonar: 'bug', severity: 'major', fixer: 'agent', count: 1, open: 1, closed: 0, label: { en: 'Broken link', ru: 'Битая ссылка' } },
   ],
-  sections: { code: 1, documents: 0, wiki: 1 }, open: 2, closed: 0, dismissed: 0,
+  sections: { code: 2, documents: 0, wiki: 1 }, open: 3, closed: 0, dismissed: 0,
   notes: [{ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates', textKey: 'documentsRetired' }],
 };
 
@@ -88,7 +96,8 @@ beforeEach(async () => {
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
     if (url.pathname.endsWith('/api/problems')) return answer(PROBLEMS);
-    if (url.pathname.endsWith('/api/problem-dismiss') || url.pathname.endsWith('/api/problem-task')) return answer({ file: 'docs/problems/x.md', committed: false, task: { title: 'Fix the file' } });
+    if (url.pathname.endsWith('/api/problem-dismiss')) return answer({ file: 'docs/problems/x.md', committed: false });
+    if (url.pathname.endsWith('/api/problem-task')) return answer({ state: 'created', task: { label: 'Исправить: Экспорт без использования — src/old.ts:4', href: '/e/task/uid-task-2', key: 'task:uid-task-2' } });
     if (url.pathname.endsWith('/api/sources')) return answer(SOURCES);
     if (url.pathname.endsWith('/api/product-settings')) return answer(SETTINGS);
     if (url.pathname.endsWith('/api/agents')) return answer({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: null, install: null }], chosen: null });
@@ -103,8 +112,9 @@ async function settle(): Promise<void> {
   for (let at = 0; at < 12; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 }
 
-async function render(component: string, params: Record<string, unknown> = {}): Promise<{ container: HTMLElement; roles: string[]; close: () => Promise<void> }> {
+async function render(component: string, params: Record<string, unknown> = {}): Promise<{ container: HTMLElement; roles: string[]; opened: string[]; close: () => Promise<void> }> {
   const roles: string[] = [];
+  const opened: string[] = [];
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -112,11 +122,11 @@ async function render(component: string, params: Record<string, unknown> = {}): 
     root.render(createElement(PageView, {
       composition: { template: 'probe', operation: '', variables: {}, sections: [section('body', component, params)], findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables: {}, product: null, navigation: null, pageName: null, open: () => undefined, reload: () => undefined, onRole: (role: string) => { roles.push(role); } },
+      runtime: { base: '', language: 'ru', busy: false, variables: {}, product: null, navigation: null, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined, onRole: (role: string) => { roles.push(role); } },
     }));
   });
   await settle();
-  return { container, roles, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
+  return { container, roles, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
 
 function type(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -135,12 +145,12 @@ test('the Problems page groups the open findings and presses the retained action
     expect(text).not.toContain('Markdown questions are retired');
     expect(text).not.toContain('large-file');
     expect(text).toContain('Битая ссылка');
-    expect(text).toContain('2 открытых из 2 проблем');
+    expect(text).toContain('3 открытых из 3 проблем');
     expect(text).toContain('src/big.ts:1');
     expect(text).toContain('A refund is checked.');
     expect(page.container.querySelector('a[href="/e/demo.page/uid-1"]')).not.toBeNull();
 
-    const first = page.container.querySelectorAll('[data-testid="problem-row"]')[0]!;
+    const first = page.container.querySelector('[data-testid="problem-row"][data-rule="large-file"]') as HTMLElement;
     await act(async () => { (first.querySelector('[data-testid="problem-not-a-problem"]') as HTMLButtonElement).click(); });
     const reason = first.querySelector('[data-testid="problem-dismiss-reason"]') as HTMLTextAreaElement;
     await act(async () => { type(reason, 'Это ожидаемо.'); });
@@ -149,10 +159,31 @@ test('the Problems page groups the open findings and presses the retained action
     const dismiss = requests.find((one) => one.path.endsWith('/api/problem-dismiss'));
     expect(dismiss?.body).toEqual({ id: 'large-file\u0000a', reason: 'Это ожидаемо.' });
 
-    const second = page.container.querySelectorAll('[data-testid="problem-row"]')[1]!;
-    await act(async () => { (second.querySelector('[data-testid="problem-create-task"]') as HTMLButtonElement).click(); });
+    // A problem without a task opens one with the press; the problem that has its task only opens the task.
+    const third = page.container.querySelector('[data-testid="problem-row"][data-rule="dead-export"]') as HTMLElement;
+    await act(async () => { (third.querySelector('[data-testid="problem-create-task"]') as HTMLButtonElement).click(); });
     await settle();
-    expect(requests.some((one) => one.path.endsWith('/api/problem-task') && (one.body as { id?: string }).id === 'wiki.broken-link\u0000b')).toBe(true);
+    expect(requests.some((one) => one.path.endsWith('/api/problem-task') && (one.body as { id?: string }).id === 'dead-export\u0000c')).toBe(true);
+    expect(page.container.textContent).toContain('Задача Исправить: Экспорт без использования — src/old.ts:4 создана.');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a problem that already has its task links to it, and the press opens that task instead of a second', async () => {
+  const page = await render('problem-actions', { path: 'problems' });
+  try {
+    const second = page.container.querySelector('[data-testid="problem-row"][data-rule="wiki.broken-link"]') as HTMLElement;
+    const link = second.querySelector('[data-testid="problem-task"] a') as HTMLAnchorElement | null;
+    expect(link?.getAttribute('href')).toBe('/e/task/uid-task-1');
+    expect(link?.textContent).toBe('Исправить: Битая ссылка — docs/payments.md:12');
+    expect(second.textContent).toContain('Есть задача:');
+    const button = second.querySelector('[data-testid="problem-create-task"]') as HTMLButtonElement;
+    expect(button.textContent).toBe('Открыть задачу');
+    await act(async () => { button.click(); });
+    await settle();
+    expect(page.opened).toEqual(['/e/task/uid-task-1']);
+    expect(requests.some((one) => one.path.endsWith('/api/problem-task'))).toBe(false);
   } finally {
     await page.close();
   }
