@@ -275,7 +275,68 @@ export interface FillRunEvent {
   readonly summary: string;
 }
 
-/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events and its usage. */
+/** One step of an agent unit's exchange, as madarch recorded it (madarch-64o5.88). */
+export interface AgentExchangeStepView {
+  readonly at: string;
+  readonly sessionUpdate: string;
+  readonly kind: string;
+  readonly title?: string;
+  readonly tool?: string;
+  readonly status?: string;
+  readonly path?: string;
+  readonly text?: string;
+  readonly detail?: string;
+  readonly bytes?: number;
+  readonly cut?: boolean;
+}
+
+/** One file an agent unit opened through madarch's file callbacks. */
+export interface AgentExchangeOpenView {
+  readonly at: string;
+  readonly repository: string;
+  readonly path: string;
+  readonly line?: number;
+  readonly limit?: number;
+  readonly bytes: number;
+}
+
+/** One agent unit's whole exchange: what it was given, what it did, what it returned and what it cost. */
+export interface AgentExchangeView {
+  readonly run: string;
+  readonly unit: string;
+  readonly agent: string;
+  readonly model: string | null;
+  readonly session: string | null;
+  readonly startedAt: string;
+  readonly endedAt: string;
+  readonly durationMs: number;
+  readonly state: string;
+  readonly given: {
+    readonly prompt: string;
+    readonly bytes: number;
+    readonly cut: boolean;
+    readonly task: unknown;
+    readonly files: readonly string[];
+    readonly filesTotal: number;
+  };
+  readonly steps: readonly AgentExchangeStepView[];
+  readonly stepsDropped: number;
+  readonly opened: readonly AgentExchangeOpenView[];
+  readonly openedDropped: number;
+  readonly returned: { readonly text: string; readonly bytes: number; readonly cut: boolean } | null;
+  readonly usage: {
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly totalTokens?: number;
+    readonly context?: { readonly used: number; readonly size: number };
+    readonly turns: number;
+    readonly reported: boolean;
+  } | null;
+  readonly stop: string | null;
+  readonly failure: string | null;
+}
+
+/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events, its usage and its agent exchanges. */
 export interface FillRunDetail {
   readonly runId: string;
   readonly state: string;
@@ -293,6 +354,8 @@ export interface FillRunDetail {
   readonly records: number;
   readonly publishedUnits: number;
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number } | null;
+  /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
+  readonly agentExchanges?: readonly AgentExchangeView[];
 }
 
 // ---- the client -------------------------------------------------------------------------------------------------

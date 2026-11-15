@@ -82,8 +82,29 @@ const RUN = {
   records: 12, publishedUnits: 2, agentUsage: null,
 };
 
+/** One agent unit's exchange, as madarch records it (madarch-64o5.88): its prompt, its steps, its files, its answer. */
+const EXCHANGE = {
+  run: 'fill-run-1', unit: 'agent-fill:demo.beta', agent: 'codex', model: 'gpt-5', session: 'session-1',
+  startedAt: new Date(Date.now() - 5000).toISOString(), endedAt: new Date(Date.now() - 1000).toISOString(), durationMs: 4000, state: 'turned',
+  given: {
+    prompt: 'Fill the requested kind from its manifest definition.\nFiles available through ACP fs/read_text_file:\n/repo/docs/a.md\nTask: {"kind":"demo.beta"}\nOutput contract: {}',
+    bytes: 190, cut: false, task: { kind: 'demo.beta' }, files: ['repo/docs/a.md'], filesTotal: 1,
+  },
+  steps: [
+    { at: new Date(Date.now() - 4000).toISOString(), sessionUpdate: 'agent_thought_chunk', kind: 'thought', text: 'Читаю определение' },
+    { at: new Date(Date.now() - 3000).toISOString(), sessionUpdate: 'tool_call', kind: 'tool-call', title: 'Читаю docs/a.md', tool: 'read', status: 'completed', path: '/repo/docs/a.md' },
+  ],
+  stepsDropped: 0,
+  opened: [{ at: new Date(Date.now() - 3000).toISOString(), repository: 'repo', path: 'docs/a.md', bytes: 42 }],
+  openedDropped: 0,
+  returned: { text: '{"vertices":[],"end":{"state":"complete"}}', bytes: 43, cut: false },
+  usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340, context: { used: 1200, size: 200000 }, turns: 1, reported: true },
+  stop: 'end_turn', failure: null,
+};
+
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
+let runDetail: unknown = RUN;
 
 function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -92,6 +113,7 @@ function answer(_path: string, body: unknown): Response {
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
+  runDetail = RUN;
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
@@ -102,7 +124,7 @@ beforeEach(async () => {
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', version: '1.0' }], chosen: null });
     if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
-    if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
+    if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: runDetail });
     if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
     if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
       ? answer(url.pathname, { runId: 'fill-run-2', order: ['demo.gamma'] })
@@ -296,3 +318,30 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
   }
 });
 
+
+test('the run page shows each agent unit in detail: what it was given, did, returned and cost', async () => {
+  runDetail = { ...RUN, state: 'succeeded', agentExchanges: [EXCHANGE] };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    const card = page.container.querySelector('[data-testid="fill-run-agents"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain('Что получил и вернул агент');
+    expect(card?.textContent).toContain('Подробно');
+    expect(card?.textContent).toContain('Термины');
+    // What it was given: the prompt as sent, and how many files it was told about.
+    expect(card?.querySelector('[data-testid="agent-prompt"]')?.textContent).toContain('Task: {"kind":"demo.beta"}');
+    expect(card?.textContent).toContain('Файлов передано: 1');
+    // What it did: the steps, and the file it opened, whose name leads to the source.
+    expect(card?.querySelector('[data-testid="agent-steps"]')?.textContent).toContain('Читаю docs/a.md');
+    const link = card?.querySelector('[data-testid="agent-opened"] a');
+    expect(link?.getAttribute('href')).toBe('/api/source?repo=repo&path=docs%2Fa.md');
+    expect(card?.querySelector('[data-testid="agent-opened"]')?.textContent).toContain('repo: docs/a.md');
+    // What it returned, what it cost, and the raw record behind the words.
+    expect(card?.querySelector('[data-testid="agent-answer"]')?.textContent).toContain('"state":"complete"');
+    expect(card?.querySelector('[data-testid="agent-tokens"]')?.textContent).toContain('Токены: 300 вход · 40 выход · 340 всего');
+    expect(card?.querySelector('[data-testid="agent-raw"]')?.textContent).toContain('Сырой JSON');
+    expect(card?.querySelector('[data-testid="agent-failure"]')).toBeNull();
+  } finally {
+    await page.close();
+  }
+});

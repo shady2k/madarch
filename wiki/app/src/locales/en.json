@@ -105,6 +105,44 @@
         "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins."
       },
       "logEmpty": "Nothing has happened yet.",
+      "agents": {
+        "title": "What the agent was given and returned",
+        "empty": "This run ran no agent unit, or its exchange was not kept.",
+        "details": "Details",
+        "state": {
+          "turned": "Answered",
+          "failed": "Failed",
+          "cancelled": "Stopped"
+        },
+        "given": "Given",
+        "givenFiles": "Files it was told about: {{count}}",
+        "opened": "Files opened: {{count}}",
+        "openedDropped": "{{count}} file reads past the record's bound are not kept.",
+        "openedEmpty": "No file was opened.",
+        "steps": "Steps",
+        "stepsEmpty": "The agent streamed no step.",
+        "stepsDropped": "{{count}} steps past the record's bound are not kept.",
+        "step": {
+          "message": "Message",
+          "thought": "Thought",
+          "tool-call": "Tool call",
+          "tool-call-update": "Tool answer",
+          "plan": "Plan",
+          "other": "Update"
+        },
+        "returned": "Returned",
+        "returnedEmpty": "Nothing: the answer was empty.",
+        "returnedMissing": "No answer.",
+        "cut": "cut at the record's bound",
+        "failure": "Why it failed",
+        "context": "Context: {{used}} of {{size}}",
+        "model": "Model: {{model}}",
+        "agent": "Agent: {{agent}}",
+        "time": "{{seconds}} s",
+        "line": "line {{line}}",
+        "bytes": "{{count}} bytes",
+        "raw": "Raw JSON"
+      },
       "failed": "The run failed.",
       "event": {
         "planned": "The run was planned.",
