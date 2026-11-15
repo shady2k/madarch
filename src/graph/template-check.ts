@@ -30,6 +30,7 @@ function bootstrapOf(templates: ProductTemplates): Bootstrap {
     recordTemplates: [...templates.records.entries()].map(([kind, template]) => ({ kind, template })),
     ownTemplates: [...templates.own.entries()].map(([id, template]) => ({ id, template })),
     roles: [],
+    roleLeads: [],
   };
 }
 

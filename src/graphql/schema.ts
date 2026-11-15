@@ -123,7 +123,7 @@ class Builder {
   private claimOwnTypes(): void {
     for (const name of ['Entity', 'Query', 'PageInfo', 'Opinion', 'Evidence', 'Backlink', 'BacklinkEdge', 'BacklinkConnection',
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
-      'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
+      'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate', 'RoleLead',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
@@ -177,6 +177,7 @@ class Builder {
     this.type('BootstrapHome', [{ name: 'id', type: 'ID!' }, { name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
     this.type('RecordTemplate', [{ name: 'kind', type: 'String!' }, { name: 'template', type: 'String!' }]);
     this.type('OwnTemplate', [{ name: 'id', type: 'ID!' }, { name: 'template', type: 'String!' }]);
+    this.type('RoleLead', [{ name: 'role', type: 'String!' }, { name: 'lead', type: '[String!]!' }]);
     this.type('Bootstrap', [
       { name: 'structureRevision', type: 'String!' },
       // The product's language (its manifest's `language:`): the wiki's interface opens in it (madarch-64o5.84).
@@ -187,6 +188,9 @@ class Builder {
       { name: 'recordTemplates', type: '[RecordTemplate!]!' },
       { name: 'ownTemplates', type: '[OwnTemplate!]!' },
       { name: 'roles', type: '[String!]!' },
+      // The groups each role leads, in the role's own order: the sidebar lists them first for the reader who chose it
+      // (decision 0031). A role of the manifest, not of the engine.
+      { name: 'roleLeads', type: '[RoleLead!]!' },
     ]);
     // The frame's one read (decision 0036, sections 6 and 7): the product's groups and every kind it declares, with the
     // number of entities the graph holds. The sidebar is drawn from this, so the app names no kind of its own.
@@ -200,6 +204,10 @@ class Builder {
       { name: 'nav', type: 'String' },
       { name: 'count', type: 'Int!' },
       { name: 'entryId', type: 'ID' },
+      // The section of the navigation the product gives the kind (`purpose:`), and the roles it is meant for
+      // (`audience:`): the sidebar draws the reader's purposes and leaves out a kind the reader's role does not read.
+      { name: 'purpose', type: 'String' },
+      { name: 'audience', type: '[String!]' },
     ]);
     this.type('NavigationGroup', [
       { name: 'name', type: 'String!' },
@@ -229,7 +237,7 @@ class Builder {
     this.type('Cochange', [{ name: 'node', type: 'Entity!' }, { name: 'count', type: 'Int!' }]);
     // The search's answers as a reader meets them: each kind's word, how many it holds, and the rows with the line a
     // result is shown by (a file's path, a commit's short hash and its message).
-    this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }]);
+    this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }, { name: 'matched', type: 'String!' }]);
     this.type('SearchGroup', [
       { name: 'kind', type: 'String!' },
       { name: 'label', type: 'String!' },

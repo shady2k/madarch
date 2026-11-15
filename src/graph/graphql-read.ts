@@ -1327,15 +1327,15 @@ export class ReadContext {
       // The rows a reader meets first: the label matches, and among them the shorter label (a path's own file before a
       // folder that holds it), then the answer's own order. Labels are read for the candidates, not for the whole kind.
       const candidates = [...group.rows.values()].sort((left, right) => left.best - right.best || Number(left.hit.nodeId) - Number(right.hit.nodeId)).slice(0, Math.max(perKind * 4, 40));
-      const named: { node: EntityValue; label: string; line: string; best: number }[] = [];
+      const named: { node: EntityValue; label: string; line: string; matched: string; best: number }[] = [];
       for (const row of candidates) {
         const node = this.entityFromRow({ node_id: row.hit.nodeId, uid: row.hit.uid, key: row.hit.key, entity: row.hit.kind }, lang);
         if (node === undefined) continue;
         const label = await this.labelOf(node);
-        named.push({ node, label, line: searchLine(label, row.hit.value), best: row.best });
+        named.push({ node, label, line: searchLine(label, row.hit.value), matched: row.hit.value, best: row.best });
       }
       named.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
-      const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line }));
+      const results: unknown[] = named.slice(0, perKind).map((row) => ({ node: row.node, line: row.line, matched: row.matched }));
       if (results.length === 0) continue;
       out.push({ kind, label: this.kindWord(kind, lang), count: group.rows.values().next().value?.hit.total ?? 0, best: named[0]?.best ?? 3, results });
     }
@@ -1354,7 +1354,7 @@ export class ReadContext {
     const needle = text.trim().toLowerCase();
     if (needle === '') return undefined;
     const data = await this.catalogueData();
-    const rows: { best: number; label: string; line: string; value: EntityValue }[] = [];
+    const rows: { best: number; label: string; line: string; matched: string; value: EntityValue }[] = [];
     for (const entry of data.byName.values()) {
       const words = this.catalogueTitle(entry, lang);
       const definition = this.catalogueDefinition(entry, lang) ?? '';
@@ -1362,11 +1362,13 @@ export class ReadContext {
       const best = lower === needle ? 0 : lower.startsWith(needle) ? 1 : lower.includes(needle) ? 2 : definition.toLowerCase().includes(needle) ? 3 : 9;
       if (best === 9) continue;
       const node = this.catalogueEntityValue(entry, lang);
-      rows.push({ best, label: words, line: `${words}${definition === '' ? '' : ` — ${definition.length > 90 ? `${definition.slice(0, 90).replace(/\s+\S*$/u, '')}…` : definition}`}`, value: node });
+      // The field the words were found in: the kind's own word, or the definition that holds them.
+      const matched = best === 3 && definition !== '' ? definition : words;
+      rows.push({ best, label: words, line: `${words}${definition === '' ? '' : ` — ${definition.length > 90 ? `${definition.slice(0, 90).replace(/\s+\S*$/u, '')}…` : definition}`}`, matched, value: node });
     }
     if (rows.length === 0) return undefined;
     rows.sort((left, right) => left.best - right.best || left.label.length - right.label.length || byCodePoint(left.label, right.label));
-    return { kind: 'catalogue', label: 'catalogue', count: rows.length, best: rows[0]!.best, results: rows.slice(0, perKind).map((row) => ({ node: row.value, line: row.line })) };
+    return { kind: 'catalogue', label: 'catalogue', count: rows.length, best: rows[0]!.best, results: rows.slice(0, perKind).map((row) => ({ node: row.value, line: row.line, matched: row.matched })) };
   }
 
   /** The catalogue's word for a kind in the reader's language, else its English word, else the kind's name. */
@@ -1397,6 +1399,10 @@ export class ReadContext {
           .filter((one): one is { id: string; template: string } => one.template !== undefined),
       ].sort((left, right) => byCodePoint(left.id, right.id)),
       roles: [...this.manifest.roles.keys()].sort(byCodePoint),
+      // The groups each role lists first, as the manifest declares them: the sidebar reads no manifest of its own.
+      roleLeads: [...this.manifest.roles.values()]
+        .sort((left, right) => byCodePoint(left.name, right.name))
+        .map((role) => ({ role: role.name, lead: [...role.lead] })),
     };
   }
 
@@ -1430,6 +1436,8 @@ export class ReadContext {
         nav: kind.nav ?? null,
         count: counts.get(kind.name) ?? 0,
         entryId: catalogue.byName.get(kind.name)?.uid ?? null,
+        purpose: kind.purpose ?? null,
+        audience: kind.audience === undefined ? null : [...kind.audience],
       }));
     const purposes = [...(this.manifest.purposes?.values() ?? [])]
       .sort((left, right) => left.order - right.order || byCodePoint(left.id, right.id))

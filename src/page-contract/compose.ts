@@ -24,6 +24,8 @@ export interface Bootstrap {
   readonly recordTemplates: readonly { readonly kind: string; readonly template: string }[];
   readonly ownTemplates: readonly { readonly id: string; readonly template: string }[];
   readonly roles: readonly string[];
+  /** The groups each role lists first in the sidebar, in the role's own order (decision 0031). */
+  readonly roleLeads: readonly { readonly role: string; readonly lead: readonly string[] }[];
 }
 
 /** Where a page is opened: an entity's kind and id, or a template bound to no entity, and the address's own parameters. */

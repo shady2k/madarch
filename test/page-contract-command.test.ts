@@ -27,6 +27,7 @@ function bootstrap(): Bootstrap {
     recordTemplates: [],
     ownTemplates: [],
     roles: ['all'],
+    roleLeads: [],
   };
 }
 
