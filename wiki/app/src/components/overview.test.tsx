@@ -54,3 +54,36 @@ test('a successful answer carries the numbers', async () => {
     expect(page.text).not.toContain('not known');
   } finally { await page.close(); }
 });
+
+test('two readers of the same answer make one request and share one change stream', async () => {
+  let problems = 0;
+  let runs = 0;
+  let streams = 0;
+  class FakeSource {
+    constructor() { streams += 1; }
+    addEventListener(): void { /* the section only listens */ }
+    close(): void { /* closed by the last reader */ }
+  }
+  (globalThis as { EventSource?: unknown }).EventSource = FakeSource as unknown as typeof EventSource;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    const answer = url.includes('/api/problems')
+      ? (problems += 1, { open: 2, closed: 0, dismissed: 0, sections: {} })
+      : url.includes('/api/fill-runs') ? (runs += 1, { runs: [] }) : {};
+    return new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => { root.render(createElement('div', null, createElement(ProductOverviewSection, { context }), createElement(ProductOverviewSection, { context }))); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+  try {
+    expect(problems).toBe(1);
+    expect(runs).toBe(1);
+    expect(streams).toBe(1);
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+    (globalThis as { EventSource?: unknown }).EventSource = undefined;
+  }
+});

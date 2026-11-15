@@ -14,10 +14,10 @@ import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { InlineCode } from './ui/inline-content.js';
 import { Textarea } from './ui/textarea.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
-import { dismissProblem, makeProblemTask, readProblems, useChangeStream, useCommandRead, type Problem, type ProblemLink, type ProblemListing } from './command.js';
+import { dismissProblem, isOffline, makeProblemTask, readProblems, useChangeStream, useCommandRead, type Problem, type ProblemLink, type ProblemListing } from './command.js';
 import type { SectionContext } from './types.js';
 
-const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
+const message = (failure: unknown): string | null => isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
 
 /** A place or entity the wiki can open; a source file's `/src` address is not a page of the new app, so its label stands. */
 function Place({ link, base, open }: { readonly link: ProblemLink; readonly base: string; readonly open: (path: string) => void }): ReactElement {

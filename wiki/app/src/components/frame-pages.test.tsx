@@ -14,6 +14,7 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('../page.js');
 const { setWikiLanguage } = await import('../i18n.js');
+const { reportOffline, reportOnline } = await import('../connection.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -239,5 +240,21 @@ test('the settings page offers the agent, the roles, the language and the reader
     expect(page.roles).toContain('architect');
   } finally {
     await page.close();
+  }
+});
+
+test('settings writes are disabled while the link is away', async () => {
+  const page = await render('settings-form', { group: 'all' });
+  try {
+    const choose = page.container.querySelector('[data-testid="settings-agent-choose-claude-code"]') as HTMLButtonElement;
+    expect(choose.disabled).toBe(false);
+    await act(async () => { reportOffline(); await Promise.resolve(); });
+    await settle();
+    expect(choose.disabled).toBe(true);
+    expect((page.container.querySelector('[data-testid="settings-role-select-classification"]') as HTMLSelectElement).disabled).toBe(true);
+    expect((page.container.querySelector('[data-testid="settings-language-en"]') as HTMLButtonElement).disabled).toBe(true);
+  } finally {
+    await page.close();
+    reportOnline();
   }
 });

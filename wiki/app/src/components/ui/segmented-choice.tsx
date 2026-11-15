@@ -2,12 +2,13 @@ import type { ReactElement } from 'react';
 import { Button } from './button.js';
 
 /** One group of the map's controls: its label and a segmented choice, never breaking inside the group. */
-export function SegmentedChoice({ label, testId, value, options, onChange }: {
+export function SegmentedChoice({ label, testId, value, options, onChange, disabled = false }: {
   label: string;
   testId: string;
   value: string;
   options: readonly { value: string; label: string; testId: string }[];
   onChange: (value: string) => void;
+  disabled?: boolean;
 }): ReactElement {
   return (
     <div className="dg-seg" data-testid={testId}>
@@ -21,6 +22,7 @@ export function SegmentedChoice({ label, testId, value, options, onChange }: {
             aria-checked={value === option.value}
             className="dg-seg-option"
             data-state={value === option.value ? 'on' : 'off'}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             data-testid={option.testId}
           >

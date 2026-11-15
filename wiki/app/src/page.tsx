@@ -27,6 +27,7 @@ import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
 import { ProductOverviewSection } from './components/overview.js';
+import { RepositoriesSection } from './components/repositories.js';
 import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
@@ -46,6 +47,8 @@ export interface PageRuntime {
   readonly onRole?: (role: string) => void;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
   readonly pageName: string | null;
+  /** Kinds a unit publication just changed: a page that shows them may highlight them. */
+  readonly changedKinds?: ReadonlySet<string>;
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
@@ -80,6 +83,7 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       navigation: runtime.navigation,
       ...(runtime.onRole === undefined ? {} : { onRole: runtime.onRole }),
       pageName: runtime.pageName,
+      ...(runtime.changedKinds === undefined ? {} : { changedKinds: runtime.changedKinds }),
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
@@ -116,5 +120,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'settings-form': return <SettingsSection context={context} />;
     case 'sources': return <SourcesSection context={context} />;
     case 'product-overview': return <ProductOverviewSection context={context} />;
+    case 'repositories': return <RepositoriesSection context={context} />;
   }
 }

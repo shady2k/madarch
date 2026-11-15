@@ -10,7 +10,27 @@ import type { LikeC4Answer } from '../diagram-types.js';
 import { linkOfNode } from '../diagram-links.js';
 
 /** The palette overrides the LikeC4 runtime needs; its own blue is replaced with the kit's neutral tokens. */
-export const LIKE_C4_THEME_CSS = `.likec4-shadow-root, .likec4-root {
+export const LIKE_C4_THEME_CSS = `/* Unlayered, so these win over the runtime's own tokens, which stand in @layer tokens: the canvas, the labels and the
+   controls read from the kit's palette in both schemes (madarch-64o5.96). */
+:host, :host > *, [data-mantine-color-scheme], [data-mantine-color-scheme="dark"], [data-mantine-color-scheme="light"] {
+  --colors-diagram-background: var(--surface-page);
+  --colors-diagram-background-pattern: var(--border-subtle);
+  --colors-surface-canvas: var(--surface-page);
+  --colors-surface-default: var(--surface-card);
+  --colors-surface-sunken: var(--surface-soft);
+  --colors-text: var(--text);
+  --colors-text-default: var(--text);
+  --colors-text-bright: var(--text);
+  --colors-text-dimmed: var(--text-muted);
+  --colors-text-heading: var(--text);
+  --colors-text-display: var(--text);
+  --colors-text-link: var(--link);
+  --colors-border-default: var(--border);
+  --colors-border-subtle: var(--border-subtle);
+  --colors-border-outline: var(--border);
+  --colors-border-strong: var(--text-muted);
+}
+.likec4-shadow-root, .likec4-root {
   --likec4-palette-fill: var(--surface-active);
   --likec4-palette-stroke: var(--border);
   --likec4-palette-hiContrast: var(--text);
@@ -91,7 +111,19 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
       style.textContent = LIKE_C4_THEME_CSS;
       root.append(style);
     }
-  }, [pane, themeId]);
+    // The page's own entity stands out: its element takes the focus pair of the kit's palette, which its shapes inherit
+    // (madarch-64o5.96).
+    const focus = answer === undefined || answer.root === '' ? null : root.querySelector<HTMLElement>(`[data-id="${answer.root}"]`);
+    if (focus !== null) {
+      focus.style.setProperty('--likec4-palette-fill', 'var(--surface-soft)');
+      focus.style.setProperty('--likec4-palette-stroke', 'var(--text)');
+      focus.style.setProperty('--likec4-palette-hiContrast', 'var(--text)');
+    }
+    // A node whose shown name is its last segment carries the whole path as its hover text (madarch-64o5.96).
+    for (const [id, title] of Object.entries(answer?.titles ?? {})) {
+      root.querySelector<HTMLElement>(`[data-id="${id}"]`)?.setAttribute('title', title);
+    }
+  }, [pane, themeId, answer]);
 
   if (answer === undefined) return <Metadata>{t('knowledge.loadingPicture')}</Metadata>;
   if (failed !== undefined) return <Metadata>{failed}</Metadata>;

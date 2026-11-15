@@ -42,6 +42,8 @@ export async function askSearch(base: string, text: string, kinds: readonly stri
   const trimmed = text.trim();
   if (trimmed === '') return { groups: [] };
   const result = await postQuery<{ searchGroups?: SearchGroup[] }>(base, searchQuery(kinds), { text: trimmed, perKind, lang, ...(kinds === undefined ? {} : { kinds }) });
+  // The frame says the server cannot be reached; the search adds no second message in a request's words.
+  if (result.offline === true) return { groups: [] };
   if (result.errors.length > 0) return { failure: result.errors.map((error) => error.message).join('; ') };
   return { groups: result.data?.searchGroups ?? [] };
 }
