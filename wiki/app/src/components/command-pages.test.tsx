@@ -88,6 +88,7 @@ let fillSelectionFailure: { status: number; body: unknown } | null = null;
 let agentOffers: { id: string; label: string; installed: boolean; login: string; loginDetail: string; where: string | null; version: string | null; install: null }[] = [
   { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
   { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
+  { id: 'omp', label: 'omp', installed: false, login: 'unknown', loginDetail: '', where: null, version: null, install: null },
 ];
 let savedAgent: { id: string; label: string } | null = null;
 
@@ -102,6 +103,7 @@ beforeEach(async () => {
   agentOffers = [
     { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
     { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
+    { id: 'omp', label: 'omp', installed: false, login: 'unknown', loginDetail: '', where: null, version: null, install: null },
   ];
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -214,11 +216,15 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     expect(text).toContain('Плагины заполнят: disk');
     expect(text).toContain('Агент заполнит: Определение');
     // Nothing is saved, so «Только плагины» stands, but both installed agents stand beside it: three choices, visible.
-    expect(page.container.querySelectorAll('[data-testid="prepare-who"] [role="radio"]').length).toBe(3);
+    expect(page.container.querySelectorAll('[data-testid="prepare-who"] [role="radio"]').length).toBe(4);
+    expect((page.container.querySelector('[data-testid="prepare-agent-omp"] [role="radio"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-omp"]')?.textContent).toContain('Не установлен');
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-install-omp"]') as HTMLElement).click(); });
+    expect(page.opened).toContain('/p/settings');
     expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('true');
     expect(text).toContain('Claude Code');
     expect(text).toContain('Codex');
-    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('Вход на этой машине выполнен');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toBe('Вход выполнен.');
     // The unfilled fields are one counted line that opens into a row per kind, never a wall of text.
     expect(page.container.querySelector('[data-testid="prepare-unfilled-summary"]')?.textContent).toContain('Останутся пустыми 1 поле в 1 виде');
     expect(page.container.querySelector('[data-testid="prepare-unfilled-kind"]')?.textContent).toContain('Сценарии: Определение');
@@ -277,8 +283,10 @@ test('the product\'s saved agent is the default, and an agent that cannot run is
     // Claude Code has no sign-in here: its choice stays visible, disabled, and says what is missing in one sentence.
     const claude = page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement;
     expect(claude.disabled).toBe(true);
-    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('нет входа');
-    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).not.toContain('{"');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('Нет входа — войдите в Claude Code');
+    // No engine word and no machine path on this page: the state and the next step alone (madarch-64o5.90).
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).not.toContain('/opt');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).not.toContain('адаптер');
     expect(requests.some((one) => one.path.endsWith('/api/agents'))).toBe(true);
   } finally {
     await page.close();

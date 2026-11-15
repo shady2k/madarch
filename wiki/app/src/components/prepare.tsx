@@ -21,7 +21,7 @@ import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
-import { agentPrepareNote, agentUsable } from './agent-words.js';
+import { agentUsable } from './agent-words.js';
 import {
   chooseAgent, CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveProductSettings, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
@@ -30,7 +30,7 @@ import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { fillEstimate } from './prepare-estimate.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation } from '../client.js';
-import { catalogueSelectionAddress, runAddress } from '../address.js';
+import { catalogueSelectionAddress, PAGE_ADDRESSES, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
 const PLUGINS_ONLY = 'plugins-only';
@@ -228,7 +228,11 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                   <RadioGroupItem value={offer.id} aria-label={offer.label} disabled={!agentUsable(offer)} />
                   <Text className="min-w-0 flex-1 text-small">
                     <Text className="block font-medium">{offer.label}</Text>
-                    <Text className="block text-muted" data-testid={`prepare-agent-state-${offer.id}`}>{agentPrepareNote(t, offer)}</Text>
+                    <Text className="block text-muted" data-testid={`prepare-agent-state-${offer.id}`}>
+                    {!offer.installed ? (
+                      <>{t('prepare.agentNotInstalled')} <TextLink href={PAGE_ADDRESSES.settings} onClick={(event) => { event.preventDefault(); context.open(PAGE_ADDRESSES.settings); }} data-testid={`prepare-agent-install-${offer.id}`}>{t('prepare.agentInstall')}</TextLink></>
+                    ) : offer.login === 'signed-in' ? t('prepare.agentSignedIn') : offer.login === 'not-signed-in' ? t('prepare.agentNotSignedIn', { agent: offer.label }) : null}
+                  </Text>
                   </Text>
                 </ChoiceCard>
               ))}

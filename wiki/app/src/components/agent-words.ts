@@ -22,14 +22,6 @@ export function agentUsable(agent: AgentOffer): boolean {
   return agent.installed && agent.login !== 'not-signed-in';
 }
 
-/**
- * The state as the prepare page shows it: an adapter that is not installed is named in one sentence, without the
- * settings page's install button, which that page does not offer.
- */
-export function agentPrepareNote(t: TFunction, agent: AgentOffer): string {
-  return agent.installed ? agentStateNote(t, agent) : t('prepare.agentNotInstalled');
-}
-
 /** The state, followed by the sign-in state when the adapter is installed. */
 export function agentStateNote(t: TFunction, agent: AgentOffer): string {
   const note = agentNote(t, agent);
