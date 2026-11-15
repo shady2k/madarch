@@ -770,12 +770,14 @@ type CodeDirectory implements Entity {
   pathOpinionsCount: Int!
   codeContains(first: Int, after: String): CodeContainsConnection!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  domainCoversFolderOf(first: Int, after: String): DomainCoversFolderConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
   linksToOf(first: Int, after: String): LinksToConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
+  folderOfCodeModule(where: CodeModuleWhere, orderBy: [CodeModuleOrder!], first: Int, after: String): CodeModuleConnection!
 }
 
 type CodeDirectoryConnection {
@@ -1720,21 +1722,27 @@ type CodeModule implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  repository: String
-  repositoryOpinions: [Opinion!]!
-  repositoryOpinionsCount: Int!
-  path: String
-  pathOpinions: [Opinion!]!
-  pathOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  folder: CodeDirectory
+  folderOpinions: [Opinion!]!
+  folderOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
   stateMachines: JSON
   stateMachinesOpinions: [Opinion!]!
   stateMachinesOpinionsCount: Int!
+  domainCoversOf(first: Int, after: String): DomainCoversConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
   linksToOf(first: Int, after: String): LinksToConnection!
   mentions(first: Int, after: String): MentionsConnection!
   mentionsOf(first: Int, after: String): MentionsConnection!
+  moduleDependsOn(first: Int, after: String): ModuleDependsOnConnection!
+  moduleDependsOnOf(first: Int, after: String): ModuleDependsOnConnection!
 }
 
 type CodeModuleConnection {
@@ -2723,6 +2731,7 @@ type DocTerm implements Entity {
   usages: JSON
   usagesOpinions: [Opinion!]!
   usagesOpinionsCount: Int!
+  domainUsesTermOf(first: Int, after: String): DomainUsesTermConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2837,45 +2846,15 @@ type Domain implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  title: String
-  titleOpinions: [Opinion!]!
-  titleOpinionsCount: Int!
-  slug: String
-  slugOpinions: [Opinion!]!
-  slugOpinionsCount: Int!
-  body: String
-  bodyOpinions: [Opinion!]!
-  bodyOpinionsCount: Int!
-  bodyLine: Int
-  bodyLineOpinions: [Opinion!]!
-  bodyLineOpinionsCount: Int!
-  file: String
-  fileOpinions: [Opinion!]!
-  fileOpinionsCount: Int!
-  relates: JSON
-  relatesOpinions: [Opinion!]!
-  relatesOpinionsCount: Int!
-  sources: JSON
-  sourcesOpinions: [Opinion!]!
-  sourcesOpinionsCount: Int!
-  statements: JSON
-  statementsOpinions: [Opinion!]!
-  statementsOpinionsCount: Int!
-  digest: String
-  digestOpinions: [Opinion!]!
-  digestOpinionsCount: Int!
-  producer: String
-  producerOpinions: [Opinion!]!
-  producerOpinionsCount: Int!
-  links: JSON
-  linksOpinions: [Opinion!]!
-  linksOpinionsCount: Int!
-  findings: JSON
-  findingsOpinions: [Opinion!]!
-  findingsOpinionsCount: Int!
-  ungrounded: JSON
-  ungroundedOpinions: [Opinion!]!
-  ungroundedOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  description: String
+  descriptionOpinions: [Opinion!]!
+  descriptionOpinionsCount: Int!
+  domainCovers(first: Int, after: String): DomainCoversConnection!
+  domainCoversFolder(first: Int, after: String): DomainCoversFolderConnection!
+  domainUsesTerm(first: Int, after: String): DomainUsesTermConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2891,9 +2870,66 @@ type DomainConnection {
   relationLabel: String
 }
 
+type DomainCoversConnection {
+  edges: [DomainCoversConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type DomainCoversConnectionEdge {
+  cursor: String!
+  node: DomainCoversEdge!
+}
+
+type DomainCoversEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type DomainCoversFolderConnection {
+  edges: [DomainCoversFolderConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type DomainCoversFolderConnectionEdge {
+  cursor: String!
+  node: DomainCoversFolderEdge!
+}
+
+type DomainCoversFolderEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
 type DomainEdge {
   cursor: String!
   node: Domain!
+}
+
+type DomainUsesTermConnection {
+  edges: [DomainUsesTermConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type DomainUsesTermConnectionEdge {
+  cursor: String!
+  node: DomainUsesTermEdge!
+}
+
+type DomainUsesTermEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type Enrichment implements Entity {
@@ -3125,6 +3161,25 @@ type MentionsConnectionEdge {
 }
 
 type MentionsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type ModuleDependsOnConnection {
+  edges: [ModuleDependsOnConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ModuleDependsOnConnectionEdge {
+  cursor: String!
+  node: ModuleDependsOnEdge!
+}
+
+type ModuleDependsOnEdge {
   id: ID!
   discriminator: String!
   opinions: [Opinion!]!
@@ -5440,38 +5495,38 @@ input CodeIndexWhereFilter {
   _is_null: Boolean
 }
 
+input CodeModuleDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeModuleNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input CodeModuleOrder {
   field: CodeModuleOrderField!
   direction: OrderDirection
   nulls: NullsOrder
-}
-
-input CodeModulePathFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input CodeModuleRepositoryFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
 }
 
 input CodeModuleStateMachinesFilter {
@@ -5481,8 +5536,8 @@ input CodeModuleStateMachinesFilter {
 }
 
 input CodeModuleWhere {
-  repository: CodeModuleRepositoryFilter
-  path: CodeModulePathFilter
+  name: CodeModuleNameFilter
+  description: CodeModuleDescriptionFilter
   stateMachines: CodeModuleStateMachinesFilter
 }
 
@@ -6574,7 +6629,7 @@ input DocumentWhere {
   links: DocumentLinksFilter
 }
 
-input DomainBodyFilter {
+input DomainDescriptionFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -6588,19 +6643,7 @@ input DomainBodyFilter {
   _is_null: Boolean
 }
 
-input DomainBodyLineFilter {
-  _eq: Int
-  _neq: Int
-  _in: [Int!]
-  _nin: [Int!]
-  _lt: Int
-  _lte: Int
-  _gt: Int
-  _gte: Int
-  _is_null: Boolean
-}
-
-input DomainDigestFilter {
+input DomainNameFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -6611,32 +6654,6 @@ input DomainDigestFilter {
   _lte: String
   _gt: String
   _gte: String
-  _is_null: Boolean
-}
-
-input DomainFileFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DomainFindingsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input DomainLinksFilter {
-  _eq: JSON
-  _neq: JSON
   _is_null: Boolean
 }
 
@@ -6646,86 +6663,9 @@ input DomainOrder {
   nulls: NullsOrder
 }
 
-input DomainProducerFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DomainRelatesFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input DomainSlugFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DomainSourcesFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input DomainStatementsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input DomainTitleFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DomainUngroundedFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input DomainWhere {
-  title: DomainTitleFilter
-  slug: DomainSlugFilter
-  body: DomainBodyFilter
-  bodyLine: DomainBodyLineFilter
-  file: DomainFileFilter
-  relates: DomainRelatesFilter
-  sources: DomainSourcesFilter
-  statements: DomainStatementsFilter
-  digest: DomainDigestFilter
-  producer: DomainProducerFilter
-  links: DomainLinksFilter
-  findings: DomainFindingsFilter
-  ungrounded: DomainUngroundedFilter
+  name: DomainNameFilter
+  description: DomainDescriptionFilter
 }
 
 input EnrichmentBodyFilter {
@@ -8345,8 +8285,8 @@ enum CodeIndexOrderField {
 }
 
 enum CodeModuleOrderField {
-  repository
-  path
+  name
+  description
   stateMachines
 }
 
@@ -8477,19 +8417,8 @@ enum DocumentOrderField {
 }
 
 enum DomainOrderField {
-  title
-  slug
-  body
-  bodyLine
-  file
-  relates
-  sources
-  statements
-  digest
-  producer
-  links
-  findings
-  ungrounded
+  name
+  description
 }
 
 enum EnrichmentOrderField {

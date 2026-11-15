@@ -42,7 +42,7 @@ const ask = (method, params) => new Promise((resolve) => { const id = 'fake-' + 
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const m = JSON.parse(line);
   if (!m.method) { pending.get(m.id)?.(m); pending.delete(m.id); return; }
-  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: true } } } });
   if (m.method === 'session/new') send({ id: m.id, result: { sessionId: 'fixture-session', models: { currentModelId: 'fixture-model', availableModels: [{ modelId: 'fixture-model', name: 'Fixture model' }] } } });
   if (m.method === 'session/prompt') {
     const sessionId = m.params.sessionId;

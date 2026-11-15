@@ -3,9 +3,8 @@ import { constants, lstatSync, mkdirSync, openSync, closeSync, writeFileSync } f
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { byCodePoint } from '../model/order.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
-import type { AcpAgentSpec, AcpConnection, ConnectAcpOptions } from '../fill/acp.js';
+import type { AcpAgentSpec, AcpConnection, AcpMcpServer, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
 import type { AgentMeter } from '../fill/agent-meter.js';
 import { withSpan } from '../obs/trace.js';
@@ -35,6 +34,11 @@ export interface PluginAgentOptions {
   /** Repository identities mapped to writable host folders. Missing identities cannot be written. */
   readonly repositories?: Readonly<Record<string, string>>;
   readonly cwd?: string;
+  /**
+   * The MCP servers the agent's session is given (owner's decision, 2026-11-15): madarch's own graph server for a fill,
+   * whose reads the agent makes itself instead of being handed a list of files.
+   */
+  readonly mcpServers?: readonly AcpMcpServer[];
   /** Starts the host-supervised adapter process. */
   readonly connect: (spec: AcpAgentSpec, options: ConnectAcpOptions) => Promise<PluginAgentConnection>;
   /** A catalogue agent's contract, derived by the host from the product's bound kinds. */
@@ -142,7 +146,7 @@ export class PluginAgentBridge {
         if (this.paused) connection.freeze?.();
         if (this.closed) throw new Error(`${WHERE}: bridge closed during runner startup`);
         await connection.initialize();
-        const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd() });
+        const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd(), ...(this.options.mcpServers === undefined ? {} : { mcpServers: this.options.mcpServers }) });
         sessionId = session.sessionId;
         const choices = choicesOf(session);
         for (const kind of ['model', 'reasoning'] as const) {
@@ -153,7 +157,10 @@ export class PluginAgentBridge {
           if (choice.configId === null) await session.setModel(wanted);
           else await session.setConfigOption(choice.configId, wanted);
         }
-        const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(task ?? null)}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(this.outputs)}`;
+        // The prompt is the agent's role and its tools (the plugin's own file) and the task, which names the kind it
+        // fills and what that kind means: the graph it works on is read through the session's own MCP server, so no list
+        // of files and no dump of context stands here (owner's decision, 2026-11-15).
+        const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(task ?? null)}`;
         const meter = this.options.meter;
         meter?.beginSession();
         const turn = meter === undefined ? undefined : await meter.runTurn(session, prompt, { model: session.model, signal: controller.signal });

@@ -36,6 +36,8 @@ import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
 import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
+import { startAgentGraphMcp } from './agent-graph.js';
+import type { PluginContractDeclaration } from '../plugin/protocol.js';
 
 /** The store one turn reads and writes, as the graph's own reads name it: the process's one owner, never a second. */
 export type GraphOwner = Parameters<typeof producerEntities>[0];
@@ -299,6 +301,22 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
   });
 }
 
+/**
+ * The task a fill's agent is given (owner's decision, 2026-11-15): the kind it fills, what that kind is, and what each
+ * field of its answer means, in English. Nothing of the graph is preloaded: the agent's session carries madarch's graph
+ * server, and it reads there what it decides it needs.
+ */
+function agentTaskOf(kind: KindDecl, outputs: PluginContractDeclaration): Record<string, unknown> {
+  const vertex = outputs.vertices.find((held) => held.kind === kind.name);
+  return {
+    kind: kind.name,
+    what: kind.descriptions?.['en'] ?? kind.name,
+    key: [...(vertex?.key ?? kind.key ?? [])],
+    fields: (vertex?.fields ?? []).map((field) => ({ name: field.name, meaning: field.meaning })),
+    relations: outputs.edges.map((edge) => ({ kind: edge.kind, from: edge.from, to: edge.to })),
+  };
+}
+
 export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
@@ -378,8 +396,11 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       throw error;
     }
   })();
+  // The agent's session is given madarch's own graph server (owner's decision, 2026-11-15): the agent reads what it
+  // needs of the same graph the fill writes, and the task names only the kind it fills.
+  const agentGraph = wiring.agent === undefined || unit.plugin.contract?.agent === undefined ? undefined : startAgentGraphMcp({ owner: wiring.owner, manifest: wiring.manifest, contract: wiring.contract, folder: wiring.productFolder });
   const host = new PluginHost({
-    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
+    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
     repository: wiring.productFolder,
@@ -402,12 +423,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     try {
       const vertexKinds = new Set(outputs.vertices.map((vertex) => vertex.kind));
       const edgeKinds = new Set(outputs.edges.map((edge) => edge.kind));
-      const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : {
-        contract: outputs,
-        kinds: [unit.kind], kind: unit.kind,
-        files: [],
-      };
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      // A catalogue agent's task is the kind it fills and what that kind means, in English (owner's decision,
+      // 2026-11-15): it reads the graph through the unit's own server, so no list of files, no path of the product's
+      // checkout and no locale map is handed to it. Another plugin's agent part keeps its own inputs.
+      const catalogueAgent = unit.plugin.contract?.agent?.catalogue === true;
+      const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : catalogueAgent
+        ? agentTaskOf(unit.kind, outputs)
+        : { contract: outputs, kinds: [unit.kind], kind: unit.kind, files: [] };
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();
@@ -539,6 +562,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
     throw error;
   } finally {
+    await agentGraph?.close();
     withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => rmSync(workRoot, { recursive: true, force: true }));
   }
 }
