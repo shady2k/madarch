@@ -6,6 +6,7 @@
       {
         "kind": "code.database",
         "key": [
+          "repository",
           "name"
         ],
         "fields": [

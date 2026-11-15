@@ -35,9 +35,13 @@ export async function publishSamplePageOpinions(folder: string, knowledgeRoot: s
     { kind: 'product', slug: 'shop', title: 'Online shop', file: 'docs/product.md', body: 'The shop takes orders from shoppers and charges their cards through a payments service.', relates: [PAYMENTS_SERVICE], sources: ['docs/vision.md'] },
     { kind: 'domain', slug: 'payment', title: 'Payment', file: 'docs/domains/payment.md', body: 'Payments are charged through one of two providers chosen by configuration.', relates: [PAYMENTS_SERVICE, PAY], sources: ['docs/requirements.md'] },
   ];
+  // The rewritten catalogue keys a product and a domain by `name` and declares the fields each one holds: a product its
+  // purpose, audience, status and vision, a domain its description and type. A page's body is the agent's text; these
+  // samples are a person's statement of the same facts.
   await publishFixtureOpinions(folder, knowledgeRoot, pages.map((page) => ({
-    // The catalogue keys a product and a domain by their name; the sample's slug is that name.
     kind: page.kind, key: { name: page.slug },
-    values: { title: page.title, file: page.file, body: page.body, relates: page.relates, sources: page.sources, body_line: 1, producer: 'fixture', statements: [], digest: 'fixture', links: [], findings: [], ungrounded: [] },
+    values: page.kind === 'product'
+      ? { purpose: page.body, audience: ['product'], status: 'in service', vision: page.body }
+      : { description: page.body, type: 'core' },
   })));
 }

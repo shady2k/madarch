@@ -74,7 +74,7 @@ async extract(unit, context) {
   if (unit.kind === 'Document') return {vertices:[{kind:'Document',key:{id:'source'},values:{condition:${JSON.stringify(mode)}},evidence:${JSON.stringify(author)}}],end:{state:'complete'}};
   const mode = await context.graph.value('Document', {id:'source'}, 'condition');
   if (mode === 'failed') throw new Error('scripted check failure');
-  if (mode === 'partial') return {vertices:[{kind:'Problem',key:{id:'uncommitted'},values:{title:'must not publish'}}],end:{state:'partial',cause:'scripted abstention'}};
+  if (mode === 'partial') return {vertices:[{kind:'Problem',key:{id:'partial-answer'},values:{title:'Partial finding'}}],end:{state:'partial',cause:'scripted abstention'}};
   return {vertices:mode === 'bad' ? [{kind:'Problem',key:{id:'finding'},values:{title:'Bad document',detail:'grounded'},evidence:${JSON.stringify(author)}}] : [],end:{state:'complete'}};
 }});`);
     const hash = closureOf(plugin).hash;
@@ -121,8 +121,10 @@ async extract(unit, context) {
     // Remove the additional test producer; the actual check still owns its prior finding.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [], removals: [{ kind: 'Problem', key: { id: 'finding' }, producer: 'other' }] }));
     release = configure('partial'); const partial = await run('partial'); expect(partial.ok).toBe(true);
-    expect(await readProducerOutcomes(owner, { runId: 'partial' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'abstained' })]));
-    expect((await problems()).map((row) => row.detail)).toEqual(['outside scope']);
+    // The owner's rule (2026-11-15): a partial answer keeps every entry it holds, so the Problem it states is published
+    // and the outcome names the cause; only an answer that holds nothing abstains.
+    expect(await readProducerOutcomes(owner, { runId: 'partial' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'completed', produced: 1, reason: 'scripted abstention' })]));
+    expect((await problems()).map((row) => row.title)).toEqual(['Partial finding', expect.anything()]);
     release = configure('good'); const clean = await run('good'); expect(clean.ok).toBe(true);
     expect(await problems()).toEqual([]);
     expect(await readProducerOutcomes(owner, { runId: 'good' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'empty', produced: 0 })]));

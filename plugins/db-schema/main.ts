@@ -781,7 +781,7 @@ function answerOf(model: Model): UnitResult {
   const edges: EdgeResult[] = [];
   const databases = [...model.databases.values()].filter((database) => database.tables.size > 0).sort((left, right) => compare(left.name, right.name));
   for (const database of databases) {
-    vertices.push(vertexOf(DATABASE_KIND, { name: database.name }, databaseValuesOf(database), database.place));
+    vertices.push(vertexOf(DATABASE_KIND, { repository: database.repository, name: database.name }, databaseValuesOf(database), database.place));
     const tables = [...database.tables.values()].sort((left, right) => compare(left.name, right.name));
     for (const table of tables) {
       const tableKey = tableKeyOf(database.name, table.name);
@@ -849,9 +849,9 @@ function vertexOf(kind: string, key: Readonly<Record<string, string>>, values: V
   return { kind, key, values, evidence: evidenceOf(place) };
 }
 
-/** A database's values: the repository whose SQL names it. */
-function databaseValuesOf(database: Database): Values {
-  return { repository: database.repository };
+/** A database's values: none of its own. Its repository and its name are the key the catalogue declares, never a value. */
+function databaseValuesOf(_database: Database): Values {
+  return {};
 }
 
 /** A table's values: the schema the SQL names (null for `public`). Its database stands in its key, not as a value. */
@@ -888,7 +888,7 @@ const CONTRACT = {
   vertices: [
     {
       kind: DATABASE_KIND,
-      key: ['name'],
+      key: ['repository', 'name'],
       fields: [
         field('name', 'text', 'The database a code repository\'s SQL writes to, named after the repository.', 'madarch', true),
         field('repository', 'text', 'The product\'s repository whose code holds the SQL.', 'madarch', true),

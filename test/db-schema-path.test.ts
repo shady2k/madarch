@@ -153,7 +153,9 @@ describe.skipIf(sandboxProblem !== undefined)('the db-schema plugin on a source 
       } });
       if (selected.state !== 'extracted') throw new Error(JSON.stringify(selected));
       expect(selected.result.vertices.map((vertex) => vertex.kind)).toEqual(['code.database']);
-      expect(selected.result.vertices[0]?.values).toEqual({ repository: 'app' });
+      // The repository and the name are the database's key, as the catalogue declares them; neither is a value.
+      expect(selected.result.vertices[0]?.key).toEqual({ repository: 'app', name: 'app' });
+      expect(selected.result.vertices[0]?.values).toEqual({});
       expect(selected.result.edges).toEqual([]);
       expect(selected.result.end).toEqual(outcome.result.end);
     } finally {
@@ -274,17 +276,17 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       const outcomes = await readProducerOutcomes(partialOwner, {});
       const database = outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === 'code.database');
       expect(database).toBeDefined();
-      expect(database?.outcome).toBe('abstained');
-      expect(database?.produced).toBe(0);
+      // The owner's rule (2026-11-15): a partial answer keeps every entry it holds, and only an answer that holds
+      // nothing abstains. The database the readable SQL declares is published, and the composed literal is the reason.
+      expect(database?.outcome).toBe('completed');
+      expect(database?.produced).toBeGreaterThan(0);
       expect(database?.reason).toContain(`src/schema.ts:${String(COMPOSED_LINE)}`);
       const run = await partialOwner.run((tx) => tx.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1', [database!.runId]));
-      expect(run.rows[0]?.state).toBe('completed_partial');
-      // The owner rule: a final run leaves no blocked or waiting unit. The database unit abstained, so
-      // its dependants are skipped-because rather than left blocked; they publish no outcome of their own.
+      expect(run.rows[0]?.state).toBe('succeeded');
+      // The owner rule: a final run leaves no blocked or waiting unit. The database published, so its dependants ran.
       const units = await partialOwner.run((tx) => tx.query<{ unit_id: string; state: string }>('SELECT unit_id, state FROM fill_unit_generation WHERE run_id = $1', [database!.runId]));
       for (const kind of ['code.table', 'code.column', 'code.index']) {
-        expect(units.rows.find((unit) => unit.unit_id.includes(`:${kind}`))?.state).toBe('skipped');
-        expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)).toBeUndefined();
+        expect(units.rows.find((unit) => unit.unit_id.includes(`:${kind}`))?.state).toBe('published');
       }
     } finally { await partialOwner.close(); }
 
