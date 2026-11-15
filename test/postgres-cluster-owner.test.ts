@@ -6,7 +6,7 @@
  * The cases run real processes: the cluster's rule is a lock the kernel holds, and only a second process can show it.
  */
 import { afterAll, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { clusterPaths, clusterQuery, openCluster, processStartTime, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
@@ -46,6 +46,15 @@ function alive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
+}
+
+
+/** A program really named `postgres`, running on this folder: what a preparation still naming it looks like. */
+function postgresHolder(dataDir: string): ReturnType<typeof Bun.spawn> {
+  const bin = join(dirname(dataDir), 'fake-postgres');
+  const program = join(bin, 'postgres');
+  if (!existsSync(program)) { mkdirSync(bin, { recursive: true }); copyFileSync('/bin/yes', program); chmodSync(program, 0o755); }
+  return Bun.spawn([program, '--', '-D', dataDir], { stdout: 'ignore', stderr: 'ignore' });
 }
 
 /** The child of this test: another process of the binary, with the same store. */
@@ -256,7 +265,7 @@ test('a folder under an initdb our record names, still running, is left as it st
   mkdirSync(join(dataDir, 'global'), { recursive: true });
   writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
   writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
-  const initdb = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
+  const initdb = postgresHolder(dataDir);
   try {
     writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: initdb.pid, startTime: processStartTime(initdb.pid) } })}\n`);
     const started = performance.now();
@@ -299,7 +308,7 @@ test('a record of a live initdb outranks what a half-made folder looks like', as
   mkdirSync(join(dataDir, 'base', '1'), { recursive: true });
   writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
   writeFileSync(join(dataDir, 'global', 'pg_control'), 'partial');
-  const initdb = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
+  const initdb = postgresHolder(dataDir);
   try {
     writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: initdb.pid, startTime: processStartTime(initdb.pid) } })}\n`);
     let refusal: Error | undefined;
@@ -379,3 +388,63 @@ test('a descendant of initdb that holds its stdout does not keep the process ali
   while (written.some((pid) => alive(pid)) && Date.now() < deadline) await Bun.sleep(50);
   expect(written.filter((pid) => alive(pid))).toEqual([]);
 }, 60_000);
+
+test('a recorded pid that is another process is no preparation: the store is prepared again at once', async () => {
+  // Windows keeps no start time, and a stop frees initdb's id for whatever starts next. Identity is the command line that
+  // names the folder: a live pid that names nothing of this store is not a preparation still running.
+  const store = storeOf('reused pid');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'global'), { recursive: true });
+  writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
+  const other = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
+  try {
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: other.pid } })}\n`);
+    const started = performance.now();
+    const opened = await openCluster({ ...clusterPaths(store), preparationWaitMs: 3_000 });
+    try {
+      // Not the recorded pid's wait: the pid is another process, so the store is prepared at once.
+      expect(performance.now() - started).toBeLessThan(12_000);
+      expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(false);
+      await clusterQuery(opened, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+    } finally { await opened.stop(); }
+  } finally {
+    other.kill('SIGKILL');
+    await other.exited;
+  }
+}, 120_000);
+
+test('a preparation still naming its folder is waited for, and the wait says what it waits for', async () => {
+  const store = storeOf('waiting preparation');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'global'), { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+  writeFileSync(join(dataDir, 'global', 'half-made'), 'partial');
+  const bin = join(root, 'fake-postgres');
+  mkdirSync(bin, { recursive: true });
+  // A program really named `postgres`, whose own arguments name the folder: what the listing reads on POSIX is argv.
+  const holderProgram = join(bin, 'postgres');
+  copyFileSync('/bin/yes', holderProgram);
+  chmodSync(holderProgram, 0o755);
+  const holder = Bun.spawn([holderProgram, '--', '-D', dataDir], { stdout: 'ignore', stderr: 'ignore' });
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { lines.push(args.map((value) => String(value)).join(' ')); };
+  try {
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: holder.pid } })}\n`);
+    let refusal: Error | undefined;
+    try { await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 }); } catch (error) { refusal = error as Error; }
+    expect(refusal).toBeDefined();
+    expect(refusal?.message).toContain(dataDir);
+    expect(refusal?.message).toContain(String(holder.pid));
+    const said = lines.join('\n');
+    expect(said).toContain('waiting for');
+    expect(said).toContain(`pid ${String(holder.pid)}`);
+    expect(said).toContain(dataDir);
+    expect(said).toContain('300 ms');
+    expect(existsSync(join(dataDir, 'global', 'half-made'))).toBe(true);
+  } finally {
+    console.error = original;
+    holder.kill('SIGKILL');
+    await holder.exited;
+  }
+}, 120_000);
