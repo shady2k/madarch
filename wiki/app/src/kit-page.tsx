@@ -37,7 +37,7 @@ import { Figure, FigureCaption } from './components/ui/figure.js';
 import { FilterBar, FilterField, FilterResults, PaginationBar, PaginationSummary } from './components/ui/filter-bar.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
-import { KitFigureStack, KitFigureState, KitNarrow, KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
+import { KitFigureState, KitNarrow, KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
 import { MetadataLine } from './components/ui/metadata-line.js';
 import {
   NavigationCount, NavigationGroup, NavigationGroupTrigger, NavigationLabel, NavigationLink, NavigationPending,
@@ -103,11 +103,6 @@ const DAYS: readonly ChartDay[] = Array.from({ length: 90 }, (_, index) => {
   return { date: at.toISOString().slice(0, 10), count: (index * 7 + (index % 5) * 3) % 13 };
 });
 const EMPTY_TREE: readonly ChartNode[] = [{ label: 'nothing yet' }];
-/** A hierarchy whose children are categories: seven languages, the figure the palette question is about. */
-const LANGUAGES: readonly ChartNode[] = [
-  { label: 'en', value: 62 }, { label: 'ru', value: 24 }, { label: 'de', value: 9 }, { label: 'es', value: 6 },
-  { label: 'fr', value: 4 }, { label: 'it', value: 3 }, { label: 'pt', value: 2 },
-];
 /** The aggregate a section's `bars`, `treemap` or `timeline` display draws: a label, its value and where it leads. */
 const FACT_ROWS = [{ label: 'components', value: 42 }, { label: 'sections', value: 27 }, { label: 'templates', value: 18 }, { label: 'views', value: 9 }];
 
@@ -361,23 +356,6 @@ export function KitPage(): ReactElement {
         <KitFigureState label={state('darkCharts')}>
           <ChartHeatmap title={state('heatmapTitle')} matrix={HEATMAP} width={560} height={260} note={state('noData')} />
         </KitFigureState>
-      </KitSection>
-
-      <KitSection title={state('palettes')} description={state('paletteNote')}>
-        <KitState label={state('magnitude')}>
-          <KitFigureStack>
-            <ChartTreemap title={state('languagesTitle')} nodes={LANGUAGES} width={420} height={180} note={state('noData')} />
-            <ChartStackedBar title={state('outcomesTitle')} groups={GROUPS} series={STACKED} width={420} height={200} note={state('noData')} />
-            <ChartSparkline title={state('sparklineTitle')} values={SPARK} width={240} height={40} note={state('noData')} />
-          </KitFigureStack>
-        </KitState>
-        <KitState label={state('categorical')}>
-          <KitFigureStack>
-            <ChartTreemap title={state('languagesTitle')} nodes={LANGUAGES} palette="categorical" width={420} height={180} note={state('noData')} />
-            <ChartStackedBar title={state('outcomesTitle')} groups={GROUPS} series={STACKED} palette="categorical" width={420} height={200} note={state('noData')} />
-            <ChartSparkline title={state('sparklineTitle')} values={SPARK} palette="categorical" width={240} height={40} note={state('noData')} />
-          </KitFigureStack>
-        </KitState>
       </KitSection>
 
       <KitSection title="Embedded">

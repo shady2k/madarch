@@ -13,7 +13,7 @@ import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
@@ -192,7 +192,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
         <CardHeader><CardTitle>{t('prepare.who')}</CardTitle></CardHeader>
         <CardContent>
           <FieldLabel className="mb-3 flex items-start gap-2 text-small">
-            <Checkbox checked={pluginsOnly} onChange={() => setOnly(!pluginsOnly)} data-testid="prepare-plugins-only" />
+            <Checkbox checked={pluginsOnly} onCheckedChange={() => setOnly(!pluginsOnly)} data-testid="prepare-plugins-only" />
             <Text><Text className="block font-medium">{t('prepare.pluginsOnly')}</Text><Text className="block text-muted">{t('prepare.pluginsOnlyNote')}</Text></Text>
           </FieldLabel>
           {pluginsOnly ? (
@@ -201,7 +201,13 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
               <FieldLabel className="grid gap-1 text-small">{t('prepare.agent')}
-                <Select data-testid="prepare-agent" value={agent ?? ''} onChange={(event) => setAgent(event.target.value === '' ? null : event.target.value)} options={[{ value: '', label: t('prepare.chooseAgent') }, ...(agents.data?.agents ?? []).map((offer) => ({ value: offer.id, label: offer.label }))]} />
+                <Select value={agent ?? ''} onValueChange={(next) => setAgent(next === '' ? null : next)}>
+                  <SelectTrigger aria-label={t('prepare.agent')} data-testid="prepare-agent"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">{t('prepare.chooseAgent')}</SelectItem>
+                    {(agents.data?.agents ?? []).map((offer) => <SelectItem key={offer.id} value={offer.id}>{offer.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </FieldLabel>
               <FieldLabel className="grid gap-1 text-small">{t('prepare.cap')}
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={cap} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />

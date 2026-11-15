@@ -13,7 +13,7 @@ import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
-import { Select } from './ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
 import {
   chooseAgent, chooseModelRole, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
   useChangeStream, useCommandRead,
@@ -61,14 +61,13 @@ function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
   return (
     <Stack className="mb-3 last:mb-0">
       <FieldLabel className="mb-1 block text-small font-medium">{label}
-        <Select
-          data-testid={id}
-          className="mt-1 w-full max-w-96"
-          value={value ?? ''}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
-          options={[{ value: '', label: choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current }) }, ...choice.values.map((entry) => ({ value: entry.value, label: entry.name }))]}
-        />
+        <Select value={value ?? ''} disabled={disabled} onValueChange={(next) => onChange(next === '' ? null : next)}>
+          <SelectTrigger aria-label={label} data-testid={id} className="mt-1 w-full max-w-96"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current })}</SelectItem>
+            {choice.values.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </FieldLabel>
       {picked?.description === undefined ? null : <Paragraph className="m-0 text-small text-muted">{picked.description}</Paragraph>}
     </Stack>
@@ -115,14 +114,13 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
       {role.role === 'writing' ? null : (
         <Stack className="mt-2">
           <FieldLabel className="mb-1 block text-small font-medium">{t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
-            <Select
-              data-testid={`settings-role-select-${role.role}`}
-              className="mt-1 w-full max-w-96"
-              value={assigned ? role.pair!.agent : ''}
-              disabled={working || disabled || settings.busy}
-              onChange={(event) => assign(role.role, event.target.value === '' ? null : event.target.value)}
-              options={[{ value: '', label: settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') }) }, ...options.map((option) => ({ value: option.id, label: option.name }))]}
-            />
+            <Select value={assigned ? role.pair!.agent : ''} disabled={working || disabled || settings.busy} onValueChange={(next) => assign(role.role, next === '' ? null : next)}>
+              <SelectTrigger aria-label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })} data-testid={`settings-role-select-${role.role}`} className="mt-1 w-full max-w-96"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</SelectItem>
+                {options.map((option) => <SelectItem key={option.id} value={option.id}>{option.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </FieldLabel>
         </Stack>
       )}

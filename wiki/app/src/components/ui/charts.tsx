@@ -41,17 +41,18 @@ export interface ChartDay { readonly date: string; readonly count: number }
 interface Size { readonly width?: number; readonly height?: number; readonly className?: string }
 
 /**
- * Which palette a figure takes: `mono` (the default) tells magnitude — a value's
- * strength — in the kit's one ink, and `categorical` tells categories apart in
- * the kit's `--chart-cat-*` tokens. Heat and magnitude figures stay `mono`; a
- * figure whose marks are categories takes `categorical`.
+ * The forms whose marks are categories — treemap, sunburst, bar, stacked bar — are drawn in the kit's
+ * `--chart-cat-*` tokens: the owner chose the categorical palette ("information over design", 2026-11-15), and a
+ * category is told apart by hue as well as strength. Heat, the sparkline and the calendar are magnitudes and stay the
+ * single ink. The scope is a box around the figure, so the form's own tokens read from it.
  */
-export type ChartPalette = 'mono' | 'categorical';
-
-/** A figure's box: the categorical variant is a token scope over the figure, so the form's own tsv reads it. */
-function Palette({ palette, children }: { readonly palette: ChartPalette | undefined; readonly children: ReactElement }): ReactElement {
-  if (palette !== 'categorical') return children;
+function Categorical({ children }: { readonly children: ReactElement }): ReactElement {
   return <div data-chart-palette="categorical" className="min-w-0">{children}</div>;
+}
+
+/** A figure whose marks are magnitudes: heat, a sparkline, a calendar — one ink at descending strength. */
+function Magnitude({ children }: { readonly children: ReactElement }): ReactElement {
+  return <div data-heat="" className="min-w-0">{children}</div>;
 }
 
 /** What a figure says where it has nothing to draw: the kit's own words, not an empty frame. */
@@ -63,40 +64,40 @@ function ChartEmpty({ title, note }: { readonly title: string; readonly note: st
 }
 
 /** A tree drawn as areas: each child's area is its value's share of its parent's. */
-export function ChartTreemap({ title, nodes, palette, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly palette?: ChartPalette; readonly note?: string }): ReactElement {
+export function ChartTreemap({ title, nodes, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly note?: string }): ReactElement {
   if (!hasValues(nodes)) return <ChartEmpty title={title} note={note} />;
-  return <Palette palette={palette}><Treemap title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Palette>;
+  return <Categorical><Treemap title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Categorical>;
 }
 
 /** The same tree as rings: the root's children the first ring, their children the next. */
-export function ChartSunburst({ title, nodes, palette, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly palette?: ChartPalette; readonly note?: string }): ReactElement {
+export function ChartSunburst({ title, nodes, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly note?: string }): ReactElement {
   if (!hasValues(nodes)) return <ChartEmpty title={title} note={note} />;
-  return <Palette palette={palette}><Sunburst title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Palette>;
+  return <Categorical><Sunburst title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Categorical>;
 }
 
 /** Rows as horizontal bars, zero-based. */
-export function ChartBar({ title, rows, palette, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly rows: readonly ChartRow[]; readonly palette?: ChartPalette; readonly note?: string }): ReactElement {
+export function ChartBar({ title, rows, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly rows: readonly ChartRow[]; readonly note?: string }): ReactElement {
   if (!rows.some((row) => row.value !== 0)) return <ChartEmpty title={title} note={note} />;
-  return <Palette palette={palette}><Bar title={title} items={rows.map((row) => ({ label: row.label, value: row.value }))} {...size} /></Palette>;
+  return <Categorical><Bar title={title} items={rows.map((row) => ({ label: row.label, value: row.value }))} {...size} /></Categorical>;
 }
 
 /** The same groups, each split into its series. */
-export function ChartStackedBar({ title, groups, series, normalize = false, palette, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly groups: readonly string[]; readonly series: readonly ChartSeries[]; readonly normalize?: boolean; readonly palette?: ChartPalette; readonly note?: string }): ReactElement {
+export function ChartStackedBar({ title, groups, series, normalize = false, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly groups: readonly string[]; readonly series: readonly ChartSeries[]; readonly normalize?: boolean; readonly note?: string }): ReactElement {
   if (series.length === 0 || !series.some((one) => one.data.some((value) => value !== 0))) return <ChartEmpty title={title} note={note} />;
-  return <Palette palette={palette}><StackedBar title={title} groups={[...groups]} series={series.map((one) => ({ name: one.name, data: [...one.data] }))} normalize={normalize} {...size} /></Palette>;
+  return <Categorical><StackedBar title={title} groups={[...groups]} series={series.map((one) => ({ name: one.name, data: [...one.data] }))} normalize={normalize} {...size} /></Categorical>;
 }
 
 /** A matrix as cells; `mark` says how a cell is drawn, and `calendar` lays the columns out as weeks. */
-export function ChartHeatmap({ title, matrix, mark = 'cell', printValues = false, palette, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly matrix: ChartMatrix; readonly mark?: 'cell' | 'dot' | 'calendar'; readonly printValues?: boolean; readonly palette?: ChartPalette; readonly note?: string }): ReactElement {
+export function ChartHeatmap({ title, matrix, mark = 'cell', printValues = false, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly matrix: ChartMatrix; readonly mark?: 'cell' | 'dot' | 'calendar'; readonly printValues?: boolean; readonly note?: string }): ReactElement {
   if (matrix.rows.length === 0 || matrix.cols.length === 0 || !matrix.values.some((row) => row.some((value) => value !== 0))) return <ChartEmpty title={title} note={note} />;
-  return <Palette palette={palette}><Heatmap title={title} matrix={{ rows: [...matrix.rows], cols: [...matrix.cols], values: matrix.values.map((row) => [...row]) }} mark={mark} values={printValues} {...size} /></Palette>;
+  return <Categorical><Heatmap title={title} matrix={{ rows: [...matrix.rows], cols: [...matrix.cols], values: matrix.values.map((row) => [...row]) }} mark={mark} values={printValues} {...size} /></Categorical>;
 }
 
 /** One series of numbers, one line of type tall. */
-export function ChartSparkline({ title, values, palette, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly values: readonly number[]; readonly palette?: ChartPalette; readonly note?: string }): ReactElement {
+export function ChartSparkline({ title, values, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly values: readonly number[]; readonly note?: string }): ReactElement {
   if (values.length === 0) return <ChartEmpty title={title} note={note} />;
   // A micro chart sits in a line of text by default; `block` gives it the host's width, and a height keeps it a band.
-  return <Palette palette={palette}><Sparkline title={title} data={[...values]} block height={size.height ?? 40} {...(size.width === undefined ? {} : { width: size.width })} /></Palette>;
+  return <Categorical><Sparkline title={title} data={[...values]} block height={size.height ?? 40} {...(size.width === undefined ? {} : { width: size.width })} /></Categorical>;
 }
 
 /**
@@ -110,7 +111,7 @@ export function ChartCalendar({ title, days, note = 'No activity to draw', ...si
   const { i18n } = useTranslation();
   const matrix = calendarMatrix(days, i18n.language);
   if (matrix === undefined) return <ChartEmpty title={title} note={note} />;
-  return <Heatmap title={title} matrix={matrix} mark="calendar" values={false} {...size} />;
+  return <Magnitude><Heatmap title={title} matrix={matrix} mark="calendar" values={false} {...size} /></Magnitude>;
 }
 
 /**
