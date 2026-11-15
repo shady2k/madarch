@@ -67,6 +67,15 @@ logs stay outside the graph for a limited time (owner, 2026-11-15: «слово
 "запуск" в качестве термина подходит»).
 _Avoid_: прогон, fill run (in Russian text)
 
+**Term** (ru: термин):
+A concept of the product's language, not a word: a vertex with its definition
+and the subject field it belongs to (a domain, later a bounded context). Its
+name and synonyms are its labels; one word may label two concepts of two
+fields — homonyms — and is then shown with its field in brackets: «запуск
+(заполнение)», «запуск (CI)» (ISO 704, W3C SKOS; owner, 2026-11-15,
+madarch-64o5.144).
+_Avoid_: glossary word, entry
+
 **Kind** (ru: вид; `kind` in code and manifests):
 What the catalogue declares a product can hold: File, Repository, Commit,
 Task, Decision. A kind carries its definition, its fields, its relations, the
