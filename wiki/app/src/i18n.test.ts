@@ -70,5 +70,39 @@ describe("the product's own language (madarch-64o5.84)", () => {
     await setWikiLanguage('en');
     await adoptProductLanguage(undefined);
     expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('en');
+    try { globalThis.localStorage?.clear(); } catch { /* no storage */ }
+  });
+});
+
+describe("a product's language is not the reader's preference (madarch-64o5.84)", () => {
+  test('empty storage: a Russian product, then an English one, and the interface is English again', async () => {
+    const storage = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();
+    storage?.clear();
+    await adoptProductLanguage('ru');
+    expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('ru');
+    // Adoption saves nothing: the next product's language speaks as if nothing had been chosen.
+    if (storage !== null) expect(storage.getItem(languageStorageKey)).toBeNull();
+    await adoptProductLanguage('en');
+    expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('en');
+    if (storage !== null) expect(storage.getItem(languageStorageKey)).toBeNull();
+  });
+
+  test("a reader's own choice is still saved, and a product never overrides it", async () => {
+    const storage = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();
+    storage?.clear();
+    await setWikiLanguage('ru');
+    if (storage === null) {
+      // A page that refuses storage cannot remember a choice, so the product's language still applies here; nothing is
+      // saved either way.
+      await adoptProductLanguage('en');
+      expect(storage).toBeNull();
+      return;
+    }
+    expect(storage.getItem(languageStorageKey)).toBe('ru');
+    await adoptProductLanguage('en');
+    expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('ru');
+    // The instance is one per process: leave the next file an English wiki with no saved choice.
+    storage.clear();
+    await setWikiLanguage('en');
   });
 });

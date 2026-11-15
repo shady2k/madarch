@@ -20,11 +20,19 @@ export function hasChosenLanguage(): boolean {
   }
 }
 
+/**
+ * Whether the language is being changed for a product rather than by the reader: the listener below saves the reader's
+ * own choices only, so a product's language leaves the preference as the reader left it (madarch-64o5.84).
+ */
+let adopting = false;
+
 /** The language the wiki opens in: the product's own when this reader saved none (madarch-64o5.84). */
 export async function adoptProductLanguage(language: string | undefined): Promise<void> {
   if (language === undefined || language === '' || hasChosenLanguage()) return;
   const wanted = normalizeLanguage(language);
-  if (normalizeLanguage(i18n.resolvedLanguage) !== wanted) await i18n.changeLanguage(wanted);
+  if (normalizeLanguage(i18n.resolvedLanguage) === wanted) return;
+  adopting = true;
+  try { await i18n.changeLanguage(wanted); } finally { adopting = false; }
 }
 
 function initialLanguage(): WikiLanguage {
@@ -64,6 +72,8 @@ plurals.getSuffix = (code: string, count: number, options?: { ordinal?: boolean 
   options?.ordinal === true || typeof count !== 'number' ? suffixOf(code, count, options) : `${plurals.options.prepend}${pluralForm(code, count)}`;
 
 i18n.on('languageChanged', (language) => {
+  // A product's language is not a preference: it changes the page and leaves what the reader chose alone.
+  if (adopting) return;
   try {
     globalThis.localStorage?.setItem(languageStorageKey, normalizeLanguage(language));
   } catch {
