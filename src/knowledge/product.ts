@@ -45,6 +45,7 @@ import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead } from './graph-read.js';
 import { graphMarkdownEntities, pageOpinionKinds } from './markdown.js';
 import type { AgentOffer, ChangeNotice, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
+import { kindOfUnit } from './unit-kind.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { agentUsageOf, readTraceRunSummary, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -2115,12 +2116,8 @@ export class KnowledgeProduct {
       if (event.seq <= seen) continue;
       last = event.seq;
       if (event.kind !== 'unit-published') continue;
-      const unit = event.unitId.slice(event.unitId.lastIndexOf('/') + 1);
-      const colon = unit.indexOf(':');
-      // A scoped unit names its scope after the kind (`code.file#<hash>`, `code.file@<scope>`): the graph's kind is
-      // the part before it, which is what the navigation and a page address use.
-      const kind = (colon < 0 ? unit : unit.slice(colon + 1)).split(/[#@]/u)[0] ?? '';
-      if (kind === '') continue;
+      const kind = kindOfUnit(event.unitId);
+      if (kind === undefined) continue;
       const facts = /published\s+(\d+)\s+facts?/u.exec(event.summary)?.[1];
       this.notify({ kinds: [kind], ...(facts === undefined ? {} : { facts: Number(facts) }) });
     }
