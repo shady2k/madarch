@@ -3,20 +3,23 @@ import { type FillStateDatabase, readRun, readRunUnitHistory } from '../fill/sta
 import { readProgress, readRunPlans, readRunPublicationCount, readRunPublicationFacts } from '../fill/orchestrator-store.js';
 import type { AgentUsageReport } from '../obs/trace-report.js';
 import type { FillRunView } from './model.js';
+import { isFinalRunPhase, isFinalUnitPhase, runPhaseOf, unitPhaseOf } from '../fill/fsm.js';
 
-const TERMINAL = new Set(['succeeded', 'completed_partial', 'failed', 'cancelled', 'blocked']);
+
 export async function readFillRunDetail(owner: FillStateDatabase, runId: string, options: { readonly now: number; readonly agentUsage?: AgentUsageReport | null; readonly summary?: FillRunView }) {
   const run = await readRun(owner, runId);
   if (run === null) return null;
   const [units, events, plans, publishedUnits, records] = await Promise.all([
     readRunUnitHistory(owner, runId), readProgress(owner, runId), readRunPlans(owner, runId, { history: true }), readRunPublicationCount(owner, runId), readRunPublicationFacts(owner, runId),
   ]);
-  const finished = TERMINAL.has(run.state);
+  const phase = runPhaseOf(run.state);
+  const finished = isFinalRunPhase(phase);
   const selected = run.context.selection;
   const groups = (selected?.groups ?? []).map((group) => {
     const ids = new Set(plans.filter((plan) => plan.stageUnitId === group.stageUnitId).map((plan) => `${plan.unitId}@${plan.generation}`));
     const matching = units.filter((unit) => ids.has(`${unit.unitId}@${unit.generation}`));
-    return { kind: group.kind, group: group.group, plugin: group.plugin, done: matching.filter((unit) => unit.state === 'published').length, total: matching.length, state: matching.length === 0 ? 'unplanned' : matching.every((unit) => unit.state === 'published') ? 'published' : ['running', 'validating', 'draft', 'leased', 'waiting_children', 'ready', 'planned', 'retry_wait', 'failed', 'blocked', 'cancelled', 'stale', 'superseded'].find((state) => matching.some((unit) => unit.state === state))! };
+    const state = matching.length === 0 ? 'unplanned' : matching.every((unit) => unit.state === 'published') ? 'published' : ['running', 'validating', 'draft', 'leased', 'waiting_children', 'ready', 'planned', 'retry_wait', 'failed', 'blocked', 'cancelled', 'stale', 'superseded', 'skipped'].find((held) => matching.some((unit) => unit.state === held))!;
+    return { kind: group.kind, group: group.group, plugin: group.plugin, done: matching.filter((unit) => unit.state === 'published').length, total: matching.length, state, phase: state === 'unplanned' ? 'waiting' : state === 'published' ? 'done' : state === 'superseded' ? 'skipped' : unitPhaseOf(state as import('../fill/fsm.js').UnitState) };
   });
   const completed = units.filter((unit) => unit.state === 'published').length;
   const elapsedMs = Math.max(0, (finished || run.state === 'paused' ? run.updatedAt : options.now) - run.createdAt);
@@ -25,7 +28,7 @@ export async function readFillRunDetail(owner: FillStateDatabase, runId: string,
     : run.state === 'running' && run.context.planningClosed && completed > 0 && completed < units.length
       ? Math.round(elapsedMs * (units.length - completed) / completed) : null;
   return {
-    runId, state: run.state, startedAt: new Date(run.createdAt).toISOString(), updatedAt: new Date(run.updatedAt).toISOString(),
+    runId, state: run.state, phase, final: finished, startedAt: new Date(run.createdAt).toISOString(), updatedAt: new Date(run.updatedAt).toISOString(),
     finishedAt: finished ? new Date(run.updatedAt).toISOString() : null,
     elapsedMs, remainingMs,
     selected: selected?.selected ?? null,
@@ -33,7 +36,7 @@ export async function readFillRunDetail(owner: FillStateDatabase, runId: string,
     vertex: selected === undefined ? options.summary?.selection?.vertex ?? null : selected.vertex ?? null,
     groups,
     ...(options.summary === undefined ? {} : { summary: options.summary }),
-    units: units.map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, scope: unit.scopeKey, status: unit.state, generation: unit.generation, attempts: unit.context.attempt })),
+    units: units.map((unit) => ({ unitId: unit.unitId, stage: unit.stageId, scope: unit.scopeKey, status: unit.state, phase: unitPhaseOf(unit.state), final: isFinalUnitPhase(unitPhaseOf(unit.state)), ...(unit.context.skippedBecause === undefined || unit.context.skippedBecause === null ? {} : { skippedBecause: unit.context.skippedBecause }), generation: unit.generation, attempts: unit.context.attempt })),
     events: events.map((event) => ({ seq: event.seq, at: new Date(event.at).toISOString(), stage: event.stage, unitId: event.unitId, type: event.kind, summary: event.summary })),
     records, publishedUnits, agentUsage: options.summary?.agentUsage ?? options.agentUsage ?? null,
   };

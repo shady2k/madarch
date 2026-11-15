@@ -8,9 +8,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
-import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
-import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
+import { CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
+import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation } from './client.js';
+import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
+import { ConnectionBanner } from './components/connection-banner.js';
+import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
 import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
@@ -71,6 +73,7 @@ interface Loaded {
 export function App(): ReactElement {
   const { i18n, t } = useTranslation();
   const language = normalizeLanguage(i18n.resolvedLanguage);
+  const connection = useConnection();
   const [base] = useState(() => basePathOf(window.location.pathname));
   const [path, setPath] = useState(() => window.location.pathname.slice(base.length) + window.location.search);
   const [role, setRole] = useState(storedRole);
@@ -80,9 +83,13 @@ export function App(): ReactElement {
   // fill writes. Its count is read on every other page.
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
-  const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product-identity', (signal) => readProduct(base, signal));
-  const savedRole = useCommandRead<ReaderSettingsAnswer>('active-reader-role', (signal) => readReaderSettings(base, signal));
+  const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product', (signal) => readProduct(base, signal));
+  const savedRole = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [lastDataAt, setLastDataAt] = useState<number | null>(null);
+  const [changedKinds, setChangedKinds] = useState<ReadonlySet<string>>(new Set());
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const navigationRequest = useRef(0);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
@@ -118,6 +125,8 @@ export function App(): ReactElement {
   const loadBootstrap = useCallback(async (current: () => boolean = () => alive.current): Promise<Bootstrap | undefined> => {
     const read = await readBootstrap(base, language);
     if (!alive.current || !current()) return undefined;
+    // The frame's calm state stands for an unreachable server; it is not a failure of the product's page.
+    if (read.offline === true) return undefined;
     bootstrapVersion.current += 1;
     if (read.bootstrap === undefined) {
       setFailure(read.message ?? 'the bootstrap could not be read');
@@ -125,15 +134,39 @@ export function App(): ReactElement {
     }
     setBootstrap(read.bootstrap);
     setNavigation(read.navigation ?? null);
+    setLastDataAt(Date.now());
     // A reader who saved no language reads the wiki in the product's own: the first open of a product made in Russian
     // speaks Russian, and a reader's saved choice always stands (madarch-64o5.84).
     await adoptProductLanguage(read.bootstrap.language);
     return read.bootstrap;
   }, [base, language]);
 
-  // A publication moves the graph: the same event that refreshes the problems count refreshes the frame's navigation, so
-  // a run that published its kinds shows them in the sidebar without a page reload.
-  useChangeStream(base, () => { problems.reload(); void loadBootstrap(); });
+  /** The frame's navigation alone: a unit publication changes its kind counts, not the product's templates. */
+  const refreshNavigation = useCallback(async (): Promise<void> => {
+    const request = ++navigationRequest.current;
+    const read = await readNavigation(base, language);
+    if (!alive.current || request !== navigationRequest.current) return;
+    if (read.navigation === undefined) return;
+    setNavigation(read.navigation);
+    setLastDataAt(Date.now());
+  }, [base, language]);
+
+  // The probe that lifts the calm state: the product read the server answers first, without touching the graph.
+  useEffect(() => setConnectionProbe(async () => {
+    const answer = await fetch(`${base}/api/product`, { credentials: 'same-origin', cache: 'no-store' });
+    if (answer.ok) reportOnline();
+    else if (answer.status === 503) reportOffline('starting');
+    else if (answer.status === 502 || answer.status === 504) reportOffline();
+    else if (answer.status >= 500) throw new Error(`the server answered ${String(answer.status)}`);
+  }), [base]);
+
+  // A returned server is a reason to read the frame and its page again; the last generation makes that one read.
+  const lastGeneration = useRef(connection.generation);
+  useEffect(() => {
+    if (connection.generation === lastGeneration.current) return;
+    lastGeneration.current = connection.generation;
+    void loadBootstrap();
+  }, [connection.generation, loadBootstrap]);
 
   // The bootstrap and the navigation are read once per structure and language: what they hold changes only with the
   // product's files or the reader's language.
@@ -163,6 +196,8 @@ export function App(): ReactElement {
     const answer = await postQuery<Record<string, unknown>>(base, composition.operation, variables);
     if (!current()) return;
     setBusy(false);
+    // The frame's calm state stands for the unreachable server, and the page keeps what it last held.
+    if (answer.offline === true) return;
     const codes = codesOf(answer.errors);
     if (answer.errors.length > 0) {
       if (codes.includes(STALE_STRUCTURE) && bootstrap !== null) {
@@ -177,6 +212,7 @@ export function App(): ReactElement {
       return;
     }
     setFailure(null);
+    setLastDataAt(Date.now());
     setLoaded({ composition, variables, data: splitResponse(composition, answer.data ?? {}) });
   }, [address, base, bootstrap, language, loadBootstrap, role]);
 
@@ -229,22 +265,60 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
+  /**
+   * A change notice: a unit publication names the kinds it moved, so the frame reads only its navigation and, when the
+   * page shows one of those kinds, that page; a structure notice is the product's files or templates moving, and the
+   * whole frame reads again. The changed kinds wear a short highlight.
+   */
+  const replyToNotice = useCallback((notice: ChangeNotice): void => {
+    problems.reload();
+    if (notice.structure === true || notice.kinds === undefined || notice.kinds.length === 0) {
+      void loadBootstrap();
+      return;
+    }
+    const kinds = notice.kinds;
+    setChangedKinds((held) => new Set([...held, ...kinds]));
+    if (highlightTimer.current !== undefined) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => {
+      highlightTimer.current = undefined;
+      setChangedKinds(new Set());
+    }, 2000);
+    void refreshNavigation();
+    // The home shows the counts in its own sections, and an older template reads them from its own query: the home reads
+    // its page again. A catalogue entry page lists the kind its entry names, so that kind's change reads the entry page;
+    // an entity page reads again only when its own kind changed.
+    const kind = address.page.kind === CATALOGUE_KIND && address.page.id !== undefined
+      ? navigation?.kinds.find((one) => one.entryId === address.page.id)?.kind
+      : address.page.kind;
+    if (address.home === true || (kind !== undefined && kinds.includes(kind))) reload({});
+  }, [address.home, address.page.id, address.page.kind, loadBootstrap, navigation, problems.reload, refreshNavigation, reload]);
+
+  // The product's one event stream: a unit publication changes counts, a structure notice changes the frame.
+  useChangeStream(base, replyToNotice);
+  useEffect(() => () => { if (highlightTimer.current !== undefined) clearTimeout(highlightTimer.current); }, []);
+
   const productName = identity.data?.name ?? navigation?.product ?? null;
   const applyRole = useCallback((next: string): void => { setRole(next); keepRole(next); }, []);
   const chooseRole = useCallback((next: string): void => { applyRole(next); void saveReaderRole(base, next).catch(() => undefined); }, [applyRole, base]);
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} />
+    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} changed={changedKinds} />
   );
   const [menuOpen, setMenuOpen] = useState(false);
-  // The graph could not be read at all: the frame says so instead of a page.
-  if (bootstrap === null && failure !== null) {
-    return <ShellError><Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph></ShellError>;
+  // The graph could not be read at all, or the server cannot be reached: the frame says so instead of a page.
+  if (bootstrap === null && (failure !== null || connection.offline)) {
+    return (
+      <ShellError>
+        {connection.offline
+          ? <ConnectionBanner lastDataAt={lastDataAt} />
+          : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
+      </ShellError>
+    );
   }
   // The first read: the frame stands with its shapes, and nothing of the product is drawn yet.
   if (bootstrap === null) {
@@ -299,14 +373,17 @@ export function App(): ReactElement {
             <ShellScroll data-testid="shell-content">
               <ShellDocument>
                 <main data-testid="wiki-main">
+                  <ConnectionBanner lastDataAt={lastDataAt} />
                   {failure === null ? null : (
                     <Alert variant="problem" className="mb-4" data-testid="wiki-error">
                       <AlertDescription>{failure}</AlertDescription>
                     </Alert>
                   )}
-                  {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
-                  {page}
-                  {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                  <Stack className={connection.offline ? 'opacity-60 transition-opacity' : 'transition-opacity'} data-testid="page-content" data-stale={connection.offline ? 'true' : 'false'}>
+                    {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
+                    {page}
+                    {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                  </Stack>
                 </main>
               </ShellDocument>
             </ShellScroll>

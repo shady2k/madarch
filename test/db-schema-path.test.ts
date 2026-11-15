@@ -279,8 +279,12 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       expect(database?.reason).toContain(`src/schema.ts:${String(COMPOSED_LINE)}`);
       const run = await partialOwner.run((tx) => tx.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1', [database!.runId]));
       expect(run.rows[0]?.state).toBe('completed_partial');
+      // The owner rule: a final run leaves no blocked or waiting unit. The database unit abstained, so
+      // its dependants are skipped-because rather than left blocked; they publish no outcome of their own.
+      const units = await partialOwner.run((tx) => tx.query<{ unit_id: string; state: string }>('SELECT unit_id, state FROM fill_unit_generation WHERE run_id = $1', [database!.runId]));
       for (const kind of ['code.table', 'code.column', 'code.index']) {
-        expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)?.outcome).toBe('failed');
+        expect(units.rows.find((unit) => unit.unit_id.includes(`:${kind}`))?.state).toBe('skipped');
+        expect(outcomes.find((outcome) => outcome.plugin === 'db-schema' && outcome.kind === kind)).toBeUndefined();
       }
     } finally { await partialOwner.close(); }
 

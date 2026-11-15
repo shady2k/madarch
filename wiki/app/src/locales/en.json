@@ -1,4 +1,18 @@
 {
+  "kinds": {
+    "name": "Kind",
+    "count": "Entities"
+  },
+  "connection": {
+    "offline": "No connection to the madarch server — reconnecting…",
+    "starting": "The server is starting…",
+    "restored": "Connection restored",
+    "retryIn": "next attempt in {{seconds}} s",
+    "checking": "checking the connection…",
+    "retryNow": "Retry now",
+    "dataAsOf": "data as of {{time}}",
+    "actionsDisabled": "The server cannot be reached. This action will be available when the connection returns."
+  },
   "facts": {
     "loading": "Reading facts…",
     "empty": "No facts are declared for this reader role.",
@@ -88,12 +102,20 @@
       "noHistory": "No fill runs yet.",
       "selectionUnknown": "Selection not recorded",
       "count": "Published {{done}} of {{total}} units",
+      "count_one": "Published {{done}} of {{total}} unit",
+      "count_few": "Published {{done}} of {{total}} units",
+      "count_many": "Published {{done}} of {{total}} units",
+      "count_other": "Published {{done}} of {{total}} units",
       "elapsed": "Elapsed: {{seconds}} s",
       "remainingUnknown": "Remaining time: not known yet",
       "remaining": "Approximately {{seconds}} s remaining",
       "tokensUnknown": "Tokens: not reported",
       "tokens": "Tokens: {{input}} input · {{output}} output · {{total}} total",
       "records": "Facts written: {{count}}",
+      "records_one": "{{count}} fact written",
+      "records_few": "{{count}} facts written",
+      "records_many": "{{count}} facts written",
+      "records_other": "{{count}} facts written",
       "stopWords": "Stop this run? Records already written will stay.",
       "log": "Run log",
       "back": "Choose another fill",
@@ -106,7 +128,44 @@
       },
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
-      "event": {
+      "phase": {
+      "queued": "Queued",
+      "running": "Running",
+      "paused": "Paused",
+      "succeeded": "Succeeded",
+      "partial": "Partly completed",
+      "failed": "Failed",
+      "stopped": "Stopped",
+      "skipped": "Skipped",
+      "waiting": "Waiting",
+      "done": "Published",
+      "cancelled": "Cancelled",
+      "skippedBecause": "Skipped because {{unit}} failed",
+      "skippedBecauseRunEnded": "Skipped because the run ended"
+    },
+    "final": {
+      "succeeded": "Every required unit published.",
+      "partial": "The run ended, but some units did not publish.",
+      "failed": "The run ended with a failure.",
+      "stopped": "The run was stopped."
+    },
+    "next": {
+      "retry": "Fix the cause, then retry the fill.",
+      "retryAction": "Retry the fill"
+    },
+    "status": {
+      "queued": "Running",
+      "running": "Running",
+      "paused": "Paused",
+      "succeeded": "Succeeded",
+      "partial": "Partly completed",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "endedAt": "ended {{time}}",
+    "attention": "The run did not finish completely",
+    "duration": "{{seconds}} s",
+    "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -1266,7 +1325,10 @@
     "diagramFailed": "The diagram could not be built.",
     "diagramTooLarge": "The diagram is too large to show.",
     "diagramBadRequest": "The server refused the diagram request.",
-    "diagramRenderer": "Renderer"
+    "diagramRenderer": "Renderer",
+    "diagramFit": "Fit",
+    "diagramZoomIn": "Zoom in",
+    "diagramZoomOut": "Zoom out"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -1617,8 +1679,10 @@
   },
   "firstRun": {
     "title": "First run",
-    "intro": "The graph is empty. This is a recommended set of {{count}} kinds; change it if you need to, then start the fill.",
-    "start": "Prepare the first fill",
+    "what": "Madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
+    "stepOne": "Check the set of kinds the wiki should hold.",
+    "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
+    "stepThree": "Start the fill and follow its run.",
     "manual": "Choose in the catalogue"
   },
   "prepare": {
@@ -1631,6 +1695,9 @@
     "productRepository": "Product repository",
     "repositoryNotFilled": "Not filled",
     "finalSet": "What will be filled",
+    "inlineSet": "{{count}} kinds will be filled.",
+    "openPlan": "Open the whole plan",
+    "unfilledInline": "Without an agent, {{count}} kinds keep some fields empty. The whole plan names them.",
     "neededFor": "needed for {{kind}}",
     "pluginsLine": "Plugins fill:",
     "agentLine": "The agent fills: {{fields}}",
@@ -1680,6 +1747,10 @@
     "none": "No fills yet.",
     "took": "Took {{duration}}",
     "failedUnits": "{{count}} units failed",
+    "failedUnits_one": "{{count}} unit failed",
+    "failedUnits_few": "{{count}} units failed",
+    "failedUnits_many": "{{count}} units failed",
+    "failedUnits_other": "{{count}} units failed",
     "kinds": "The kinds this run asked for ({{count}})"
   },
   "fillKind": {

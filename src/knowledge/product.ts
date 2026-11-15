@@ -39,7 +39,8 @@ import { typeNameOf } from '../graphql/names.js';
 import { randomUUID } from 'node:crypto';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
-import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { runPhaseOf } from '../fill/fsm.js';
+import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
@@ -47,7 +48,8 @@ import { headCommitOf } from '../product/fill-updates.js';
 import { pluginsFillingKind, pluginTurnUnitId } from '../fill/plugin-turns.js';
 import { GraphReader, type GeneratedEdgeRead, type GeneratedKindRead } from './graph-read.js';
 import { graphMarkdownEntities, pageOpinionKinds } from './markdown.js';
-import type { AgentOffer, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
+import type { AgentOffer, ChangeNotice, ChangedPage, FillErrorView, FillRunView, FillState, RepositoryCounts, WikiStatus, WriterState, WriterBounds } from './model.js';
+import { kindOfUnit } from './unit-kind.js';
 import { readFillProgressOf } from '../obs/progress.js';
 import { agentUsageOf, readTraceRunSummary, TraceSpanReader } from '../obs/trace-report.js';
 import { traceFiles } from '../obs/trace.js';
@@ -232,7 +234,10 @@ export class KnowledgeProduct {
   /** The paused run a next fill takes up, if this product has one. */
   private pausedRun: PausedRun | undefined;
   private closed = false;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(notice: ChangeNotice) => void>();
+  /** The last run's progress already announced and the state it was last announced at. */
+  private progressNotice: { runId: string; seq: number } | undefined;
+  private lastRunState: { runId: string; state: string } | undefined;
   private readonly pins = new Map<string, RepositoryPin>();
   private revision = 0;
   private writer: WriterState = { state: 'idle', agent: null, units: [] };
@@ -683,7 +688,7 @@ export class KnowledgeProduct {
    * after each commit the fill reads and with each change of the fill's state, and
    * a notice for the stream to ask at once.
    */
-  readonly changes: { revision(): string; subscribe(listener: () => void): () => void } = {
+  readonly changes: { revision(): string; subscribe(listener: (notice: ChangeNotice) => void): () => void } = {
     revision: () => (this.revision === 0 ? '' : String(this.revision)),
     subscribe: (listener) => {
       this.listeners.add(listener);
@@ -691,11 +696,12 @@ export class KnowledgeProduct {
     },
   };
 
-  private notify(): void {
+  private notify(notice: Omit<ChangeNotice, 'revision'> = { structure: true }): void {
     this.revision += 1;
+    const full: ChangeNotice = { revision: String(this.revision), ...notice };
     for (const listener of this.listeners) {
       try {
-        listener();
+        listener(full);
       } catch {
         // a listener that fails is its own stream's problem
       }
@@ -730,7 +736,7 @@ export class KnowledgeProduct {
     if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
     const paused = await this.controlRun('pause');
     if (paused === undefined || !paused.ok) return { ok: false, status: 409, message: paused?.message ?? 'no fill of this product is running: there is nothing to pause' };
-    this.fill = { ...this.fill, state: 'paused' };
+    this.fill = { ...this.fill, state: 'paused', runPhase: 'paused' };
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
   }
@@ -756,7 +762,7 @@ export class KnowledgeProduct {
       // No worker is writing for a paused run: the run ends here, and the pages it rewrote stand. The stop is marked
       // before the state changes, so a pause message still in the pipe is read as the stop it was ended by.
       this.stopAsked = true;
-      this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
+      this.fill = { ...this.fill, state: 'stopped', runPhase: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.writer = { ...this.writer, state: 'stopped', current: undefined, ...(this.writer.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.pausedRun = undefined;
       this.clearPause();
@@ -994,7 +1000,7 @@ export class KnowledgeProduct {
     // The repository the run reads, as the product declares it: the card says what it is reading
     // before the run's own trace has a unit to count.
     this.fillRunId = runId;
-    this.fill = { state: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.fill = { state: 'running', runPhase: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
     this.notify();
     this.running = (async () => {
       try {
@@ -1005,7 +1011,7 @@ export class KnowledgeProduct {
       } catch (error) {
         if (publication?.status !== 'pending') await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
         if (this.closed) return;
-        this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+        this.fill = { state: 'failed', runPhase: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
         if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
         this.notify();
       }
@@ -1054,7 +1060,7 @@ export class KnowledgeProduct {
     }
     if (result === undefined || !result.ok) {
       this.fill = {
-        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
+        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runPhase: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : result?.state === 'completed_partial' ? 'partial' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
         ...(result?.message === undefined ? {} : { message: result.message }), code: 'fill',
       };
       this.notify();
@@ -1064,7 +1070,7 @@ export class KnowledgeProduct {
     this.changedLoaded = false;
     if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
     this.fill = {
-      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
       ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
     };
@@ -1110,7 +1116,7 @@ export class KnowledgeProduct {
       return;
     }
     if (state !== 'succeeded') {
-      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
+      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runPhase: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : state === 'completed_partial' ? 'partial' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
       this.notify();
       return;
     }
@@ -1126,7 +1132,7 @@ export class KnowledgeProduct {
     // where the process that pressed the fill and the one that ran it agree without a second record.
     const unread: { repository: string; path: string; reason: string }[] = end?.unread === undefined ? this.unreadOf() : [...end.unread];
     this.fill = {
-      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
       ...(unread.length === 0 ? {} : { unread }),
     };
@@ -2103,6 +2109,29 @@ export class KnowledgeProduct {
   }
 
   /**
+   * One notice for each unit publication the store's run has written since the last look (madarch-64o5.91): the kind
+   * the unit published and the facts it wrote, read from the run's durable progress. The stream carries them to a page
+   * that is open while a fill runs in another process.
+   */
+  private async announceUnitPublications(runId: string): Promise<void> {
+    const owner = this.reader?.owner;
+    if (owner === undefined) return;
+    const events = await readProgress(owner, runId);
+    const seen = this.progressNotice?.runId === runId ? this.progressNotice.seq : 0;
+    let last = seen;
+    for (const event of events) {
+      if (event.seq <= seen) continue;
+      last = event.seq;
+      if (event.kind !== 'unit-published') continue;
+      const kind = kindOfUnit(event.unitId);
+      if (kind === undefined) continue;
+      const facts = /published\s+(\d+)\s+facts?/u.exec(event.summary)?.[1];
+      this.notify({ kinds: [kind], ...(facts === undefined ? {} : { facts: Number(facts) }) });
+    }
+    this.progressNotice = { runId, seq: last };
+  }
+
+  /**
    * The store's own fill state (madarch-8bdc.9): a fill another process runs is answered here as running, and its end is
    * answered as done — two api instances of one server agree about the same fill, and neither has to have pressed it.
    */
@@ -2110,9 +2139,11 @@ export class KnowledgeProduct {
     if (this.reader === undefined) return;
     // A publication of a fill this process did not run moves the numbers an answer states (madarch-8bdc.9): the store's
     // stamp is read before the answer, and a moved stamp reads its pins and its numbers again.
+    let moved = false;
     try {
       const stamp = await readStoreStamp(this.reader.owner);
       if (this.storeStamp !== stamp) {
+        moved = true;
         this.storeStamp = stamp;
         this.generation += 1;
         this.kindCountsCache.clear();
@@ -2136,6 +2167,20 @@ export class KnowledgeProduct {
     } catch {
       return;
     }
+    // A publication from another process carries the units it wrote: one notice per unit publication, so a page open
+    // while a fill runs sees each kind and its counts without waiting for the run's end (madarch-64o5.91). A status
+    // poll can see the store move before the run's progress row is committed, so an active run is read on every poll
+    // (the run page already reads it once a second) and a new run is read on its first sight.
+    const activeRun = named !== null && ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(named.state);
+    if (named !== null && (moved || activeRun || this.progressNotice?.runId !== named.runId)) {
+      await this.announceUnitPublications(named.runId).catch(() => undefined);
+    }
+    // A run that starts, pauses or ends may also move the product's files and templates: a structure notice lets the
+    // frame read its bootstrap again, once per transition and never on every poll.
+    if (named !== null && (this.lastRunState?.runId !== named.runId || this.lastRunState?.state !== named.state)) {
+      this.lastRunState = { runId: named.runId, state: named.state };
+      this.notify({ structure: true });
+    }
     // A queued request belongs to this process until its runner settles it. The chain may still name the previous
     // run before the worker claims this request; adopting that run would report its old end as this press's result.
     if (this.running !== undefined && this.fillRunId !== undefined && named?.runId !== this.fillRunId) return;
@@ -2143,7 +2188,7 @@ export class KnowledgeProduct {
     if (named !== null && (named.state === 'paused' || named.state === 'cancelled')) {
       this.fillRunId = named.runId;
       this.fill = {
-        state: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
+        state: named.state === 'paused' ? 'paused' : 'stopped', runPhase: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
         startedAt: new Date(named.createdAt).toISOString(),
         ...(named.state === 'cancelled' ? { finishedAt: new Date(named.updatedAt).toISOString() } : {}),
       };
@@ -2151,7 +2196,7 @@ export class KnowledgeProduct {
     if (live !== null) {
       if (this.fill.state !== 'running' || this.fillRunId !== live.runId) {
         this.fillRunId = live.runId;
-        this.fill = { state: 'running', runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+        this.fill = { state: 'running', runPhase: runPhaseOf(live.state), runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
       }
       return;
     }
@@ -2160,7 +2205,7 @@ export class KnowledgeProduct {
       ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
     if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
       this.fillRunId = named.runId;
-      this.fill = { state: 'running', runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+      this.fill = { state: 'running', runPhase: runPhaseOf(named.state), runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
     }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
@@ -2177,10 +2222,10 @@ export class KnowledgeProduct {
       const finishedAt = (this.options.now?.() ?? new Date()).toISOString();
       this.fill = end.state === 'succeeded'
         ? {
-          state: 'done', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
+          state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
           changed: this.lastChangedPages() ?? [], ...(unread.length === 0 ? {} : { unread }),
         }
-        : { state: 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
+        : { state: 'failed', runPhase: end.state === 'completed_partial' ? 'partial' : end.state === 'cancelled' ? 'stopped' : 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
       this.notify();
     }
   }

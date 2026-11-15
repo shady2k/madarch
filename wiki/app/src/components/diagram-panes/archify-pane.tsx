@@ -4,9 +4,17 @@
  */
 import { useEffect, useRef, type ReactElement } from 'react';
 import { DrawingSurface, EmbeddedFrame } from '../ui/drawing.js';
+import { readDiagramTheme } from '../diagram-theme.js';
 
 export function ArchifyPane({ src, root, open }: { readonly src: string; readonly root: HTMLElement | null; readonly open: (path: string) => void }): ReactElement {
   const frame = useRef<HTMLIFrameElement | null>(null);
+  // The frame is a document of its own: the kit's palette is handed to it as a message, on load and when the scheme changes.
+  useEffect(() => {
+    const paint = (): void => { frame.current?.contentWindow?.postMessage({ madarch: 'theme', theme: readDiagramTheme() }, '*'); };
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    query.addEventListener('change', paint);
+    return () => query.removeEventListener('change', paint);
+  }, []);
   useEffect(() => {
     const listen = (event: MessageEvent): void => {
       if (event.source !== frame.current?.contentWindow) return;
@@ -19,7 +27,7 @@ export function ArchifyPane({ src, root, open }: { readonly src: string; readonl
   }, [open]);
   return (
     <DrawingSurface className="dg-frame-box" data-testid="archify-pane">
-      <EmbeddedFrame ref={frame} className="dg-iframe" src={`${root === null ? '' : location.origin}${src}`} title="archify" loading="lazy" />
+      <EmbeddedFrame ref={frame} className="dg-iframe" src={`${root === null ? '' : location.origin}${src}`} title="archify" loading="lazy" onLoad={() => frame.current?.contentWindow?.postMessage({ madarch: 'theme', theme: readDiagramTheme() }, '*')} />
     </DrawingSurface>
   );
 }

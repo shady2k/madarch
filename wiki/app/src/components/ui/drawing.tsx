@@ -30,3 +30,16 @@ export const FileSource = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEleme
     </div>
   );
 });
+
+/** A diagram's zoom bar: the controls that scale the picture, above its frame. */
+export function DiagramZoomBar({ className, ...props }: HTMLAttributes<HTMLDivElement>) { return <div className={cn('dg-zoom-bar', className)} {...props} />; }
+
+/** The frame a picture is drawn in: it fits the picture by default and scrolls at the reader's zoom. */
+export const DiagramZoomBox = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { readonly pannable?: boolean }>(function DiagramZoomBox({ pannable = false, className, ...props }, ref) {
+  return <div ref={ref} className={cn('dg-frame-box dg-zoom-box', pannable && 'dg-pannable', className)} {...props} />;
+});
+
+/** A drawn picture at a scale, laid out at its own width so the frame scrolls it rather than shrinking its words. */
+export function DiagramScaled({ zoom, width, html }: { readonly zoom: number; readonly width?: number; readonly html: string }) {
+  return <div style={{ zoom, width }} dangerouslySetInnerHTML={{ __html: html }} />;
+}
