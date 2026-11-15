@@ -152,7 +152,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     : t('prepare.estimateTime', { minutes });
   return (
     <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
-      {wizard ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro', { count: plan.selectedKinds.length })}</AlertDescription></Alert> : null}
+      {wizard ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro')}</AlertDescription></Alert> : null}
       <Stack className="flex flex-wrap items-center justify-between gap-3">
         <Paragraph className="m-0 text-secondary">{t('prepare.intro')}</Paragraph>
         <TextLink href={base + catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)} onClick={(event) => { event.preventDefault(); context.open(catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)); }} data-testid="prepare-change">
