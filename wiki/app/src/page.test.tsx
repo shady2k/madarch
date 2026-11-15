@@ -10,6 +10,7 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('./page.js');
+const { searchWhere } = await import('./components/table.js');
 const { linkOfNode } = await import('./components/diagram-links.js');
 const { i18n } = await import('./i18n.js');
 await i18n.changeLanguage('en');
@@ -228,30 +229,61 @@ test('a table with a next page draws its pager even when the page holds fewer ro
   }
 });
 
-test('a table offers a sort only when its query declares the order variable', async () => {
+test('a table offers a sort only when its query declares the order variable, and a header press orders both ways', async () => {
   const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
   try {
-    expect(without.container.querySelector('[data-testid="table-sort"]')).toBeNull();
+    expect(without.container.querySelector('[data-testid="table-sort-label"]')).toBeNull();
+
   } finally {
     await without.close();
   }
-  const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { totalCount: 0, edges: [] } });
+  const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { rows: { totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null }, edges: [{ node: entity('1', 'one') }] } } });
   try {
-    // The sort is the kit's one-choice menu: the trigger is pressed and the choice is taken.
-    const trigger = withOrder.container.querySelector('[data-testid="table-sort"]') as HTMLElement | null;
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
-      trigger!.click();
-    });
-    for (let at = 0; at < 6; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
-    const item = document.querySelector('[data-testid="table-sort-label"]') as HTMLElement | null;
-    expect(item).not.toBeNull();
-    await act(async () => { item!.click(); });
-    for (let at = 0; at < 6; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    const sort = withOrder.container.querySelector('[data-testid="table-sort-label"]') as HTMLButtonElement;
+    expect(sort).not.toBeNull();
+    await act(async () => { sort.click(); });
+
     expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }]);
+    await act(async () => { sort.click(); });
+    expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }, { rows_orderBy: [{ field: 'label', direction: 'DESC' }] }]);
   } finally {
     await withOrder.close();
+  }
+});
+
+test('a table offers a search that merges into the where, and clears it again', () => {
+  // The control is the kit's input and a Find button; the where it asks is the server's, merged with the facet filters
+  // the reader already chose (madarch-64o5.128). The text a browser types is exercised by the walk.
+  expect(searchWhere({ language: { _eq: 'typescript' } }, 'label', 'cloud')).toEqual({ language: { _eq: 'typescript' }, label: { _contains: 'cloud' } });
+  expect(searchWhere({ language: { _eq: 'typescript' }, label: { _contains: 'cloud' } }, 'label', '')).toEqual({ language: { _eq: 'typescript' } });
+});
+
+test('a table draws the search field and its Find button when the query takes a where', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', searchField: 'label', filterFields: [{ field: 'label', label: { en: 'Label' } }], columns: [{ label: { en: 'Label' }, path: 'node.label' }] }, { query: 'instances(where: $records_where, first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, edges: [] } } },
+  );
+  try {
+    expect(page.container.querySelector('[data-testid="table-search"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="table-find"]')?.textContent).toBe('Find');
+  } finally {
+    await page.close();
+  }
+});
+
+test('a facet carries each value\'s count and narrows the server\'s where', async () => {
+  const page = await renderPage(
+    [section('records', 'table', { path: 'instances', facets: [{ field: 'language', label: { en: 'Language' }, path: 'facets.groupBy' }], columns: [{ label: { en: 'Path' }, path: 'node.label' }] }, { query: 'instances(where: $records_where, first: $records_first, after: $records_after)' })],
+    { records: { instances: { totalCount: 4, pageInfo: { hasNextPage: false, endCursor: null }, edges: [{ node: entity('1', 'a.ts') }] }, facets: { groupBy: [{ key: 'typescript', count: 3 }, { key: 'yaml', count: 1 }] } } },
+  );
+  try {
+    const typescript = page.container.querySelector('[data-testid="table-facet-language-typescript"]') as HTMLButtonElement;
+    expect(typescript.textContent).toContain('3');
+    await act(async () => { typescript.click(); });
+    expect(page.reloads).toEqual([{ records_where: { language: { _eq: 'typescript' } } }]);
+    expect((page.container.querySelector('[data-testid="table-facet-language-typescript"]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+  } finally {
+    await page.close();
   }
 });
 

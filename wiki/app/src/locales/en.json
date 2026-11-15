@@ -513,6 +513,8 @@
     "rebuilding": "This page is being rebuilt: the frame came back first, and its page follows in its own step.",
     "searchButton": "Search",
     "tableFilter": "Filter",
+    "tableSearch": "Search the records",
+    "tableClear": "Clear filters",
     "tableEmpty": "No records yet",
     "textEmpty": "The description is not written yet.",
     "breadcrumb": "Breadcrumb",
@@ -1374,7 +1376,8 @@
     "diagramRenderer": "Renderer",
     "diagramFit": "Fit",
     "diagramZoomIn": "Zoom in",
-    "diagramZoomOut": "Zoom out"
+    "diagramZoomOut": "Zoom out",
+    "tableFind": "Find"
   },
   "loop": {
     "questionsTitle": "Questions",

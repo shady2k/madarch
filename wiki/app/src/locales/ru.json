@@ -513,6 +513,8 @@
     "rebuilding": "Раздел перестраивается: сначала вернулся каркас, страница придёт своим шагом.",
     "searchButton": "Найти",
     "tableFilter": "Фильтр",
+    "tableSearch": "Поиск по записям",
+    "tableClear": "Сбросить фильтры",
     "tableEmpty": "Пока нет записей",
     "textEmpty": "Описание пока не написано.",
     "breadcrumb": "Путь",
@@ -1374,7 +1376,8 @@
     "diagramRenderer": "Отрисовка",
     "diagramFit": "По размеру",
     "diagramZoomIn": "Увеличить",
-    "diagramZoomOut": "Уменьшить"
+    "diagramZoomOut": "Уменьшить",
+    "tableFind": "Найти"
   },
   "loop": {
     "questionsTitle": "Вопросы",

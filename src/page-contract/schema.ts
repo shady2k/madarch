@@ -126,6 +126,21 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       },
       pageSize: { type: 'integer' },
       emptyText: LOCALIZED_TEXT_SCHEMA,
+      /** The field the search text narrows, and the facets whose counts the reader filters by (madarch-64o5.128). */
+      searchField: { type: 'string' },
+      facets: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['label', 'field', 'path'],
+          additionalProperties: false,
+          properties: {
+            label: LOCALIZED_TEXT_SCHEMA,
+            field: { type: 'string' },
+            path: { type: 'string' },
+          },
+        },
+      },
     },
     required: ['path', 'columns'],
   },
