@@ -1162,6 +1162,7 @@ export class ReadContext {
     }
     if (field === 'cochange') return this.cochange(args, lang);
     if (field === 'contributors') return this.contributors(args, lang);
+    if (field === 'catalogueDependencies') return this.catalogueDependencies(lang);
     if (field === 'related') return this.related(args, lang);
     if (field === 'catalogueEntity') {
       const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
@@ -1699,6 +1700,21 @@ export class ReadContext {
   private async allCatalogue(args: ConnectionArgs, lang: string | undefined): Promise<unknown> {
     const data = await this.catalogueData();
     return this.catalogueConnection([...data.byName.values()], args, lang);
+  }
+
+  /** The kinds and what each needs filled first, as one compact answer for the catalogue's graph (madarch-64o5.124). */
+  private async catalogueDependencies(lang: string | undefined): Promise<unknown> {
+    const data = await this.catalogueData();
+    const kinds = [...data.byName.values()].map((value) => ({
+      name: value.name,
+      label: this.catalogueTitle(value, lang),
+      id: value.uid,
+      derivesFrom: value.derivesFrom.map((dependency) => {
+        const held = data.byName.get(dependency);
+        return { name: dependency, label: held === undefined ? dependency : this.catalogueTitle(held, lang), id: held?.uid ?? dependency };
+      }),
+    })).sort((left, right) => byCodePoint(left.name, right.name));
+    return { kinds };
   }
 
   private async catalogueData(): Promise<{ byName: Map<string, CatalogueValue>; byId: Map<string, CatalogueValue> }> {

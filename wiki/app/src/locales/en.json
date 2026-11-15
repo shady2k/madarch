@@ -302,7 +302,8 @@
       "progress": "A fill is running: {{published}} of {{planned}} units published.",
       "openFill": "Follow the fill",
       "failed": "The last fill failed.",
-      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})"
+      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})",
+      "none": "No kind declares a dependency yet."
     },
     "files": {
       "area": "Area",

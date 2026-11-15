@@ -72,3 +72,19 @@ sections:
         - { field: label, label: { en: Label, ru: Название } }
       columns:
         - { label: { en: Label, ru: Название }, path: node.label, sortField: label }
+
+  - id: dependencies
+    component: dependencies
+    after: facts
+    title: { en: Dependency graph, ru: Граф зависимостей }
+    params:
+      focus: true
+    query: |
+      name
+      label
+      derivesFrom(first: 20, lang: $lang) {
+        edges { node { id name label } }
+      }
+      derivedBy(first: 20, lang: $lang) {
+        edges { node { id name label } }
+      }
