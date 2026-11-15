@@ -19,8 +19,11 @@ file as a line-numbered source at the page's width with soft wrap and chunked ra
 same host read by blob id instead of a graph-held text; the disk plugin no longer publishes `content` and the catalogue
 drops the field.
 
-Not verified on this machine: the bundled plugin closures are pinned to bun 1.4.2 and this box runs 1.4.4, so no plugin
-fill can run here (the same on main), and the screenshots of a filled product could not be taken.
+Verified end to end on this machine with bun 1.4.2 (the pin the bundled closures carry): a throwaway product holding a
+YAML, a TypeScript file, a long Markdown document and a PNG was filled with disk and git, and each file's page showed its
+text — the YAML and the .ts as source with line numbers and no horizontal overflow at the reading width, the .md rendered
+(100 headings) and as source, the PNG as «двоичный файл: текста в нём нет». Shots at 1150, 1920 and 390, light and dark:
+`test/u3-shots.test.ts` (`MADARCH_U3_SHOTS=1`), images under the walk's own output folder.
 
 ## Out of scope
 The code-search index for agents (filed apart) and the file page's facts and relations, which stand as they are.
@@ -30,19 +33,20 @@ One mechanism, content-addressed, keeps the text at the revision the facts descr
 files.
 
 ## Changes to requirements
-- product-wiki/pages: a code file's page shows its text, read by the blob id the graph holds and served by the git plugin through the plugin host (madarch-u3vw.16).
+- product-wiki/repositories: a file's page shows the file's text, read by the blob id the graph holds and served by the git plugin through the plugin host.
 
 ## Preserved contracts
-- product-wiki/serve: the wiki still serves one product's pages, read from the graph.
-- views/one-view: the file page's diagram and facts are unchanged.
+- product-wiki/serve: test
+- views/one-view: test
 
 ## Coverage
-- product-wiki/pages: test
+- product-wiki/repositories: test
+- product-wiki/serve: test
 - views/one-view: test
 
 ## Where it is seen
 Kind: screen
-Place: a code file's page under a filled product, section «Текст», at /products/<folder>/e/<kind>/<id>
+Place: a code file's page under a filled product, section «Текст», for example /products/sample/e/files/code.file-1
 Mockup: docs/prototypes/file-text.html
 1. The page asks for the file's lines and shows them: a Markdown file rendered by the documents' own component with a Rendered / Source switch, every other text file as a line-numbered source that wraps or runs long, a binary file as one sentence.
 2. «Скачать целиком» reads the whole blob through the same read.

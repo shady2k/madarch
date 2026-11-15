@@ -52,7 +52,9 @@ export function verifyBlobRead(read: BlobRead): { pluginFolder: string; reposito
   if (!existsSync(join(pluginFolder, 'plugin.json'))) throw new BlobReadRefusal(`${WHERE}:1: no plugin.json answers in ${pluginFolder}, so no blob is read through it`);
   const repositoryRoot = read.root;
   const repos = join(read.product, 'repos');
-  if (!inside(repos, repositoryRoot)) throw new BlobReadRefusal(`${WHERE}:1: the repository ${JSON.stringify(read.repository)} is not read from the product's repos/ folder: ${repositoryRoot} lies outside ${repos}`);
+  // The product's own repository is the product folder itself; any other repository is one its repos/ holds.
+  const own = repositoryRoot === read.product && existsSync(join(read.product, 'workspace.yaml'));
+  if (!own && !inside(repos, repositoryRoot)) throw new BlobReadRefusal(`${WHERE}:1: the repository ${JSON.stringify(read.repository)} is not read from the product's repos/ folder: ${repositoryRoot} lies outside ${repos}`);
   const stat = (() => { try { return statSync(repositoryRoot); } catch { return undefined; } })();
   if (stat === undefined || !stat.isDirectory()) throw new BlobReadRefusal(`${WHERE}:1: the repository folder ${repositoryRoot} is not there: connect the repository with "madarch repo add" and bootstrap it`);
   if (!existsSync(join(repositoryRoot, 'HEAD')) && !existsSync(join(repositoryRoot, '.git'))) throw new BlobReadRefusal(`${WHERE}:1: the repository folder ${repositoryRoot} is no git checkout, so git's object store cannot answer`);

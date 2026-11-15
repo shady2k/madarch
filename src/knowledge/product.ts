@@ -2334,8 +2334,10 @@ export class KnowledgeProduct {
     const node = body.data?.[field]?.edges?.[0]?.node;
     if (node === undefined || typeof node.blob !== 'string' || node.blob === '') return undefined;
     // The plugin reads the repository the product connected, and only that one: the request names it, and the host
-    // checks it lies under the product's repos/ (src/knowledge/file-texts.ts).
-    const root = join(product.folder, 'repos', repository);
+    // checks it lies under the product's repos/ — or is the product's own repository, which is its folder
+    // (src/knowledge/file-texts.ts).
+    const named = this.repositories().find((held) => held.name === repository);
+    const root = named?.path ?? (repository === product.name ? product.folder : join(product.folder, 'repos', repository));
     const owner = await this.open();
     const id = randomUUID();
     const from = Math.max(1, Math.trunc(options.from ?? 1));
