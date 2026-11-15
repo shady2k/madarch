@@ -2442,17 +2442,21 @@ async function settleRun(orchestrator: RunControlContext, options: { readonly ru
   if (run.state === 'running') {
     if (!nothingOutstanding) return { run, outcome: 'waiting', evidence };
     await skipOutstandingUnits(orchestrator, run, evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
+    const published = (await readRunUnits(database, run.runId)).filter((unit) => unit.state === 'published').length;
+    const noPublished = !evidence.coverageMet && published === 0;
     const step = evidence.coverageMet
       ? await advanceRun(database, { runId: run.runId, event: { type: 'complete', at, evidence } })
-      : await advanceRun(database, { runId: run.runId, event: { type: 'complete-partial', at, evidence } });
+      : noPublished
+        ? await advanceRun(database, { runId: run.runId, event: { type: 'fail', at, cause: 'no-units-published', detail: 'the run published no unit' } })
+        : await advanceRun(database, { runId: run.runId, event: { type: 'complete-partial', at, evidence } });
     if (!step.ok) return { run, outcome: 'waiting', evidence, refusal: { code: step.refusal.code, reason: step.refusal.reason } };
     await emit(orchestrator, {
       runId: run.runId, at, stage: '', unitId: '', generation: null,
-      kind: evidence.coverageMet ? 'run-completed' : 'run-completed-partial',
-      summary: evidence.coverageMet ? 'the run succeeded with its required coverage met' : 'the run completed partially: some planned work is not covered',
+      kind: evidence.coverageMet ? 'run-completed' : noPublished ? 'run-failed' : 'run-completed-partial',
+      summary: evidence.coverageMet ? 'the run succeeded with its required coverage met' : noPublished ? 'the run failed: no unit published' : 'the run completed partially: some planned work is not covered',
     });
     await settleChain(orchestrator, run.runId, evidence);
-    return { run: step.record, outcome: evidence.coverageMet ? 'succeeded' : 'completed-partial', evidence };
+    return { run: step.record, outcome: evidence.coverageMet ? 'succeeded' : noPublished ? 'failed' : 'completed-partial', evidence };
   }
   if (run.state === 'pausing') {
     if (evidence.inFlight + evidence.waiting > 0) return { run, outcome: 'waiting', evidence };

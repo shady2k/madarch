@@ -488,6 +488,7 @@ const RUN_EXPECTED: readonly RunExpectation[] = [
   { from: 'running', event: 'complete-partial', to: 'completed_partial', guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'no-pending-publication', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] },
   { from: 'running', event: 'block', to: 'blocked', guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] },
   { from: 'running', event: 'fail', to: 'failed', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] },
+  { from: 'running', event: 'fail', to: 'failed', cause: 'no-units-published', guards: ['no-units-published'], actions: ['record-failure', 'emit-progress'] },
   { from: 'running', event: 'pause', to: 'pausing', guards: [], actions: ['record-pause-intent', 'emit-progress'] },
   { from: 'pausing', event: 'drain', to: 'paused', guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] },
   { from: 'paused', event: 'resume', to: 'planning', guards: [], actions: ['reopen-planning-epoch', 'emit-progress'] },
@@ -517,7 +518,9 @@ function runEventFor(expectation: RunExpectation): RunEvent {
     case 'block': return { type: 'block', at, starvationPath: 'synthesis → claims → inventory (disabled)' };
     case 'fail': return expectation.cause === 'process-ended'
       ? { type: 'fail', at, cause: 'process-ended', detail: 'the process that ran it ended' }
-      : expectation.from === 'created'
+      : expectation.cause === 'no-units-published'
+        ? { type: 'fail', at, cause: 'no-units-published', detail: 'the run published no unit' }
+        : expectation.from === 'created'
         ? { type: 'fail', at, cause: 'initialization-failed', detail: 'the product manifest could not be loaded' }
         : { type: 'fail', at, cause: 'budget-exhausted', detail: 'the run spent its token budget' };
     case 'pause': return { type: 'pause', at };

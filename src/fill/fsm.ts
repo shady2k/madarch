@@ -523,7 +523,7 @@ export type RunEvent =
   | { readonly type: 'complete'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'complete-partial'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'block'; readonly at: number; readonly starvationPath: string }
-  | { readonly type: 'fail'; readonly at: number; readonly cause: 'budget-exhausted' | 'initialization-failed' | 'process-ended'; readonly detail: string }
+  | { readonly type: 'fail'; readonly at: number; readonly cause: 'budget-exhausted' | 'initialization-failed' | 'process-ended' | 'no-units-published'; readonly detail: string }
   | { readonly type: 'pause'; readonly at: number }
   | { readonly type: 'drain'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'resume'; readonly at: number }
@@ -586,6 +586,10 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
   'process-ended': {
     describe: 'the process that ran this run is gone, and its ending is named',
     check: (_context, event) => event.type === 'fail' && event.cause === 'process-ended' && named(event.detail),
+  },
+  'no-units-published': {
+    describe: 'the run ended with no published unit, so it failed rather than completed partially',
+    check: (_context, event) => event.type === 'fail' && event.cause === 'no-units-published' && named(event.detail),
   },
 };
 
@@ -684,6 +688,8 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   // A run whose process died is ended by the next start, never left standing `running` with no one to
   // advance it. The next start names the process ending as the cause and the run reaches `failed`.
   ...(['created', 'planning', 'running', 'pausing', 'cancelling'] as const).map((from) => runTransition(from, 'fail', 'failed', { label: 'process-ended', guards: ['process-ended'], actions: ['record-failure', 'emit-progress'] })),
+  runTransition('running', 'fail', 'failed', { label: 'no-units-published', guards: ['no-units-published'], actions: ['record-failure', 'emit-progress'] }),
+
   runTransition('running', 'pause', 'pausing', { actions: ['record-pause-intent', 'emit-progress'] }),
   runTransition('pausing', 'drain', 'paused', { guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] }),
   runTransition('paused', 'resume', 'planning', { actions: ['reopen-planning-epoch', 'emit-progress'] }),

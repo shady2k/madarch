@@ -742,7 +742,7 @@ describe('one attempt: lease, run, draft, validate, publish', () => {
   
   
   
-  test('a run whose unit cannot be covered completes partially, with the reason on the record', async () => {
+  test('a run whose unit cannot be covered and publishes nothing fails, with the reason on the record', async () => {
     const registry = new StageRegistry().register(fakeStage('snapshot', {
       produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
       defaults: { ...DEFAULT_STAGE_DEFAULTS, concurrency: 1 },
@@ -758,7 +758,7 @@ describe('one attempt: lease, run, draft, validate, publish', () => {
     const evidence = await runEvidence(opened.orchestrator, runId);
     expect(evidence).toEqual({ runnable: 0, inFlight: 0, waiting: 0, coverageMet: false, pendingPublications: 0 });
     const settlement = await schedulerPass(opened.orchestrator, { runId });
-    expect(settlement.run.state).toBe('completed_partial');
+    expect(settlement.run.state).toBe('failed');
     expect((await readChain(opened.owner, 'fixture-product'))?.state).toBe('quiescent');
   });
 
@@ -875,7 +875,7 @@ describe('staleness from tracked reads, empty results included', () => {
 describe('publication: exactly once per generation', () => {
   
   
-  test('a publication that fails every attempt names the unit failed and leaves the run partial', async () => {
+  test('a publication that fails every attempt names the unit failed and fails the run when nothing published', async () => {
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
     const { world: opened, runId } = await plannedWorld({
       registry,
@@ -893,7 +893,7 @@ describe('publication: exactly once per generation', () => {
     expect(named).toHaveLength(1);
     expect(named[0]?.summary).toContain('the graph refused the write');
     const settlement = await schedulerPass(opened.orchestrator, { runId });
-    expect(settlement.run.state).toBe('completed_partial');
+    expect(settlement.run.state).toBe('failed');
   });
 
   });
@@ -1200,7 +1200,7 @@ describe('what the review found, kept as tests', () => {
     expect((await planRun(opened.orchestrator, { runId: 'run-a' })).outcome).toBe('planned');
     await admitUnits(opened.orchestrator, { runId: 'run-a' });
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('blocked');
-    expect((await driveRun(opened.orchestrator, { runId: 'run-a', workers: 1 })).run.state).toBe('completed_partial');
+    expect((await driveRun(opened.orchestrator, { runId: 'run-a', workers: 1 })).run.state).toBe('failed');
     expect((await readUnit(opened.owner, 'blocked-stage/src'))?.state).toBe('skipped');
 
     // The next fill of the product plans the unit again, as generation 2 under its own run, and publishes it.
@@ -1218,7 +1218,20 @@ describe('what the review found, kept as tests', () => {
     expect(generations.rows).toEqual([{ generation: 1, state: 'skipped' }, { generation: 2, state: 'published' }]);
   });
 
-  test('a run whose producer fails leaves its dependant skipped-because, and the run partial', async () => {
+  test('a run with one published unit and one failed unit stays partial', async () => {
+    const stage = draftingStage('snapshot', { units: ['ok', 'bad'], concurrency: 2 });
+    stage.execute = (unit, context) => {
+      if (unit.id === 'bad') throw new Error('the second unit failed');
+      context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
+      return { outcome: 'draft' };
+    };
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { retries: 0 } });
+    const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
+    expect(driven.run.state).toBe('completed_partial');
+    expect((await readRunUnits(opened.owner, runId)).filter((unit) => unit.state === 'published')).toHaveLength(1);
+  });
+
+  test('a run whose producer fails leaves its dependant skipped-because, and the run failed', async () => {
     const stage = draftingStage('plugin-turns', { units: ['producer', 'consumer'], concurrency: 1 });
     stage.unitScheduling = (id) => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
     stage.execute = (unit, context) => {
@@ -1228,7 +1241,7 @@ describe('what the review found, kept as tests', () => {
     };
     const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { retries: 0 } });
     const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
-    expect(driven.run.state).toBe('completed_partial');
+    expect(driven.run.state).toBe('failed');
     expect((await readUnit(opened.owner, 'plugin-turns/producer'))?.state).toBe('failed');
     const consumer = await readUnit(opened.owner, 'plugin-turns/consumer');
     expect(consumer?.state).toBe('skipped');
@@ -1330,7 +1343,7 @@ describe('what the review found, kept as tests', () => {
     expect((await planRun(opened.orchestrator, { runId: 'run-failed' })).outcome).toBe('planned');
     // A run whose unit failed settles short of its coverage: `completed_partial`, and the unit stands failed.
     const first = await driveRun(opened.orchestrator, { runId: 'run-failed', workers: 1 });
-    expect(first.run.state).toBe('completed_partial');
+    expect(first.run.state).toBe('failed');
     expect((await readUnit(opened.owner, 'flaky-stage/src'))?.state).toBe('failed');
 
     failing = false;
