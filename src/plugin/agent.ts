@@ -12,7 +12,7 @@ import type { PluginManifest } from './closure.js';
 import { UnitBoundStop } from '../fill/unit-bound.js';
 import type { GraphAnswerer } from './host.js';
 import { PluginUnitResult, type PluginContractDeclaration } from './protocol.js';
-import { validateUnitResult } from './results.js';
+import { canonicalKey, validateUnitResult } from './results.js';
 
 const WHERE = `src/plugin/agent.ts:1: ${fileURLToPath(import.meta.url)}`;
 
@@ -206,6 +206,12 @@ export class PluginAgentBridge {
         // Whatever the agent produced is kept, entry by entry (owner's rule, 2026-11-15): an entry the contract or the
         // graph cannot take is left out and named, and never costs the entries beside it what the agent got right.
         const envelope = raw as Record<string, unknown>;
+        // A malformed collection is a malformed answer, never an empty complete one: an answer whose `vertices` or
+        // `edges` is no list names nothing, so it retracts nothing and the unit fails with that reason.
+        for (const name of ['vertices', 'edges'] as const) {
+          const held = envelope[name];
+          if (held !== undefined && !Array.isArray(held)) throw unusable(`the agent answer's ${JSON.stringify(name)} is no list`);
+        }
         const dropped: { where: string; reason: string }[] = [];
         const keeps = async (name: 'vertices' | 'edges', entry: unknown, index: number): Promise<boolean> => {
           const single = { unitId, vertices: name === 'vertices' ? [entry] : [], edges: name === 'edges' ? [entry] : [], end: { state: 'complete' as const } };
@@ -221,16 +227,24 @@ export class PluginAgentBridge {
             return false;
           }
           const evidence = (entry as { evidence?: { repository?: unknown; path?: unknown; lineStart?: unknown; lineEnd?: unknown } }).evidence;
+          // A path the graph cannot name ("docs/../a.md", an absolute one, a backslash) refuses only its own entry: the
+          // entries beside it stand (owner's rule, 2026-11-15).
+          let named: string | undefined;
+          try {
+            named = typeof evidence?.repository === 'string' && typeof evidence.path === 'string' ? virtualPath(`${evidence.repository}/${evidence.path}`) : undefined;
+          } catch {
+            named = undefined;
+          }
           const reason = typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined
             ? 'it names no graph file and line range as its evidence'
-            : byPath.get(virtualPath(`${evidence.repository}/${evidence.path}`)) === undefined
+            : named === undefined || byPath.get(named) === undefined
               ? `its evidence ${JSON.stringify(`${evidence.repository}/${evidence.path}`)} is no file of the graph`
               : undefined;
           if (reason !== undefined) {
             dropped.push({ where: `${name}[${String(index)}]`, reason });
             return false;
           }
-          const file = byPath.get(virtualPath(`${evidence!.repository as string}/${evidence!.path as string}`))!;
+          const file = byPath.get(named!)!;
           const content = await this.graph.value(file.kind, file.key, 'content');
           const start = evidence!.lineStart as number;
           const end = evidence!.lineEnd as number;
@@ -240,10 +254,30 @@ export class PluginAgentBridge {
           }
           return true;
         };
-        const vertices: unknown[] = [];
-        for (const [index, entry] of (Array.isArray(envelope['vertices']) ? envelope['vertices'] : []).entries()) if (await keeps('vertices', entry, index)) vertices.push(entry);
-        const edges: unknown[] = [];
-        for (const [index, entry] of (Array.isArray(envelope['edges']) ? envelope['edges'] : []).entries()) if (await keeps('edges', entry, index)) edges.push(entry);
+        // Two entries of one identity are one answer: the first stands, the later is left out and named (the store's
+        // whole-result validation refuses a repeat, and the owner's rule keeps what the agent got right).
+        const firstAt = new Map<string, string>();
+        const identityOf = (name: 'vertices' | 'edges', entry: unknown): string => {
+          const held = entry as { kind?: unknown; key?: unknown; from?: { kind?: unknown; key?: unknown }; to?: { kind?: unknown; key?: unknown }; discriminator?: unknown };
+          if (name === 'vertices') return `v:${String(held.kind)}:${canonicalKey((held.key ?? {}) as never)}`;
+          return `e:${String(held.kind)}:${String(held.from?.kind)}:${canonicalKey((held.from?.key ?? {}) as never)}:${String(held.to?.kind)}:${canonicalKey((held.to?.key ?? {}) as never)}:${String(held.discriminator ?? '')}`;
+        };
+        const collect = async (name: 'vertices' | 'edges'): Promise<unknown[]> => {
+          const kept: unknown[] = [];
+          const list = Array.isArray(envelope[name]) ? envelope[name] as unknown[] : [];
+          for (const [index, entry] of list.entries()) {
+            const where = `${name}[${String(index)}]`;
+            if (!(await keeps(name, entry, index))) continue;
+            const identity = identityOf(name, entry);
+            const first = firstAt.get(identity);
+            if (first !== undefined) { dropped.push({ where, reason: `it is a duplicate of ${first}: the same ${name === 'vertices' ? 'kind and key' : 'ends and discriminator'}` }); continue; }
+            firstAt.set(identity, where);
+            kept.push(entry);
+          }
+          return kept;
+        };
+        const vertices = await collect('vertices');
+        const edges = await collect('edges');
         const agentEnd = envelope['end'] as { readonly state?: unknown; readonly cause?: unknown } | undefined;
         const droppedText = dropped.length === 0
           ? undefined

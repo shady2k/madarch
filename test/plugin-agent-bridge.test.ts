@@ -133,6 +133,41 @@ describe('plugin agent graph bridge', () => {
     expect(String((kept.end as { cause?: string }).cause)).toContain('declares');
   });
 
+  test('keeps the valid entries when another entry\'s evidence is not canonical', async () => {
+    // An entry citing "repo/docs/../a.md" is no file of the graph, and the vertex beside it must still be published
+    // (owner's decision, 2026-11-15: a produced result is kept, entry by entry).
+    const { bridge } = setup(async () => ({
+      unitId: 'ignored',
+      vertices: [
+        result.vertices![0]!,
+        { ...result.vertices![0], key: { id: 'b' }, evidence: { repository: 'repo', path: 'docs/../a.md', lineStart: 1, lineEnd: 1 } },
+      ],
+      end: { state: 'complete' },
+    }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices?.map((vertex) => vertex.key)).toEqual([{ id: 'a' }]);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('vertices[1]');
+  });
+
+  test('keeps one entry of a duplicate pair and names the other', async () => {
+    const { bridge } = setup(async () => ({
+      unitId: 'ignored',
+      vertices: [result.vertices![0]!, { ...result.vertices![0], values: { title: 'B' } }],
+      end: { state: 'complete' },
+    }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toHaveLength(1);
+    expect(kept.vertices![0]!.values).toMatchObject({ title: 'A' });
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toMatch(/duplicate/i);
+  });
+
+  test('a malformed collection is a malformed answer, never an empty complete one', async () => {
+    const { bridge } = setup(async () => ({ unitId: 'ignored', vertices: 'malformed', edges: [], end: { state: 'complete' } }));
+    await expect(bridge.run('unit', {})).rejects.toThrow('vertices');
+  });
+
   test('writes only granted host roots and never follows a symlink', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'agent-write-'));
     const outside = mkdtempSync(join(tmpdir(), 'agent-outside-'));
