@@ -77,7 +77,7 @@ function opinionsOfJson(value: unknown, carried: readonly string[]): HeldOpinion
     const saidBy = String(held['said_by'] ?? '');
     const at = saidBy.lastIndexOf('@');
     const values: Record<string, unknown> = {};
-    for (const field of [...carried, 'lang', 'mode', 'blob', 'bytes', 'form', 'lines', 'content', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'history_shallow', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
+    for (const field of [...carried, 'lang', 'mode', 'blob', 'bytes', 'form', 'lines', 'language', 'languages', 'subject', 'author_date', 'author_offset_min', 'commit_date', 'commit_offset_min', 'url', 'default_branch', 'history_shallow', 'change', 'added', 'removed', 'walk', 'position', 'other_repository', 'commit_hash', 'algorithm']) values[field] = held[field];
     return {
       id: String(held['id'] ?? ''),
       saidBy,
@@ -118,7 +118,7 @@ const IN_TREE = `EXISTS (SELECT 1 FROM edge e JOIN entity en2 ON en2.id = e.enti
 const FILE_OPINIONS = `LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('id', o."id"::text, 'said_by', o."said_by", 'lang', o."lang", 'evidence', o."evidence",
       'mode', o."mode", 'language', o."language", 'languages', o."languages",
-      'blob', o."blob", 'bytes', o."bytes"::text, 'form', o."form", 'lines', o."lines"::text, 'content', o."content") ORDER BY o."id") AS opinions
+      'blob', o."blob", 'bytes', o."bytes"::text, 'form', o."form", 'lines', o."lines"::text) ORDER BY o."id") AS opinions
     FROM ${GIT_TABLES.file} o
     WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) fo ON true`;
 
@@ -298,21 +298,6 @@ export async function fileFacts(owner: DatabaseOwner, repository: string, path: 
       commitCount: distinct.size,
       authors,
     };
-  }));
-}
-
-/** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
-/** The text of many files of a repository's current tree, by path: the listing's titles read in one statement. */
-export async function storedFileTexts(owner: DatabaseOwner, repository: string, paths: readonly string[]): Promise<Map<string, string | null>> {
-  const answer = new Map<string, string | null>();
-  if (paths.length === 0) return answer;
-  return await withSpan('records.fileContents', { 'records.repository': repository, 'records.paths': paths.length }, async () => await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<Record<string, unknown>>(
-      `${FILE_SELECT} WHERE ${REPOSITORY_OF('n')} = $1 AND ${PATH_OF('n')} = ANY($2::text[])
-       AND n.context_id = 1 AND NOT n.removed AND ${IN_TREE}`, [repository, [...paths]],
-    );
-    for (const row of found.rows) answer.set(String(row['path']), fieldRead(opinionsOfJson(row['opinions'], ['content']), 'content', asText).value);
-    return answer;
   }));
 }
 
