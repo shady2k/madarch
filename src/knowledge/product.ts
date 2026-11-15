@@ -839,7 +839,7 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     const read = readKinds(product.folder);
     if (!read.present) throw new WikiReadError(`${read.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares`);
-    const targets = readFillTargets(read.manifest, { entities: selected });
+    const targets = readFillTargets(read.manifest, { entities: selected }, pluginsOnly);
     if (!targets.ok) throw new WikiReadError(targets.message);
     return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly);
   }

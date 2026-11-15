@@ -25,7 +25,7 @@ sections:
       kindPath: name
   - id: facts
     component: facts
-    after: header
+    after: fillKind
     title: { en: What it is, ru: Что это }
     query: |
       label

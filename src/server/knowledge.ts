@@ -336,7 +336,7 @@ function fillRefusalCode(message: string): string | undefined {
       if (count === '1') return { response: json(200, { open: listing.open, closed: listing.closed, dismissed: listing.dismissed, sections: listing.sections }) };
       return { response: json(200, listing) };
     }),
-    sources: guarded('list the sources', async () => ({ response: json(200, await product.sources()) }), false),
+    sources: guarded('list the sources', async () => ({ response: json(200, await product.sources()) })),
     fillRuns: guarded('read fill history', async (request) => {
       const runId = new URL(request.url).searchParams.get('run');
       const runs = await product.fillRuns(runId ?? undefined);
@@ -358,7 +358,7 @@ function fillRefusalCode(message: string): string | undefined {
       if ('bad' in asked) return asked.bad;
       const kinds = readKinds(product.folder);
       if (!kinds.present) return refused(409, { message: `${kinds.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares` });
-      const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
+      const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected }, asked.selection.pluginsOnly);
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
       // The press answers the plan it runs, which fields the agent fills included: a press that needs an agent and chose
       // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
