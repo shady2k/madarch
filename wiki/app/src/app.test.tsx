@@ -376,7 +376,7 @@ test('a unit publication grows the sidebar before the run ends, without a reload
     pages += 1;
     return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
-  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  window.history.pushState({}, '', '/e/catalogue/00000000-0000-0000-0000-00000000beef');
   const page = await render();
   try {
     expect(page.container.querySelector('[data-testid="nav-kind"]')).toBeNull();
@@ -391,6 +391,46 @@ test('a unit publication grows the sidebar before the run ends, without a reload
     expect(page.container.querySelector('[data-testid="nav-kind"]')?.getAttribute('data-changed')).toBe('true');
     expect(bootstraps).toBe(1);
     expect(pages).toBe(1);
+  } finally {
+    await page.close();
+  }
+}, 10_000);
+
+test('a catalogue entry page reads again when the kind it lists changed', async () => {
+  class FakeSource {
+    static readonly all: FakeSource[] = [];
+    private readonly listeners: ((event: MessageEvent<string>) => void)[] = [];
+    constructor() { FakeSource.all.push(this); }
+    addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void { if (type === 'change') this.listeners.push(listener); }
+    close(): void { /* closed by the app */ }
+    emit(data = ''): void { for (const listener of this.listeners) listener({ data } as MessageEvent<string>); }
+  }
+  (globalThis as { EventSource?: unknown }).EventSource = FakeSource as unknown as typeof EventSource;
+  let pages = 0;
+  (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
+    const path = String(url);
+    if (!path.endsWith('/graphql')) {
+      const command = path.includes('/api/settings')
+        ? { role: readerRole, asked: true, roles: ['analyst', 'everything'] }
+        : path.includes('/api/problems') ? { open: 0, closed: 0, dismissed: 0, sections: {} } : { fill: { state: 'idle' } };
+      return new Response(JSON.stringify(command), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
+    if (body.query.includes('bootstrap')) return new Response(JSON.stringify({ data: { bootstrap, navigation } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (body.query.includes('navigation')) return new Response(JSON.stringify({ data: { navigation } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    pages += 1;
+    return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    expect(pages).toBe(1);
+    // The stream's opening revision is not a change; the unit publication after it is.
+    await act(async () => { for (const source of FakeSource.all) source.emit(JSON.stringify({ revision: '1' })); });
+    await act(async () => { for (const source of FakeSource.all) source.emit(JSON.stringify({ revision: '2', kinds: ['a.b'], facts: 4 })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
+    await settle();
+    expect(pages).toBe(2);
   } finally {
     await page.close();
   }

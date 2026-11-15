@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
+import { CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
@@ -285,10 +285,13 @@ export function App(): ReactElement {
     }, 2000);
     void refreshNavigation();
     // The home shows the counts in its own sections, and an older template reads them from its own query: the home reads
-    // its page again. An entity page reads again only when its kind changed.
-    const kind = address.page.kind;
+    // its page again. A catalogue entry page lists the kind its entry names, so that kind's change reads the entry page;
+    // an entity page reads again only when its own kind changed.
+    const kind = address.page.kind === CATALOGUE_KIND && address.page.id !== undefined
+      ? navigation?.kinds.find((one) => one.entryId === address.page.id)?.kind
+      : address.page.kind;
     if (address.home === true || (kind !== undefined && kinds.includes(kind))) reload({});
-  }, [address.home, address.page.kind, loadBootstrap, problems.reload, refreshNavigation, reload]);
+  }, [address.home, address.page.id, address.page.kind, loadBootstrap, navigation, problems.reload, refreshNavigation, reload]);
 
   // The product's one event stream: a unit publication changes counts, a structure notice changes the frame.
   useChangeStream(base, replyToNotice);
