@@ -36,6 +36,7 @@ import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
+import { runPhaseOf } from '../fill/fsm.js';
 import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
@@ -72,7 +73,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { Resolver } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
-import { type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { type PlannedTask } from '../loop/tasks.js';
 import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { StoredProductFiles } from '../plugin/product-source.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
@@ -83,6 +84,10 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
+import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskSource, problemTaskUid } from '../loop/problem-task.js';
+import type { Author } from '../loop/entities.js';
+import type { ProblemLink } from '../problems/types.js';
+import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
@@ -99,7 +104,7 @@ import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgre
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readProductTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
 
 /**
  * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
@@ -729,7 +734,7 @@ export class KnowledgeProduct {
     if (this.running === undefined) return { ok: false, status: 409, message: 'no fill of this product is running: there is nothing to pause' };
     const paused = await this.controlRun('pause');
     if (paused === undefined || !paused.ok) return { ok: false, status: 409, message: paused?.message ?? 'no fill of this product is running: there is nothing to pause' };
-    this.fill = { ...this.fill, state: 'paused' };
+    this.fill = { ...this.fill, state: 'paused', runPhase: 'paused' };
     this.notify();
     return { ok: true, fill: this.fill, writer: this.writer };
   }
@@ -755,7 +760,7 @@ export class KnowledgeProduct {
       // No worker is writing for a paused run: the run ends here, and the pages it rewrote stand. The stop is marked
       // before the state changes, so a pause message still in the pipe is read as the stop it was ended by.
       this.stopAsked = true;
-      this.fill = { ...this.fill, state: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
+      this.fill = { ...this.fill, state: 'stopped', runPhase: 'stopped', ...(this.fill.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.writer = { ...this.writer, state: 'stopped', current: undefined, ...(this.writer.finishedAt === undefined ? { finishedAt: at } : {}) };
       this.pausedRun = undefined;
       this.clearPause();
@@ -993,7 +998,7 @@ export class KnowledgeProduct {
     // The repository the run reads, as the product declares it: the card says what it is reading
     // before the run's own trace has a unit to count.
     this.fillRunId = runId;
-    this.fill = { state: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
+    this.fill = { state: 'running', runPhase: 'running', startedAt, runId, commit: 0, commits: 0, gaps: 0, ...(repositories[0] === undefined ? {} : { repository: repositories[0].name }) };
     this.notify();
     this.running = (async () => {
       try {
@@ -1004,7 +1009,7 @@ export class KnowledgeProduct {
       } catch (error) {
         if (publication?.status !== 'pending') await failRequestedFill(await this.open(), runId, error instanceof Error ? error.message : String(error));
         if (this.closed) return;
-        this.fill = { state: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
+        this.fill = { state: 'failed', runPhase: 'failed', startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error), code: 'store' };
         if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
         this.notify();
       }
@@ -1053,7 +1058,7 @@ export class KnowledgeProduct {
     }
     if (result === undefined || !result.ok) {
       this.fill = {
-        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
+        state: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : 'failed', runPhase: result?.state === 'paused' ? 'paused' : result?.state === 'cancelled' ? 'stopped' : result?.state === 'completed_partial' ? 'partial' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(),
         ...(result?.message === undefined ? {} : { message: result.message }), code: 'fill',
       };
       this.notify();
@@ -1063,7 +1068,7 @@ export class KnowledgeProduct {
     this.changedLoaded = false;
     if (this.writer.state === 'waiting' && this.writer.units.length === 0) this.writer = { ...this.writer, state: 'idle' };
     this.fill = {
-      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
       ...(result.unread === undefined || result.unread.length === 0 ? {} : { unread: [...result.unread] }),
     };
@@ -1109,7 +1114,7 @@ export class KnowledgeProduct {
       return;
     }
     if (state !== 'succeeded') {
-      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
+      this.fill = { state: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : 'failed', runPhase: state === 'paused' ? 'paused' : state === 'cancelled' ? 'stopped' : state === 'completed_partial' ? 'partial' : 'failed', runId, startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: end?.message ?? `the fill ended ${state ?? 'without a run'}`, code: 'fill' };
       this.notify();
       return;
     }
@@ -1125,7 +1130,7 @@ export class KnowledgeProduct {
     // where the process that pressed the fill and the one that ran it agree without a second record.
     const unread: { repository: string; path: string; reason: string }[] = end?.unread === undefined ? this.unreadOf() : [...end.unread];
     this.fill = {
-      state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
+      state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps: 0,
       changed: this.lastChangedPages() ?? [],
       ...(unread.length === 0 ? {} : { unread }),
     };
@@ -2181,7 +2186,7 @@ export class KnowledgeProduct {
     if (named !== null && (named.state === 'paused' || named.state === 'cancelled')) {
       this.fillRunId = named.runId;
       this.fill = {
-        state: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
+        state: named.state === 'paused' ? 'paused' : 'stopped', runPhase: named.state === 'paused' ? 'paused' : 'stopped', runId: named.runId,
         startedAt: new Date(named.createdAt).toISOString(),
         ...(named.state === 'cancelled' ? { finishedAt: new Date(named.updatedAt).toISOString() } : {}),
       };
@@ -2189,7 +2194,7 @@ export class KnowledgeProduct {
     if (live !== null) {
       if (this.fill.state !== 'running' || this.fillRunId !== live.runId) {
         this.fillRunId = live.runId;
-        this.fill = { state: 'running', runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+        this.fill = { state: 'running', runPhase: runPhaseOf(live.state), runId: live.runId, startedAt: new Date(live.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
       }
       return;
     }
@@ -2198,7 +2203,7 @@ export class KnowledgeProduct {
       ? await readFillEnd(this.reader.owner, named.runId).catch(() => null) : null;
     if (named !== null && namedEnd !== null && named.runId !== this.fillRunId) {
       this.fillRunId = named.runId;
-      this.fill = { state: 'running', runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
+      this.fill = { state: 'running', runPhase: runPhaseOf(named.state), runId: named.runId, startedAt: new Date(named.createdAt).toISOString(), commit: 0, commits: 0, gaps: 0 };
     }
     if (this.fill.state === 'running' && this.fillRunId !== undefined) {
       // The end of the run is the row the process that ran it writes after the store is finished (madarch-8bdc.9): the
@@ -2215,10 +2220,10 @@ export class KnowledgeProduct {
       const finishedAt = (this.options.now?.() ?? new Date()).toISOString();
       this.fill = end.state === 'succeeded'
         ? {
-          state: 'done', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
+          state: 'done', runPhase: 'succeeded', startedAt: this.fill.startedAt, finishedAt, gaps: 0,
           changed: this.lastChangedPages() ?? [], ...(unread.length === 0 ? {} : { unread }),
         }
-        : { state: 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
+        : { state: 'failed', runPhase: end.state === 'completed_partial' ? 'partial' : end.state === 'cancelled' ? 'stopped' : 'failed', startedAt: this.fill.startedAt, finishedAt, message: end.message ?? `the fill ended ${end.state}`, code: 'fill' };
       this.notify();
     }
   }
@@ -2350,11 +2355,6 @@ export class KnowledgeProduct {
 
   async proposeTask(_question: string, _choice: TaskChoice, _asked?: 'en' | 'ru'): Promise<TaskProposal> {
     throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: create an authored entity from its kind instead. Task lifecycle commands are not available.`);
-  }
-
-  /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
-  async createTask(_input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
@@ -2513,11 +2513,55 @@ export class KnowledgeProduct {
   }
 
   /**
-   * «Создать задачу»: a task scoped to exactly the place the problem names (madarch-m38l.14's task format).
-   * A problem that names no place a person can change says why instead of opening an empty task.
+   * «Создать задачу» (madarch-64o5.104, the owner's rule of 2026-11-13): the problem becomes a task entity through the one
+   * write path MCP and the agent use, and the write's source is the person who pressed. The task names the problem, its
+   * place and its statement; a problem that already has its task answers that task, so a second press opens it instead of
+   * writing another. A refusal is said in the language the pages are written in, and names no file of this machine.
    */
-  async createProblemTask(_id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+  async createProblemTask(id: string): Promise<{ task: ProblemLink; state: 'created' | 'existing' }> {
+    const read = await this.manifestRead(this.folder);
+    const language = problemTaskLanguage(read.present ? read.manifest.language : undefined);
+    const listing = await this.problems();
+    const problem = listing.problems.find((candidate) => candidate.id === id);
+    if (problem === undefined) throw new LoopRefusal(404, problemTaskRefusal(language, 'not-listed'));
+    if (problem.task !== undefined) return { task: problem.task, state: 'existing' };
+    let by: Author;
+    try {
+      by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    } catch {
+      throw new LoopRefusal(409, problemTaskRefusal(language, 'no-identity'));
+    }
+    const rule = listing.categories.find((category) => category.rule === problem.rule);
+    const record = problemTaskRecord(problem, { language, ...(rule?.label === undefined ? {} : { label: rule.label }) });
+    // The press is what the write rests on: the problem and the finding's own words, said by the person. The evidence
+    // carries no moment of its own, so two presses of one problem write the same thing once — the journal states when.
+    const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, words: record.statement }];
+    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one — a name of
+    // `Alice@work` is written `Alice%40work` — and the author starts with `person:`: the product then knows a person wrote
+    // in it, and its start-over is refused.
+    const source = problemTaskSource(by);
+    let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
+    try {
+      written = await this.putEntity(source, {
+        // The uid is the problem's: a second press, even one that read no task a moment ago, joins this entity instead
+        // of making another, and finds everything unchanged, so it writes nothing and answers the task that stands.
+        kind: PROBLEM_TASK_KIND,
+        id: problemTaskUid(problem),
+        values: { title: record.title, body: record.body, front: record.front },
+        evidence,
+        words: language === 'ru' ? 'Создать задачу' : 'Create a task',
+      });
+    } catch (error) {
+      // The graph's own refusal is said in the reader's language, and their reason is kept in the server's log; every other
+      // failure is a defect of this process and is not dressed up as the reader's.
+      if (!(error instanceof WriteRefusal)) throw error;
+      throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    }
+    if (written.uid === undefined) throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    // Nothing written means the task stood exactly as this press states it: another press made it, and this one found it.
+    const state = written.written === 0 ? 'existing' as const : 'created' as const;
+    if (state === 'created') this.notify();
+    return { task: { label: record.title, href: entityPageAddress(PROBLEM_TASK_KIND, written.uid), key: `task:${written.uid}` }, state };
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {

@@ -191,6 +191,14 @@ export interface Problem {
   readonly source?: string;
   readonly by: { readonly name: string; readonly email: string; readonly verified: string } | null;
   readonly at: string | null;
+  /** The task a person already opened from this problem: the page links to it instead of offering a second. */
+  readonly task?: ProblemLink;
+}
+
+/** One press of «Создать задачу»: the task the problem has, and whether this press made it or found it. */
+export interface ProblemTaskAnswer {
+  readonly task: ProblemLink;
+  readonly state: 'created' | 'existing';
 }
 
 export interface ProblemCategory {
@@ -250,7 +258,7 @@ export interface SourcesAnswer {
 
 /** The product's fill state, as much as the fill page and its button read (`GET /api/status`). */
 export interface FillStatusAnswer {
-  readonly fill: { readonly state: string; readonly runId?: string };
+  readonly fill: { readonly state: string; readonly runPhase?: string; readonly runId?: string };
   readonly product?: { readonly name: string; readonly id: string };
   readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
   /** Whether a fill ever succeeded on this product. */
@@ -267,6 +275,8 @@ export interface FillRunGroup {
   readonly done: number;
   readonly total: number;
   readonly state: string;
+  /** The unit's reader-facing state from the server's one machine. */
+  readonly phase: string;
 }
 
 /** One thing a run recorded, as the run's own sequence states it. */
@@ -283,6 +293,9 @@ export interface FillRunEvent {
 export interface FillRunDetail {
   readonly runId: string;
   readonly state: string;
+  /** The public run phase (queued, running, paused, succeeded, partial, failed, stopped). */
+  readonly phase: string;
+  readonly final: boolean;
   readonly startedAt: string;
   readonly updatedAt: string;
   readonly finishedAt: string | null;
@@ -292,7 +305,7 @@ export interface FillRunDetail {
   readonly order: readonly string[] | null;
   readonly vertex: string | null;
   readonly groups: readonly FillRunGroup[];
-  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly generation: number; readonly attempts: number }[];
+  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly phase: string; readonly skippedBecause?: string; readonly generation: number; readonly attempts: number }[];
   readonly events: readonly FillRunEvent[];
   readonly records: number;
   readonly publishedUnits: number;
@@ -409,8 +422,8 @@ export const readProblemsCount = (base: string, signal?: AbortSignal): Promise<P
 /** Records that a problem is not one, in the product's repository. */
 export const dismissProblem = (base: string, id: string, reason: string): Promise<unknown> => command(base, '/api/problem-dismiss', { method: 'POST', body: JSON.stringify({ id, reason }) });
 
-/** Opens the task a problem names. */
-export const makeProblemTask = (base: string, id: string): Promise<unknown> => command(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
+/** Presses «Создать задачу»: the task the problem has, made now or found from an earlier press. */
+export const makeProblemTask = (base: string, id: string): Promise<ProblemTaskAnswer> => command<ProblemTaskAnswer>(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
 
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
