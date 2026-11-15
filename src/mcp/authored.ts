@@ -76,7 +76,7 @@ const WRITE_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: object({
       kind: { type: 'string', description: 'The kind of the published manifest, such as doc.term.' },
       key: { type: 'object', description: 'The kind\'s key fields; omitted when id names the entity.' },
-      id: { type: 'string', description: 'The stable uid of an entity to write again.' },
+      id: { type: 'string', description: 'The stable uid of an entity to write again; for a kind with no key it is also the uid its entity takes when it does not stand yet, so a write of the same uid twice states one entity.' },
       values: { type: 'object', description: 'The field values the agent states.' },
       evidence: EVIDENCE,
       words: { type: 'string', description: 'The agent\'s exact words, kept in the journal.' },
