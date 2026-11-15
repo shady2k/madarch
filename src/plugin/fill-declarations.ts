@@ -539,7 +539,9 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   const authoredFields = (kind: string): ReadonlySet<string> => new Set((manifest.kinds.get(kind)?.fields ?? [])
     .filter((field) => (field.producers ?? []).includes('person')).map((field) => field.name));
   const fieldOf = (kind: string, field: string) => manifest.kinds.get(kind)?.fields?.find((one) => one.name === field);
-  const askedSet = new Set(requested);
+  // What the person asked for: a page can name the plan's kinds — a pulled-in dependency among them — so the ask is the
+  // requested selection when there is one, and never a dependency the plan pulled in (madarch-64o5.102).
+  const askedSet = new Set(requestedKinds ?? requested);
   for (const kind of plan.selectedKinds) {
     if (unavailable.has(kind) || nothingToFill.has(kind)) continue;
     const authored = authoredFields(kind);

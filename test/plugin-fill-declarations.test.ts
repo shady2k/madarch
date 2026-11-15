@@ -396,3 +396,11 @@ test('an agent chosen fills a pulled-in dependency\'s agent-bound field too: Д�
   // The dependency's agent-bound field is named among the unfilled, not refused and not silently planned.
   expect(plan.skipped).toEqual([{ kind: 'File', fields: ['state_machines'], reason: 'the agent fills it, and this fill does not ask for this kind' }]);
 });
+
+test('a page that names its plan\'s kinds does not turn a pulled-in dependency into an asked one', () => {
+  // The prepare route passes the plan's kinds (Домены and the Файлы it pulls in); the person asked for Домены only.
+  const manifest = manifestOf([kind('File', ['title', 'state_machines']), kind('Domain', ['title'], ['File'])], [plugin('index', [output('File', ['title']), output('Domain', ['title'])]), general(['File'])]);
+  const plan = planManifestFill(manifest, '/product', ['Domain', 'File'], true, ['Domain']);
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped).toEqual([{ kind: 'File', fields: ['state_machines'], reason: 'the agent fills it, and this fill does not ask for this kind' }]);
+});
