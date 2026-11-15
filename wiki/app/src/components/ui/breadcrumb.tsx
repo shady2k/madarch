@@ -36,6 +36,7 @@ export interface TrailCrumb {
   readonly label: string;
   readonly href?: string;
   readonly onClick?: MouseEventHandler<HTMLAnchorElement>;
+  readonly onAuxClick?: MouseEventHandler<HTMLAnchorElement>;
 }
 
 /**
@@ -50,7 +51,7 @@ export function PageBreadcrumb({ items, label, className, ...props }: Omit<Compo
   const between = items.slice(1, -1).map((one) => one.label).join(' / ');
   const head = first.href === undefined
     ? <span aria-current={items.length === 1 ? 'page' : undefined}>{first.label}</span>
-    : <a href={first.href} onClick={first.onClick} className="rounded-[var(--radius-control)] text-secondary no-underline outline-none hover:text-ink hover:underline focus-visible:ring-2 focus-visible:ring-ink">{first.label}</a>;
+    : <a href={first.href} onClick={first.onClick} onAuxClick={first.onAuxClick} className="rounded-[var(--radius-control)] text-secondary no-underline outline-none hover:text-ink hover:underline focus-visible:ring-2 focus-visible:ring-ink">{first.label}</a>;
   return (
     <Breadcrumb aria-label={label} data-testid="trail" className={cn('page-trail', className)} {...props}>
       <BreadcrumbList className="flex-nowrap">

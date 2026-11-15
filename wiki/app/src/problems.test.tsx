@@ -31,7 +31,7 @@ beforeEach(() => {
     const { query } = JSON.parse(init?.body ?? '{}') as { query: string };
     requests.push({ url, query });
     if (query.includes('bootstrap')) return new Response(JSON.stringify({ data: {
-      bootstrap: { structureRevision: 'r1', home: null, catalogueTemplate: null, recordTemplates: [], ownTemplates: [], templates: [], roles: [] },
+      bootstrap: { structureRevision: 'r1', home: null, catalogueTemplate: null, recordTemplates: [], ownTemplates: [], templates: [], roles: [], roleLeads: [] },
       navigation: { product: 'Example', groups: [], kinds: [], purposes: [] },
     } }));
     if (failNetwork) throw new Error('Network unavailable');

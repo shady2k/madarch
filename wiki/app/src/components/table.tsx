@@ -99,7 +99,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
         ? (dateOf(value, language) ?? '')
         : Array.isArray(value) ? value.map((one) => formatValue(one, format, language)).join(', ') : formatValue(value, format, language);
       // The first column of a row that is an entity reads as the link to it: a list is where a reader goes next.
-      return index === 0 && href !== undefined ? <TextLink href={context.base + href} onClick={follow(context.open, context.base + href)}>{written}</TextLink> : written;
+      return index === 0 && href !== undefined ? <TextLink href={context.base + href} {...follow(context.open, context.base + href)}>{written}</TextLink> : written;
     });
   });
   // The rows each visited page held: a template may ask `first: 20` while the component's own default is 50, so the

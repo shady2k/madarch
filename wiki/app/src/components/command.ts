@@ -382,6 +382,22 @@ export function readFillPlan(base: string, selected: readonly string[], signal?:
   return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });
 }
 
+/** One product this server serves: its name, the folder its wiki answers under, and madarch's own wiki when it is. */
+export interface ProductChoice {
+  readonly name: string;
+  readonly folder: string;
+  readonly own?: true;
+}
+
+/** `GET /api/products`: the products this server serves, and the one whose wiki is in front. */
+export interface ProductsAnswer {
+  readonly current: string | null;
+  readonly products: readonly ProductChoice[];
+}
+
+/** The products this server serves, for the card at the top left (decision 0029). */
+export const readProducts = (base: string, signal?: AbortSignal): Promise<ProductsAnswer> => command<ProductsAnswer>(base, '/api/products', signal === undefined ? {} : { signal });
+
 /** `GET /api/product`: the product's identity, read from its manifest alone. */
 export const readProduct = (base: string, signal?: AbortSignal): Promise<{ readonly id: string; readonly name: string; readonly folder?: string }> => command(base, '/api/product', signal === undefined ? {} : { signal });
 

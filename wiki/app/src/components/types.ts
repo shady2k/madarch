@@ -6,6 +6,7 @@
 import type { ReactNode } from 'react';
 import type { ComposedSection } from '../../../../src/page-contract/index.js';
 import type { Navigation } from '../client.js';
+import type { OpenPage } from '../address.js';
 
 export interface SectionContext {
   readonly section: ComposedSection;
@@ -15,7 +16,7 @@ export interface SectionContext {
   readonly busy: boolean;
   /** The page's variables as the composition bound them: a command component reads the one its parameters name. */
   readonly variables: Readonly<Record<string, unknown>>;
-  readonly open: (path: string) => void;
+  readonly open: OpenPage;
   /** The same page, asked again with the variables the press named (a table's page, a filter, a sort). */
   readonly reload: (variables: Record<string, unknown>) => void;
   /** One section of this page drawn by its own component: what a `tabs` section shows inside its tab. */

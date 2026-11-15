@@ -5,12 +5,18 @@ GlobalRegistrator.register({ url: 'http://localhost/p/run' });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
-const { RunIndicator } = await import('./run-indicator.js');
+const { RunIndicator, useLiveRun } = await import('./run-indicator.js');
 await import('../i18n.js');
 afterAll(() => { GlobalRegistrator.unregister(); });
 
 function run(state: string) {
   return { runId: 'run-1', state, phase: state === 'completed_partial' ? 'partial' : state === 'cancelled' ? 'stopped' : state, final: ['succeeded', 'completed_partial', 'failed', 'cancelled', 'blocked'].includes(state), startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), finishedAt: null, elapsedMs: 10, remainingMs: 0, selected: [], order: [], vertex: null, groups: [], units: [], events: [], records: 0, publishedUnits: 0, agentUsage: null };
+}
+
+/** The frame's read of the live run, drawn as the top bar draws it. */
+function Frame(): ReturnType<typeof createElement> {
+  const run = useLiveRun('');
+  return createElement(RunIndicator, { live: run.live, run: run.run, open: () => undefined });
 }
 
 async function render(runState: string): Promise<{ readonly shown: boolean; close: () => Promise<void> }> {
@@ -23,7 +29,7 @@ async function render(runState: string): Promise<{ readonly shown: boolean; clos
     return new Response('{}', { headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
   const root = createRoot(container);
-  await act(async () => { root.render(createElement(RunIndicator, { base: '', open: () => undefined })); });
+  await act(async () => { root.render(createElement(Frame)); });
   for (let at = 0; at < 10; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
   const shown = container.querySelector('[data-testid="run-indicator"]') !== null;
   return { shown, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };

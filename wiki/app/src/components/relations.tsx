@@ -16,6 +16,7 @@ import { Metadata, Paragraph, SectionTitle, TextLink } from './ui/typography.js'
 import { at, localized } from './format.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import { entityHref, edgesOf, nextOf, totalOf } from './connection.js';
+import type { OpenPage } from '../address.js';
 import type { SectionContext } from './types.js';
 
 interface RelationRow {
@@ -138,14 +139,21 @@ function otherOf(row: RelationRow, labelPath: string, context: SectionContext): 
   const relationWord = localized(node[labelPath], context.language);
   return href === undefined
     ? <Metadata>{relationWord ?? label}</Metadata>
-    : <TextLink href={context.base + href} onClick={follow(context.open, context.base + href)}>{label}</TextLink>;
+    : <TextLink href={context.base + href} {...follow(context.open, context.base + href)}>{label}</TextLink>;
 }
 
-/** A press on a link walks to the page it names; a modified press leaves the browser alone. */
-export function follow(open: (path: string) => void, address: string) {
-  return (event: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; preventDefault: () => void }): void => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+/**
+ * A press on a link walks to the page it names: in the tab in front, or, under a control or command press, in a tab of
+ * its own. A shift or alt press is the browser's own (a window of its own), and so is the middle button at `onAuxClick`.
+ */
+export function follow(open: OpenPage, address: string): {
+  readonly onClick: (event: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; preventDefault: () => void }) => void;
+  readonly onAuxClick: (event: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; preventDefault: () => void }) => void;
+} {
+  const go = (event: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; preventDefault: () => void }): void => {
+    if (event.button !== 0 || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    open(address);
+    open(address, { newTab: event.ctrlKey || event.metaKey });
   };
+  return { onClick: go, onAuxClick: (event) => { if (event.button === 1) go(event); } };
 }
