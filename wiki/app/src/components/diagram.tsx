@@ -11,9 +11,9 @@ import { valueAt } from '../../../../src/page-contract/index.js';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Button } from './ui/button.js';
 import { InlineGroup } from './ui/typography.js';
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
-import { Paragraph, Stack } from './ui/typography.js';
+import { Metadata, Paragraph, Stack } from './ui/typography.js';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog.js';
 import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
 import { ArchifyPane } from './diagram-panes/archify-pane.js';
@@ -47,9 +47,10 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
   const [tab, setTab] = useState<Tab>(() => preferredTab() ?? 'likec4');
-  const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
-  const [root, setRoot] = useState<HTMLElement | null>(null);
+  // A renderer that fails hands the picture to the next one, and the page says which one drew it (madarch-64o5.134).
   const [full, setFull] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string; place?: string }>>({});
+  const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
   const address = useMemo(() => {
     const query = new URLSearchParams({ entity: id, depth: String(depth), aggregateAbove: String(aggregateAbove), lang: context.language });
@@ -71,8 +72,11 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     try {
       const answer = await fetch(key, { signal: stop.signal });
       if (!answer.ok) {
-        const said = (await answer.json().catch(() => ({}))) as { code?: string };
-        setAnswers((held) => ({ ...held, [key]: { failed: failure(said.code) } }));
+        // The server's own words stay data: the place and the cause it names are what a reader can act on, and the
+        // sentence around them is the interface's (madarch-64o5.134).
+        const said = (await answer.json().catch(() => ({}))) as { code?: string; message?: unknown };
+        const place = typeof said.message === 'string' ? said.message : '';
+        setAnswers((held) => ({ ...held, [key]: { failed: failure(said.code), ...(place === '' ? {} : { place }) } }));
         return;
       }
       const body = (await answer.json()) as Record<string, unknown>;
@@ -85,28 +89,35 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   }, [address, answers, id, failure, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
   const held = answers[address(tab)];
-  // The picture itself, drawn once: on the page and, at full screen, inside the kit's dialog (madarch-64o5.129).
-  const picture = tab === 'archify' ? (
-    <ArchifyPane src={address('archify')} root={root} open={(path) => { setFull(false); context.open(path); }} />
-  ) : held === undefined ? (
-    <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
-  ) : 'failed' in held ? (
-    <Stack>
-      <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
-      <InlineGroup>
-        <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
-          setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
-          void ask(tab);
-        }}>{t('knowledge.retry')}</Button>
-      </InlineGroup>
-    </Stack>
-  ) : tab === 'likec4' ? (
-    <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { setFull(false); context.open(path); }} />
-  ) : (
-    <MermaidPane answer={held as MermaidAnswer} open={(path) => { setFull(false); context.open(path); }} />
-  );
   // One picture, one place: the renderers are a choice inside the figure, not three tabs beside each other — the page's
   // own tabs stay for the page's sections (madarch-64o5.83).
+  const picture = (
+    <div data-testid="diagram-picture">
+      {tab === 'archify' ? (
+        <ArchifyPane src={address('archify')} root={root} open={context.open} />
+      ) : held === undefined ? (
+        <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
+      ) : 'failed' in held ? (
+        <Stack>
+          <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+          {held.place === undefined ? null : <Metadata data-testid="diagram-failure-place">{held.place}</Metadata>}
+          <InlineGroup>
+            <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
+              setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
+              void ask(tab);
+            }}>{t('knowledge.retry')}</Button>
+          </InlineGroup>
+        </Stack>
+      ) : tab === 'likec4' ? (
+        <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
+      ) : (
+        <MermaidPane answer={held as MermaidAnswer} open={(path) => { context.open(path); }} />
+      )}
+    </div>
+  );
+  // One picture, one place: the renderers are a choice inside the figure, not three tabs beside each other — the page's
+  // own tabs stay for the page's sections (madarch-64o5.83). The same figure fills the window on a press, and Escape
+  // closes it (madarch-64o5.134).
   return (
     <Stack>
       <InlineGroup>
@@ -117,13 +128,13 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
           options={TABS.map((one) => ({ value: one.id, label: one.label, testId: `diagram-renderer-${one.id}` }))}
           onChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}
         />
-        <Button variant="default" size="sm" onClick={() => setFull(true)} data-testid="diagram-fullscreen-open">{t('knowledge.views.fullscreen')}</Button>
+        <Button size="sm" data-testid="diagram-fullscreen" onClick={() => { setFull(true); }}>{t('knowledge.fullScreen')}</Button>
       </InlineGroup>
-      <div data-testid="diagram-picture">{picture}</div>
+      {full ? null : picture}
       <Dialog open={full} onOpenChange={setFull}>
-        <DialogContent closeLabel={t('knowledge.views.exitFullscreen')} size="window" data-testid="diagram-fullscreen">
-          <DialogHeader><DialogTitle>{t('knowledge.views.fullscreen')}</DialogTitle></DialogHeader>
-          <DialogBody fill>{picture}</DialogBody>
+        <DialogContent size="window" closeLabel={t('knowledge.close')}>
+          <DialogHeader><DialogTitle>{t('knowledge.fullScreen')}</DialogTitle></DialogHeader>
+          <DialogBody data-testid="diagram-fullscreen-body">{full ? picture : null}</DialogBody>
         </DialogContent>
       </Dialog>
     </Stack>

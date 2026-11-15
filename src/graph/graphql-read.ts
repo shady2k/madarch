@@ -234,6 +234,16 @@ function evidenceOf(entries: readonly unknown[]): unknown[] {
   });
 }
 
+/** Whether an edge kind names the container at its target: the catalogue's `partOf`. */
+function isPartOf(edge: string): boolean {
+  return edge.slice(edge.lastIndexOf('.') + 1) === 'partOf';
+}
+
+/** Whether an edge kind names a container at its source: any kind's `contains`. */
+function isContains(edge: string): boolean {
+  return edge.slice(edge.lastIndexOf('.') + 1) === 'contains';
+}
+
 /** One opinion row from a table's row: its identity and the values the requested columns hold. */
 function rowOf(row: Record<string, unknown>, values: Record<string, unknown>): OpinionRow {
   const saidBy = String(row['said_by'] ?? '');
@@ -434,6 +444,9 @@ export class ReadContext {
     if (name === 'label') return this.labelOf(entity);
     if (name === 'template') return this.templateOf(entity, entity.kind);
     if (name === 'contested') return this.contestedOf(entity);
+    if (name === 'details') return this.detailsOf(entity);
+    if (name === 'trail') return this.trailOf(entity);
+    if (name === 'origin') return this.originOf(entity);
     if (name === 'backlinks') return this.backlinks(entity, args);
     if (name === 'outgoing') return this.outgoing(entity, args);
     const field = this.fieldsByType.get(entity.typeName)?.get(name);
@@ -550,6 +563,86 @@ export class ReadContext {
     // The home entity opens `home`, the product's own page: `/` is the page the home entity's template draws.
     if (entity !== undefined && homeKind(this.manifest)?.name === kind && this.productTemplates.templates.some((one) => one.name === 'home')) return 'home';
     return this.productTemplates.records.get(kind) ?? 'entity';
+  }
+
+  /**
+   * Every field the kind declares, with the value the graph agreed and the opinions that hold it: what a page's
+   * Details block shows when no template has named the kind's fields (decision 0036, section 6). A key field is
+   * identity, so its value stands with no opinion; a field two producers disagree on shows no value and `contested`.
+   */
+  private async detailsOf(entity: EntityValue): Promise<unknown[]> {
+    const kind = this.kindByType.get(entity.typeName);
+    if (kind === undefined) return [];
+    const stated = kind.fields.filter((field) => !kind.key.includes(field.name));
+    await this.ensureFields(kind.name, entity.nodeId, stated.map((field) => field.name));
+    const contested = new Set(await this.contestedOf(entity));
+    return [...kind.fields]
+      .sort((left, right) => byCodePoint(left.name, right.name))
+      .map((field) => {
+        if (kind.key.includes(field.name)) {
+          return { name: field.name, type: field.type, key: true, value: entity.key[field.name] ?? null, contested: false, opinions: [] };
+        }
+        const rows = this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang);
+        return {
+          name: field.name,
+          type: field.type,
+          key: false,
+          value: agreedValue(rows, field.name),
+          contested: contested.has(fieldNameOf(field.name)),
+          opinions: rows.slice(-3).reverse().map((row) => opinionOf(row, field.name)),
+        };
+      });
+  }
+
+  /**
+   * The place the entity's newest opinion rests on, as the reader reads it: the file and line of its evidence, so the
+   * page's header can state where the page's own statements came from (decision 0036, section 6).
+   */
+  private async originOf(entity: EntityValue): Promise<string | null> {
+    const kind = this.kindByType.get(entity.typeName);
+    if (kind === undefined) return null;
+    const stated = kind.fields.filter((field) => !kind.key.includes(field.name));
+    await this.ensureFields(kind.name, entity.nodeId, stated.map((field) => field.name));
+    let newest: OpinionRow | undefined;
+    for (const field of stated) {
+      for (const row of this.chosenOpinions(kind.name, entity.nodeId, field, entity.lang)) {
+        if (newest === undefined || String(row.statedAt) > String(newest.statedAt)) newest = row;
+      }
+    }
+    const evidence = newest?.evidence[0] as Record<string, unknown> | undefined;
+    if (evidence === undefined) return null;
+    const path = typeof evidence['path'] === 'string' ? evidence['path'] : undefined;
+    if (path !== undefined) {
+      const repository = typeof evidence['repository'] === 'string' ? evidence['repository'] : undefined;
+      const line = typeof evidence['line_start'] === 'number' ? `:${String(evidence['line_start'])}` : '';
+      return repository === undefined ? `${path}${line}` : `${repository}/${path}${line}`;
+    }
+    const url = typeof evidence['url'] === 'string' ? evidence['url'] : undefined;
+    return url ?? null;
+  }
+
+  /**
+   * The entity's containers, outermost first: the chain a page's breadcrumb walks. The catalogue declares containment
+   * as an edge outward (`partOf`) or a row of the container that holds a member (`contains`), so both are followed; a
+   * chain that meets itself or runs eight deep stops.
+   */
+  private async trailOf(entity: EntityValue): Promise<EntityValue[]> {
+    const chain: EntityValue[] = [];
+    const seen = new Set<string>([entity.nodeId]);
+    let current = entity;
+    for (let step = 0; step < 8; step += 1) {
+      const out = (await this.links(current, { first: 50 }, 'out')) as { edges: { node: { edge: string; to: EntityValue } }[] };
+      const into = (await this.links(current, { first: 50 }, 'in')) as { edges: { node: { edge: string; from: EntityValue } }[] };
+      // A member states its container outward (`partOf`); a container holds its member in (`contains`). The same edge
+      // walked the other way names a member, never a container.
+      const up = out.edges.find((one) => isPartOf(one.node.edge))?.node.to
+        ?? into.edges.find((one) => isContains(one.node.edge))?.node.from;
+      if (up === undefined || seen.has(up.nodeId)) break;
+      chain.push(up);
+      seen.add(up.nodeId);
+      current = up;
+    }
+    return chain.reverse();
   }
 
   private async contestedOf(entity: EntityValue): Promise<string[]> {

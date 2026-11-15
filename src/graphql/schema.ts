@@ -71,6 +71,13 @@ function entityFields(): FieldDef[] {
     { name: 'label', type: 'String!' },
     { name: 'template', type: 'String!' },
     { name: 'contested', type: '[String!]!' },
+    // The page's own field values, every declared field with the opinions that hold it: what a reader's «Details»
+    // block shows for a kind no template has described yet (decision 0036, section 6).
+    { name: 'details', type: '[Detail!]!' },
+    // The containers of the entity, outermost first: the links of a page's breadcrumb.
+    { name: 'trail', type: '[Entity!]!' },
+    // The place the newest opinion of any field rests on, as a reader reads it: the page's provenance line.
+    { name: 'origin', type: 'String' },
     { name: 'backlinks', type: 'BacklinkConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
     { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
   ];
@@ -144,6 +151,15 @@ class Builder {
       { name: 'url', type: 'String' },
       { name: 'at', type: 'String' },
       { name: 'words', type: 'String' },
+    ]);
+    // One declared field of an entity, as the reader's Details block shows it.
+    this.type('Detail', [
+      { name: 'name', type: 'String!' },
+      { name: 'type', type: 'String!' },
+      { name: 'key', type: 'Boolean!' },
+      { name: 'value', type: 'JSON' },
+      { name: 'contested', type: 'Boolean!' },
+      { name: 'opinions', type: '[Opinion!]!' },
     ]);
     this.type('Opinion', [
       { name: 'value', type: 'JSON' },

@@ -1356,6 +1356,14 @@
     "yes": "да",
     "no": "нет",
     "contested": "спорно",
+    "details": {
+      "empty": "Граф пока не называет ни одного поля",
+      "unstated": "Ни одно мнение его не называет",
+      "key": "ключ",
+      "stated": "Сказано {{producer}}",
+      "place": "в {{place}}",
+      "opinions": "мнений: {{count}}"
+    },
     "bucket": {
       "under": "до {{to}} дн.",
       "between": "{{from}}–{{to}} дн.",
@@ -1385,6 +1393,8 @@
     "diagramTooLarge": "Диаграмма слишком велика, чтобы её показать.",
     "diagramBadRequest": "Сервер отклонил запрос диаграммы.",
     "diagramRenderer": "Отрисовка",
+    "templateFindings": "Замечания шаблона",
+    "fullScreen": "Во весь экран",
     "diagramFit": "По размеру",
     "diagramZoomIn": "Увеличить",
     "diagramZoomOut": "Уменьшить",

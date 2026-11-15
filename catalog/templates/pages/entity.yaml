@@ -11,9 +11,47 @@ sections:
       kind
       label
       template
+      origin
+      trail {
+        id
+        kind
+        label
+      }
     params:
       titlePath: label
       kindPath: kind
+      chainPath: trail
+      provenancePath: origin
+  # Every field the kind declares, with the value its producers agreed and the place each opinion rests on: the page a
+  # template has not described still says what the graph knows of it (madarch-64o5.134).
+  - id: details
+    component: details
+    after: header
+    title: { en: Details, ru: Подробности }
+    query: |
+      details {
+        name
+        type
+        key
+        value
+        contested
+        opinions {
+          producer
+          version
+          statedAt
+          value
+          evidence {
+            type
+            repository
+            path
+            lineStart
+            lineEnd
+            url
+          }
+        }
+      }
+    params:
+      path: details
   # The picture is drawn by the server (decision 0036, sections 7 and 8): the section names the entity and how far around
   # it reads; no relation is asked here, because the renderer reads the neighbourhood through the graph read layer.
   - id: diagram
@@ -30,6 +68,7 @@ sections:
     query: |
       outgoing(first: $outgoing_first, after: $outgoing_after) {
         edges {
+          cursor
           node {
             relation
             label
@@ -41,6 +80,10 @@ sections:
               label
             }
           }
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
         }
         totalCount
         pageInfo { hasNextPage endCursor }
@@ -56,6 +99,7 @@ sections:
     query: |
       backlinks(first: $backlinks_first, after: $backlinks_after) {
         edges {
+          cursor
           node {
             relation
             label
@@ -67,6 +111,10 @@ sections:
               label
             }
           }
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
         }
         totalCount
         pageInfo { hasNextPage endCursor }

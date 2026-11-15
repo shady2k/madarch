@@ -76,6 +76,8 @@ interface Loaded {
   readonly data: Record<string, unknown>;
   /** The address the answer was asked for: a page whose address moved keeps its last data until the next answer stands. */
   readonly address: string;
+  /** What the composition refused, when it still names the page: the page says it above its sections (madarch-64o5.134). */
+  readonly findings?: PageComposition['findings'];
 }
 
 export function App(): ReactElement {
@@ -308,9 +310,11 @@ export function App(): ReactElement {
       return;
     }
     const composition = composePage(bootstrap, { ...address.page, lang: language, role });
+    // A template the product's files could not be read as is: the page still stands, and names what its template's
+    // findings are instead of being replaced by them (madarch-64o5.134).
     if (composition.findings.length > 0) {
-      setFailure(composition.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('\n'));
-      setLoaded(null);
+      setFailure(null);
+      setLoaded({ composition, variables: composition.variables, data: {}, address: path, findings: composition.findings });
       return;
     }
     // A page whose sections ask the graph nothing (`fill`, `run`) is drawn from the command reads alone: it sends no
@@ -395,7 +399,7 @@ export function App(): ReactElement {
     const timer = setTimeout(() => { void loadBootstrap(); }, publication.status === 'pending' ? 1000 : 5000);
     return () => { clearTimeout(timer); };
   }, [publication, loadBootstrap]);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, role, open, reload, onRole: applyRole, changedKinds };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, role, open, reload, onRole: applyRole, changedKinds, ...(loaded?.findings === undefined ? {} : { findings: loaded.findings }) };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   // The groups the reader's role lists first (decision 0031), as the product's manifest declares them.

@@ -34,6 +34,7 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   const kind = kindPath === undefined ? undefined : textOf(valueAt(context.data, kindPath));
   const provenance = provenancePath === undefined ? undefined : textOf(valueAt(context.data, provenancePath));
   const trail = trailOf(params['trail'], context.data);
+  const chain = chainOf(params['chainPath'], context);
   // A code page is its file: the label is the whole path, so the title is the name and the path stands muted under it.
   const path = trail === null ? '' : trail.path;
   const name = lastSegment(path);
@@ -41,7 +42,7 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   const heading = <PageTitle data-testid="page-title">{title}</PageTitle>;
   return (
     <PageHeader data-testid="page-header">
-      <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind, trail)} />
+      <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind, trail, chain)} />
       {/* The trail already names the folders and the title the file: the path is not printed a second time (madarch-64o5.83). */}
       {path === '' || trail !== null ? heading : <PageHeading path={path}>{heading}</PageHeading>}
       {kind === undefined || kind === CATALOGUE_KIND ? null : <InlineGroup><Badge data-testid="page-kind">{kindWord(kind, context)}</Badge></InlineGroup>}
@@ -67,14 +68,35 @@ function linkTo(context: SectionContext, address: string, label: string): TrailC
  * kind's catalogue page is «Catalogue / kind»; every other entity is its kind's plural, linked to the kind's page, then
  * the repository and folders it lies in, then its own name.
  */
-function crumbsOf(context: SectionContext, catalogue: string, title: string, kind: string | undefined, trail: Trail | null): TrailCrumb[] {
+function crumbsOf(context: SectionContext, catalogue: string, title: string, kind: string | undefined, trail: Trail | null, chain: TrailCrumb[]): TrailCrumb[] {
   if (context.pageName !== null) return [{ label: context.pageName }];
   if (kind === CATALOGUE_KIND) return [linkTo(context, PAGE_ADDRESSES.catalogue, catalogue), { label: title }];
-  if (kind === undefined) return trail === null ? [{ label: title }] : trailCrumbs(trail);
+  if (kind === undefined) {
+    if (chain.length > 0) return [...chain, { label: title }];
+    return trail === null ? [{ label: title }] : trailCrumbs(trail);
+  }
   const held = context.navigation?.kinds.find((one) => one.kind === kind);
   const address = held === undefined || held.entryId === null ? PAGE_ADDRESSES.catalogue : entityAddress(CATALOGUE_KIND, held.entryId);
   const head = linkTo(context, address, held?.many ?? kindWord(kind, context));
+  // A page whose graph answers its containers walks them, each a link; a code page walks its folder trail (madarch-64o5.134).
+  if (chain.length > 0) return [head, ...chain, { label: title }];
   return trail === null ? [head, { label: title }] : trailCrumbs(trail, head);
+}
+
+/** The containers the graph answered for the page, each a link: the template's `chainPath` names the list it reads. */
+function chainOf(path: unknown, context: SectionContext): TrailCrumb[] {
+  if (typeof path !== 'string') return [];
+  const held = valueAt(context.data, path);
+  if (!Array.isArray(held)) return [];
+  return held.flatMap((one) => {
+    if (typeof one !== 'object' || one === null) return [];
+    const crumb = one as Record<string, unknown>;
+    const id = typeof crumb['id'] === 'string' ? crumb['id'] : undefined;
+    const kind = typeof crumb['kind'] === 'string' ? crumb['kind'] : undefined;
+    if (id === undefined || kind === undefined) return [];
+    const label = typeof crumb['label'] === 'string' ? crumb['label'] : kind;
+    return [linkTo(context, entityAddress(kind, id), label)];
+  });
 }
 
 /**

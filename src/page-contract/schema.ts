@@ -19,7 +19,7 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'fact', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'details', 'facts', 'fact', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'dependencies', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
   'product-overview', 'repositories', 'logs',
@@ -42,6 +42,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       provenancePath: { type: 'string' },
       /** The home page takes the product's own name from the frame, not the home entity's page title. */
       productTitle: { type: 'boolean' },
+      /** The containers the graph answered, each a link: the list of `{id, kind, label}` the breadcrumb walks. */
+      chainPath: { type: 'string' },
       /** The way up: the field holding the repository and the field holding the path, whose folders the trail names. */
       trail: {
         type: 'object',
@@ -51,6 +53,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['titlePath'],
   },
+  // Every field the graph states of the entity, with the opinions that hold it (madarch-64o5.134).
+  details: { parameters: { path: { type: 'string' } }, required: [] },
   facts: {
     parameters: {
       rows: {

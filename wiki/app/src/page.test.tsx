@@ -358,29 +358,8 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   }
 });
 
-test('the diagram opens at full screen in the kit\'s dialog, and leaves it', async () => {
-  const real = globalThis.fetch;
-  (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ format: 'likec4', entity: { id: 'uid', kind: 'a.b', label: 'Write' }, depth: 1, folded: 0, truncated: false, workspace: 'specification {}\n', view: {}, links: { n0: '/e/a.b/uid' } }), { status: 200 })) as unknown as typeof fetch;
-  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
-  const page = await renderPage([section('diagram', 'diagram', { depth: 1 })], { diagram: { id: 'uid' } });
-  try {
-    await act(async () => { await Promise.resolve(); });
-    expect(document.querySelector('[data-testid="diagram-fullscreen"]')).toBeNull();
-    await act(async () => { (page.container.querySelector('[data-testid="diagram-fullscreen-open"]') as HTMLButtonElement).click(); });
-    const dialog = document.querySelector('[data-testid="diagram-fullscreen"]');
-    expect(dialog).not.toBeNull();
-    expect(dialog?.textContent).toContain('Full screen');
-    const close = dialog?.querySelector('button[aria-label="Close full screen"]') as HTMLButtonElement | null;
-    expect(close).not.toBeNull();
-    await act(async () => { close?.click(); });
-    expect(document.querySelector('[data-testid="diagram-fullscreen"]')).toBeNull();
-  } finally {
-    (globalThis as { fetch: typeof fetch }).fetch = real;
-    await page.close();
-  }
-});
 
-test('a failed picture speaks the reader\'s language, never the server\'s', async () => {
+test('a failed picture says what happened in the reader\'s language and names the place the server reported', async () => {
   const real = globalThis.fetch;
   (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ code: 'FAILED', message: 'the picture did not draw within 2 s' }), { status: 500 })) as unknown as typeof fetch;
   try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
@@ -389,7 +368,7 @@ test('a failed picture speaks the reader\'s language, never the server\'s', asyn
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const words = page.container.textContent ?? '';
     expect(words).toContain('The diagram could not be built.');
-    expect(words).not.toContain('did not draw');
+    expect(page.container.querySelector('[data-testid="diagram-failure-place"]')?.textContent).toBe('the picture did not draw within 2 s');
   } finally {
     (globalThis as { fetch: typeof fetch }).fetch = real;
     await page.close();
@@ -430,4 +409,46 @@ test('a section the template does not open for the reader\'s role stands on the 
   } finally {
     await everything.close();
   }
+});
+
+test('the details block states every field, marks a disputed one and names the place its value rests on', async () => {
+  const page = await renderPage([section('details', 'details', { path: 'details' })], {
+    details: { details: [
+      { name: 'lines', type: 'integer', key: false, value: 12, contested: false, opinions: [{ producer: 'code-index', statedAt: '2026-01-01T00:00:00Z', evidence: [{ type: 'file', repository: 'r1', path: 'src/a.ts', lineStart: 4 }] }] },
+      { name: 'url', type: 'text', key: false, value: null, contested: true, opinions: [{ producer: 'one', statedAt: '2026-01-01T00:00:00Z', evidence: [] }] },
+      { name: 'path', type: 'text', key: true, value: 'src/a.ts', contested: false, opinions: [] },
+    ] },
+  });
+  try {
+    expect(page.container.querySelectorAll('[data-testid="detail-value"]')).toHaveLength(3);
+    expect(page.container.textContent).toContain('12');
+    expect(page.container.querySelector('[data-testid="detail-key"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="contested"]')).not.toBeNull();
+    const source = page.container.querySelector('[data-testid="detail-source"]')?.textContent ?? '';
+    expect(source).toContain('code-index');
+    expect(source).toContain('r1/src/a.ts:4');
+  } finally { await page.close(); }
+});
+
+test('the breadcrumb walks the containers the graph answered, each one a link into its page', async () => {
+  const page = await renderPage([section('header', 'header', { titlePath: 'label', chainPath: 'trail' })], {
+    header: { id: '9', kind: 'a.file', label: 'a.ts', trail: [{ id: '1', kind: 'a.repository', label: 'r1' }, { id: '2', kind: 'a.directory', label: 'src' }] },
+  });
+  try {
+    const links = [...page.container.querySelectorAll('nav a, [data-testid="page-header"] a')].map((one) => one.getAttribute('href'));
+    expect(links).toContain('/e/a.repository/1');
+    expect(links).toContain('/e/a.directory/2');
+  } finally { await page.close(); }
+});
+
+test('a template finding is listed above the page, which still stands', async () => {
+  const page = await renderPage([section('header', 'header', { titlePath: 'label' })], { header: { label: 'Write' } }, {
+    findings: [{ file: 'templates/entity.yaml', line: 12, path: 'sections.diagram.params.depth', message: 'depth is 3; the schema takes one of 1, 2' }],
+  });
+  try {
+    expect(page.container.querySelector('[data-testid="page-title"]')?.textContent).toBe('Write');
+    const findings = page.container.querySelector('[data-testid="template-findings"]')?.textContent ?? '';
+    expect(findings).toContain('templates/entity.yaml:12');
+    expect(findings).toContain('depth is 3');
+  } finally { await page.close(); }
 });

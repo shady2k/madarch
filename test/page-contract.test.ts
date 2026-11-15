@@ -73,8 +73,8 @@ describe('the starter templates', () => {
       if (read.template !== undefined) templates.set(name, read.template);
     }
     for (const name of templateNames) expect(resolveTemplate(name, templates).findings).toEqual([]);
-    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'dependencies', 'records', 'diagram', 'outgoing', 'backlinks']);
-    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'body', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('catalogue-entity', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'fillKind', 'facts', 'dependencies', 'records', 'details', 'diagram', 'outgoing', 'backlinks']);
+    expect(resolveTemplate('text', templates).resolved?.sections.map((one) => one.id)).toEqual(['header', 'details', 'body', 'diagram', 'outgoing', 'backlinks']);
   });
 
   test('the home page composes against the real schema', () => {
@@ -106,6 +106,7 @@ describe('the starter templates', () => {
     for (const section of page.sections) expect(page.operation).toContain(`${section.alias}:`);
     expect(page.operation).toStartWith('query Page(');
     const declared = [...page.operation.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*):/gu)].map((match) => match[1]).sort();
+    // The relations are paged: each asks its size and its cursor, so a page past the fiftieth row is reachable.
     expect(declared).toEqual(['backlinks_after', 'backlinks_first', 'id', 'lang', 'outgoing_after', 'outgoing_first']);
     expect(page.variables['id']).toBe('00000000-0000-0000-0000-000000000005');
     // One operation asks every section: a page view is one request.

@@ -1,5 +1,5 @@
 /** shadcn/ui breadcrumb structure, styled with wiki typography and tokens. */
-import { forwardRef, type ComponentProps, type HTMLAttributes, type MouseEventHandler } from 'react';
+import { Fragment, forwardRef, type ComponentProps, type HTMLAttributes, type MouseEventHandler } from 'react';
 import { ChevronRightIcon, MoreHorizontalIcon } from 'lucide-react';
 import { cn } from '@/lib/utils.js';
 
@@ -40,34 +40,31 @@ export interface TrailCrumb {
 }
 
 /**
- * The page's trail, directly above the title: one line that names the frame page or the kind the page belongs to, then
- * the path to the page. The head keeps its place and the tail keeps the page's own name, so a long path loses its
- * middle to an ellipsis rather than its end.
+ * The page's trail, directly above the title: every stop in the order the page walked it, each one a link where it
+ * names a page, and the page's own name last (madarch-64o5.134). The trail keeps one line: a long stop truncates and
+ * the last one keeps its end, so the page's name stays readable.
  */
 export function PageBreadcrumb({ items, label, className, ...props }: Omit<ComponentProps<'nav'>, 'children'> & { readonly items: readonly TrailCrumb[]; readonly label: string }) {
   if (items.length === 0) return null;
-  const first = items[0]!;
-  const last = items[items.length - 1]!;
-  const between = items.slice(1, -1).map((one) => one.label).join(' / ');
-  const head = first.href === undefined
-    ? <span aria-current={items.length === 1 ? 'page' : undefined}>{first.label}</span>
-    : <a href={first.href} onClick={first.onClick} onAuxClick={first.onAuxClick} className="rounded-[var(--radius-control)] text-secondary no-underline outline-none hover:text-ink hover:underline focus-visible:ring-2 focus-visible:ring-ink">{first.label}</a>;
+
   return (
     <Breadcrumb aria-label={label} data-testid="trail" className={cn('page-trail', className)} {...props}>
       <BreadcrumbList className="flex-nowrap">
-        <BreadcrumbItem className="shrink-0">{head}</BreadcrumbItem>
-        {between === '' ? null : (
-          <>
-            <BreadcrumbSeparator className="shrink-0">/</BreadcrumbSeparator>
-            <li className="min-w-8 flex-[0_1_auto] truncate">{between}</li>
-          </>
-        )}
-        {items.length === 1 ? null : (
-          <>
-            <BreadcrumbSeparator className="shrink-0">/</BreadcrumbSeparator>
-            <BreadcrumbItem className="min-w-0 truncate"><BreadcrumbPage className="block truncate">{last.label}</BreadcrumbPage></BreadcrumbItem>
-          </>
-        )}
+        {items.map((item, at) => {
+          const last = at === items.length - 1;
+          return (
+            <Fragment key={`${item.label}-${String(at)}`}>
+              {at === 0 ? null : <BreadcrumbSeparator className="shrink-0">/</BreadcrumbSeparator>}
+              <BreadcrumbItem className={last ? 'min-w-0' : 'min-w-0 shrink-[1]'}>
+                {last
+                  ? <BreadcrumbPage className="block truncate">{item.label}</BreadcrumbPage>
+                  : item.href === undefined
+                    ? <span className="block truncate">{item.label}</span>
+                    : <a href={item.href} onClick={item.onClick} className="block truncate rounded-[var(--radius-control)] text-secondary no-underline outline-none hover:text-ink hover:underline focus-visible:ring-2 focus-visible:ring-ink">{item.label}</a>}
+              </BreadcrumbItem>
+            </Fragment>
+          );
+        })}
       </BreadcrumbList>
     </Breadcrumb>
   );
