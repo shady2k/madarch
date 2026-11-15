@@ -119,8 +119,8 @@ export interface UnitContext {
   readonly replacedBy: number | null;
 }
 
-/** What a unit failed on: its budget, its retries, or a child whose failure the policy propagates. */
-export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'child-failed';
+/** What a unit failed on: its budget, its retries, a bound its run declares, or a child whose failure the policy propagates. */
+export type UnitFailCause = 'budget-exhausted' | 'retries-exhausted' | 'bound-exhausted' | 'child-failed';
 
 /** What sent a unit back to a retry wait. */
 export type UnitRetryCause = 'lease-expired' | 'transient-failure' | 'validation-problem';
@@ -218,8 +218,8 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     check: (_context, event) => event.type === 'retry' && event.cause === 'validation-problem',
   },
   'fail-cause': {
-    describe: 'the step fails the unit for the run\'s spent budget, or because the attempt ended with no retry left',
-    check: (context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || context.retriesLeft === 0),
+    describe: 'the step fails the unit for the run\'s spent budget, for a bound its run declares, or because the attempt ended with no retry left',
+    check: (context, event) => event.type === 'fail' && (event.cause === 'budget-exhausted' || event.cause === 'bound-exhausted' || context.retriesLeft === 0),
   },
   'cause-child-failed': {
     describe: 'a child the run resolves as propagated ended failed, so the waiting parent fails with it',

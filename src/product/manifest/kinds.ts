@@ -198,6 +198,12 @@ export interface PluginBounds {
   readonly tokens?: number;
   /** The most one run may cost, in the currency the agent itself reports; absent declares no cost bound. */
   readonly cost?: { readonly amount: number; readonly currency: string };
+  /**
+   * The most wall-clock minutes one agent unit may take (owner's decision, 2026-11-15): an agent reads the graph through
+   * its tools and takes minutes, and this bound — beside the run's token cap — is what stops it. Absent, the engine's
+   * own thirty minutes hold.
+   */
+  readonly minutes?: number;
 }
 
 /** One plugin the product holds, as its manifest declares it (decision 0035, item 11). */
@@ -1166,12 +1172,17 @@ function readPluginContract(files: ProductFileRead, id: string, path: string, ma
 function readPluginBounds(value: unknown, id: string, manifestFile: string, line: number, findings: Finding[]): PluginBounds | undefined {
   if (value === undefined) return undefined;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" is { tokens: <whole number>, cost: { amount: <number>, currency: <code> } }` });
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" is { tokens: <whole number>, cost: { amount: <number>, currency: <code> }, minutes: <whole number> }` });
     return undefined;
   }
   const body = value as Record<string, unknown>;
-  const extra = Object.keys(body).filter((key) => key !== 'tokens' && key !== 'cost');
-  if (extra.length > 0) { findings.push({ file: manifestFile, line, message: `plugin "${id}": "${extra[0]}" is not a bound: a plugin's bounds are "tokens" and "cost"` }); return undefined; }
+  const extra = Object.keys(body).filter((key) => key !== 'tokens' && key !== 'cost' && key !== 'minutes');
+  if (extra.length > 0) { findings.push({ file: manifestFile, line, message: `plugin "${id}": "${extra[0]}" is not a bound: a plugin's bounds are "tokens", "cost" and "minutes"` }); return undefined; }
+  const minutes = body['minutes'];
+  if (minutes !== undefined && (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1)) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds.minutes" is the most wall-clock minutes one agent unit may take: a whole number of 1 or more, not ${JSON.stringify(minutes)}` });
+    return undefined;
+  }
   const tokens = body['tokens'];
   if (tokens !== undefined && (typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 1)) {
     findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds.tokens" is the most tokens one run may spend: a whole number of 1 or more, not ${JSON.stringify(tokens)}` });
@@ -1190,11 +1201,11 @@ function readPluginBounds(value: unknown, id: string, manifestFile: string, line
     }
     declaredCost = { amount, currency: currency.trim() };
   }
-  if (tokens === undefined && declaredCost === undefined) {
-    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" declares no bound: name "tokens", "cost" or leave the key out` });
+  if (tokens === undefined && declaredCost === undefined && minutes === undefined) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" declares no bound: name "tokens", "cost", "minutes" or leave the key out` });
     return undefined;
   }
-  return { ...(tokens === undefined ? {} : { tokens }), ...(declaredCost === undefined ? {} : { cost: declaredCost }) };
+  return { ...(tokens === undefined ? {} : { tokens }), ...(declaredCost === undefined ? {} : { cost: declaredCost }), ...(minutes === undefined ? {} : { minutes }) };
 }
 
 /** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */

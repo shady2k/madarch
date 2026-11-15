@@ -194,8 +194,9 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       if (run.state !== 'succeeded') throw new Error(JSON.stringify(run));
       const rows = await owner.transaction('snapshot', async (tx) => await tx.query(`SELECT * FROM ${generatedTableName('probe.link', 'edge')} WHERE state='open'`));
       expect(rows.rows).toHaveLength(1);
-      // The whole fill leaves code.file's state machines to the agent too, beside the two fixture kinds.
-      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:code.file', 'agent-fill:probe.a', 'agent-fill:probe.b']);
+      // The agent fills the two fixture kinds and nothing of code.file: every field of a code kind has its producer,
+      // and the state machines are a kind of their own (madarch-64o5.114).
+      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);
     } finally { await owner.close(); }
   }, 120_000);
 });

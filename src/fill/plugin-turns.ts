@@ -37,6 +37,7 @@ import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
 import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
 import { startAgentGraphMcp } from './agent-graph.js';
+import { UnitBoundStop } from './unit-bound.js';
 import type { PluginContractDeclaration } from '../plugin/protocol.js';
 
 /** The store one turn reads and writes, as the graph's own reads name it: the process's one owner, never a second. */
@@ -302,6 +303,17 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
 }
 
 /**
+ * The error one unit that did not extract is ended with: a bound the run declares — the agent's time, the plugin's
+ * silence, the run's own time — is a `UnitBoundStop`, so the attempt fails the unit with its reason and spends no retry
+ * on the same wall (owner's decision, 2026-11-15). Any other refusal stays a failure another attempt may survive.
+ */
+function unitStopped(id: string, code: string, message: string): Error {
+  const named = `src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${code}): ${message}`;
+  const bound = code === 'agent-timeout' ? 'agent-time' : code === 'heartbeat-missed' ? 'plugin-silence' : code === 'run-timeout' ? 'run-time' : undefined;
+  return bound === undefined ? new Error(named) : new UnitBoundStop(bound, named);
+}
+
+/**
  * The task a fill's agent is given (owner's decision, 2026-11-15): the kind it fills, what that kind is, and what each
  * field of its answer means, in English. Nothing of the graph is preloaded: the agent's session carries madarch's graph
  * server, and it reads there what it decides it needs.
@@ -399,6 +411,9 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   // The agent's session is given madarch's own graph server (owner's decision, 2026-11-15): the agent reads what it
   // needs of the same graph the fill writes, and the task names only the kind it fills.
   const agentGraph = wiring.agent === undefined || unit.plugin.contract?.agent === undefined ? undefined : startAgentGraphMcp({ owner: wiring.owner, manifest: wiring.manifest, contract: wiring.contract, folder: wiring.productFolder });
+  // How long this plugin's agent unit may run: the product's own minutes, or the host's thirty (owner's decision,
+  // 2026-11-15 — the run's token cap is the other bound, and the host's minute-a-unit would stop every agent).
+  const agentMinutes = unit.plugin.bounds?.minutes;
   const host = new PluginHost({
     ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
@@ -408,6 +423,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     workRoot,
     filesystemInputs: repositoryInputs.filesystemInputs,
     trust: 'production',
+    ...(agentMinutes === undefined ? {} : { limits: { agentUnitMs: agentMinutes * 60_000 } }),
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
     ...(requests === undefined ? {} : { requests }),
@@ -448,7 +464,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
       const outcome = await session.runUnit(request);
       access.assertAllowed();
-      if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
+      if (outcome.state !== 'extracted') throw unitStopped(id, outcome.cause.code, outcome.cause.message);
       access.assertWrites(outcome.result);
       for (const edge of outcome.result.edges) if (!ownsEdge(edge)) throw new Error(`${location}: plugin ${unit.plugin.id} output ${unit.kind.name}: write of unselected edge endpoints ${edge.kind} ${edge.from.kind} -> ${edge.to.kind}`);
       const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
@@ -469,7 +485,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         progress?.(`the plugin ${unit.plugin.id} abstained: ${reason}`);
         await meter?.flush();
         const stop = meter?.stop();
-        if (stop !== undefined) throw new Error(stop.message);
+        if (stop !== undefined) throw new UnitBoundStop('tokens', stop.message);
         return;
       }
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
@@ -553,7 +569,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     // rows say what it spent before it stopped.
     await meter?.flush();
     const stop: AgentUsageStop | undefined = meter?.stop();
-    if (stop !== undefined) throw new Error(stop.message);
+    if (stop !== undefined) throw new UnitBoundStop('tokens', stop.message);
   } catch (error) {
     // What the unit spent is evidence whatever it published: a unit that failed still writes its rows.
     await meter?.flush().catch(() => undefined);

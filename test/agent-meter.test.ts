@@ -315,11 +315,11 @@ describe('the bounds a product declares for its plugins', () => {
     return { folder: where, text };
   }
 
-  test('a plugin\'s declared token and cost bounds are read as its own, with no finding', () => {
-    const { folder: where, text } = product(', bounds: { tokens: 200000, cost: { amount: 1.50, currency: USD } }');
+  test('a plugin\'s declared token, cost and time bounds are read as its own, with no finding', () => {
+    const { folder: where, text } = product(', bounds: { tokens: 200000, cost: { amount: 1.50, currency: USD }, minutes: 45 }');
     const read = parseKinds(text, 'madarch/catalog.yaml', where);
     expect(read.findings).toEqual([]);
-    expect(read.plugins?.get('g')?.bounds).toEqual({ tokens: 200_000, cost: { amount: 1.5, currency: 'USD' } });
+    expect(read.plugins?.get('g')?.bounds).toEqual({ tokens: 200_000, cost: { amount: 1.5, currency: 'USD' }, minutes: 45 });
   });
 
   test('a bound the engine cannot hold a run to is the manifest\'s error, named with its line, and no plugin is loaded with it', () => {
@@ -329,6 +329,7 @@ describe('the bounds a product declares for its plugins', () => {
       [', bounds: { cost: { amount: 0, currency: USD } }', '"bounds.cost" is { amount: <a positive number>, currency: <the unit the agent reports> }'],
       [', bounds: { cost: { amount: 1 } }', '"bounds.cost" is'],
       [', bounds: { tokens: 10, mood: yes }', '"mood" is not a bound'],
+      [', bounds: { minutes: 0 }', '"bounds.minutes" is the most wall-clock minutes one agent unit may take'],
       [', bounds: {}', '"bounds" declares no bound'],
       [', bounds: 7', '"bounds" is { tokens: <whole number>'],
     ];

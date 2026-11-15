@@ -55,6 +55,7 @@ import { GraphReadRefusal, answerMembership, recordedReadText } from './read-rec
 import { SnapshotError } from '../plugin/repository-snapshot.js';
 import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
+import { UnitBoundStop } from './unit-bound.js';
 import {
   appendProgress,
   appendProgresses,
@@ -1731,6 +1732,7 @@ async function attemptUnitPhases(
   let context: StageContext | undefined;
   let result: StageExecutionResult | undefined;
   let raised: Error | undefined;
+  let bound: UnitBoundStop | undefined;
   try {
     const config = stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId);
     orchestrator.authority.set(authorityKey(unit.unitId, unit.generation), controller);
@@ -1766,6 +1768,8 @@ async function attemptUnitPhases(
   } catch (error) {
     if (error instanceof ClosureRefusal && error.code === 'plugin-tool') {
       result = { outcome: 'blocked', reason: error.message };
+    } else if (error instanceof UnitBoundStop) {
+      bound = error;
     } else raised = error as Error;
   } finally {
     await executionReader.close();
@@ -1776,6 +1780,20 @@ async function attemptUnitPhases(
     for (const note of notes) {
       await emit(orchestrator, { runId: unit.runId, at: note.at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-progress', summary: note.fraction === null ? note.note : `${note.note} (${Math.round(note.fraction * 100)}%)` });
     }
+  }
+  // A unit a bound of its own run stopped fails here, with that reason: another attempt meets the same bound, and a retry
+  // loop that only waits out the wall is no work at all (owner's decision, 2026-11-15).
+  if (bound !== undefined) {
+    const at = orchestrator.clock();
+    const failed = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'fail', at, generation: unit.generation, fence, cause: 'bound-exhausted' } });
+    if (!failed.ok) {
+      await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: bound.message });
+      return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: { code: failed.refusal.code, reason: failed.refusal.reason }, job: 'completed' };
+    }
+    await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
+    await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: bound.message });
+    await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-failed', summary: `${unit.unitId} was stopped by its ${bound.bound} bound and is not retried: ${bound.message}` });
+    return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'failed', summary: bound.message, job: 'completed' };
   }
   if (raised !== undefined || result === undefined) {
     return await retryAttempt(orchestrator, { unit: started.record, fence, job: request.job, cause: 'transient-failure', reason: `the stage raised: ${raised?.message ?? 'it answered nothing'}`, summary: `${unit.unitId} raised: ${raised?.message ?? 'it answered nothing'}` });

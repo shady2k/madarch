@@ -45,6 +45,11 @@ export interface PluginAgentOptions {
   readonly outputs?: PluginContractDeclaration;
   /** Host-owned meter for this plugin unit; task text cannot choose its kind or field. */
   readonly meter?: AgentMeter;
+  /**
+   * A sign of life for the unit whose agent works (owner's decision, 2026-11-15): the host calls its heartbeat deadline
+   * into silence, and an agent that thinks for minutes between answers must not be read as a stopped plugin.
+   */
+  readonly onActivity?: (unitId: string) => void;
   /** Host attribution writer receives the actual session identity and its reported usage. */
   readonly onSession?: (metadata: PluginAgentReport) => void;
 }
@@ -92,6 +97,7 @@ export class PluginAgentBridge {
       }
       if (this.activeUnits.has(unitId)) throw new Error(`${WHERE}: unit ${unitId} already has an agent turn`);
       this.activeUnits.add(unitId);
+      this.options.onActivity?.(unitId);
       const controller = new AbortController();
       this.turns.add(controller);
       let connection: PluginAgentConnection | undefined;
@@ -104,6 +110,7 @@ export class PluginAgentBridge {
           cwd: this.options.cwd ?? process.cwd(), env: this.options.environment,
           files: {
             readTextFile: async (params) => {
+              this.options.onActivity?.(unitId);
               checkSession(params.sessionId);
               if ((params.line != null && (!Number.isInteger(params.line) || params.line < 1)) || (params.limit != null && (!Number.isInteger(params.limit) || params.limit < 1))) throw new Error(`${WHERE}: line and limit must be positive integers`);
               const name = virtualPath(params.path);
@@ -139,8 +146,8 @@ export class PluginAgentBridge {
               return {};
             },
           },
-          onRefused: (refusal) => log.warn('plugin agent tool refused', { unitId, method: refusal.method }),
-          onUpdate: (update) => log.debug('plugin agent update', { unitId, kind: update.kind }),
+          onRefused: (refusal) => { this.options.onActivity?.(unitId); log.warn('plugin agent tool refused', { unitId, method: refusal.method }); },
+          onUpdate: (update) => { this.options.onActivity?.(unitId); log.debug('plugin agent update', { unitId, kind: update.kind }); },
         });
         this.connections.add(connection);
         if (this.paused) connection.freeze?.();
