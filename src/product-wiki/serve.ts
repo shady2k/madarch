@@ -22,6 +22,7 @@
  * stopped; the exit codes are 2 for a refusal, 1 only for a step that
  * failed.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import type { StartedServer } from '../server/http.js';
@@ -107,7 +108,7 @@ export function machineOpener(env: ServeEnv = process.env): Opener {
         // a foreground browser runs as long as it likes and the server
         // keeps serving. The exit and error handlers are attached at once,
         // so the child is reaped and cannot become a zombie.
-        child = spawn(argv[0]!, argv.slice(1), { stdio: 'ignore', detached: true });
+        child = withSpanSync('process.run', { 'process.command': argv[0]!, 'process.args': argv.slice(1) }, () => spawn(argv[0]!, argv.slice(1), { stdio: 'ignore', detached: true }));
       } catch (error) {
         resolveOutcome({ ok: false, message: `the opener ${JSON.stringify(chosen)} could not be launched: ${(error as Error).message}` });
         return;

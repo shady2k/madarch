@@ -16,6 +16,7 @@
  * Every failure names the folder, the package and its version, and the end of
  * what npm said: a person reading a refusal needs to know what to run by hand.
  */
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { constants as fsConstants, accessSync } from 'node:fs';
@@ -56,7 +57,7 @@ const KILL_GRACE_MS = 2_000;
 function isProgram(path: string): boolean {
   try {
     accessSync(path, fsConstants.X_OK);
-    return statSync(path).isFile();
+    return withSpanSync('fs.stat', { 'file.path': path }, () => statSync(path)).isFile();
   } catch {
     return false;
   }
@@ -65,7 +66,11 @@ function isProgram(path: string): boolean {
 /** The version a manifest in `folder` names, or `undefined` when there is none to read. */
 function manifestVersion(folder: string, name: string): string | undefined {
   try {
-    const manifest = JSON.parse(readFileSync(join(folder, 'node_modules', ...name.split('/'), 'package.json'), 'utf8')) as { version?: unknown };
+    const manifest = JSON.parse(withSpanSync('fs.read', { 'file.path': join(folder, 'node_modules', ...name.split('/'), 'package.json') }, (span) => {
+      const result = readFileSync(join(folder, 'node_modules', ...name.split('/'), 'package.json'), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(result));
+      return result;
+    })) as { version?: unknown };
     return typeof manifest.version === 'string' ? manifest.version : undefined;
   } catch {
     return undefined;
@@ -136,10 +141,10 @@ export async function installAcpAdapter(entry: AcpAdapterCatalogueEntry, options
   const kept = before === undefined ? '' : ` The tree in ${folder} was left as it was: it holds ${name} ${before}, not the pinned ${version}.`;
   const cleanUp = (): void => {
     if (before !== undefined) return;
-    try { rmSync(folder, { recursive: true, force: true }); } catch { /* the failure below names the folder anyway */ }
+    try { withSpanSync('fs.remove', { 'file.path': folder }, () => rmSync(folder, { recursive: true, force: true })); } catch { /* the failure below names the folder anyway */ }
   };
   try {
-    mkdirSync(folder, { recursive: true });
+    withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
   } catch (error) {
     return { outcome: 'failed', message: `${where}: madarch could not make its own folder ${folder} for ${name} ${version}: ${redactInstallerOutput((error as Error).message)}` };
   }
@@ -183,13 +188,15 @@ type RunOutcome =
  * has ended and its output is closed, so a tree the installer was still writing
  * is never removed underneath it and its last words reach the failure message.
  */
-function runInstaller(program: string, args: readonly string[], options: { env: DraftEnv; timeoutMs: number }): Promise<RunOutcome> {
-  return new Promise((settle) => {
+async function runInstaller(program: string, args: readonly string[], options: { env: DraftEnv; timeoutMs: number }): Promise<RunOutcome> {
+  return await withSpan('process.run', { 'process.command': program, 'process.args': [...args] }, async (span) => await new Promise<RunOutcome>((settle) => {
     const child = spawn(program, [...args], { env: { ...process.env, ...options.env } as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     const keep = (chunk: Buffer | string): void => { output = (output + String(chunk)).slice(-OUTPUT_LIMIT); };
-    child.stdout?.on('data', keep);
-    child.stderr?.on('data', keep);
+    child.stdout?.on('data', (chunk: Buffer | string) => { stdoutBytes += Buffer.byteLength(chunk); keep(chunk); });
+    child.stderr?.on('data', (chunk: Buffer | string) => { stderrBytes += Buffer.byteLength(chunk); keep(chunk); });
     let timedOut = false;
     let settled = false;
     const signalGroup = (signal: NodeJS.Signals): void => {
@@ -209,6 +216,9 @@ function runInstaller(program: string, args: readonly string[], options: { env: 
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (code !== null) span.setAttribute('process.exit_code', code);
+      span.setAttribute('process.stdout.bytes', stdoutBytes);
+      span.setAttribute('process.stderr.bytes', stderrBytes);
       if (timedOut) settle({ outcome: 'timed-out', timeoutMs: options.timeoutMs, output: output.trim() });
       else settle({ outcome: 'done', code, signal: signal ?? undefined, output: output.trim() });
     };
@@ -227,6 +237,6 @@ function runInstaller(program: string, args: readonly string[], options: { env: 
       output = `${output}${output === '' ? '' : '\n'}${error.message}`.slice(-OUTPUT_LIMIT);
       settleOnce(null, null);
     });
-  });
+  }));
 }
 

@@ -1,3 +1,4 @@
+import { withSpan } from '../obs/trace.js';
 /**
  * The agent's graph writes (owner's rule, 2026-11-13): nothing writes the graph but plugins and MCP writes, an MCP
  * write's source is the agent that made it, and every write names its source and its evidence. This module turns the
@@ -255,11 +256,17 @@ async function manifestOf(tx: Parameters<Parameters<DatabaseOwner['transaction']
 
 /** The uid of the node a key names: the entity a keyed write made or restated. */
 async function nodeUidOfKey(tx: Parameters<Parameters<DatabaseOwner['transaction']>[1]>[0], vertex: VertexContract, key: Readonly<Record<string, unknown>>): Promise<string | undefined> {
-  return (await tx.query<{ uid: string }>(
-    `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id
-     WHERE e.name = $1 AND n.key = $2::jsonb AND n.context_id = 1 LIMIT 1`,
+  return (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id
+     WHERE e.name = $1 AND n.key = $2::jsonb AND n.context_id = 1 LIMIT 1`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await tx.query<{ uid: string }>(
+    sql,
     [vertex.name, JSON.stringify(key)],
-  )).rows[0]?.uid;
+  );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  })).rows[0]?.uid;
 }
 
 /** Puts the agent's opinion of an entity's fields, creating the entity when its key names none. */
@@ -273,17 +280,29 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
     let key: Record<string, unknown>;
     let writeUid: string | undefined;
     if (input.id !== undefined) {
-      const rows = await tx.query<{ key: Record<string, unknown> }>(
-        `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
+      const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query<{ key: Record<string, unknown> }>(
+        sql,
         [input.id, input.kind],
       );
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       if (rows.rows[0] === undefined) {
         // A uid names one entity of one kind, so a write of another kind that names it is refused: attaching its opinion to
         // that entity would make it a row of a kind it is not. The refusal says which kind the uid belongs to.
-        const held = await tx.query<{ kind: string }>(
-          `SELECT e.name AS kind FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid LIMIT 1`,
+        const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+          const sql = `SELECT e.name AS kind FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid LIMIT 1`;
+          span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+          const result = await tx.query<{ kind: string }>(
+          sql,
           [input.id],
         );
+          span.setAttribute('db.rows', result.rows.length);
+          return result;
+        });
         const other = held.rows[0]?.kind;
         if (other !== undefined && other !== input.kind) throw new WriteRefusal(`id ${JSON.stringify(input.id)} belongs to an entity of the kind ${JSON.stringify(other)}, and this write names the kind ${JSON.stringify(input.kind)}: a uid is one entity of one kind`, 'id', 409);
         // A keyless kind's identity is its uid, so a write that names one makes that entity: two writes of one name meet
@@ -321,10 +340,16 @@ async function edgeEndOf(tx: Parameters<Parameters<DatabaseOwner['transaction']>
   const kind = held['kind'] === 'catalogue' ? 'manifest.kind' : held['kind'];
   const vertex = vertexOfKind(contract, kind);
   if (held['id'] !== undefined) {
-    const rows = await tx.query<{ key: Record<string, unknown> }>(
-      `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<{ key: Record<string, unknown> }>(
+      sql,
       [held['id'], kind],
     );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     if (rows.rows[0] === undefined) throw new WriteRefusal(`the ${side} id ${JSON.stringify(held['id'])}: no entity of the kind ${JSON.stringify(kind)} has it`, side, 404);
     return { kind, key: rows.rows[0].key as Record<string, KeyValueDraft>, uid: String(held['id']) };
   }
@@ -368,10 +393,16 @@ export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, 
         uid = String(held['id']);
         if (vertex.key.length === 0) key = {};
         else {
-          const rows = await tx.query<{ key: Record<string, unknown> }>(
-            `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 LIMIT 1`,
+          const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+            const sql = `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 LIMIT 1`;
+            span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+            const result = await tx.query<{ key: Record<string, unknown> }>(
+            sql,
             [uid, held['kind']],
           );
+            span.setAttribute('db.rows', result.rows.length);
+            return result;
+          });
           if (rows.rows[0] === undefined) throw new WriteRefusal(`id ${JSON.stringify(uid)}: no entity of the kind ${JSON.stringify(held['kind'])} has it`, 'id', 404);
           key = rows.rows[0].key;
         }

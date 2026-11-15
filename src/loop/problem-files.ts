@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /**
  * «Не проблема» is a file (madarch-m38l.19): a person who says a problem is
  * not one leaves a record in the product repository, and the page keeps
@@ -85,7 +86,7 @@ export function writeProblemDismissal(input: DismissInput): { file: string; dism
     by: { name: input.by.name, email: input.by.email, verified: input.by.verified }, at: input.at,
   });
   const body = `## Why it is not a problem\n\n${reason}\n\nDismissed by ${input.by.name} <${input.by.email}> at ${input.at}.\n`;
-  mkdirSync(join(input.productFolder, PROBLEMS_FOLDER), { recursive: true });
-  writeFileSync(join(input.productFolder, file), `---\n${front}---\n\n${body}`, { encoding: 'utf8', flag: 'wx' });
+  withSpanSync('fs.mkdir', { 'file.path': join(input.productFolder, PROBLEMS_FOLDER) }, () => mkdirSync(join(input.productFolder, PROBLEMS_FOLDER), { recursive: true }));
+  withSpanSync('fs.write', { 'file.path': join(input.productFolder, file), 'file.bytes': Buffer.byteLength(`---\n${front}---\n\n${body}`) }, () => writeFileSync(join(input.productFolder, file), `---\n${front}---\n\n${body}`, { encoding: 'utf8', flag: 'wx' }));
   return { file, dismissal };
 }

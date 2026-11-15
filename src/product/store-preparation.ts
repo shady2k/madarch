@@ -1,5 +1,6 @@
 /** Owner-only schema service. API and fill processes request preparation over an authenticated loopback channel. */
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
 import type { GraphContract } from '../graph/contract.js';
@@ -17,20 +18,20 @@ const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
 
 /** Ask the owning process; a role without its owner refuses instead of creating schemas itself. */
 export async function requestStorePreparation(store: string, contract?: GraphContract): Promise<void> {
-  await request({ store, ...(contract === undefined ? {} : { contract }) });
+  await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, ...(contract === undefined ? {} : { contract }) }));
 }
 export async function requestStoreReset(store: string, contract: GraphContract): Promise<void> {
-  await request({ store, contract, reset: true });
+  await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, contract, reset: true }));
 }
 export async function requestHistoryPreparation(store: string, database?: string): Promise<void> {
-  await request({ store, ...(database === undefined ? { histories: true } : { database }) });
+  await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, ...(database === undefined ? { histories: true } : { database }) }));
 }
 export async function requestHistoryRename(store: string, from: string, to: string): Promise<void> {
-  await request({ store, rename: { from, to } });
+  await withSpan('store.prepare', { 'file.path': store }, async () => await request({ store, rename: { from, to } }));
 }
 /** A separate CLI invocation borrows the live daemon's preparation service, never its ownership. */
 export async function withDaemonStorePreparation<T>(home: string, work: () => Promise<T>): Promise<T> {
-  const descriptor = JSON.parse(readFileSync(join(home, '.madarch-store-owner.json'), 'utf8')) as { url: string; token: string };
+  const descriptor = JSON.parse(withSpanSync('fs.read', { 'file.path': join(home, '.madarch-store-owner.json') }, (span) => { const answer = readFileSync(join(home, '.madarch-store-owner.json'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(answer)); return answer; })) as { url: string; token: string };
   const previousUrl = process.env[ADDRESS];
   const previousToken = process.env[TOKEN];
   process.env[ADDRESS] = descriptor.url;
@@ -43,7 +44,7 @@ export async function withDaemonStorePreparation<T>(home: string, work: () => Pr
 }
 export function publishStoreOwner(home: string): () => void {
   const path = join(home, '.madarch-store-owner.json');
-  writeFileSync(path, JSON.stringify({ url: process.env[ADDRESS], token: process.env[TOKEN] }), { mode: 0o600 });
+  withSpanSync('fs.write', { 'file.path': path, 'file.bytes': Buffer.byteLength(JSON.stringify({ url: process.env[ADDRESS], token: process.env[TOKEN] })) }, () => writeFileSync(path, JSON.stringify({ url: process.env[ADDRESS], token: process.env[TOKEN] }), { mode: 0o600 }));
   return () => { unlinkSync(path); };
 }
 async function request(body: PreparationRequest): Promise<void> {
@@ -53,7 +54,11 @@ async function request(body: PreparationRequest): Promise<void> {
   await sendRequest(body, url, token);
 }
 async function sendRequest(body: PreparationRequest, url: string, token: string): Promise<void> {
-  const response = await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const response = await withSpan('net.fetch', { 'http.method': 'POST', 'http.url': url, 'http.bytes': Buffer.byteLength(JSON.stringify(body)) }, async (span) => {
+    const answer = await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    span.setAttribute('http.status', answer.status);
+    return answer;
+  });
   if (!response.ok) throw new Error(`${resolve(body.store)}:1: the store owner refused: ${await response.text()} (src/product/store-preparation.ts)`);
 }
 

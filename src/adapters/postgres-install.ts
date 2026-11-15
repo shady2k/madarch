@@ -18,6 +18,7 @@
  * renamed whole, and `install.json` — the marker the next run reads to tell an
  * install from a folder that happens to hold files — is written last.
  */
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -112,7 +113,11 @@ function markerFor(build: PostgresBuild): InstallMarker {
 /** Whether the folder holds exactly the build the marker names: every program a server needs, and the same archive hash. */
 function installedBuild(folder: string, build: PostgresBuild): boolean {
   try {
-    const marker = JSON.parse(readFileSync(join(folder, 'install.json'), 'utf8')) as Partial<InstallMarker>;
+    const marker = JSON.parse(withSpanSync('fs.read', { 'file.path': join(folder, 'install.json') }, (span) => {
+      const held = readFileSync(join(folder, 'install.json'), 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    })) as Partial<InstallMarker>;
     const expected = markerFor(build);
     if (marker.version !== expected.version || marker.platform !== expected.platform || marker.target !== expected.target || marker.sha256 !== expected.sha256) return false;
   } catch {
@@ -131,7 +136,13 @@ async function digestOf(file: string): Promise<string | null> {
 
 /** Runs one of the system's own programs, refusing by name with what it said. */
 function runProgram(program: string, args: readonly string[]): void {
-  const answer = spawnSync(program, [...args], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+  const answer = withSpanSync('process.run', { 'process.command': program, 'process.args': [...args] }, (span) => {
+    const answer = spawnSync(program, [...args], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+    span.setAttribute('process.exit_code', answer.status ?? -1);
+    span.setAttribute('process.stdout.bytes', Buffer.byteLength(answer.stdout ?? ''));
+    span.setAttribute('process.stderr.bytes', Buffer.byteLength(answer.stderr ?? ''));
+    return answer;
+  });
   const said = (answer.stderr ?? '').trim();
   if (answer.error !== undefined || answer.status !== 0) {
     throw new Error(`${WHERE}:1: ${program} ${args.join(' ')} failed: ${answer.error?.message ?? `exited ${String(answer.status)}`}${said === '' ? '' : `: ${said}`}`);
@@ -195,68 +206,73 @@ async function downloadAttempt(options: {
   readonly progress: (line: string) => void;
 }): Promise<void> {
   const { build, url, archive, folder } = options;
-  // One writer per download: two processes installing at once write their own part files, and the archive is only made
-  // whole by a rename, so a file the other process is still writing is never read.
-  const partial = `${archive}.${String(process.pid)}.part`;
-  mkdirSync(dirname(archive), { recursive: true });
-  let held = existsSync(partial) ? statSync(partial).size : 0;
-  if (held > 0) options.progress(`madarch: continuing the PostgreSQL ${POSTGRES_VERSION} download at ${megabytes(held)} MB of ${megabytes(build.bytes)} MB (${folder})`);
-  else options.progress(`madarch: downloading PostgreSQL ${POSTGRES_VERSION} for ${build.target}: ${megabytes(build.bytes)} MB into ${folder}`);
-  let response: Response;
-  try {
-    response = await fetch(url, held > 0 ? { headers: { Range: `bytes=${String(held)}-` } } : {});
-  } catch (error) {
-    // A name that does not resolve, a connection reset, a timeout: the same request may be answered later.
-    throw new TransientDownload(`${error instanceof Error ? error.message : String(error)} (${partial} holds ${megabytes(held)} MB)`);
-  }
-  if (response.status === 416) {
-    // The range is past the archive's end: what the folder holds is not this archive, so it goes.
-    rmSync(partial, { force: true });
-    await response.body?.cancel();
-    throw new Error(`${WHERE}:1: ${partial} holds more than the PostgreSQL ${POSTGRES_VERSION} archive has (${megabytes(held)} MB against ${megabytes(build.bytes)} MB): it was removed, and the next run downloads the archive again`);
-  }
-  if (!response.ok || response.body === null) {
-    await response.body?.cancel();
-    const said = `the server answered ${String(response.status)} ${response.statusText}`;
-    if (transientStatus(response.status)) throw new TransientDownload(said);
-    throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url}: ${said}. madarch installs its server once, into ${folder}; the archive's address is pinned in src/adapters/postgres-builds.ts, and a refusal there names a change to that file, not a retry`);
-  }
-  // A resumed request the server answered whole is a restart: the file starts again from zero.
-  const restart = held > 0 && response.status !== 206;
-  if (restart) {
-    held = 0;
-    rmSync(partial, { force: true });
-  }
-  const known = build.bytes;
-  const total = Number(response.headers.get('content-length') ?? '') > 0 && response.status === 206 ? held + Number(response.headers.get('content-length')) : known;
-  const started = Date.now();
-  let written = held;
-  let lastReport = 0;
-  let lastBytes = 0;
-  const out = createWriteStream(partial, { flags: held > 0 ? 'a' : 'w' });
-  try {
-    for await (const chunk of response.body) {
-      const bytes = chunk as Uint8Array;
-      if (!out.write(bytes)) await new Promise<void>((resolve) => out.once('drain', () => { resolve(); }));
-      written += bytes.length;
-      const now = Date.now();
-      if (now - lastReport >= PROGRESS_MS || written - lastBytes >= PROGRESS_BYTES) {
-        lastReport = now;
-        lastBytes = written;
-        const percent = total > 0 ? ` (${String(Math.min(100, Math.round((written / total) * 100)))}%)` : '';
-        const rate = written > held ? ` at ${megabytes(((written - held) / Math.max(1, now - started)) * 1_000)} MB/s` : '';
-        options.progress(`madarch: PostgreSQL ${POSTGRES_VERSION}: ${megabytes(written)} MB of ${megabytes(total)} MB${percent}${rate}`);
-      }
+  return await withSpan('postgres.download', { 'http.method': 'GET', 'http.url': options.url, 'file.path': options.archive, 'download.bytes': options.build.bytes }, async (span) => {
+    // One writer per download: two processes installing at once write their own part files, and the archive is only made
+    // whole by a rename, so a file the other process is still writing is never read.
+    const partial = `${archive}.${String(process.pid)}.part`;
+    mkdirSync(dirname(archive), { recursive: true });
+    let held = existsSync(partial) ? statSync(partial).size : 0;
+    if (held > 0) options.progress(`madarch: continuing the PostgreSQL ${POSTGRES_VERSION} download at ${megabytes(held)} MB of ${megabytes(build.bytes)} MB (${folder})`);
+    else options.progress(`madarch: downloading PostgreSQL ${POSTGRES_VERSION} for ${build.target}: ${megabytes(build.bytes)} MB into ${folder}`);
+    let response: Response;
+    try {
+      response = await fetch(url, held > 0 ? { headers: { Range: `bytes=${String(held)}-` } } : {});
+    } catch (error) {
+      // A name that does not resolve, a connection reset, a timeout: the same request may be answered later.
+      throw new TransientDownload(`${error instanceof Error ? error.message : String(error)} (${partial} holds ${megabytes(held)} MB)`);
     }
-  } catch (error) {
-    out.destroy();
-    // The archive ended early: what arrived stays in the part file, and the next attempt continues from there.
-    throw new TransientDownload(`the download ended before the archive was whole: ${error instanceof Error ? error.message : String(error)} (${partial} holds ${megabytes(written)} MB)`);
-  }
-  await new Promise<void>((resolve, reject) => { out.end((error?: Error | null) => { if (error) reject(error); else resolve(); }); });
-  options.progress(`madarch: PostgreSQL ${POSTGRES_VERSION}: ${megabytes(written)} MB of ${megabytes(total)} MB (100%)`);
-  // The whole archive, under the name the verification reads: a file that is not whole never has that name.
-  renameSync(partial, archive);
+    span.setAttribute('http.status', response.status);
+    if (response.status === 416) {
+      // The range is past the archive's end: what the folder holds is not this archive, so it goes.
+      rmSync(partial, { force: true });
+      await response.body?.cancel();
+      throw new Error(`${WHERE}:1: ${partial} holds more than the PostgreSQL ${POSTGRES_VERSION} archive has (${megabytes(held)} MB against ${megabytes(build.bytes)} MB): it was removed, and the next run downloads the archive again`);
+    }
+    if (!response.ok || response.body === null) {
+      await response.body?.cancel();
+      const said = `the server answered ${String(response.status)} ${response.statusText}`;
+      if (transientStatus(response.status)) throw new TransientDownload(said);
+      throw new Error(`${WHERE}:1: the PostgreSQL ${POSTGRES_VERSION} archive could not be downloaded from ${url}: ${said}. madarch installs its server once, into ${folder}; the archive's address is pinned in src/adapters/postgres-builds.ts, and a refusal there names a change to that file, not a retry`);
+    }
+    // A resumed request the server answered whole is a restart: the file starts again from zero.
+    const restart = held > 0 && response.status !== 206;
+    if (restart) {
+      held = 0;
+      rmSync(partial, { force: true });
+    }
+    const known = build.bytes;
+    const total = Number(response.headers.get('content-length') ?? '') > 0 && response.status === 206 ? held + Number(response.headers.get('content-length')) : known;
+    const started = Date.now();
+    let written = held;
+    let lastReport = 0;
+    let lastBytes = 0;
+    const out = createWriteStream(partial, { flags: held > 0 ? 'a' : 'w' });
+    try {
+      for await (const chunk of response.body) {
+        const bytes = chunk as Uint8Array;
+        if (!out.write(bytes)) await new Promise<void>((resolve) => out.once('drain', () => { resolve(); }));
+        written += bytes.length;
+        const now = Date.now();
+        if (now - lastReport >= PROGRESS_MS || written - lastBytes >= PROGRESS_BYTES) {
+          lastReport = now;
+          lastBytes = written;
+          const percent = total > 0 ? ` (${String(Math.min(100, Math.round((written / total) * 100)))}%)` : '';
+          const rate = written > held ? ` at ${megabytes(((written - held) / Math.max(1, now - started)) * 1_000)} MB/s` : '';
+          options.progress(`madarch: PostgreSQL ${POSTGRES_VERSION}: ${megabytes(written)} MB of ${megabytes(total)} MB${percent}${rate}`);
+        }
+      }
+    } catch (error) {
+      out.destroy();
+      // The archive ended early: what arrived stays in the part file, and the next attempt continues from there.
+      throw new TransientDownload(`the download ended before the archive was whole: ${error instanceof Error ? error.message : String(error)} (${partial} holds ${megabytes(written)} MB)`);
+    }
+    await new Promise<void>((resolve, reject) => { out.end((error?: Error | null) => { if (error) reject(error); else resolve(); }); });
+    options.progress(`madarch: PostgreSQL ${POSTGRES_VERSION}: ${megabytes(written)} MB of ${megabytes(total)} MB (100%)`);
+    // The whole archive, under the name the verification reads: a file that is not whole never has that name.
+    renameSync(partial, archive);
+    span.setAttribute('http.bytes', written - held);
+    span.setAttribute('file.bytes', written);
+  });
 }
 
 /**
@@ -286,23 +302,23 @@ export async function ensurePostgresInstalled(options: PostgresInstallOptions = 
   // lock whose process is gone. The download is inside the lock too, so one process fetches the 38 MB and the rest read
   // what it installed.
   const lockPath = `${folder}${INSTALL_LOCK_SUFFIX}`;
-  mkdirSync(dirname(folder), { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': dirname(folder) }, () => mkdirSync(dirname(folder), { recursive: true }));
   if (!(await takeInstallLock(lockPath, folder, build, progress))) return { bin: join(folder, 'bin'), folder, build };
   try {
     const digest = await digestOf(archive);
     if (digest !== build.sha256) {
       // An archive that is not the pinned one is not kept: the download starts again (or continues its `.part`).
-      if (digest !== null) rmSync(archive, { force: true });
+      if (digest !== null) withSpanSync('fs.remove', { 'file.path': archive }, () => rmSync(archive, { force: true }));
       await downloadArchive({ build, url, archive, folder, progress });
       const downloaded = await digestOf(archive);
       if (downloaded !== build.sha256) {
-        rmSync(archive, { force: true });
+        withSpanSync('fs.remove', { 'file.path': archive }, () => rmSync(archive, { force: true }));
         throw new Error(`${WHERE}:1: the archive downloaded from ${url} has sha256 ${String(downloaded)}, and ${folder} pins ${build.sha256} (PostgreSQL ${POSTGRES_VERSION}, ${build.target}): nothing was installed and the archive was removed. Check the release page for ${POSTGRES_VERSION}; if the release moved, that is a change to src/adapters/postgres-builds.ts, not to what this machine downloads`);
       }
     }
     return await installUnderLock({ build, folder, archive, progress });
   } finally {
-    rmSync(lockPath, { force: true });
+    withSpanSync('fs.remove', { 'file.path': lockPath }, () => rmSync(lockPath, { force: true }));
   }
 }
 
@@ -316,14 +332,18 @@ async function takeInstallLock(lockPath: string, folder: string, build: Postgres
     // The other installer may have finished while this one waited: the marker is the answer, and no unpack is needed.
     if (installedBuild(folder, build)) return false;
     try {
-      writeFileSync(lockPath, `${String(process.pid)}\n`, { flag: 'wx' });
+      withSpanSync('fs.write', { 'file.path': lockPath, 'file.bytes': Buffer.byteLength(`${String(process.pid)}\n`) }, () => writeFileSync(lockPath, `${String(process.pid)}\n`, { flag: 'wx' }));
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
     let holder: number | undefined;
     try {
-      const pid = Number(readFileSync(lockPath, 'utf8').trim());
+      const pid = Number(withSpanSync('fs.read', { 'file.path': lockPath }, (span) => {
+        const held = readFileSync(lockPath, 'utf8');
+        span.setAttribute('file.bytes', Buffer.byteLength(held));
+        return held;
+      }).trim());
       holder = Number.isInteger(pid) && pid > 1 ? pid : undefined;
     } catch {
       holder = undefined; // the lock went away between the two calls: the next attempt takes it
@@ -334,7 +354,7 @@ async function takeInstallLock(lockPath: string, folder: string, build: Postgres
       continue;
     }
     // A lock a killed install left: it is removed and this process takes the install over.
-    rmSync(lockPath, { force: true });
+    withSpanSync('fs.remove', { 'file.path': lockPath }, () => rmSync(lockPath, { force: true }));
   }
 }
 
@@ -352,15 +372,19 @@ async function installUnderLock(options: {
   // lock makes the second impossible, and the name's own pid says which is which if a process bypassed it.
   const parent = dirname(folder);
   const base = folder.slice(parent.length + 1);
-  for (const name of readdirSync(parent)) {
-    if (!name.startsWith(`${base}.unpack-`)) continue;
-    const owner = Number(name.slice(`${base}.unpack-`.length));
-    if (Number.isInteger(owner) && owner > 1 && owner !== process.pid && alive(owner)) continue;
-    rmSync(join(parent, name), { recursive: true, force: true });
-  }
+  withSpanSync('postgres.sweep_unpack', { 'file.path': parent }, (span) => {
+    const names = readdirSync(parent);
+    span.setAttribute('file.entries', names.length);
+    for (const name of names) {
+      if (!name.startsWith(`${base}.unpack-`)) continue;
+      const owner = Number(name.slice(`${base}.unpack-`.length));
+      if (Number.isInteger(owner) && owner > 1 && owner !== process.pid && alive(owner)) continue;
+      rmSync(join(parent, name), { recursive: true, force: true });
+    }
+  });
   const scratch = `${folder}.unpack-${String(process.pid)}`;
-  rmSync(scratch, { recursive: true, force: true });
-  mkdirSync(scratch, { recursive: true });
+  withSpanSync('fs.remove', { 'file.path': scratch }, () => rmSync(scratch, { recursive: true, force: true }));
+  withSpanSync('fs.mkdir', { 'file.path': scratch }, () => mkdirSync(scratch, { recursive: true }));
   try {
     runProgram('tar', ['-xzf', archive, '-C', scratch, '--strip-components=1']);
     const missing = REQUIRED_PROGRAMS.filter((program) => !existsSync(join(scratch, 'bin', postgresProgram(program, build.platform))));
@@ -369,16 +393,17 @@ async function installUnderLock(options: {
       const file = join(scratch, 'bin', postgresProgram(program, build.platform));
       if (existsSync(file)) chmodSync(file, 0o755);
     }
-    writeFileSync(join(scratch, 'install.json'), `${JSON.stringify(markerFor(build), null, 2)}\n`);
+    const marker = `${JSON.stringify(markerFor(build), null, 2)}\n`;
+    withSpanSync('fs.write', { 'file.path': join(scratch, 'install.json'), 'file.bytes': Buffer.byteLength(marker) }, () => writeFileSync(join(scratch, 'install.json'), marker));
   } catch (error) {
-    rmSync(scratch, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': scratch }, () => rmSync(scratch, { recursive: true, force: true }));
     throw error;
   }
-  rmSync(folder, { recursive: true, force: true });
-  mkdirSync(parent, { recursive: true });
+  withSpanSync('fs.remove', { 'file.path': folder }, () => rmSync(folder, { recursive: true, force: true }));
+  withSpanSync('fs.mkdir', { 'file.path': parent }, () => mkdirSync(parent, { recursive: true }));
   renameSync(scratch, folder);
   // The archive has done its work; 38 MB kept beside the install is a download nobody needs again.
-  rmSync(archive, { force: true });
+  withSpanSync('fs.remove', { 'file.path': archive }, () => rmSync(archive, { force: true }));
   progress(`madarch: PostgreSQL ${POSTGRES_VERSION} is installed in ${folder}`);
   return { bin: join(folder, 'bin'), folder, build };
 }

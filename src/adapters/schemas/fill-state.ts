@@ -1,4 +1,5 @@
 /** Preparation of the fill state machines' tables and constraints. */
+import { withSpan } from '../../obs/trace.js';
 import type { DatabaseOwner } from '../database-owner.js';
 import { createSchemaOnce } from '../schema-stamp.js';
 import { FILL_STATE_TABLES } from '../../fill/state-store.js';
@@ -94,10 +95,10 @@ export const fillStateSchema = {
       name: 'fill-state',
       parts: [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)],
       tables: FILL_STATE_TABLES,
-      create: async (executor) => {
+      create: async (executor) => await withSpan('schema.prepare', { 'db.system': 'postgres', 'schema.statements': SCHEMA.length + FOREIGN_KEYS.length, 'db.sql.bytes': [...SCHEMA, ...FOREIGN_KEYS.map(foreignKeySql)].reduce((bytes, sql) => bytes + Buffer.byteLength(sql), 0) }, async () => {
         for (const statement of SCHEMA) await executor.query(statement);
         for (const key of FOREIGN_KEYS) await executor.query(foreignKeySql(key));
-      },
+      }),
     });
   },
 };

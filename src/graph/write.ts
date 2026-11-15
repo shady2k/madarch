@@ -243,10 +243,16 @@ async function entityIdOf(executor: SqlExecutor, kind: string, sort: 'node' | 'e
   const key = `${sort}:${kind}`;
   const held = ids?.get(key);
   if (held !== undefined) return held;
-  const made = await executor.query<{ id: string }>(
-    `INSERT INTO entity (name, sort) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id::text AS id`,
+  const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `INSERT INTO entity (name, sort) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id::text AS id`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string }>(
+    sql,
     [kind, sort],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const id = made.rows[0]?.id;
   if (id === undefined) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(kind)} was registered and the store answered no id`);
   if (ids === undefined) {
@@ -349,12 +355,24 @@ function canonicalKeyOf(contract: GraphContract, vertex: VertexContract | undefi
 async function referencedNodeOf(executor: SqlExecutor, contract: GraphContract, ref: EntityRefDraft, where: string): Promise<string | undefined> {
   const vertex = contract.vertex.find((held) => held.name === ref.kind);
   if (ref.uid !== undefined) {
-    const found = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed`, [ref.uid, ref.kind]);
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ id: string }>(sql, [ref.uid, ref.kind]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return found.rows[0]?.id;
   }
   const key = canonicalKeyOf(contract, vertex, liftedReferences(contract, vertex, ref.key), where);
   const uid = keyUid(vertex?.name ?? ref.kind, [JSON.stringify(key)]);
-  const found = await executor.query<{ id: string }>(`SELECT id::text AS id FROM node WHERE uid = $1::uuid`, [uid]);
+  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT id::text AS id FROM node WHERE uid = $1::uuid`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string }>(sql, [uid]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   return found.rows[0]?.id;
 }
 
@@ -392,21 +410,39 @@ export async function ensureVertex(executor: SqlExecutor, contract: GraphContrac
   const keyless = vertex.key.length === 0;
   const uid = keyless ? randomUUID() : keyUid(vertex.name, [JSON.stringify(key)]);
   const entityId = await entityIdOf(executor, vertex.name, 'node');
-  const made = await executor.query<{ id: string; removed: boolean }>(
-    `INSERT INTO node (entity_id, uid, key, context_id) VALUES ($1::bigint, $2::uuid, $3::jsonb, $4::bigint)
-     ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, removed`,
+  const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `INSERT INTO node (entity_id, uid, key, context_id) VALUES ($1::bigint, $2::uuid, $3::jsonb, $4::bigint)
+     ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, removed`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string; removed: boolean }>(
+    sql,
     [entityId, uid, JSON.stringify(key), String(contextId)],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const created = made.rows[0];
   if (created !== undefined) {
     journal?.declaredVertex(vertex.name, uid, created.id, key);
     return { nodeId: created.id, uid, created: true, revived: false };
   }
-  const held = await executor.query<{ id: string; removed: boolean }>(`SELECT id::text AS id, removed FROM node WHERE uid = $1::uuid`, [uid]);
+  const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT id::text AS id, removed FROM node WHERE uid = $1::uuid`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string; removed: boolean }>(sql, [uid]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const row = held.rows[0];
   if (row === undefined) throw new Error(`${WHERE}:1: the node of ${JSON.stringify(draft.kind)} and ${JSON.stringify(key)} was declared and the store holds neither it nor a keyless echo`);
   if (!row.removed) return { nodeId: row.id, uid, created: false, revived: false };
-  await executor.query(`UPDATE node SET removed = false WHERE id = $1::bigint`, [row.id]);
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `UPDATE node SET removed = false WHERE id = $1::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(sql, [row.id]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   journal?.declaredVertex(vertex.name, uid, row.id, key);
   return { nodeId: row.id, uid, created: false, revived: true };
 }
@@ -424,16 +460,34 @@ async function declareVertices(executor: SqlExecutor, contract: GraphContract, d
     });
     const entityIds = new Map<string, string>();
     for (const item of prepared) if (!entityIds.has(item.draft.kind)) entityIds.set(item.draft.kind, await entityIdOf(executor, item.draft.kind, 'node'));
-    const made = await executor.query<{ id: string; uid: string }>(
-      `INSERT INTO node (entity_id, uid, key, context_id) SELECT x.entity_id, x.uid, x.key, $2::bigint
+    const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `INSERT INTO node (entity_id, uid, key, context_id) SELECT x.entity_id, x.uid, x.key, $2::bigint
        FROM jsonb_to_recordset($1::jsonb) AS x(entity_id bigint, uid uuid, key jsonb)
-       ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, uid::text AS uid`,
+       ON CONFLICT (uid) DO NOTHING RETURNING id::text AS id, uid::text AS uid`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ id: string; uid: string }>(
+      sql,
       [JSON.stringify(prepared.map(item => ({ entity_id: entityIds.get(item.draft.kind), uid: item.uid, key: item.key }))), String(contextId)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const created = new Set(made.rows.map(row => row.uid));
-    const held = await executor.query<{ id: string; uid: string; removed: boolean }>(`SELECT id::text AS id, uid::text AS uid, removed FROM node WHERE uid = ANY($1::uuid[])`, [prepared.map(item => item.uid)]);
+    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT id::text AS id, uid::text AS uid, removed FROM node WHERE uid = ANY($1::uuid[])`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ id: string; uid: string; removed: boolean }>(sql, [prepared.map(item => item.uid)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const byUid = new Map(held.rows.map(row => [row.uid, row]));
     const removed = held.rows.filter(row => row.removed);
-    if (removed.length > 0) await executor.query(`UPDATE node SET removed = false WHERE id = ANY($1::bigint[])`, [removed.map(row => row.id)]);
+    if (removed.length > 0) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `UPDATE node SET removed = false WHERE id = ANY($1::bigint[])`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(sql, [removed.map(row => row.id)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const announced = new Set<string>();
     for (const item of prepared) {
       const row = byUid.get(item.uid);
@@ -536,16 +590,28 @@ async function stateOpinions(executor: SqlExecutor, entity: string, table: strin
     const batch = inputs.slice(at, end);
     const ownerUids = new Map<string, string>();
     if (owner === 'node_id' && batch.some(input => input.nodeUid === undefined)) {
-      const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`, [batch.map(input => input.ownerId)]);
+      const nodes = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT id::text AS id, uid::text AS uid FROM node WHERE id = ANY($1::bigint[])`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query<{ id: string; uid: string }>(sql, [batch.map(input => input.ownerId)]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       for (const node of nodes.rows) ownerUids.set(node.id, node.uid);
     }
-    const held = await executor.query<Record<string, unknown>>(
-      `SELECT DISTINCT ON (o.${owner}, split_part(o.said_by, '@', 1), o.lang) o.*, o.id::text AS id, o.${owner}::text AS owner_id${owner === 'node_id' ? ', n.uid::text AS owner_uid' : ''}
+    const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT DISTINCT ON (o.${owner}, split_part(o.said_by, '@', 1), o.lang) o.*, o.id::text AS id, o.${owner}::text AS owner_id${owner === 'node_id' ? ', n.uid::text AS owner_uid' : ''}
        FROM ${table} o ${owner === 'node_id' ? 'JOIN node n ON n.id = o.node_id' : ''}
        WHERE o.${owner} = ANY($1::bigint[]) AND o.context_id = $2::bigint AND o.state = 'open'
-       ORDER BY o.${owner}, split_part(o.said_by, '@', 1), o.lang, o.id DESC`,
+       ORDER BY o.${owner}, split_part(o.said_by, '@', 1), o.lang, o.id DESC`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<Record<string, unknown>>(
+      sql,
       [batch.map(input => input.ownerId), String(contextId)],
     );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const openByIdentity = new Map(held.rows.map(row => [JSON.stringify([String(row['owner_id']), String(row['said_by']).split('@')[0], row['lang'] as string | null]), row]));
     const plans = batch.map(input => {
       const open = openByIdentity.get(opinionIdentity(input.ownerId, input.saidBy, input.lang));
@@ -564,12 +630,24 @@ async function stateOpinions(executor: SqlExecutor, entity: string, table: strin
       return { input, open, values, evidence, stated, action };
     });
     const closing = plans.filter(plan => plan.action === 'opened' && plan.open !== undefined);
-    if (closing.length > 0) await executor.query(`UPDATE ${table} SET state = 'closed' WHERE id = ANY($1::bigint[])`, [closing.map(plan => String(plan.open!['id']))]);
+    if (closing.length > 0) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `UPDATE ${table} SET state = 'closed' WHERE id = ANY($1::bigint[])`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(sql, [closing.map(plan => String(plan.open!['id']))]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const reEvidence = plans.filter(plan => plan.action === 're-evidenced');
-    if (reEvidence.length > 0) await executor.query(
-      `UPDATE ${table} o SET evidence = changed.evidence FROM jsonb_to_recordset($1::jsonb) AS changed(id bigint, evidence jsonb) WHERE o.id = changed.id`,
+    if (reEvidence.length > 0) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `UPDATE ${table} o SET evidence = changed.evidence FROM jsonb_to_recordset($1::jsonb) AS changed(id bigint, evidence jsonb) WHERE o.id = changed.id`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+      sql,
       [JSON.stringify(reEvidence.map(plan => ({ id: String(plan.open!['id']), evidence: plan.evidence })))],
     );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const opening = plans.filter(plan => plan.action === 'opened');
     const madeByIdentity = new Map<string, Record<string, unknown>>();
     if (opening.length > 0) {
@@ -579,9 +657,15 @@ async function stateOpinions(executor: SqlExecutor, entity: string, table: strin
         const values = [...fields.map(field => paramOf(plan.values.get(field))), plan.input.saidBy, plan.input.lang, canonicalJson(plan.evidence), plan.input.translation?.translatedFrom ?? null, plan.input.translation?.sourceDigest ?? null, String(contextId), plan.input.ownerId];
         return `(${values.map(value => { params.push(value); return `$${params.length}`; }).join(', ')})`;
       });
-      const made = await executor.query<Record<string, unknown>>(
-        `INSERT INTO ${table} (${columns.map(column => quote(column, 'column')).join(', ')}) VALUES ${rows.join(', ')}
-         RETURNING id::text AS id, ${owner}::text AS owner_id, said_by, lang, to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, translated_from::text AS translated_from, source_digest`, params);
+      const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `INSERT INTO ${table} (${columns.map(column => quote(column, 'column')).join(', ')}) VALUES ${rows.join(', ')}
+         RETURNING id::text AS id, ${owner}::text AS owner_id, said_by, lang, to_char(said_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || 'Z' AS said_at, translated_from::text AS translated_from, source_digest`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query<Record<string, unknown>>(
+        sql, params);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       for (const row of made.rows) madeByIdentity.set(opinionIdentity(String(row['owner_id']), String(row['said_by']), row['lang'] as string | null), row);
     }
     for (const plan of plans) {
@@ -625,26 +709,56 @@ export async function publishOpinion(executor: SqlExecutor, contract: GraphContr
 export async function withdrawEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, producer: string, journal?: Journal): Promise<boolean> {
   journal = heldJournal(executor, journal);
   const kind = edgeOfKind(contract, kindName);
-  const held = await executor.query<{ from_uid: string; to_uid: string; discriminator: string; context_id: string }>(
-    `SELECT fn.uid::text AS from_uid, tn.uid::text AS to_uid, e.discriminator, e.context_id::text AS context_id
-     FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint FOR UPDATE OF e`, [edgeId]);
+  const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT fn.uid::text AS from_uid, tn.uid::text AS to_uid, e.discriminator, e.context_id::text AS context_id
+     FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint FOR UPDATE OF e`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ from_uid: string; to_uid: string; discriminator: string; context_id: string }>(
+    sql, [edgeId]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const row = held.rows[0];
   if (row === undefined) return false;
-  const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    `UPDATE ${kind.table} SET "state" = 'closed' WHERE "edge_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
+  const closed = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `UPDATE ${kind.table} SET "state" = 'closed' WHERE "edge_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string; said_by: string; lang: string | null }>(
+    sql,
     [edgeId, producer, row.context_id],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   if (closed.rows.length === 0) return false;
   for (const one of closed.rows) journal?.opinion({ id: one.id, entity: kind.name, edge: edgeId, state: 'closed', fields: [], lang: one.lang, said_by: one.said_by });
-  const open = await executor.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM ${kind.table} WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`,
+  const open = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT count(*)::text AS n FROM ${kind.table} WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ n: string }>(
+    sql,
     [edgeId, row.context_id],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   if (Number(open.rows[0]?.n ?? '0') > 0) return true;
   // No open opinion of any producer remains: the edge row goes, and its rows with it — a consistent cascade, the closes
   // kept in the journal as the history of every producer that stated it.
-  await executor.query(`DELETE FROM ${kind.table} WHERE "edge_id" = $1::bigint`, [edgeId]);
-  await executor.query(`DELETE FROM edge WHERE id = $1::bigint`, [edgeId]);
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `DELETE FROM ${kind.table} WHERE "edge_id" = $1::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(sql, [edgeId]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `DELETE FROM edge WHERE id = $1::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(sql, [edgeId]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   journal?.removedEdge(kindName, edgeId, row.from_uid, row.to_uid, row.discriminator, Number(row.context_id));
   return true;
 }
@@ -660,7 +774,13 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
   if (vertex.key.length === 0 && draft.uid === undefined) throw new Error(`${WHERE}:1: withdrawing a keyless entity requires its uid`);
   const uid = draft.uid ?? keyUid(vertex.name, [JSON.stringify(key)]);
-  const node = await executor.query<{ id: string }>(`SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = $3::bigint FOR UPDATE OF n`, [uid, vertex.name, String(contextId)]);
+  const node = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT n.id::text AS id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = $3::bigint FOR UPDATE OF n`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string }>(sql, [uid, vertex.name, String(contextId)]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const nodeId = node.rows[0]?.id;
   if (nodeId === undefined) return false;
   const preserved: string[] = [];
@@ -668,9 +788,15 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   if (draft.selectedFields !== undefined && draft.withdrawAll !== true) {
     const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
     const selected = new Set(draft.selectedFields);
-    const standing = await executor.query<Record<string, unknown>>(
-      `SELECT * FROM ${vertex.table} WHERE node_id = $1::bigint AND split_part(said_by, '@', 1) = $2 AND state = 'open' AND context_id = $3::bigint`,
+    const standing = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT * FROM ${vertex.table} WHERE node_id = $1::bigint AND split_part(said_by, '@', 1) = $2 AND state = 'open' AND context_id = $3::bigint`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<Record<string, unknown>>(
+      sql,
       [nodeId, draft.producer, String(contextId)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     for (const row of standing.rows) {
       if (!fields.some((field) => !selected.has(field) && row[field] != null)) continue;
       scopedChanged = await stateOpinion(executor, vertex.name, vertex.table, 'node_id', nodeId, String(row['said_by']),
@@ -680,35 +806,65 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
       preserved.push(row['lang'] === null ? '' : String(row['lang']));
     }
   }
-  const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
-    `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint AND NOT (COALESCE(lang, '') = ANY($5::text[])) RETURNING "id"::text AS id, "said_by", "lang"`,
+  const closed = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `UPDATE ${vertex.table} SET "state" = 'closed', "confirmed_field" = NULL WHERE "node_id" = $1::bigint AND (split_part("said_by", '@', 1) = $2 OR $4::boolean) AND ("state" = 'open' OR ($4::boolean AND "state" = 'confirmed')) AND "context_id" = $3::bigint AND NOT (COALESCE(lang, '') = ANY($5::text[])) RETURNING "id"::text AS id, "said_by", "lang"`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string; said_by: string; lang: string | null }>(
+    sql,
     [nodeId, draft.producer, String(contextId), draft.withdrawAll === true, preserved],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   // A withdrawal that withdrew nothing states nothing: no close, and no removal of a vertex that stands (codex, stage 2
   // review, item 4). A repeated ineffective withdrawal is not a change and writes no row.
   if (closed.rows.length === 0) return scopedChanged;
   for (const row of closed.rows) journal?.opinion({ id: row.id, entity: vertex.name, node: uid, state: 'closed', fields: [], lang: row.lang, said_by: row.said_by });
-  const open = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [nodeId, String(contextId)]);
+  const open = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT count(*)::text AS n FROM ${vertex.table} WHERE "node_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ n: string }>(sql, [nodeId, String(contextId)]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const vertexOpen = Number(open.rows[0]?.n ?? '0') > 0;
   // This producer's incident edges are withdrawn on every entity retraction, even while another producer's opinion of
   // the vertex stands: a retraction states what this producer no longer holds, edges included. An edge another
   // producer still states keeps its end, so the vertex stays as an identity for it (owner's review of def819cd, item 1).
-  const incident = await executor.query<{ id: string; kind: string }>(
-    `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
-     WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`, [nodeId],
+  const incident = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT e.id::text AS id, k.name AS kind FROM edge e JOIN entity k ON k.id = e.entity_id
+     WHERE e.from_node = $1::bigint OR e.to_node = $1::bigint ORDER BY e.id`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string; kind: string }>(
+    sql, [nodeId],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   let blocked = false;
   for (const edge of incident.rows) {
     await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal);
     const table = contract.edge.find((one) => one.name === edge.kind)?.table;
     if (table === undefined) continue;
-    const stillOpen = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [edge.id, String(contextId)]);
+    const stillOpen = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ n: string }>(sql, [edge.id, String(contextId)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     if (Number(stillOpen.rows[0]?.n ?? '0') > 0) blocked = true;
   }
   const stillRemoved = !vertexOpen && !blocked;
   // The vertex is journaled as removed only where no open opinion of any producer remains and no incident edge does.
   if (stillRemoved) journal?.removedVertex(vertex.name, uid, nodeId);
-  await executor.query(`UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`, [nodeId, stillRemoved]);
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `UPDATE node SET removed = $2::boolean WHERE id = $1::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(sql, [nodeId, stillRemoved]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   return true;
 }
 
@@ -732,12 +888,18 @@ export interface UnresolvedReference {
 
 /** Records one unresolved reference; the same one stated twice — by one producer — stands once. */
 async function recordUnresolved(executor: SqlExecutor, reference: UnresolvedReference): Promise<void> {
-  await executor.query(
-    `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
      VALUES ($1::bigint, $2, $3, $4, $5::jsonb, $6, $7::bigint, $8, $9::bigint)
-     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`,
+     ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(
+    sql,
     [reference.referrer, reference.edgeEntity ?? null, reference.field, reference.targetEntity, JSON.stringify(reference.targetKey), reference.producer, reference.against ?? null, reference.discriminator ?? null, String(reference.contextId)],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
 }
 
 /** The reference one key field names, when the field is a reference; undefined for a plain value. */
@@ -761,7 +923,13 @@ async function checkKeyReferences(executor: SqlExecutor, contract: GraphContract
     const targetKey = canonicalKeyOf(contract, target, ref.key, `the reference ${JSON.stringify(field)}`);
     if (await referencedNodeOf(executor, contract, ref, `the key field ${JSON.stringify(field)} of ${JSON.stringify(kind)}`) !== undefined) {
       // The reference stands now: the record of its not standing goes.
-      await executor.query(`DELETE FROM unresolved_reference WHERE referrer_node = $1::bigint AND edge_entity IS NULL AND field = $2 AND target_entity = $3 AND target_key = $4::jsonb AND producer = $5 AND context_id = $6::bigint`, [nodeId, field, ref.kind, JSON.stringify(targetKey), producer, String(contextId)]);
+      await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `DELETE FROM unresolved_reference WHERE referrer_node = $1::bigint AND edge_entity IS NULL AND field = $2 AND target_entity = $3 AND target_key = $4::jsonb AND producer = $5 AND context_id = $6::bigint`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query(sql, [nodeId, field, ref.kind, JSON.stringify(targetKey), producer, String(contextId)]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       continue;
     }
     await recordUnresolved(executor, { referrer: nodeId, edgeEntity: null, field, targetEntity: ref.kind, targetKey, producer, against: null, contextId });
@@ -799,11 +967,17 @@ async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, d
   const from = await referencedNodeOf(executor, contract, draft.from, `the from of the removed edge ${JSON.stringify(draft.kind)}`);
   const to = await referencedNodeOf(executor, contract, draft.to, `the to of the removed edge ${JSON.stringify(draft.kind)}`);
   if (from === undefined || to === undefined) return false;
-  const found = await executor.query<{ id: string }>(
-    `SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
-     WHERE e.from_node = $2::bigint AND e.to_node = $3::bigint AND e.discriminator = $4 AND e.context_id = $5::bigint`,
+  const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT e.id::text AS id FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1
+     WHERE e.from_node = $2::bigint AND e.to_node = $3::bigint AND e.discriminator = $4 AND e.context_id = $5::bigint`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ id: string }>(
+    sql,
     [draft.kind, from, to, draft.discriminator ?? '', String(contextId)],
   );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const id = found.rows[0]?.id;
   if (id === undefined) return false;
   return await withdrawEdge(executor, contract, draft.kind, id, draft.producer, journal);
@@ -850,7 +1024,13 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
       const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key ?? {}), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
       return { ref, key, uid: ref.uid ?? keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
     }));
-    const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
+    const nodes = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ id: string; uid: string }>(sql, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const byUid = new Map(nodes.rows.map(node => [node.uid, node.id]));
     const missing: Record<string, unknown>[] = [];
     const resolved: { draft: EdgeDraft; from: string; to: string; fromUid: string; toUid: string; discriminator: string }[] = [];
@@ -877,14 +1057,26 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
     if (resolved.length > 0) {
       const entityId = await entityIdOf(executor, firstKind, 'edge');
       const payload = JSON.stringify(resolved.map(row => ({ from_node: row.from, to_node: row.to, discriminator: row.discriminator })));
-      const made = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-        `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id)
+      const made = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id)
          SELECT $2::bigint, x.from_node, x.to_node, x.discriminator, $3::bigint FROM jsonb_to_recordset($1::jsonb) AS x(from_node bigint, to_node bigint, discriminator text)
-         ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator`, [payload, entityId, String(contextId)]);
-      const held = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-        `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator FROM edge e
+         ON CONFLICT (entity_id, from_node, to_node, discriminator, context_id) DO NOTHING RETURNING id::text AS id, from_node::text AS from_node, to_node::text AS to_node, discriminator`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
+        sql, [payload, entityId, String(contextId)]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
+      const held = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator FROM edge e
          JOIN jsonb_to_recordset($1::jsonb) AS x(from_node bigint, to_node bigint, discriminator text) ON e.from_node = x.from_node AND e.to_node = x.to_node AND e.discriminator = x.discriminator
-         WHERE e.entity_id = $2::bigint AND e.context_id = $3::bigint`, [payload, entityId, String(contextId)]);
+         WHERE e.entity_id = $2::bigint AND e.context_id = $3::bigint`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
+        sql, [payload, entityId, String(contextId)]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       const edgeKey = (row: { from_node: string; to_node: string; discriminator: string }): string => JSON.stringify([row.from_node, row.to_node, row.discriminator]);
       const byKey = new Map(held.rows.map(row => [edgeKey(row), row.id]));
       const created = new Set(made.rows.map(row => row.id));
@@ -909,15 +1101,27 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
       let stop = index + 1;
       while (stop < referenceActions.length && (referenceActions[stop]!.resolved === undefined) === unresolved) stop += 1;
       const actions = referenceActions.slice(index, stop);
-      if (unresolved) await executor.query(
-      `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
+      if (unresolved) await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `INSERT INTO unresolved_reference (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id)
        SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(referrer_node bigint, edge_entity text, field text, target_entity text, target_key jsonb, producer text, against_node bigint, edge_discriminator text, context_id bigint)
-       ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`, [JSON.stringify(actions.flatMap(action => action.missing))]);
-      else await executor.query(
-        `DELETE FROM unresolved_reference u USING jsonb_to_recordset($1::jsonb) AS x(edge_entity text, producer text, context_id bigint, from_node bigint, to_node bigint, discriminator text)
+       ON CONFLICT (referrer_node, edge_entity, field, target_entity, target_key, producer, against_node, edge_discriminator, context_id) DO NOTHING`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query(
+      sql, [JSON.stringify(actions.flatMap(action => action.missing))]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
+      else await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `DELETE FROM unresolved_reference u USING jsonb_to_recordset($1::jsonb) AS x(edge_entity text, producer text, context_id bigint, from_node bigint, to_node bigint, discriminator text)
          WHERE u.edge_entity = x.edge_entity AND u.producer = x.producer AND u.context_id = x.context_id AND u.edge_discriminator = x.discriminator
-         AND (u.referrer_node = x.from_node OR u.referrer_node = x.to_node OR u.referrer_node IS NULL)`,
+         AND (u.referrer_node = x.from_node OR u.referrer_node = x.to_node OR u.referrer_node IS NULL)`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query(
+        sql,
         [JSON.stringify(actions.flatMap(action => action.resolved === undefined ? [] : [action.resolved]).map(row => ({ edge_entity: firstKind, producer: `${row.draft.producer}@${row.draft.producerVersion}`, context_id: contextId, from_node: row.from, to_node: row.to, discriminator: row.discriminator }))) ]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       index = stop;
     }
     at = end;

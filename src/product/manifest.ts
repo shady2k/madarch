@@ -25,6 +25,7 @@
  * opens.
  */
 import { basename, join, resolve } from 'node:path';
+import { withSpanSync } from '../obs/trace.js';
 import { readFileSync } from 'node:fs';
 
 /** The schema version madarch writes and reads; the folder layout is fixed by it alone. */
@@ -451,7 +452,7 @@ function isFolderName(name: unknown): name is string {
 
 /** The exact manifest text, kept by lifecycle edits for byte-for-byte rollback. */
 export function readManifestText(productFolder: string): string {
-  return readFileSync(join(productFolder, MANIFEST_FILE), 'utf8');
+  return withSpanSync('fs.read', { 'file.path': join(productFolder, MANIFEST_FILE) }, (span) => { const answer = readFileSync(join(productFolder, MANIFEST_FILE), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(answer)); return answer; });
 }
 
 /** The declaration line of an already-known repository, for a lifecycle refusal. */

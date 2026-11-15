@@ -14,6 +14,7 @@
  * worker's file, so `Bun.main` answered a folder with no assets and the release
  * carried the vendored renderer unseen (madarch-64o5.97).
  */
+import { withSpanSync } from '../obs/trace.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +32,7 @@ export interface ReleaseRootReadings {
  */
 export function releaseRoot(readings: ReleaseRootReadings = {}): string {
   const modulePath = fileURLToPath(readings.moduleUrl ?? import.meta.url);
-  const bundle = /^(.*?[\\/](?:\$bunfs|~BUN)[\\/]root)/u.exec(modulePath)?.[1];
+  const bundle = modulePath.match(/^(.*?[\\/](?:\$bunfs|~BUN)[\\/]root)/u)?.[1];
   return bundle ?? dirname(dirname(dirname(modulePath)));
 }
 
@@ -55,7 +56,7 @@ export function embeddedWikiApp(root: string = releaseRoot()): string | undefine
  */
 export function releaseVersion(root: string = releaseRoot()): string | undefined {
   try {
-    const text = readFileSync(join(root, 'version'), 'utf8').trim();
+    const text = withSpanSync('fs.read', { 'file.path': join(root, 'version') }, (span) => { const held = readFileSync(join(root, 'version'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).trim();
     return text === '' ? undefined : text;
   } catch {
     // No file, or one that cannot be read: the checkout answers dev.
@@ -71,7 +72,7 @@ export function releaseVersion(root: string = releaseRoot()): string | undefined
 export function embeddedOwnWiki(root: string = releaseRoot()): { bundle: string; revision: string } | undefined {
   const folder = join(root, 'own-wiki');
   try {
-    const revision = readFileSync(join(folder, 'REVISION'), 'utf8').trim();
+    const revision = withSpanSync('fs.read', { 'file.path': join(folder, 'REVISION') }, (span) => { const held = readFileSync(join(folder, 'REVISION'), 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }).trim();
     if (revision !== '' && existsSync(join(folder, 'madarch-product.bundle'))) return { bundle: join(folder, 'madarch-product.bundle'), revision };
   } catch {
     // no copy embedded: the checkout's first start fetches it

@@ -27,6 +27,7 @@
  * its own work in that same transaction (the queue's settlement, for one) by
  * using `publishUnitIn` inside a transaction it opened.
  */
+import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
@@ -185,7 +186,7 @@ export async function recordUnitReadIn(
   options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number; readonly membership?: string },
 ): Promise<TrackedRead> {
   // Lock separately before allocating a sequence, so a waiter reads the preceding commit.
-  await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE') }, async (span) => { const answer = await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   return insertUnitReadIn(executor, options);
 }
 
@@ -195,7 +196,13 @@ async function insertUnitReadIn(executor: SqlExecutor, options: Parameters<typeo
   // stand. A span read names its own (`answerMembership`, `graph-reads.ts`): its bytes are its membership, and the
   // commit they were read at is not.
   const membership = options.membership ?? readMembership(options.rows);
-  const { rows: recorded } = await executor.query<{ read_seq: unknown }>(
+  const { rows: recorded } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
+     SELECT $1, $2, $3, $4, $5, $6, COALESCE(MAX(read_seq), 0) + 1, $7
+       FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
+     ON CONFLICT (unit_id, generation, query_digest) DO UPDATE
+       SET query = EXCLUDED.query, membership = EXCLUDED.membership, members = EXCLUDED.members,
+           read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
+     RETURNING read_seq`) }, async (span) => { const answer = await executor.query<{ read_seq: unknown }>(
     `INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
      SELECT $1, $2, $3, $4, $5, $6, COALESCE(MAX(read_seq), 0) + 1, $7
        FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
@@ -204,7 +211,7 @@ async function insertUnitReadIn(executor: SqlExecutor, options: Parameters<typeo
            read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
      RETURNING read_seq`,
     [options.unitId, options.generation, digest, options.query, membership, options.rows.length, options.at],
-  );
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   const seq = millis(recorded[0]!.read_seq);
   return { unitId: options.unitId, generation: options.generation, queryDigest: digest, query: options.query, membership, members: options.rows.length, seq, at: options.at };
 }
@@ -216,12 +223,28 @@ export async function recordUnitReads(database: OrchestratorDatabase, reads: rea
   if (reads.length === 1) return [await recordUnitRead(database, first)];
   if (reads.some((read) => read.unitId !== first.unitId || read.generation !== first.generation)) throw new Error('recordUnitReads requires one unit generation');
   return run(here(), database, `recordUnitReads(${first.unitId}/${first.generation})`, ['fill_unit_read'], async (executor) => {
-    await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [first.unitId, first.generation]);
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE') }, async (span) => { const answer = await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [first.unitId, first.generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const payload = reads.map((read, index) => ({
       ord: index + 1, query_digest: queryDigest(read.query), query: read.query,
       membership: read.membership ?? readMembership(read.rows), members: read.rows.length, at: read.at,
     }));
-    const { rows } = await executor.query<{ seq: unknown }>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`WITH input AS MATERIALIZED (
+         SELECT * FROM jsonb_to_recordset($3::jsonb)
+           AS r(ord integer, query_digest text, query text, membership text, members integer, at bigint)
+       ), base AS MATERIALIZED (
+         SELECT COALESCE(MAX(read_seq), 0) AS seq FROM fill_unit_read WHERE unit_id = $1 AND generation = $2
+       ), latest AS (
+         SELECT DISTINCT ON (query_digest) * FROM input ORDER BY query_digest, ord DESC
+       ), saved AS (
+         INSERT INTO fill_unit_read (unit_id, generation, query_digest, query, membership, members, read_seq, at)
+         SELECT $1, $2, latest.query_digest, latest.query, latest.membership, latest.members, base.seq + latest.ord, latest.at
+         FROM latest CROSS JOIN base WHERE true
+         ON CONFLICT (unit_id, generation, query_digest) DO UPDATE
+           SET query = EXCLUDED.query, membership = EXCLUDED.membership, members = EXCLUDED.members,
+               read_seq = EXCLUDED.read_seq, at = EXCLUDED.at
+         RETURNING read_seq
+       )
+       SELECT base.seq FROM base CROSS JOIN (SELECT count(*) FROM saved) AS written`) }, async (span) => { const answer = await executor.query<{ seq: unknown }>(
       `WITH input AS MATERIALIZED (
          SELECT * FROM jsonb_to_recordset($3::jsonb)
            AS r(ord integer, query_digest text, query text, membership text, members integer, at bigint)
@@ -240,7 +263,7 @@ export async function recordUnitReads(database: OrchestratorDatabase, reads: rea
        )
        SELECT base.seq FROM base CROSS JOIN (SELECT count(*) FROM saved) AS written`,
       [first.unitId, first.generation, JSON.stringify(payload)],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const base = millis(rows[0]!.seq);
     // Every call allocates a sequence, even when a later duplicate replaces its stored row.
     return payload.map((read) => ({
@@ -254,10 +277,10 @@ export async function recordUnitReads(database: OrchestratorDatabase, reads: rea
 export async function readUnitReads(database: OrchestratorDatabase, unitId: string, generation: number): Promise<readonly TrackedRead[]> {
   const at = here();
   return run(at, database, `readUnitReads(${unitId}/${generation})`, ['fill_unit_read'], async (executor) => {
-    const { rows } = await executor.query<ReadRow>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id, generation, query_digest, query, membership, members, read_seq, at FROM fill_unit_read WHERE unit_id = $1 AND generation = $2 ORDER BY read_seq ASC') }, async (span) => { const answer = await executor.query<ReadRow>(
       'SELECT unit_id, generation, query_digest, query, membership, members, read_seq, at FROM fill_unit_read WHERE unit_id = $1 AND generation = $2 ORDER BY read_seq ASC',
       [unitId, generation],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows.map(readRecord);
   }, 'snapshot');
 }
@@ -312,27 +335,32 @@ export async function recordUnitDraftIn(
   const digest = draftDigest(options.writes);
   // The row holds the digest and the times; the writes are its parts, replaced whole, so a set recorded
   // again is the new set and nothing of the one before it.
-  await executor.query(
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at, retracted_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5, NULL)
+     ON CONFLICT (unit_id, generation) DO UPDATE
+       SET digest = EXCLUDED.digest, writes = EXCLUDED.writes, recorded_at = EXCLUDED.recorded_at, retracted_at = NULL`) }, async (span) => { const answer = await executor.query(
     `INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at, retracted_at)
      VALUES ($1, $2, $3, $4::jsonb, $5, NULL)
      ON CONFLICT (unit_id, generation) DO UPDATE
        SET digest = EXCLUDED.digest, writes = EXCLUDED.writes, recorded_at = EXCLUDED.recorded_at, retracted_at = NULL`,
     [options.unitId, options.generation, digest, EMPTY_WRITES, options.at],
-  );
-  await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]);
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
+await withSpan('draft.parts', { 'db.system': 'postgres', 'draft.writes': options.writes.length }, async () => {
   for (let at = 0, part = 0; at < options.writes.length; at += DRAFT_PART_WRITES, part += 1) {
     await executor.query(
       'INSERT INTO fill_unit_draft_part (unit_id, generation, part, writes) VALUES ($1, $2, $3, $4::jsonb)',
       [options.unitId, options.generation, part, json(options.writes.slice(at, at + DRAFT_PART_WRITES))],
     );
   }
+  });
   return { unitId: options.unitId, generation: options.generation, digest, writes: options.writes, recordedAt: options.at, retractedAt: null };
 }
 
 
 /** The draft set of one unit generation inside a transaction the caller already opened. */
 export async function readUnitDraftIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftRecord | null> {
-  const { rows } = await executor.query<DraftRow>('SELECT unit_id, generation, digest, writes, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
+  const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id, generation, digest, writes, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query<DraftRow>('SELECT unit_id, generation, digest, writes, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   if (rows[0] === undefined) return null;
   const [whole] = await withDraftParts(executor, [rows[0]]);
   return draftRecord(whole as DraftRow);
@@ -372,13 +400,16 @@ export async function withDraftParts<R extends { readonly unit_id: unknown; read
   rows: readonly R[],
 ): Promise<readonly R[]> {
   if (rows.length === 0) return rows;
-  const { rows: parts } = await executor.query<{ unit_id: string; generation: unknown; writes: unknown }>(
+  const { rows: parts } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT p.unit_id, p.generation, p.writes
+       FROM fill_unit_draft_part p
+       JOIN unnest($1::text[], $2::integer[]) AS k(unit_id, generation) ON k.unit_id = p.unit_id AND k.generation = p.generation
+      ORDER BY p.unit_id, p.generation, p.part`) }, async (span) => { const answer = await executor.query<{ unit_id: string; generation: unknown; writes: unknown }>(
     `SELECT p.unit_id, p.generation, p.writes
        FROM fill_unit_draft_part p
        JOIN unnest($1::text[], $2::integer[]) AS k(unit_id, generation) ON k.unit_id = p.unit_id AND k.generation = p.generation
       ORDER BY p.unit_id, p.generation, p.part`,
     [rows.map((row) => String(row.unit_id)), rows.map((row) => Number(row.generation))],
-  );
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   const byKey = new Map<string, unknown[]>();
   for (const part of parts) {
     const key = `${part.unit_id}\u0000${String(Number(part.generation))}`;
@@ -415,7 +446,7 @@ interface DraftHeadRow extends Record<string, unknown> { unit_id: string; genera
  * the largest allocation of a repository-wide unit's publication.
  */
 async function readUnitDraftHeadIn(executor: SqlExecutor, unitId: string, generation: number): Promise<DraftHead | null> {
-  const { rows } = await executor.query<DraftHeadRow>('SELECT unit_id, generation, digest, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
+  const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id, generation, digest, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query<DraftHeadRow>('SELECT unit_id, generation, digest, recorded_at, retracted_at FROM fill_unit_draft WHERE unit_id = $1 AND generation = $2', [unitId, generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   const row = rows[0];
   if (row === undefined) return null;
   return {
@@ -454,7 +485,7 @@ export async function retractUnitDraft(database: OrchestratorDatabase, options: 
  * memory peak (madarch-tzte.21.11, the review of its publication path).
  */
 async function retractUnitDraftIn(executor: SqlExecutor, options: { readonly unitId: string; readonly generation: number; readonly at: number }): Promise<DraftHead | null> {
-  await executor.query('UPDATE fill_unit_draft SET retracted_at = COALESCE(retracted_at, $3) WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, options.at]);
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('UPDATE fill_unit_draft SET retracted_at = COALESCE(retracted_at, $3) WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query('UPDATE fill_unit_draft SET retracted_at = COALESCE(retracted_at, $3) WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, options.at]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   return await readUnitDraftHeadIn(executor, options.unitId, options.generation);
 }
 
@@ -477,6 +508,7 @@ export async function sealSplitIn(
   executor: SqlExecutor,
   options: { readonly parentUnitId: string; readonly parentGeneration: number; readonly children: readonly { readonly unitId: string; readonly generation: number }[]; readonly at: number },
 ): Promise<readonly SealedChild[]> {
+await withSpan('split.seal', { 'db.system': 'postgres', 'split.children': options.children.length }, async () => {
   for (const child of options.children) {
     await executor.query(
       `INSERT INTO fill_unit_split (parent_unit_id, parent_generation, child_unit_id, child_generation, sealed_at)
@@ -485,6 +517,7 @@ export async function sealSplitIn(
       [options.parentUnitId, options.parentGeneration, child.unitId, child.generation, options.at],
     );
   }
+  });
   return options.children.map((child) => ({ unitId: child.unitId, generation: child.generation, sealedAt: options.at }));
 }
 
@@ -492,10 +525,10 @@ export async function sealSplitIn(
 export async function readSealedChildren(database: OrchestratorDatabase, parentUnitId: string, parentGeneration: number): Promise<readonly SealedChild[]> {
   const at = here();
   return run(at, database, `readSealedChildren(${parentUnitId}/${parentGeneration})`, ['fill_unit_split'], async (executor) => {
-    const { rows } = await executor.query<SplitRow>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT parent_unit_id, parent_generation, child_unit_id, child_generation, sealed_at FROM fill_unit_split WHERE parent_unit_id = $1 AND parent_generation = $2 ORDER BY child_unit_id ASC') }, async (span) => { const answer = await executor.query<SplitRow>(
       'SELECT parent_unit_id, parent_generation, child_unit_id, child_generation, sealed_at FROM fill_unit_split WHERE parent_unit_id = $1 AND parent_generation = $2 ORDER BY child_unit_id ASC',
       [parentUnitId, parentGeneration],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows
       .map((row) => ({ unitId: row.child_unit_id, generation: millis(row.child_generation), sealedAt: millis(row.sealed_at) }))
       .sort((left, right) => byCodePoint(left.unitId, right.unitId));
@@ -510,10 +543,10 @@ export async function readSealedChildren(database: OrchestratorDatabase, parentU
 export async function readSplitParents(database: OrchestratorDatabase, unitId: string, generation: number): Promise<readonly SealedChild[]> {
   const at = here();
   return run(at, database, `readSplitParents(${unitId}/${generation})`, ['fill_unit_split'], async (executor) => {
-    const { rows } = await executor.query<SplitRow>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT parent_unit_id, parent_generation, child_unit_id, child_generation, sealed_at FROM fill_unit_split WHERE child_unit_id = $1 AND child_generation = $2') }, async (span) => { const answer = await executor.query<SplitRow>(
       'SELECT parent_unit_id, parent_generation, child_unit_id, child_generation, sealed_at FROM fill_unit_split WHERE child_unit_id = $1 AND child_generation = $2',
       [unitId, generation],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows.map((row) => ({ unitId: row.parent_unit_id, generation: millis(row.parent_generation), sealedAt: millis(row.sealed_at) }))
       .sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
@@ -646,9 +679,9 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   // each tracked read again, and a read is asked a page at a time (`READ_PAGE_ROWS`), so at the READ
   // COMMITTED level every caller's write transaction opens at, a fact another unit committed between two
   // pages of one read would stand outside the recheck's answer while the recorded membership still
-  // matched. It is the first statement of the transaction, which is the only moment PostgreSQL accepts a
+  // matched. withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength( statement of the tr) }, async (span) => { const answer = await It is the first statement of the tra; span.setAttribute('db.rows', answer.rows.length); return answer; })nsaction, which is the only moment PostgreSQL accepts a
   // level being set.
-  await executor.query(PUBLICATION_SNAPSHOT);
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(PUBLICATION_SNAPSHOT) }, async (span) => { const answer = await executor.query(PUBLICATION_SNAPSHOT); span.setAttribute('db.rows', answer.rows.length); return answer; });
 
   // The run's own control, inside the same transaction and under the run row's share lock: a run that is
   // cancelling or cancelled revokes the authority of everything it planned, and a failed run publishes
@@ -656,7 +689,7 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   // a cancellation's own write of the run's state waits for this publication to end, so an intent that
   // lands while a publication is under way is refused here instead of racing it. A pause drains, so a
   // publication already under way is allowed to finish — the pause's settlement waits for it.
-  const control = await executor.query<{ state: string }>(controlSql(true), [options.unitId, options.generation]);
+  const control = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(controlSql(true)) }, async (span) => { const answer = await executor.query<{ state: string }>(controlSql(true), [options.unitId, options.generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   const refusedControl = revokedAuthority(options.unitId, options.generation, control.rows[0]?.state);
   if (refusedControl !== null) return refusedControl;
 
@@ -718,7 +751,7 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
   // what the first read answered. It is kept as the statement that says so — an intent that reached the
   // run's row before this transaction took the snapshot is refused by the first read, and one that comes
   // after it waits on the share lock and lands once this publication has ended.
-  const rechecked = await executor.query<{ state: string }>(controlSql(false), [options.unitId, options.generation]);
+  const rechecked = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(controlSql(false)) }, async (span) => { const answer = await executor.query<{ state: string }>(controlSql(false), [options.unitId, options.generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   const refusedSince = revokedAuthority(options.unitId, options.generation, rechecked.rows[0]?.state);
   if (refusedSince !== null) return refusedSince;
 
@@ -735,15 +768,15 @@ export async function publishUnitIn(executor: SqlExecutor, options: PublicationR
     ? options.held.writes
     : (await readUnitDraftIn(executor, options.unitId, options.generation))?.writes ?? raise(`fill-publication: the draft set of unit "${options.unitId}" generation ${options.generation} was read for its digest and is gone when its writes are read, inside one transaction`);
   const facts = await options.apply(executor, writes, digest);
-  await executor.query(
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)') }, async (span) => { const answer = await executor.query(
     'INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ($1, $2, $3, $4, $5)',
     [options.unitId, options.generation, digest, facts, options.at],
-  );
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   // Static bulk facts discard their draft copy (madarch-tzte.21.11). Plugin outputs retain an immutable
   // generation snapshot: earlier-version reads must not substitute today's mutable open opinion.
   // The digest remains unchanged, so replay still judges the original complete draft set.
-  await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, json(retainedProducerOutcomes(writes, facts))]);
-  await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]);
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query('UPDATE fill_unit_draft SET writes = $3::jsonb WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation, json(retainedProducerOutcomes(writes, facts))]); span.setAttribute('db.rows', answer.rows.length); return answer; });
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query('DELETE FROM fill_unit_draft_part WHERE unit_id = $1 AND generation = $2', [options.unitId, options.generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   return {
     outcome: 'published',
     record: { unitId: options.unitId, generation: options.generation, digest, facts, publishedAt: options.at },
@@ -763,11 +796,12 @@ export interface FillEnd {
 export async function writeFillEnd(database: OrchestratorDatabase, end: FillEnd): Promise<void> {
   const at = here();
   await run(at, database, `writeFillEnd(${end.runId})`, ['fill_end'], async (executor) => {
-    await executor.query(
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_end (run_id, state, message, unread) VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (run_id) DO UPDATE SET state = $2, message = $3, unread = $4::jsonb, finished_at = now()`) }, async (span) => { const answer = await executor.query(
       `INSERT INTO fill_end (run_id, state, message, unread) VALUES ($1, $2, $3, $4::jsonb)
        ON CONFLICT (run_id) DO UPDATE SET state = $2, message = $3, unread = $4::jsonb, finished_at = now()`,
       [end.runId, end.state, end.message ?? null, end.unread === undefined ? null : JSON.stringify(end.unread)],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   }, 'write');
 }
 
@@ -775,7 +809,7 @@ export async function writeFillEnd(database: OrchestratorDatabase, end: FillEnd)
 export async function readFillEnd(database: OrchestratorDatabase, runId: string): Promise<FillEnd | null> {
   const at = here();
   return await run(at, database, `readFillEnd(${runId})`, ['fill_end'], async (executor) => {
-    const { rows } = await executor.query<{ state: string; message: string | null; unread: unknown }>('SELECT state, message, unread FROM fill_end WHERE run_id = $1', [runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT state, message, unread FROM fill_end WHERE run_id = $1') }, async (span) => { const answer = await executor.query<{ state: string; message: string | null; unread: unknown }>('SELECT state, message, unread FROM fill_end WHERE run_id = $1', [runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const row = rows[0];
     if (row === undefined) return null;
     return {
@@ -794,11 +828,12 @@ export async function readFillEnd(database: OrchestratorDatabase, runId: string)
 export async function askRunControl(database: OrchestratorDatabase, request: { readonly runId: string; readonly action: 'pause' | 'stop'; readonly at: number }): Promise<void> {
   const at = here();
   await run(at, database, `askRunControl(${request.runId})`, ['fill_control'], async (executor) => {
-    await executor.query(
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_control (run_id, action, at) VALUES ($1, $2, $3::bigint)
+       ON CONFLICT (run_id) DO UPDATE SET action = $2, at = $3::bigint`) }, async (span) => { const answer = await executor.query(
       `INSERT INTO fill_control (run_id, action, at) VALUES ($1, $2, $3::bigint)
        ON CONFLICT (run_id) DO UPDATE SET action = $2, at = $3::bigint`,
       [request.runId, request.action, String(request.at)],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   }, 'write');
 }
 
@@ -806,7 +841,7 @@ export async function askRunControl(database: OrchestratorDatabase, request: { r
 export async function readRunControl(database: OrchestratorDatabase, runId: string): Promise<'pause' | 'stop' | null> {
   const at = here();
   return await run(at, database, `readRunControl(${runId})`, ['fill_control'], async (executor) => {
-    const { rows } = await executor.query<{ action: string }>('DELETE FROM fill_control WHERE run_id = $1 RETURNING action', [runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('DELETE FROM fill_control WHERE run_id = $1 RETURNING action') }, async (span) => { const answer = await executor.query<{ action: string }>('DELETE FROM fill_control WHERE run_id = $1 RETURNING action', [runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const action = rows[0]?.action;
     return action === 'pause' || action === 'stop' ? action : null;
   }, 'write');
@@ -815,17 +850,17 @@ export async function readRunControl(database: OrchestratorDatabase, runId: stri
 
 /** One generation's publication record inside a transaction the caller already opened. */
 export async function readPublicationIn(executor: SqlExecutor, unitId: string, generation: number): Promise<PublicationRecord | null> {
-  const { rows } = await executor.query<PublicationRow>('SELECT unit_id, generation, digest, facts, published_at FROM fill_publication WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
+  const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id, generation, digest, facts, published_at FROM fill_publication WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query<PublicationRow>('SELECT unit_id, generation, digest, facts, published_at FROM fill_publication WHERE unit_id = $1 AND generation = $2', [unitId, generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
   return rows[0] === undefined ? null : publicationRecord(rows[0]);
 }
 
 
 /** Every tracked read of one generation inside a transaction the caller already opened. */
 async function readUnitReadsIn(executor: SqlExecutor, unitId: string, generation: number): Promise<readonly TrackedRead[]> {
-  const { rows } = await executor.query<ReadRow>(
+  const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id, generation, query_digest, query, membership, members, read_seq, at FROM fill_unit_read WHERE unit_id = $1 AND generation = $2 ORDER BY read_seq ASC') }, async (span) => { const answer = await executor.query<ReadRow>(
     'SELECT unit_id, generation, query_digest, query, membership, members, read_seq, at FROM fill_unit_read WHERE unit_id = $1 AND generation = $2 ORDER BY read_seq ASC',
     [unitId, generation],
-  );
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   return rows.map(readRecord);
 }
 
@@ -868,11 +903,11 @@ export async function recordRunConfiguration(
   const at = here();
   return run(at, database, `recordRunConfiguration(${options.runId})`, ['fill_run_configuration'], async (executor) => {
     if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
-    await executor.query(
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('INSERT INTO fill_run_configuration (run_id, digest, snapshot, recorded_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (run_id) DO NOTHING') }, async (span) => { const answer = await executor.query(
       'INSERT INTO fill_run_configuration (run_id, digest, snapshot, recorded_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (run_id) DO NOTHING',
       [options.runId, options.digest, json(options.snapshot), options.at],
-    );
-    const { rows } = await executor.query<RunConfigurationRow>('SELECT run_id, digest, snapshot, recorded_at FROM fill_run_configuration WHERE run_id = $1', [options.runId]);
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT run_id, digest, snapshot, recorded_at FROM fill_run_configuration WHERE run_id = $1') }, async (span) => { const answer = await executor.query<RunConfigurationRow>('SELECT run_id, digest, snapshot, recorded_at FROM fill_run_configuration WHERE run_id = $1', [options.runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const row = rows[0];
     if (row === undefined) raise(`table fill_run_configuration: no configuration for run ${options.runId} after writing it`);
     const snapshot = typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) as RunSnapshot : row.snapshot as RunSnapshot;
@@ -884,7 +919,7 @@ export async function recordRunConfiguration(
 export async function readRunConfiguration(database: OrchestratorDatabase, runId: string): Promise<RunConfigurationRecord | null> {
   const at = here();
   return run(at, database, `readRunConfiguration(${runId})`, ['fill_run_configuration'], async (executor) => {
-    const { rows } = await executor.query<RunConfigurationRow>('SELECT run_id, digest, snapshot, recorded_at FROM fill_run_configuration WHERE run_id = $1', [runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT run_id, digest, snapshot, recorded_at FROM fill_run_configuration WHERE run_id = $1') }, async (span) => { const answer = await executor.query<RunConfigurationRow>('SELECT run_id, digest, snapshot, recorded_at FROM fill_run_configuration WHERE run_id = $1', [runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const row = rows[0];
     if (row === undefined) return null;
     const snapshot = typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) as RunSnapshot : row.snapshot as RunSnapshot;
@@ -923,11 +958,12 @@ export async function recordRunStagePlanned(
   const at = here();
   return run(at, database, `recordRunStagePlanned(${options.runId}/${options.stageId})`, ['fill_run_stage'], async (executor) => {
     if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
-    await executor.query(
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_run_stage (run_id, stage_id, planned_at, units, publications) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (run_id, stage_id) DO UPDATE SET planned_at = EXCLUDED.planned_at, units = EXCLUDED.units, publications = EXCLUDED.publications`) }, async (span) => { const answer = await executor.query(
       `INSERT INTO fill_run_stage (run_id, stage_id, planned_at, units, publications) VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (run_id, stage_id) DO UPDATE SET planned_at = EXCLUDED.planned_at, units = EXCLUDED.units, publications = EXCLUDED.publications`,
       [options.runId, options.stageId, options.at, options.units, options.publications],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return { runId: options.runId, stageId: options.stageId, plannedAt: options.at, units: options.units, publications: options.publications };
   }, 'write');
 }
@@ -936,10 +972,10 @@ export async function recordRunStagePlanned(
 export async function readRunStagePlans(database: OrchestratorDatabase, runId: string): Promise<readonly RunStageRecord[]> {
   const at = here();
   return run(at, database, `readRunStagePlans(${runId})`, ['fill_run_stage'], async (executor) => {
-    const { rows } = await executor.query<{ stage_id: string; planned_at: unknown; units: unknown; publications: unknown }>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT stage_id, planned_at, units, publications FROM fill_run_stage WHERE run_id = $1 ORDER BY stage_id') }, async (span) => { const answer = await executor.query<{ stage_id: string; planned_at: unknown; units: unknown; publications: unknown }>(
       'SELECT stage_id, planned_at, units, publications FROM fill_run_stage WHERE run_id = $1 ORDER BY stage_id',
       [runId],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows.map((row) => ({ runId, stageId: row.stage_id, plannedAt: millis(row.planned_at), units: millis(row.units), publications: millis(row.publications) }));
   }, 'snapshot');
 }
@@ -959,14 +995,18 @@ export interface RunPublicationStage {
 export async function readRunPublicationStages(database: OrchestratorDatabase, runId: string): Promise<readonly RunPublicationStage[]> {
   const at = here();
   return run(at, database, `readRunPublicationStages(${runId})`, ['fill_publication'], async (executor) => {
-    const { rows } = await executor.query<{ stage_id: string; publications: unknown }>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT u.stage_id AS stage_id, COUNT(*) AS publications
+         FROM fill_publication p
+         JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1
+         JOIN fill_unit u ON u.unit_id = p.unit_id
+        GROUP BY u.stage_id`) }, async (span) => { const answer = await executor.query<{ stage_id: string; publications: unknown }>(
       `SELECT u.stage_id AS stage_id, COUNT(*) AS publications
          FROM fill_publication p
          JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1
          JOIN fill_unit u ON u.unit_id = p.unit_id
         GROUP BY u.stage_id`,
       [runId],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows.map((row) => ({ stageId: row.stage_id, publications: millis(row.publications) }));
   }, 'snapshot');
 }
@@ -975,11 +1015,12 @@ export async function readRunPublicationStages(database: OrchestratorDatabase, r
 export async function readRunPublicationCount(database: OrchestratorDatabase, runId: string): Promise<number> {
   const at = here();
   return run(at, database, `readRunPublicationCount(${runId})`, ['fill_publication'], async (executor) => {
-    const { rows } = await executor.query<{ publications: unknown }>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT COUNT(*) AS publications FROM fill_publication p
+         JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1`) }, async (span) => { const answer = await executor.query<{ publications: unknown }>(
       `SELECT COUNT(*) AS publications FROM fill_publication p
          JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1`,
       [runId],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return millis(rows[0]?.publications ?? 0);
   }, 'snapshot');
 }
@@ -988,10 +1029,11 @@ export async function readRunPublicationCount(database: OrchestratorDatabase, ru
 export async function readRunPublicationFacts(database: OrchestratorDatabase, runId: string): Promise<number> {
   const at = here();
   return run(at, database, `readRunPublicationFacts(${runId})`, ['fill_publication'], async (executor) => {
-    const { rows } = await executor.query<{ facts: unknown }>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT COALESCE(SUM(p.facts), 0) AS facts FROM fill_publication p
+       JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1`) }, async (span) => { const answer = await executor.query<{ facts: unknown }>(
       `SELECT COALESCE(SUM(p.facts), 0) AS facts FROM fill_publication p
        JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1`, [runId],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return millis(rows[0]?.facts ?? 0);
   }, 'snapshot');
 }
@@ -1063,7 +1105,12 @@ export interface UnitPlanOptions {
 
 export async function recordUnitPlanIn(executor: SqlExecutor, options: UnitPlanOptions): Promise<UnitPlanRecord> {
   if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
-  await executor.query(
+  await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_unit_plan (unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+     ON CONFLICT (unit_id, generation) DO UPDATE
+       SET run_id = EXCLUDED.run_id, stage_id = EXCLUDED.stage_id, stage_unit_id = EXCLUDED.stage_unit_id,
+           scope = EXCLUDED.scope, stage_position = EXCLUDED.stage_position, plan_position = EXCLUDED.plan_position,
+           planned_at = EXCLUDED.planned_at, cache_versions = EXCLUDED.cache_versions`) }, async (span) => { const answer = await executor.query(
     `INSERT INTO fill_unit_plan (unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
      ON CONFLICT (unit_id, generation) DO UPDATE
@@ -1072,7 +1119,7 @@ export async function recordUnitPlanIn(executor: SqlExecutor, options: UnitPlanO
            planned_at = EXCLUDED.planned_at, cache_versions = EXCLUDED.cache_versions`,
     [options.unitId, options.generation, options.runId, options.stageId, options.stageUnitId, options.scope, options.stagePosition, options.planPosition, options.at,
       options.cacheVersions === undefined ? null : json(options.cacheVersions)],
-  );
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   return { ...options, plannedAt: options.at };
 }
 
@@ -1086,7 +1133,7 @@ export async function recordUnitPlan(database: OrchestratorDatabase, options: Un
 export async function readUnitPlan(database: OrchestratorDatabase, unitId: string, generation: number): Promise<UnitPlanRecord | null> {
   const at = here();
   return run(at, database, `readUnitPlan(${unitId}/${generation})`, ['fill_unit_plan'], async (executor) => {
-    const { rows } = await executor.query<UnitPlanRow>('SELECT unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions FROM fill_unit_plan WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions FROM fill_unit_plan WHERE unit_id = $1 AND generation = $2') }, async (span) => { const answer = await executor.query<UnitPlanRow>('SELECT unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions FROM fill_unit_plan WHERE unit_id = $1 AND generation = $2', [unitId, generation]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows[0] === undefined ? null : unitPlanRecord(rows[0]);
   }, 'snapshot');
 }
@@ -1097,12 +1144,14 @@ export async function readRunPlans(database: OrchestratorDatabase, runId: string
   return run(at, database, `readRunPlans(${runId})`, ['fill_unit_plan'], async (executor) => {
     // The generation in force only: a unit replaced inside one run has two plan rows, and the one the
     // run works is the one its own unit row names. The join also fixes the order the ids are read in.
-    const { rows } = await executor.query<UnitPlanRow>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT p.unit_id, p.generation, p.run_id, p.stage_id, p.stage_unit_id, p.scope, p.stage_position, p.plan_position, p.planned_at, p.cache_versions
+         FROM fill_unit_plan p ${options.history === true ? '' : 'JOIN fill_unit u ON u.unit_id = p.unit_id AND u.generation = p.generation'}
+        WHERE p.run_id = $1`) }, async (span) => { const answer = await executor.query<UnitPlanRow>(
       `SELECT p.unit_id, p.generation, p.run_id, p.stage_id, p.stage_unit_id, p.scope, p.stage_position, p.plan_position, p.planned_at, p.cache_versions
          FROM fill_unit_plan p ${options.history === true ? '' : 'JOIN fill_unit u ON u.unit_id = p.unit_id AND u.generation = p.generation'}
         WHERE p.run_id = $1`,
       [runId],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return rows.map(unitPlanRecord).sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
 }
@@ -1150,18 +1199,20 @@ export async function appendProgress(database: OrchestratorDatabase, event: Omit
   return run(at, database, `appendProgress(${event.runId}, ${event.kind})`, ['fill_event', 'fill_run'], async (executor) => {
     // The run's own row is taken first: two events of one run never share a number, though the
     // owner's pool overlaps two transactions.
-    await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]);
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE') }, async (span) => { const answer = await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [event.runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return insertProgressIn(executor, event);
   }, 'write');
 }
 
 async function insertProgressIn(executor: SqlExecutor, event: Omit<FillProgressEvent, 'seq'>): Promise<FillProgressEvent> {
-  const { rows } = await executor.query<{ seq: unknown }>(
+  const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+     SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7 FROM fill_event WHERE run_id = $1
+     RETURNING seq`) }, async (span) => { const answer = await executor.query<{ seq: unknown }>(
     `INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
      SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7 FROM fill_event WHERE run_id = $1
      RETURNING seq`,
     [event.runId, event.at, event.stage, event.unitId, event.generation, event.kind, event.summary],
-  );
+  ); span.setAttribute('db.rows', answer.rows.length); return answer; });
   const seq = millis(rows[0]!.seq);
   return { ...event, seq };
 }
@@ -1173,12 +1224,23 @@ export async function appendProgresses(database: OrchestratorDatabase, events: r
   if (events.length === 1) return [await appendProgress(database, first)];
   if (events.some((event) => event.runId !== first.runId)) throw new Error('appendProgresses requires one run');
   return run(here(), database, `appendProgresses(${first.runId})`, ['fill_event', 'fill_run'], async (executor) => {
-    await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [first.runId]);
+    await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE') }, async (span) => { const answer = await executor.query('SELECT run_id FROM fill_run WHERE run_id = $1 FOR UPDATE', [first.runId]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const payload = events.map((event, index) => ({
       ord: index + 1, at: event.at, stage: event.stage, unit_id: event.unitId,
       generation: event.generation, kind: event.kind, summary: event.summary,
     }));
-    const { rows } = await executor.query<{ seq: unknown }>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`WITH input AS (
+         SELECT * FROM jsonb_to_recordset($2::jsonb)
+           AS e(ord integer, at bigint, stage text, unit_id text, generation integer, kind text, summary text)
+       ), base AS (
+         SELECT COALESCE(MAX(seq), 0) AS seq FROM fill_event WHERE run_id = $1
+       ), saved AS (
+         INSERT INTO fill_event (run_id, seq, at, stage, unit_id, generation, kind, summary)
+         SELECT $1, base.seq + input.ord, input.at, input.stage, input.unit_id, input.generation, input.kind, input.summary
+         FROM input CROSS JOIN base
+         RETURNING seq
+       )
+       SELECT seq FROM saved ORDER BY seq`) }, async (span) => { const answer = await executor.query<{ seq: unknown }>(
       `WITH input AS (
          SELECT * FROM jsonb_to_recordset($2::jsonb)
            AS e(ord integer, at bigint, stage text, unit_id text, generation integer, kind text, summary text)
@@ -1192,7 +1254,7 @@ export async function appendProgresses(database: OrchestratorDatabase, events: r
        )
        SELECT seq FROM saved ORDER BY seq`,
       [first.runId, JSON.stringify(payload)],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return events.map((event, index) => ({ ...event, seq: millis(rows[index]!.seq) }));
   }, 'write');
 }
@@ -1201,10 +1263,10 @@ export async function appendProgresses(database: OrchestratorDatabase, events: r
 export async function readProgress(database: OrchestratorDatabase, runId: string, options: { readonly limit?: number } = {}): Promise<readonly FillProgressEvent[]> {
   const at = here();
   return run(at, database, `readProgress(${runId})`, ['fill_event'], async (executor) => {
-    const { rows } = await executor.query<EventRow>(
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('SELECT run_id, seq, at, stage, unit_id, generation, kind, summary FROM fill_event WHERE run_id = $1 ORDER BY seq ASC') }, async (span) => { const answer = await executor.query<EventRow>(
       'SELECT run_id, seq, at, stage, unit_id, generation, kind, summary FROM fill_event WHERE run_id = $1 ORDER BY seq ASC',
       [runId],
-    );
+    ); span.setAttribute('db.rows', answer.rows.length); return answer; });
     const events = rows.map((row): FillProgressEvent => ({
       runId: row.run_id,
       seq: millis(row.seq),

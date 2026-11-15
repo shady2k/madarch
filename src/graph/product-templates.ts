@@ -7,6 +7,7 @@
  * `entities: [<id>...]` makes it the template of those entities, and `catalogue: [<kind>...]` makes it the page of that
  * kind's catalogue entry. The file's own name is its template name.
  */
+import { withSpanSync } from '../obs/trace.js';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { readTemplate, type TemplateFile } from '../page-contract/template.js';
@@ -39,6 +40,7 @@ export interface ProductTemplates {
 function templateFiles(folder: string): { name: string; body: string; path: string }[] {
   const root = join(folder, 'templates');
   const out: { name: string; body: string; path: string }[] = [];
+  return withSpanSync('templates.read', { 'file.path': root }, (span) => {
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
@@ -56,7 +58,9 @@ function templateFiles(folder: string): { name: string; body: string; path: stri
   } catch {
     return [];
   }
+  span.setAttribute('templates.files', out.length);
   return out.sort((left, right) => byCodePoint(left.name, right.name));
+  });
 }
 
 /** The product's templates and the pages they open, read from its folder. */

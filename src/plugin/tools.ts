@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { withSpanSync } from '../obs/trace.js';
 import { ClosureRefusal } from './closure-refusal.js';
 import type { PluginManifest } from './closure.js';
 import { systemGit } from './system-git.js';
@@ -32,16 +33,20 @@ export function snapshotTools(declarations: PluginManifest['tools'], trusted: Re
       else {
         const stat = lstatSync(tool.executable);
         if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) refuse(`tool ${declaration.name} is not a regular executable file`);
-        bytes = readFileSync(tool.executable);
+        bytes = withSpanSync('fs.read', { 'file.path': tool.executable }, (span) => {
+          const held = readFileSync(tool.executable);
+          span.setAttribute('file.bytes', held.byteLength);
+          return held;
+        });
       }
     } catch (error) {
       if (error instanceof ClosureRefusal) throw error;
       return refuse(`tool ${declaration.name} cannot read approved executable ${'executable' in tool ? tool.executable : 'embedded bytes'}: ${(error as Error).message}; supply an executable with the approved pin`);
     }
     if (createHash('sha256').update(bytes).digest('hex') !== declaration.sha256) refuse(`tool ${declaration.name} differs from its approved sha256`);
-    mkdirSync(folder, { recursive: true });
+    withSpanSync('fs.mkdir', { 'file.path': folder }, () => mkdirSync(folder, { recursive: true }));
     const executable = join(folder, declaration.name);
-    writeFileSync(executable, bytes, { mode: 0o555, flag: 'wx' });
+    withSpanSync('fs.write', { 'file.path': executable, 'file.bytes': bytes.byteLength }, () => writeFileSync(executable, bytes, { mode: 0o555, flag: 'wx' }));
     return { name: declaration.name, executable };
   });
 }

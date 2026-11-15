@@ -14,6 +14,7 @@
  * `{"message"}` because the app's reader shows the message straight from that
  * field (wiki/app/src/api.ts).
  */
+import { withSpanSync } from '../obs/trace.js';
 import { readFileSync, statSync } from 'node:fs';
 import { join as joinPath, normalize, resolve } from 'node:path';
 import { isWikiPagePath, wikiPageAddresses } from '../knowledge/addresses.js';
@@ -140,9 +141,9 @@ export function serveAppAssets(appFolder: string, pathname: string): Response | 
   if (rest.some((part) => part === '')) return undefined;
   const full = joinPath(resolve(appFolder), ...wanted.split('/'));
   try {
-    if (!statSync(full).isFile()) return undefined;
+    if (!withSpanSync('fs.stat', { 'file.path': full }, () => statSync(full)).isFile()) return undefined;
     const type = CONTENT_TYPES[full.slice(full.lastIndexOf('.'))] ?? 'text/html; charset=utf-8';
-    return new Response(readFileSync(full), { status: 200, headers: { 'content-type': type } });
+    return new Response(withSpanSync('fs.read', { 'file.path': full }, (span) => { const held = readFileSync(full); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }), { status: 200, headers: { 'content-type': type } });
   } catch { return undefined; }
 }
 
@@ -157,10 +158,10 @@ function serveAppFiles(_json: ReplyMaker['json'], refused: ReplyMaker['refused']
   if (wanted !== undefined && !wanted.split('/').includes('..')) {
     const full = joinPath(root, ...wanted.split('/'));
     try {
-      const file = statSync(full);
+      const file = withSpanSync('fs.stat', { 'file.path': full }, () => statSync(full));
       if (file.isFile()) {
         const type = CONTENT_TYPES[full.slice(full.lastIndexOf('.'))] ?? 'text/html; charset=utf-8';
-        return { response: new Response(readFileSync(full), { status: 200, headers: { 'content-type': type } }) };
+        return { response: new Response(withSpanSync('fs.read', { 'file.path': full }, (span) => { const held = readFileSync(full); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; }), { status: 200, headers: { 'content-type': type } }) };
       }
     } catch {
       // Not held as a file: an app route falls back to index.html below;
@@ -171,7 +172,7 @@ function serveAppFiles(_json: ReplyMaker['json'], refused: ReplyMaker['refused']
     return refused(404, { message: `${import.meta.filename}:164: no such path "${pathname}": the server offers the wiki's API and the app's routes (${APP_ROUTE_PREFIXES.join(', ')})` });
   }
   try {
-    const index = readFileSync(joinPath(root, 'index.html'));
+    const index = withSpanSync('fs.read', { 'file.path': joinPath(root, 'index.html') }, (span) => { const held = readFileSync(joinPath(root, 'index.html')); span.setAttribute('file.bytes', Buffer.byteLength(held)); return held; });
     return { response: new Response(index, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }) };
   } catch (error) {
     return refused(404, {
