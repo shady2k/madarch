@@ -846,7 +846,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv;
   } catch { /* a missing products home contains no prior link */ }
   const target = join(products, name);
   if (pathExists(target)) return refused2([], `cannot initialize this checkout: ${target} already exists; choose another checkout name or move that product`);
-  const draft = createDraft({ home: products, name, ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }) });
+  const draft = createDraft({ home: products, name, ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }), ...(options.language === undefined ? {} : { language: options.language }) });
   if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
   const remote = runGit(source, ['remote', 'get-url', 'origin'], options.gitEnv);
   const url = remote.ok ? remote.output : undefined;

@@ -1380,6 +1380,9 @@ export class ReadContext {
     const home = entityOf(await this.home(undefined));
     return {
       structureRevision: this.structure,
+      // The product's own language (its manifest's `language:`), so the wiki opens in it: the setting the wiki already
+      // reads, and the one a first run writes (madarch-64o5.84).
+      language: this.manifest.language ?? 'en',
       home: home === undefined ? null : { id: home.uid, kind: home.kind, template: this.templateOf(home, home.kind) },
       catalogueTemplate: this.productTemplates.catalogue,
       templates: this.productTemplates.templates,

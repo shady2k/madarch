@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import en from './locales/en.json';
 import ru from './locales/ru.json';
-import { i18n, languageStorageKey, normalizeLanguage, setWikiLanguage } from './i18n.js';
+import { adoptProductLanguage, i18n, languageStorageKey, normalizeLanguage, setWikiLanguage } from './i18n.js';
 
 function leafKeys(value: unknown, prefix = ''): string[] {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return [prefix];
@@ -48,5 +48,27 @@ describe('the wiki\u2019s words', () => {
     } finally {
       await setWikiLanguage(normalizeLanguage(previous));
     }
+  });
+});
+
+describe("the product's own language (madarch-64o5.84)", () => {
+  test('a reader who saved no language opens the wiki in the product\'s; a saved choice stands', async () => {
+    const storage = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();
+    storage?.clear();
+    await setWikiLanguage('en');
+    await adoptProductLanguage('ru');
+    expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('ru');
+    // The reader then chooses English; with a place to keep the choice, the product no longer moves them. Without one
+    // (a page that refuses storage) the current tab keeps its language anyway, and the next page asks again.
+    await setWikiLanguage('en');
+    if (storage !== null) {
+      expect(storage.getItem(languageStorageKey)).toBe('en');
+      await adoptProductLanguage('ru');
+      expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('en');
+    }
+    // And a product naming no language leaves the choice where it was.
+    await setWikiLanguage('en');
+    await adoptProductLanguage(undefined);
+    expect(normalizeLanguage(i18n.resolvedLanguage)).toBe('en');
   });
 });

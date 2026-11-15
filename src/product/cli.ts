@@ -574,7 +574,7 @@ async function askTemplate(language: CommandLanguage = commandLanguage()): Promi
   const words = initWords(language);
   try {
     console.log(words.askTemplate);
-    for (const line of templateMenuLines()) console.log(line);
+    for (const line of templateMenuLines(STARTER_TEMPLATES, language)) console.log(line);
     while (true) {
       const answer = (await prompt.question(words.chooseTemplate)).trim();
       if (answer === '') return STARTER_TEMPLATES[0]!.id;

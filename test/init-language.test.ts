@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { commandLanguage, rememberedLanguage } from '../src/product/command-language.js';
 import { languageFromAnswer, languageQuestion } from '../src/product/cli.js';
+import { STARTER_TEMPLATES, templateMenuLines } from '../src/knowledge/starter-templates.js';
 import { readLanguage, writeLanguage } from '../src/knowledge/settings.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -63,14 +64,47 @@ test('a --json init never asks, and the product carries the remembered language 
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
   expect(output).not.toContain('Language / Язык');
   expect(run.status).toBe(0);
-  // Whatever else happened, no product declares a language it was not told: the machine's own is written where the wiki
-  // reads it, and only then.
-  const folder = join(products, 'idea');
-  try {
-    const manifest = parse(readFileSync(join(folder, 'madarch', 'catalog.yaml'), 'utf8')) as { language?: string };
-    expect(manifest.language).toBe('ru');
-  } catch {
-    // A run that refused (a sandbox it cannot open) left no product, and the question was still not asked.
-    expect(output).not.toContain('Language / Язык');
+  // The product's folder is the one the command printed: a first init of a day makes idea-<date>, not idea.
+  const line = output.split('\n').map((one) => one.trim()).find((one) => one.startsWith('{') && one.endsWith('}'));
+  if (line === undefined) throw new Error(`init printed no JSON facts: ${output}`);
+  const facts = JSON.parse(line) as { folder?: string };
+  if (facts.folder === undefined) throw new Error(`init's facts name no folder: ${line}`);
+  // The setting the wiki reads for its pages and its settings page, in the manifest a first run wrote.
+  const manifest = parse(readFileSync(join(facts.folder, 'madarch', 'catalog.yaml'), 'utf8')) as { language?: string };
+  expect(manifest.language).toBe('ru');
+}, 120_000);
+
+test('the template menu names the templates in the language the person answered (madarch-64o5.84)', () => {
+  const russian = templateMenuLines(STARTER_TEMPLATES, 'ru').join('\n');
+  const english = templateMenuLines(STARTER_TEMPLATES, 'en').join('\n');
+  for (const template of STARTER_TEMPLATES) {
+    expect(russian).toContain(template.title.ru);
+    expect(russian).toContain(template.description.ru);
+    expect(english).toContain(template.title.en);
   }
+  // At least one template really differs, or the two languages would be the same words twice.
+  expect(STARTER_TEMPLATES.some((template) => template.title.ru !== template.title.en)).toBe(true);
+});
+
+test('a checkout initialized with MADARCH_LANG=ru gets a product whose manifest speaks Russian (madarch-64o5.84)', () => {
+  const root = home();
+  const checkout = join(root, 'checkout');
+  mkdirSync(checkout, { recursive: true });
+  writeFileSync(join(checkout, 'README.md'), '# Code\n');
+  const git = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: checkout, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
+  expect(git.status).toBe(0);
+  spawnSync('git', ['add', '-A'], { cwd: checkout });
+  spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'code'], { cwd: checkout });
+  const products = join(root, 'products');
+  mkdirSync(products, { recursive: true });
+  const env: Record<string, string> = { ...(process.env as Record<string, string>), HOME: root, MADARCH_HOME: root, MADARCH_OWN_WIKI: 'off', MADARCH_PLUGIN_SANDBOX: 'off', MADARCH_LANG: 'ru', GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.invalid' };
+  const run = spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), 'init', checkout, '--home', products, '--template', 'everything', '--json', '--no-open', '--port', '0'], { cwd: root, env, encoding: 'utf8', timeout: 120_000, input: '' });
+  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  expect(run.status).toBe(0);
+  const line = output.split('\n').map((one) => one.trim()).find((one) => one.startsWith('{') && one.endsWith('}'));
+  if (line === undefined) throw new Error(`init printed no JSON facts: ${output}`);
+  const facts = JSON.parse(line) as { folder?: string };
+  if (facts.folder === undefined) throw new Error(`init's facts name no folder: ${line}`);
+  const manifest = parse(readFileSync(join(facts.folder, 'madarch', 'catalog.yaml'), 'utf8')) as { language?: string };
+  expect(manifest.language).toBe('ru');
 }, 120_000);
