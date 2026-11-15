@@ -1,7 +1,7 @@
 # A file's text: from git by blob id, one mechanism for the page and the agent
 
 Change: madarch-u3vw.16
-Base: ef989dae1b707459a69421ca1d4bdee54cd6904b
+Base: b43b57ff88f525024961bdd2f855531643b3dc44
 Tasks: madarch-u3vw.16
 Kind: behavior
 
@@ -30,18 +30,19 @@ One mechanism, content-addressed, keeps the text at the revision the facts descr
 files.
 
 ## Changes to requirements
-- product-wiki/front-matter: a file's page shows its text, read by blob id, as the decision states.
+- product-wiki/pages: a code file's page shows its text, read by the blob id the graph holds and served by the git plugin through the plugin host (madarch-u3vw.16).
 
 ## Preserved contracts
-- graph-queries/reads: pages read the graph; the text arrives by the store channel, never by a file read in the api process.
-- views/one-view: pictures and facts are unchanged.
+- product-wiki/serve: the wiki still serves one product's pages, read from the graph.
+- views/one-view: the file page's diagram and facts are unchanged.
 
 ## Coverage
-- product-wiki/front-matter: test
+- product-wiki/pages: test
+- views/one-view: test
 
 ## Where it is seen
 Kind: screen
-Place: a code file's page under a product, section «Текст»
-1. A Markdown file shows rendered with a Rendered / Source switch.
-2. Another text file shows its source at the page's full width, with line numbers and a soft-wrap switch.
-3. A binary file says it has no text.
+Place: a code file's page under a filled product, section «Текст», at /products/<folder>/e/<kind>/<id>
+Mockup: docs/prototypes/file-text.html
+1. The page asks for the file's lines and shows them: a Markdown file rendered by the documents' own component with a Rendered / Source switch, every other text file as a line-numbered source that wraps or runs long, a binary file as one sentence.
+2. «Скачать целиком» reads the whole blob through the same read.
