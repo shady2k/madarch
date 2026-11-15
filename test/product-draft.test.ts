@@ -106,6 +106,15 @@ describe('productsHome', () => {
   });
 });
 
+
+/** A machine whose git names no author in the environment: the identity variables are unset, not empty. */
+function withoutIdentity<T>(work: () => T): T {
+  const names = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL'];
+  const held = names.map((name) => [name, process.env[name]] as const);
+  for (const name of names) delete process.env[name];
+  try { return work(); } finally { for (const [name, value] of held) { if (value === undefined) delete process.env[name]; else process.env[name] = value; } }
+}
+
 describe('createDraft', () => {
   test('global ignores cannot omit the generated starter files from its first commit', () => {
     const config = tempFolder('madarch-products-ignore-config-');
@@ -125,16 +134,37 @@ describe('createDraft', () => {
     expect(git(['status', '--porcelain'], draft.folder).stdout).toBe('');
   });
 
+  test('an identity scoped to the products home is the identity the product\'s first commit uses (madarch-64o5.84)', () => {
+    // A conditional identity (`includeIf "gitdir:<products home>/"`) applies only inside the products home: asked in an
+    // empty folder it is invisible, and a machine that can commit would be refused. The probe asks inside the draft,
+    // after `git init`, where the product's own first commit will be made.
+    const config = tempFolder('madarch-products-includeif-config-');
+    const globalConfig = join(config, 'gitconfig');
+    const home = tempFolder('madarch-products-includeif-home-');
+    writeFileSync(globalConfig, `[includeIf "gitdir:${home.replaceAll('\\', '/')}/"]\n  path = ${JSON.stringify(join(config, 'identity').replaceAll('\\', '/'))}\n`);
+    writeFileSync(join(config, 'identity'), '[user]\n  name = Scoped Writer\n  email = scoped@example.test\n');
+    const empty = tempFolder('madarch-products-includeif-empty-');
+    const draft = withoutIdentity(() => createDraft({
+      home,
+      today: EXAMPLE_DAY,
+      // No identity in the environment or the home: only the includeIf the products home matches can name an author.
+      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1' },
+    }));
+    expect(draft).toMatchObject({ outcome: 'created' });
+    if (draft.outcome !== 'created') return;
+    expect(git(['log', '-1', '--format=%an <%ae>'], draft.folder).stdout.trim()).toBe('Scoped Writer <scoped@example.test>');
+  });
+
   test('a machine with no git identity is refused before any work, with the two commands to set one (madarch-64o5.84)', () => {
     // A machine whose git names no author: an empty home, no global configuration, no author environment. Git's own
     // answer here is "Author identity unknown", and the person needs the commands, not git's words.
     const empty = tempFolder('madarch-products-no-identity-');
     const home = tempFolder('madarch-products-no-identity-home-');
-    const draft = createDraft({
+    const draft = withoutIdentity(() => createDraft({
       home,
       today: EXAMPLE_DAY,
-      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: '', GIT_AUTHOR_EMAIL: '', GIT_COMMITTER_NAME: '', GIT_COMMITTER_EMAIL: '', EMAIL: '' },
-    });
+      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    }));
     expect(draft.outcome).toBe('refused');
     const message = draft.outcome === 'refused' ? draft.message : '';
     expect(message).toContain('git config --global user.name');
@@ -147,11 +177,11 @@ describe('createDraft', () => {
   test('the refusal speaks Russian when the machine reads Russian (madarch-64o5.84)', () => {
     const empty = tempFolder('madarch-products-no-identity-ru-');
     const home = tempFolder('madarch-products-no-identity-ru-home-');
-    const draft = createDraft({
+    const draft = withoutIdentity(() => createDraft({
       home,
       today: EXAMPLE_DAY,
-      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: '', GIT_AUTHOR_EMAIL: '', GIT_COMMITTER_NAME: '', GIT_COMMITTER_EMAIL: '', EMAIL: '', MADARCH_LANG: 'ru' },
-    });
+      gitEnv: { HOME: empty, XDG_CONFIG_HOME: empty, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', MADARCH_LANG: 'ru' },
+    }));
     expect(draft.outcome).toBe('refused');
     expect(draft.outcome === 'refused' ? draft.message : '').toContain('git config --global user.name');
     expect(draft.outcome === 'refused' ? draft.message : '').toContain('Задайте имя и почту');
