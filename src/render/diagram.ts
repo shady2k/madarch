@@ -88,7 +88,9 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
       const held = neighbourhood.nodes.get(uid);
       if (held === undefined) continue;
       nodes.set(uid, { id: uid, kind: held.kind, ...named(uid), href: page(held.kind, uid) });
-      if (word !== '') edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
+      const self = uid === root.id;
+      const label = self && group.inverseLabel !== undefined && group.inverseLabel !== '' && group.inverseLabel !== word ? `${word} / ${group.inverseLabel}` : word;
+      if (label !== '') edges.push(group.side === 'out' ? { from: root.id, to: uid, label, both: self } : { from: uid, to: root.id, label, both: self });
     }
   }
   edges.sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.label, right.label));

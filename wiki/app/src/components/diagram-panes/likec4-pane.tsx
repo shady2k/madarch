@@ -86,7 +86,7 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
         const model = LikeC4Model.create(answer.view as never);
         setPane(
           <LikeC4ModelProvider likec4model={model}>
-            <ReactLikeC4 viewId="index" className="dg-likec4-view" pannable zoomable controls fitViewPadding={12}>
+            <ReactLikeC4 viewId="index" className="dg-likec4-view" pannable zoomable controls fitViewPadding={32}>
               <NodeClicks links={answer.links ?? {}} open={open} />
             </ReactLikeC4>
           </LikeC4ModelProvider>,

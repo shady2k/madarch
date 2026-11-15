@@ -20,7 +20,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 
-test('the real File catalogue page shares dependency and declared-relation edges with its diagram', async () => {
+test('the real File catalogue page draws its declared-relation edges, apart from the fill order', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-kind-relations-'));
   let owner: Awaited<ReturnType<typeof createTestDatabaseOwner>> | undefined;
   try {
@@ -80,13 +80,12 @@ test('the real File catalogue page shares dependency and declared-relation edges
     const hasEdge = (from: string, to: string, label: string) => expect(graph.edges).toContainEqual({
       from: idsByLabel.get(from)!, to: idsByLabel.get(to)!, label, both: false,
     });
-    hasEdge('Файл', 'Папка', 'зависит от');
-    hasEdge('Файл', 'Репозиторий', 'зависит от');
+    expect(graph.edges.some(edge => edge.label === 'зависит от')).toBe(false);
     hasEdge('Папка', 'Файл', 'содержит');
     hasEdge('Коммит', 'Файл', 'затронул');
-    hasEdge('Файл', 'Файл', 'импортирует');
+    expect(graph.edges).toContainEqual({ from: idsByLabel.get('Файл')!, to: idsByLabel.get('Файл')!, label: 'импортирует / импортируется из', both: true });
     hasEdge('Файл', 'Пакет', 'импортирует пакет');
-    expect(graph.edges.filter(edge => edge.from === id && edge.to === id && edge.label === 'импортирует')).toHaveLength(1);
+    expect(graph.edges.filter(edge => edge.from === id && edge.to === id && edge.label === 'импортирует / импортируется из')).toHaveLength(1);
     // Every endpoint of every declared schema relation touching File appears, not only the familiar examples.
     for (const edge of manifest.edges?.values() ?? []) {
       for (const from of edge.from) for (const to of edge.to) {
@@ -146,10 +145,10 @@ test('the real File catalogue page shares dependency and declared-relation edges
         expect(occurrences).toHaveLength(2);
         const workspace = String(answer.body['workspace']);
         for (const occurrence of occurrences) expect(workspace).toContain(`${occurrence} = catalogue "Файл"`);
-        expect(workspace).toContain(`${occurrences[0]} -> ${occurrences[1]} "импортирует"`);
+        expect(workspace).toContain(`${occurrences[0]} -> ${occurrences[1]} "импортирует / импортируется из ⇄"`);
         const view = answer.body['view'] as { views: { index: { nodes: { id: string }[]; edges: { source: string; target: string; label: string }[] } } };
         expect(view.views.index.edges).toContainEqual(expect.objectContaining({
-          source: occurrences[0]!, target: occurrences[1]!, label: 'импортирует',
+          source: occurrences[0]!, target: occurrences[1]!, label: 'импортирует / импортируется из ⇄',
         }));
         for (const occurrence of occurrences) expect(view.views.index.nodes.some(node => node.id === occurrence)).toBe(true);
       }

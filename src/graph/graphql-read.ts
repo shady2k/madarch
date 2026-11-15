@@ -289,6 +289,8 @@ export interface DiagramGroup {
   readonly canonicalLabel?: boolean;
   /** The product graph's words in the requested language and reading direction. */
   readonly label?: string;
+  /** The same relation's words at its other end, so a self relation states both roles. */
+  readonly inverseLabel?: string;
   readonly kind: string;
   /** How many neighbours the group holds, of which at most `first` were read. */
   readonly total: number;
@@ -937,11 +939,13 @@ export class ReadContext {
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.to_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
          WHERE e.from_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1
+           AND en.name <> '${MANIFEST_DEPENDS_ON}'
          UNION ALL
          SELECT 'in' AS side, CASE WHEN en.name = '${MANIFEST_RELATION_EDGE}' THEN e.discriminator ELSE en.name END AS relation,
                 en.name IN ('${MANIFEST_DEPENDS_ON}', '${MANIFEST_RELATION_EDGE}') AS metadata, e.from_node AS other
          FROM edge e JOIN entity en ON en.id = e.entity_id
          WHERE e.to_node = (SELECT id FROM node WHERE uid = $1::uuid AND context_id = 1 AND NOT removed) AND e.context_id = 1 AND e.from_node <> e.to_node
+           AND en.name <> '${MANIFEST_DEPENDS_ON}'
        ), live AS (
          SELECT around.side, around.relation, around.metadata, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS kind
          FROM around
@@ -965,7 +969,13 @@ export class ReadContext {
     for (const [key, rows] of sample) {
       const [side, relation, kind] = key.split('\u0000') as ['in' | 'out', string, string];
       const total = Number(rows[0]?.['total'] ?? rows.length);
-      groups.set(key, { relation, side, kind, total, label: this.relationWord(relation, lang, side === 'in' && rows[0]?.['metadata'] !== true), ...(rows[0]?.['metadata'] === true ? { canonicalLabel: true } : {}), nodes: rows.map((row) => String(row['uid'])) });
+      groups.set(key, {
+        relation, side, kind, total,
+        label: this.relationWord(relation, lang, side === 'in' && rows[0]?.['metadata'] !== true),
+        inverseLabel: this.relationWord(relation, lang, !(side === 'in' && rows[0]?.['metadata'] !== true)),
+        ...(rows[0]?.['metadata'] === true ? { canonicalLabel: true } : {}),
+        nodes: rows.map((row) => String(row['uid'])),
+      });
       const entry = catalogue?.byName.get(kind);
       if (entry !== undefined) kindPages.set(kind, `/e/catalogue/${encodeURIComponent(entry.uid)}`);
       const label = this.kindWord(kind, lang);

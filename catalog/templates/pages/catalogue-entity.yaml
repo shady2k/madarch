@@ -23,6 +23,15 @@ sections:
       name
     params:
       kindPath: name
+  - id: diagram
+    replace: true
+    component: diagram
+    title: { en: Kinds around it, ru: Виды вокруг }
+    query: |
+      id
+    params:
+      depth: 1
+      aggregateAbove: 12
   - id: facts
     component: facts
     after: fillKind
