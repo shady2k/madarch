@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, UNSORTED } from './ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
 import { at, dateOf, formatValue, hostOf, localized } from './format.js';
@@ -145,10 +145,10 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           {canSort ? (
             <FilterField>
               {t('knowledge.tableSort')}
-              <Select value={sort === '' ? UNSORTED : sort} onValueChange={(next) => { const field = next === UNSORTED ? '' : next; setSort(field); askSort(field); }}>
+              <Select value={sort} onValueChange={(next) => { setSort(next); askSort(next); }}>
                 <SelectTrigger aria-label={t('knowledge.tableSort')}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={UNSORTED}>—</SelectItem>
+                  <SelectItem value="">—</SelectItem>
                   {sortable.map((column) => <SelectItem key={String(column.sortField)} value={String(column.sortField)}>{localized(column.label, language) ?? String(column.sortField)}</SelectItem>)}
                 </SelectContent>
               </Select>

@@ -5,18 +5,34 @@
  * the scroll buttons take the kit's surfaces, so a menu opened over a page is
  * the page's own.
  */
-import { forwardRef, type ComponentPropsWithoutRef } from 'react';
+import { forwardRef, type ComponentPropsWithoutRef, type ReactElement } from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils.js';
 
 /**
- * The item that stands for "no choice": Radix refuses an item whose value is the empty string, so a menu that offers
- * "none" names it with this value and the caller maps it back to the empty one.
+ * How the kit keeps Radix's rule that no value is empty (madarch-64o5.82): a caller may name `''` — "no choice", the
+ * first item of a filter, an agent picker's "none" — and the kit maps it to this private non-empty value for Radix and
+ * back again on the way out. No caller has to know, and no menu can be broken by an empty item.
  */
-export const UNSORTED = '__none__';
+const EMPTY = '__kit_select_empty__';
 
-export const Select = SelectPrimitive.Root;
+/** The value Radix sees: a caller's `''` becomes the kit's own non-empty stand-in. */
+const forRadix = <T,>(value: T): T => (value === '' ? (EMPTY as unknown as T) : value);
+
+/** The value a caller sees: the kit's stand-in becomes the caller's `''`. */
+const forCaller = <T,>(value: T): T => (value === (EMPTY as unknown as T) ? ('' as unknown as T) : value);
+
+type SelectRootProps = ComponentPropsWithoutRef<typeof SelectPrimitive.Root>;
+
+export function Select({ value, defaultValue, onValueChange, ...props }: SelectRootProps): ReactElement {
+  return <SelectPrimitive.Root
+    {...props}
+    {...(value === undefined ? {} : { value: forRadix(value) })}
+    {...(defaultValue === undefined ? {} : { defaultValue: forRadix(defaultValue) })}
+    {...(onValueChange === undefined ? {} : { onValueChange: (next: string) => { onValueChange(forCaller(next)); } })}
+  />;
+}
 export const SelectValue = SelectPrimitive.Value;
 
 export const SelectTrigger = forwardRef<HTMLButtonElement, ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>>(function SelectTrigger({ className, children, ...props }, ref) {
@@ -45,10 +61,11 @@ export const SelectContent = forwardRef<HTMLDivElement, ComponentPropsWithoutRef
   </SelectPrimitive.Portal>;
 });
 
-export const SelectItem = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<typeof SelectPrimitive.Item>>(function SelectItem({ className, children, ...props }, ref) {
+export const SelectItem = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<typeof SelectPrimitive.Item>>(function SelectItem({ className, children, value, ...props }, ref) {
   return <SelectPrimitive.Item
     ref={ref}
     className={cn('relative flex cursor-pointer select-none items-center gap-2 rounded-[var(--radius-row)] py-1.5 pl-2 pr-8 text-small text-ink outline-none focus:bg-[var(--surface-hover)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50', className)}
+    value={forRadix(value)}
     {...props}
   >
     <span className="absolute right-2 grid size-3.5 place-items-center"><SelectPrimitive.ItemIndicator><CheckIcon aria-hidden="true" size={14} /></SelectPrimitive.ItemIndicator></span>
