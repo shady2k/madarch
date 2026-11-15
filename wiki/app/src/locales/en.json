@@ -101,6 +101,9 @@
       "live": "Filling…",
       "noRun": "The address names no run.",
       "result": "Result by kind",
+      "cause": {
+        "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins."
+      },
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
       "event": {
@@ -1511,7 +1514,8 @@
       "wiki.manifest": "The manifest has a finding of its own."
     },
     "problemNote": {
-      "ruleUnimplemented": "The rule {{rule}} names the predicate \"{{predicate}}\", which the engine does not implement: the rule is not run"
+      "ruleUnimplemented": "The rule {{rule}} names the predicate \"{{predicate}}\", which the engine does not implement: the rule is not run",
+      "documentsRetired": "Documents are not judged: the Markdown question rules are retired, and generic authored entities declare no document predicates"
     }
   },
   "journal": {
