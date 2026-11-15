@@ -16,6 +16,8 @@ import type { TemplateFinding } from './validate.js';
 /** The bootstrap the app reads once (section 1): the home, the templates, what opens each page and the roles. */
 export interface Bootstrap {
   readonly structureRevision: string;
+  /** The product's language (its manifest's `language:`): the wiki's interface opens in it when the reader saved none. */
+  readonly language?: string;
   readonly home: { readonly id: string; readonly kind: string; readonly template: string } | null;
   readonly catalogueTemplate: string;
   readonly templates: readonly { readonly name: string; readonly body: string }[];

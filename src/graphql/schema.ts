@@ -179,6 +179,8 @@ class Builder {
     this.type('OwnTemplate', [{ name: 'id', type: 'ID!' }, { name: 'template', type: 'String!' }]);
     this.type('Bootstrap', [
       { name: 'structureRevision', type: 'String!' },
+      // The product's language (its manifest's `language:`): the wiki's interface opens in it (madarch-64o5.84).
+      { name: 'language', type: 'String!' },
       { name: 'home', type: 'BootstrapHome' },
       { name: 'catalogueTemplate', type: 'String!' },
       { name: 'templates', type: '[PageTemplate!]!' },
