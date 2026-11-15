@@ -26,21 +26,32 @@ function momentOf(value: string): number | undefined {
   return Number.isFinite(at) ? at : undefined;
 }
 
-/** The run an address names, from its query: the run page's link opens this page filtered to one run. */
-function runOf(): string {
-  try { return new URLSearchParams(window.location.search).get('run') ?? ''; } catch { return ''; }
+/**
+ * What an address asks the page for, from its query: the run page's journal opens the page filtered to one run, a text
+ * and a level, so the row a failure names is the one the reader lands on.
+ */
+function askedOf(): { readonly run: string; readonly query: string; readonly level: string } {
+  try {
+    const query = new URLSearchParams(window.location.search);
+    return { run: query.get('run') ?? '', query: query.get('q') ?? '', level: query.get('level') ?? '' };
+  } catch {
+    return { run: '', query: '', level: '' };
+  }
 }
 
 /** One page of the logs, with the kit's viewer. */
-function LogsView({ base, initialRun, open }: { readonly base: string; readonly initialRun: string; readonly open?: (path: string) => void }): ReactElement {
+function LogsView({ base, initialRun, open, locale, title }: { readonly base: string; readonly initialRun: string; readonly open?: (path: string) => void; readonly locale: string; readonly title: boolean }): ReactElement {
   const { t } = useTranslation();
-  const [filters, setFilters] = useState<LogViewerFilters>({ source: '', level: '', run: initialRun, from: '', to: '', query: '' });
+  const [filters, setFilters] = useState<LogViewerFilters>(() => {
+    const asked = askedOf();
+    return { source: '', level: asked.level, run: initialRun === '' ? asked.run : initialRun, from: '', to: '', query: asked.query };
+  });
   const [live, setLive] = useState(true);
   const [answer, setAnswer] = useState<LogsAnswer | null>(null);
   const [entries, setEntries] = useState<readonly LogEntryView[]>([]);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => askedOf().query);
   // The page's own generation: a read that answers after the filters moved writes nothing (a log page is read as it is
   // now, never as it was a moment ago).
   const generation = useRef(0);
@@ -118,6 +129,11 @@ function LogsView({ base, initialRun, open }: { readonly base: string; readonly 
     older: t('logs.filters.older'), empty: t('logs.empty'), loading: t('logs.loading'),
     follow: t('logs.filters.follow'), pause: t('logs.filters.pause'), copy: t('logs.filters.copy'), copied: t('logs.filters.copied'),
     context: t('logs.filters.context'), details: t('logs.filters.details'),
+    dateTime: {
+      none: t('logs.dateTime.none'), title: t('logs.dateTime.title'), clear: t('logs.dateTime.clear'), done: t('logs.dateTime.done'),
+      hour: t('logs.dateTime.hour'), minute: t('logs.dateTime.minute'), second: t('logs.dateTime.second'),
+      previous: t('logs.dateTime.previous'), next: t('logs.dateTime.next'), close: t('logs.dateTime.close'),
+    },
     levels: { debug: t('logs.level.debug'), info: t('logs.level.info'), warn: t('logs.level.warn'), error: t('logs.level.error') },
   };
   const view = (entry: LogEntryView): LogViewerEntry => ({
@@ -142,7 +158,7 @@ function LogsView({ base, initialRun, open }: { readonly base: string; readonly 
   return (
     <Stack className="grid gap-4" data-testid="logs-page">
       <Card>
-        <CardHeader><CardTitle>{t('logs.title')}</CardTitle></CardHeader>
+        {title ? <CardHeader><CardTitle>{t('logs.title')}</CardTitle></CardHeader> : null}
         <CardContent>
           <Paragraph className="m-0 text-small text-muted">{t('logs.intro')}</Paragraph>
           {failure === null ? null : <Alert variant="problem" className="mt-2" data-testid="logs-failure"><AlertDescription>{t('logs.readFailed', { message: failure })}</AlertDescription></Alert>}
@@ -164,6 +180,7 @@ function LogsView({ base, initialRun, open }: { readonly base: string; readonly 
             more={answer?.more === true}
             onOlder={older}
             summary={`${t('logs.summary', { shown, scanned: answer?.scanned ?? 0 })}${answer?.truncated === true ? ` · ${t('logs.truncated')}` : ''}`}
+            locale={locale}
           />
         </CardContent>
       </Card>
@@ -171,13 +188,21 @@ function LogsView({ base, initialRun, open }: { readonly base: string; readonly 
   );
 }
 
+/** The reader's language, as the page draws its own words and its moments in it. */
+function languageOf(given: string | undefined, resolved: string | undefined): string {
+  if (given !== undefined && given !== '') return given;
+  return (resolved ?? 'en').startsWith('ru') ? 'ru' : 'en';
+}
+
 /** The Logs page as a product template (`/p/logs`). The address's `run` binds the page's own variable. */
 export function LogsSection({ context }: { readonly context: SectionContext }): ReactElement {
+  const { i18n } = useTranslation();
   const bound = context.variables['run'];
-  return <LogsView base={context.base} initialRun={typeof bound === 'string' ? bound : runOf()} open={context.open} />;
+  return <LogsView base={context.base} initialRun={typeof bound === 'string' ? bound : askedOf().run} open={context.open} locale={languageOf(context.language, i18n.resolvedLanguage)} title={false} />;
 }
 
 /** The Logs page as the frame's own page, for a product whose files hold no `logs` template yet. */
 export function LogsPage({ base }: { readonly base: string }): ReactElement {
-  return <LogsView base={base} initialRun={runOf()} />;
+  const { i18n } = useTranslation();
+  return <LogsView base={base} initialRun={askedOf().run} locale={languageOf(undefined, i18n.resolvedLanguage)} title />;
 }

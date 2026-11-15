@@ -9,11 +9,11 @@
  */
 import { Fragment, useEffect, useRef, useState, type ReactElement } from 'react';
 import { CopyIcon, PauseIcon, PlayIcon } from 'lucide-react';
-import { Badge } from './badge.js';
 import { Button } from './button.js';
+import { ChoiceMenu } from './choice-menu.js';
+import { DateTimeField, type DateTimeLabels } from './date-time-field.js';
 import { FilterBar, FilterField } from './filter-bar.js';
 import { Input } from './input.js';
-import { Select } from './select.js';
 import { Skeleton } from './skeleton.js';
 import { TechnicalText } from './technical-text.js';
 import { Toggle } from './toggle.js';
@@ -64,6 +64,8 @@ export interface LogViewerLabels {
   readonly copied: string;
   readonly context: string;
   readonly details: string;
+  /** The words of the moment field: its empty state, its hour, minute and second, and its buttons. */
+  readonly dateTime: DateTimeLabels;
   readonly levels: Readonly<Record<LogViewerEntry['level'], string>>;
 }
 
@@ -87,6 +89,8 @@ export interface LogViewerProps {
   readonly height?: number;
   /** The entry drawn open, for a page that shows a state without a reader's click. */
   readonly initialSelectedId?: string;
+  /** The reader's language: the time of a row and the moments of the filters are drawn in it. */
+  readonly locale: string;
 }
 
 /** One row's height: the virtual list draws whole rows only, so a row is one line. */
@@ -94,17 +98,27 @@ const ROW_HEIGHT = 26;
 /** How many rows beyond the viewport are drawn, so a fast scroll is filled before it is seen. */
 const OVERSCAN = 10;
 
-/** The level's marker: the level's word in a badge, filled for an error and outlined for the rest. */
-function levelBadge(level: LogViewerEntry['level'], word: string): ReactElement {
-  const variant = level === 'error' ? 'solid' : 'outline';
-  return <Badge variant={variant} data-level={level} data-testid="log-level">{word}</Badge>;
+/**
+ * The level's marker: one small shape per level, filled for an error, ringed for a warning, a dot for information and a
+ * hollow dot for debug — a reader sees the level before reading the word, and the word itself stands in the row's own
+ * name and in the detail. Colours are the kit's ink and lines, never a colour of their own.
+ */
+function levelMarker(level: LogViewerEntry['level'], word: string): ReactElement {
+  const shape = level === 'error' ? 'h-2.5 w-2.5 rounded-[2px] bg-ink'
+    : level === 'warn' ? 'h-2.5 w-2.5 rounded-[2px] border border-ink'
+      : level === 'info' ? 'h-2 w-2 rounded-full bg-muted'
+        : 'h-2 w-2 rounded-full border border-line';
+  return <span role="img" aria-label={word} title={word} data-level={level} data-testid="log-level" className={`inline-block shrink-0 ${shape}`} />;
 }
 
-/** The time of one entry, to the millisecond when it is known. */
-function timeOf(at: string | null): string {
+/** The time of one entry in the reader's own clock and words: 24 hours, and the millisecond behind the locale's mark. */
+export function logTimeOf(at: string | null, locale: string): string {
   if (at === null) return '—';
   const held = new Date(at);
-  return `${held.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.${String(held.getMilliseconds()).padStart(3, '0')}`;
+  if (Number.isNaN(held.getTime())) return '—';
+  const clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(held);
+  const mark = new Intl.NumberFormat(locale).formatToParts(1.5).find((part) => part.type === 'decimal')?.value ?? '.';
+  return `${clock}${mark}${String(held.getMilliseconds()).padStart(3, '0')}`;
 }
 
 /** The text around a search's matches: the matches are drawn as `<mark>`, everything else as it stands. */
@@ -126,8 +140,8 @@ function highlighted(text: string, query: string): ReactElement {
 }
 
 /** The whole row as one text, for the copy control: its time, its level, its source and its words, then its detail. */
-export function logRowText(entry: LogViewerEntry, level: string): string {
-  const head = `${timeOf(entry.at)} ${level} ${entry.source}${entry.unit === null ? '' : ` ${entry.unit}`}: ${entry.message}`;
+export function logRowText(entry: LogViewerEntry, level: string, locale: string): string {
+  const head = `${logTimeOf(entry.at, locale)} ${level} ${entry.source}${entry.unit === null ? '' : ` ${entry.unit}`}: ${entry.message}`;
   return entry.detail === null ? head : `${head}\n${entry.detail}`;
 }
 
@@ -154,7 +168,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function LogViewer({ entries, filters, onFilters, sources, runs, labels, live, onLive, loading = false, more = false, onOlder, summary, height = 360, initialSelectedId }: LogViewerProps): ReactElement {
+export function LogViewer({ entries, filters, onFilters, sources, runs, labels, live, onLive, loading = false, more = false, onOlder, summary, height = 360, initialSelectedId, locale }: LogViewerProps): ReactElement {
   const list = useRef<HTMLDivElement | null>(null);
   const [top, setTop] = useState(0);
   const [selected, setSelected] = useState<string | null>(initialSelectedId ?? null);
@@ -172,7 +186,7 @@ export function LogViewer({ entries, filters, onFilters, sources, runs, labels, 
   const visible = Math.ceil(height / ROW_HEIGHT) + OVERSCAN * 2;
   const rows = entries.slice(first, first + visible);
   const copy = async (entry: LogViewerEntry): Promise<void> => {
-    const took = await copyText(logRowText(entry, labels.levels[entry.level]));
+    const took = await copyText(logRowText(entry, labels.levels[entry.level], locale));
     setCopied(took ? entry.id : null);
     if (took) setTimeout(() => { setCopied(null); }, 1_500);
   };
@@ -180,19 +194,19 @@ export function LogViewer({ entries, filters, onFilters, sources, runs, labels, 
     <Stack className="grid gap-2" data-testid="log-viewer" data-live={live ? 'true' : 'false'}>
       <FilterBar data-testid="log-filters">
         <FilterField>{labels.source}
-          <Select aria-label={labels.source} value={filters.source} onChange={(event) => { change('source', event.target.value); }} options={[{ value: '', label: labels.all }, ...sources]} />
+          <ChoiceMenu label={labels.source} value={filters.source} options={[{ value: '', label: labels.all }, ...sources]} onChange={(value) => { change('source', value); }} testId="log-source" />
         </FilterField>
         <FilterField>{labels.level}
-          <Select aria-label={labels.level} value={filters.level} onChange={(event) => { change('level', event.target.value); }} options={[{ value: '', label: labels.all }, ...(['error', 'warn', 'info', 'debug'] as const).map((level) => ({ value: level, label: labels.levels[level] }))]} />
+          <ChoiceMenu label={labels.level} value={filters.level} options={[{ value: '', label: labels.all }, ...(['error', 'warn', 'info', 'debug'] as const).map((level) => ({ value: level, label: labels.levels[level] }))]} onChange={(value) => { change('level', value); }} testId="log-level-filter" />
         </FilterField>
         <FilterField>{labels.run}
-          <Select aria-label={labels.run} value={filters.run} onChange={(event) => { change('run', event.target.value); }} options={[{ value: '', label: labels.all }, ...runs]} />
+          <ChoiceMenu label={labels.run} value={filters.run} options={[{ value: '', label: labels.all }, ...runs]} onChange={(value) => { change('run', value); }} testId="log-run" />
         </FilterField>
         <FilterField>{labels.from}
-          <Input type="datetime-local" aria-label={labels.from} value={filters.from} onInput={(event) => { change('from', event.currentTarget.value); }} />
+          <DateTimeField label={labels.from} value={filters.from} onChange={(value) => { change('from', value); }} locale={locale} labels={labels.dateTime} testId="log-from" />
         </FilterField>
         <FilterField>{labels.to}
-          <Input type="datetime-local" aria-label={labels.to} value={filters.to} onInput={(event) => { change('to', event.currentTarget.value); }} />
+          <DateTimeField label={labels.to} value={filters.to} onChange={(value) => { change('to', value); }} locale={locale} labels={labels.dateTime} testId="log-to" />
         </FilterField>
         <FilterField>{labels.search}
           <Input type="search" aria-label={labels.search} value={filters.query} onInput={(event) => { change('query', event.currentTarget.value); }} />
@@ -231,12 +245,11 @@ export function LogViewer({ entries, filters, onFilters, sources, runs, labels, 
                     data-active={active ? 'true' : 'false'}
                     onClick={() => { setSelected(active ? null : entry.id); }}
                     onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(active ? null : entry.id); } }}
-                    className={`group flex h-[26px] cursor-pointer items-center gap-2 px-2 font-mono text-[0.8125rem] leading-6 ${active ? 'bg-[var(--surface-active)]' : 'hover:bg-[var(--surface-hover)]'}`}
+                    className={`group flex h-[26px] cursor-pointer items-center gap-2 overflow-hidden px-2 font-mono text-[0.8125rem] leading-6 ${active ? 'bg-[var(--surface-active)]' : 'hover:bg-[var(--surface-hover)]'}`}
                   >
-                    <Metadata className="w-[86px] shrink-0 font-mono tabular-nums">{timeOf(entry.at)}</Metadata>
-                    {levelBadge(entry.level, labels.levels[entry.level])}
-                    <Metadata className="w-[92px] shrink-0 truncate">{entry.source}</Metadata>
-                    {entry.unit === null ? null : <Metadata className="w-[120px] shrink-0 truncate">{entry.unit}</Metadata>}
+                    <Metadata className="shrink-0 whitespace-nowrap font-mono tabular-nums" data-testid="log-time">{logTimeOf(entry.at, locale)}</Metadata>
+                    {levelMarker(entry.level, labels.levels[entry.level])}
+                    <Metadata className="max-w-[6.5rem] shrink-0 truncate" data-testid="log-source">{entry.source}</Metadata>
                     <span className="min-w-0 flex-1 truncate" data-testid="log-message">{highlighted(entry.message, filters.query)}</span>
                     <Button size="icon-sm" variant="ghost" aria-label={labels.copy} data-testid="log-copy" onClick={(event) => { event.stopPropagation(); void copy(entry); }}>
                       <CopyIcon aria-hidden="true" size={13} />
@@ -252,8 +265,8 @@ export function LogViewer({ entries, filters, onFilters, sources, runs, labels, 
       {shown === null ? null : (
         <Stack className="grid gap-1 rounded-[var(--radius-code)] border border-line p-3" data-testid="log-detail">
           <Stack className="flex items-center justify-between gap-2">
-            <Metadata>{timeOf(shown.at)} · {labels.levels[shown.level]} · {shown.source}{shown.run === null ? '' : ` · ${shown.run}`}{shown.unit === null ? '' : ` · ${shown.unit}`}</Metadata>
-            <Button size="icon-sm" variant="ghost" aria-label={labels.copy} data-testid="log-detail-copy" onClick={() => { const picked = window.getSelection()?.toString().trim() ?? ''; void copyText(picked === '' ? logRowText(shown, labels.levels[shown.level]) : picked); }}>
+            <Metadata>{logTimeOf(shown.at, locale)} · {labels.levels[shown.level]} · {shown.source}{shown.run === null ? '' : ` · ${shown.run}`}{shown.unit === null ? '' : ` · ${shown.unit}`}</Metadata>
+            <Button size="icon-sm" variant="ghost" aria-label={labels.copy} data-testid="log-detail-copy" onClick={() => { const picked = window.getSelection()?.toString().trim() ?? ''; void copyText(picked === '' ? logRowText(shown, labels.levels[shown.level], locale) : picked); }}>
               <CopyIcon aria-hidden="true" size={13} />
             </Button>
           </Stack>

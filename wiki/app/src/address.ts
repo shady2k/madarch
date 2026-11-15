@@ -29,9 +29,17 @@ export const PAGE_ADDRESSES = {
   logs: '/p/logs',
 } as const;
 
-/** The Logs page: every log madarch keeps, filtered and followed live; a `run` filters it to one run. */
-export function logsAddress(run?: string): string {
-  return run === undefined || run === '' ? PAGE_ADDRESSES.logs : `${PAGE_ADDRESSES.logs}?${new URLSearchParams({ run }).toString()}`;
+/**
+ * The Logs page: every log madarch keeps, filtered and followed live. A `run` filters it to one run, and `q` and `level`
+ * narrow it further — the run journal links a failure straight to the row that states it.
+ */
+export function logsAddress(run?: string, options: { readonly q?: string; readonly level?: string } = {}): string {
+  const query = new URLSearchParams();
+  if (run !== undefined && run !== '') query.set('run', run);
+  if (options.q !== undefined && options.q !== '') query.set('q', options.q);
+  if (options.level !== undefined && options.level !== '') query.set('level', options.level);
+  const text = query.toString();
+  return text === '' ? PAGE_ADDRESSES.logs : `${PAGE_ADDRESSES.logs}?${text}`;
 }
 
 /** The runs page: the history of fills, always reachable, and the way to choose a new fill. */

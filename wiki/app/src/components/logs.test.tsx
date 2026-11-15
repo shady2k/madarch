@@ -58,11 +58,23 @@ async function settle(times = 10): Promise<void> {
   for (let at = 0; at < times; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 }
 
-/** A native value set, so React's value tracker sees a select's change. */
-function pick(select: HTMLSelectElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value') ?? Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value');
-  descriptor?.set?.call(select, value);
-  select.dispatchEvent(new Event('change', { bubbles: true }));
+/**
+ * One choice of a kit menu: the trigger opens it, and the item is chosen. The menu's items carry the control's test id
+ * and the value behind it, so a test names the choice it makes without reading a label.
+ */
+async function choose(page: { container: HTMLElement }, menu: string, value: string): Promise<void> {
+  const trigger = page.container.querySelector(`[data-testid="${menu}"]`) as HTMLElement | null;
+  expect(trigger).not.toBeNull();
+  // Radix opens its menu on the pointer's press, not on a plain click: the press is dispatched as a browser makes it.
+  await act(async () => {
+    trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger!.click();
+  });
+  await settle(6);
+  const item = document.querySelector(`[data-testid="${menu}-${value}"]`) as HTMLElement | null;
+  expect(item).not.toBeNull();
+  await act(async () => { item!.click(); });
+  await settle(6);
 }
 
 /** A native value set, so React's value tracker sees the typed text. */
@@ -91,19 +103,14 @@ test('the logs page reads every source, filters through the route and opens a ro
     expect(detail?.textContent).toContain('host.ts:1');
     expect(detail?.textContent).toContain('/work/product/plugins/disk/plugin.json');
     expect(detail?.textContent).toContain('plugin-closure');
-    // A filter is the route's: the page asks again with the level and the source it was given.
-    const level = page.container.querySelector('select[aria-label="Уровень"]') as HTMLSelectElement;
-    await act(async () => { pick(level, 'error'); });
-    await settle(6);
+    // A filter is the route's, and the control is the kit's menu: the page asks again with what was chosen.
+    expect(page.container.querySelector('select')).toBeNull();
+    await choose(page, 'log-level-filter', 'error');
     expect(requests.some((path) => path.includes('level=error'))).toBe(true);
-    const source = page.container.querySelector('select[aria-label="Источник"]') as HTMLSelectElement;
-    await act(async () => { pick(source, 'fill'); });
-    await settle(6);
+    await choose(page, 'log-source', 'fill');
     expect(requests.some((path) => path.includes('source=fill'))).toBe(true);
     // A run filters the page and links to the run's own page.
-    const run = page.container.querySelector('select[aria-label="Запуск"]') as HTMLSelectElement;
-    await act(async () => { pick(run, 'fill-a'); });
-    await settle(6);
+    await choose(page, 'log-run', 'fill-a');
     expect(requests.some((path) => path.includes('run=fill-a'))).toBe(true);
     expect(page.container.querySelector('[data-testid="logs-run-link"] a')?.getAttribute('href')).toBe('/p/run?run=fill-a');
   } finally {
@@ -158,6 +165,13 @@ test('the kit page draws the log viewer in its states, and the list is virtualis
     expect(container.querySelector('[data-testid="log-loading"]')).not.toBeNull();
     // The error state is drawn open: its detail carries the stack and the context.
     expect(container.querySelector('[data-testid="log-detail-raw"]')?.textContent).toContain('at startPluginProcess');
+    // The kit's own filter controls stand beside the viewer, in their states: the menu (closed and open) and the moment
+    // field (with a moment, empty, and its panel open).
+    expect(container.querySelector('[data-testid="kit-choice-menu"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="kit-choice-open"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('[data-testid="kit-moment"]')?.textContent).toMatch(/2026/u);
+    expect(container.querySelector('[data-testid="kit-moment-empty"]')?.textContent).toBe('Любое время');
+    expect(container.querySelector('[data-testid="date-time-panel"]')).not.toBeNull();
   } finally {
     await act(async () => { root.unmount(); });
     container.remove();
@@ -178,8 +192,9 @@ test('the list is virtualised: thousands of entries draw only the rows in view',
     source: 'Источник', level: 'Уровень', run: 'Запуск', from: 'С', to: 'По', search: 'Поиск', all: 'Все', older: 'Старые',
     empty: 'Пусто', loading: 'Читаю', follow: 'Следить', pause: 'Пауза', copy: 'Копировать', copied: 'Скопировано',
     context: 'Контекст', details: 'Записи', levels: { debug: 'Отладка', info: 'Информация', warn: 'Предупреждение', error: 'Ошибка' },
+    dateTime: { none: 'Любое время', title: 'Выберите момент', clear: 'Сбросить', done: 'Готово', hour: 'Часы', minute: 'Минуты', second: 'Секунды', previous: 'Предыдущий месяц', next: 'Следующий месяц', close: 'Закрыть' },
   };
-  await act(async () => { root.render(createElement(LogViewer, { entries, filters, onFilters: () => undefined, sources: [], runs: [], labels, live: false, onLive: () => undefined })); });
+  await act(async () => { root.render(createElement(LogViewer, { entries, filters, onFilters: () => undefined, sources: [], runs: [], labels, live: false, onLive: () => undefined, locale: 'ru' })); });
   await settle(2);
   try {
     const drawn = container.querySelectorAll('[data-testid="log-row"]');
@@ -194,5 +209,42 @@ test('the list is virtualised: thousands of entries draw only the rows in view',
   } finally {
     await act(async () => { root.unmount(); });
     container.remove();
+  }
+});
+
+test('a row draws one time in the reader’s clock, and the moment filter is the kit’s field', async () => {
+  await setWikiLanguage('ru');
+  const page = await render();
+  try {
+    const row = page.container.querySelector('[data-testid="log-row"]') as HTMLElement;
+    const times = row.querySelectorAll('[data-testid="log-time"]');
+    expect(times).toHaveLength(1);
+    // 24 hours and the locale's own millisecond mark: no «AM», no «PM», no second time anywhere in the row.
+    expect(times[0]?.textContent).toMatch(/^\d{2}:\d{2}:\d{2},\d{3}$/u);
+    expect(row.textContent).not.toMatch(/AM|PM/u);
+    // The filters are the kit's: a button that names its choice, and the moment field's own words.
+    expect(page.container.querySelector('select')).toBeNull();
+    expect(page.container.querySelector('[data-testid="log-from"]')?.textContent).toBe('Любое время');
+    await act(async () => { (page.container.querySelector('[data-testid="log-from"]') as HTMLElement).click(); });
+    await settle(6);
+    const panel = document.querySelector('[data-testid="date-time-panel"]');
+    expect(panel).not.toBeNull();
+    // The month and the control words are Russian, in the reader's own language.
+    expect(panel?.textContent).toMatch(/[а-яё]/iu);
+    expect(panel?.querySelector('[data-testid="date-time-month"]')?.textContent).toContain('ноябрь');
+    const days = [...panel!.querySelectorAll('[role="grid"] button')];
+    expect(days.length).toBeGreaterThan(27);
+    await act(async () => { (days[14] as HTMLElement).click(); });
+    const hour = panel!.querySelector('[data-testid="date-time-hour"]') as HTMLInputElement;
+    await act(async () => { type(hour, '11'); });
+    await act(async () => { (panel!.querySelector('[data-testid="date-time-done"]') as HTMLElement).click(); });
+    await settle(8);
+    expect(requests.some((path) => path.includes('since='))).toBe(true);
+    // The trigger then shows the chosen moment in the reader's words, not a placeholder of the browser's.
+    const shown = page.container.querySelector('[data-testid="log-from"]')?.textContent ?? '';
+    expect(shown).not.toBe('Любое время');
+    expect(shown).toMatch(/2026/u);
+  } finally {
+    await page.close();
   }
 });

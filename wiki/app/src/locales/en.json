@@ -207,6 +207,11 @@
         "dependency": "Fill the kind this one reads first; the other units still run.",
         "timeout": "Open the detailed logs of this run, and check the machine's load before pressing again.",
         "unknown": "Open the detailed logs of this run for the cause."
+      },
+      "logRow": "Open in the logs",
+      "stageOther": "Another step",
+      "stage": {
+        "plugin-turns": "Plugins"
       }
     },
     "prefill": {
@@ -1945,6 +1950,18 @@
     "truncated": "The files were read from their ends: older lines are not in this answer.",
     "cut": "the detail was cut at the record's bound",
     "openRun": "Open the run",
-    "readFailed": "The logs could not be read: {{message}}"
+    "readFailed": "The logs could not be read: {{message}}",
+    "dateTime": {
+      "none": "Any time",
+      "title": "Pick a moment",
+      "clear": "Clear",
+      "done": "Done",
+      "hour": "Hour",
+      "minute": "Minute",
+      "second": "Second",
+      "previous": "Previous month",
+      "next": "Next month",
+      "close": "Close"
+    }
   }
 }

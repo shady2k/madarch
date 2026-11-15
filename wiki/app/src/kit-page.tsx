@@ -12,6 +12,8 @@ import {
   Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from './components/ui/breadcrumb.js';
 import { Button } from './components/ui/button.js';
+import { ChoiceMenu } from './components/ui/choice-menu.js';
+import { DateTimeField, DateTimePanel, type DateTimeLabels } from './components/ui/date-time-field.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card.js';
 import { Checkbox } from './components/ui/checkbox.js';
 import { ChoiceCard, ChoiceDescription } from './components/ui/choice-card.js';
@@ -88,18 +90,27 @@ const LOG_SAMPLE: readonly LogViewerEntry[] = [
 ];
 
 export function KitPage(): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const state = (key: string): string => t(`kit.${key}`);
   const [choice, setChoice] = useState('one');
   const [segment, setSegment] = useState('one');
   const [toggled, setToggled] = useState(false);
   const [logFilters, setLogFilters] = useState<LogViewerFilters>({ source: '', level: '', run: '', from: '', to: '', query: '' });
   const [logLive, setLogLive] = useState(false);
+  const [menuChoice, setMenuChoice] = useState('all');
+  const [moment, setMoment] = useState('2026-11-15T12:22:19.850Z');
+  const dateTimeLabels: DateTimeLabels = {
+    none: t('logs.dateTime.none'), title: t('logs.dateTime.title'), clear: t('logs.dateTime.clear'), done: t('logs.dateTime.done'),
+    hour: t('logs.dateTime.hour'), minute: t('logs.dateTime.minute'), second: t('logs.dateTime.second'),
+    previous: t('logs.dateTime.previous'), next: t('logs.dateTime.next'), close: t('logs.dateTime.close'),
+  };
   const logLabels: LogViewerLabels = {
     source: state('name'), level: state('default'), run: state('selected'), from: state('name'), to: state('name'),
     search: state('name'), all: state('sample'), older: state('content'), empty: t('logs.empty'), loading: t('logs.loading'),
     follow: t('logs.filters.follow'), pause: t('logs.filters.pause'), copy: t('logs.filters.copy'), copied: t('logs.filters.copied'),
     context: t('logs.filters.context'), details: t('logs.filters.details'),
+    dateTime: dateTimeLabels,
     levels: { debug: t('logs.level.debug'), info: t('logs.level.info'), warn: t('logs.level.warn'), error: t('logs.level.error') },
   };
   return (
@@ -176,6 +187,29 @@ export function KitPage(): ReactElement {
           <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button variant="default" size="sm">{state('action')}</Button></FilterBar>
         </FilterResults>
         <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label="next"><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
+      </KitSection>
+
+      <KitSection title="ChoiceMenu / DateTimeField">
+        <KitState label={state('default')}>
+          <ChoiceMenu label={state('name')} value={menuChoice} options={[{ value: 'all', label: state('sample') }, { value: 'one', label: state('content') }]} onChange={setMenuChoice} testId="kit-choice-menu" />
+        </KitState>
+        <KitState label={state('open')}>
+          <ChoiceMenu label={state('name')} value={menuChoice} options={[{ value: 'all', label: state('sample') }, { value: 'one', label: state('content') }]} onChange={setMenuChoice} open onOpenChange={() => undefined} testId="kit-choice-open" />
+        </KitState>
+        <KitState label={state('selected')}>
+          <ChoiceMenu label={state('name')} value="one" options={[{ value: 'all', label: state('sample') }, { value: 'one', label: state('content') }]} onChange={setMenuChoice} testId="kit-choice-chosen" />
+        </KitState>
+        <KitState label={state('default')}>
+          <DateTimeField label={state('name')} value={moment} onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment" />
+        </KitState>
+        <KitState label={state('empty')}>
+          <DateTimeField label={state('name')} value="" onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment-empty" />
+        </KitState>
+        <KitState label={state('open')}>
+          <DialogPreview title={state('name')} description={t('logs.dateTime.title')}>
+            <DateTimePanel value={moment} locale={language} labels={dateTimeLabels} onCommit={setMoment} onClear={() => { setMoment(''); }} />
+          </DialogPreview>
+        </KitState>
       </KitSection>
 
       <KitSection title="Tabs">
@@ -278,19 +312,19 @@ export function KitPage(): ReactElement {
 
       <KitSection title={state('logsTitle')} description={t('logs.intro')}>
         <KitState label={state('default')}>
-          <LogViewer entries={LOG_SAMPLE} filters={logFilters} onFilters={setLogFilters} sources={[{ value: 'fill', label: t('logs.source.fill') }, { value: 'plugin', label: t('logs.source.plugin') }, { value: 'agent', label: t('logs.source.agent') }, { value: 'store', label: t('logs.source.store') }]} runs={[{ value: 'fill-sample', label: 'fill-sample' }]} labels={logLabels} live={logLive} onLive={setLogLive} summary="5 of 5" />
+          <LogViewer entries={LOG_SAMPLE} filters={logFilters} onFilters={setLogFilters} sources={[{ value: 'fill', label: t('logs.source.fill') }, { value: 'plugin', label: t('logs.source.plugin') }, { value: 'agent', label: t('logs.source.agent') }, { value: 'store', label: t('logs.source.store') }]} runs={[{ value: 'fill-sample', label: 'fill-sample' }]} labels={logLabels} live={logLive} onLive={setLogLive} summary="5 of 5" locale={language} />
         </KitState>
         <KitState label={state('error')}>
-          <LogViewer entries={LOG_SAMPLE} filters={{ ...logFilters, level: 'error', query: 'pinned' }} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} initialSelectedId="sample-3" summary="1 of 5" />
+          <LogViewer entries={LOG_SAMPLE} filters={{ ...logFilters, level: 'error', query: 'pinned' }} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} initialSelectedId="sample-3" summary="1 of 5" locale={language} />
         </KitState>
         <KitState label={state('empty')}>
-          <LogViewer entries={[]} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} />
+          <LogViewer entries={[]} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} locale={language} />
         </KitState>
         <KitState label={state('loading')}>
-          <LogViewer entries={[]} loading filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} />
+          <LogViewer entries={[]} loading filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} locale={language} />
         </KitState>
         <KitState label={state('logsLive')}>
-          <LogViewer entries={LOG_SAMPLE.slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} />
+          <LogViewer entries={LOG_SAMPLE.slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} locale={language} />
         </KitState>
       </KitSection>
 

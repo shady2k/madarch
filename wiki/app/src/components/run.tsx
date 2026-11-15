@@ -101,13 +101,34 @@ function seconds(value: number): number {
   return Math.max(0, Math.round(value / 1000));
 }
 
-/** One line of the run journal: what happened, and for a failure the cause and the next action in words. */
+/** One line of the run journal: what happened, and for a failure the cause's own words, the next action and the row. */
 interface JournalLine {
   readonly at: string;
   readonly text: string;
-  readonly cause: RunCause | null;
+  /** A failure's own text with its file and line, the next action's class, and the logs page narrowed to its row. */
+  readonly cause: { readonly text: string; readonly next: RunCause; readonly link: string } | null;
   /** How many events of one kind and group the line stands for: a run that retries four times says so once. */
   readonly times: number;
+}
+
+/**
+ * A failure's own cause, as the event's summary states it: the innermost `file:line: …` a person can act on (the
+ * plugin's message, not the engine's sentence around it), and the event's whole text when it names no place.
+ */
+export function causeTextOf(summary: string): string {
+  const places = [...summary.matchAll(/(?:^|\s)([^\s:]*\.[A-Za-z0-9]+:\d+: )/gu)];
+  const last = places.at(-1);
+  const from = last === undefined ? summary : summary.slice((last.index ?? 0) + (last[0].startsWith(' ') ? 1 : 0));
+  // The engine's own retry tail — «; the attempt is retried at <moment>» — is the run's bookkeeping, not the cause: the
+  // cause is the message before it.
+  const text = from.replace(/;\s*the attempt is retried.*$/iu, '');
+  return text.length <= 300 ? text : `${text.slice(0, 300)}…`;
+}
+
+/** The unit a failure names, short: `<plugin>:<kind>` behind its stage's path and its vertex or child marks. */
+function unitLabelOf(unitId: string): string {
+  const unit = unitId.slice(unitId.lastIndexOf('/') + 1);
+  return (unit.split('@')[0] ?? '').split('#')[0] ?? '';
 }
 
 /**
@@ -116,6 +137,7 @@ interface JournalLine {
  * failure carries its cause and the next action in words — the raw summary stays in the detailed logs, which the page links.
  */
 function journalLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): JournalLine[] {
+  const runId = run.runId;
   const lines: JournalLine[] = [];
   for (const event of run.events.slice(-200)) {
     const word = EVENT_WORDS[event.type];
@@ -132,7 +154,12 @@ function journalLines(run: FillRunDetail, groups: readonly FillRunGroup[], label
       text = t(`knowledge.fillRun.event.${word}`);
     }
     const failure = word === 'unitFailed' || word === 'unitBlocked' || word === 'unitRetried' || word === 'failed' || word === 'blocked';
-    const cause = failure ? runCauseOf(event.summary) : null;
+    const cause = failure ? {
+      text: causeTextOf(event.summary),
+      next: runCauseOf(event.summary),
+      // The row a failure states is found by the unit's own name and the error level; the page opens on it.
+      link: logsAddress(runId, { ...(event.unitId === '' ? {} : { q: unitLabelOf(event.unitId) }), level: 'error' }),
+    } : null;
     const last = lines[lines.length - 1];
     // A repeat of the same line is the same line: the count is what a reader needs, not four identical rows.
     if (last !== undefined && last.text === text) {
@@ -360,9 +387,10 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                 <ListItem key={`${String(at)}:${line.at}`} className="mb-2 text-small" data-testid="fill-run-journal-line">
                   <Metadata>{line.at} · </Metadata>{line.text}{line.times > 1 ? ` ×${String(line.times)}` : ''}
                   {line.cause === null ? null : (
-                    <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-journal-cause">
-                      {t(`knowledge.fillRun.cause.${line.cause}`)} {t(`knowledge.fillRun.next.${line.cause}`)}
-                    </Paragraph>
+                    <Stack className="mt-1 grid gap-1" data-testid="fill-run-journal-cause">
+                      <TechnicalText className="m-0 break-all text-small">{line.cause.text}</TechnicalText>
+                      <Metadata>{t(`knowledge.fillRun.next.${line.cause.next}`)} <TextLink href={context.base + line.cause.link} onClick={(event) => { event.preventDefault(); context.open(line.cause!.link); }} data-testid="fill-run-and-logs">{t('knowledge.fillRun.logRow')}</TextLink></Metadata>
+                    </Stack>
                   )}
                 </ListItem>
               ))}
@@ -372,7 +400,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
             <Stack className="mt-3 grid gap-1" data-testid="fill-run-stage-times">
               <Text className="font-medium">{t('knowledge.fillRun.stageTimes')}</Text>
               {liveRun.summary.steps.map((step) => (
-                <Metadata key={step.step} className="text-small">{step.step} · {t('knowledge.fillRun.agents.time', { seconds: seconds(step.wallMs) })}</Metadata>
+                <Metadata key={step.step} className="text-small">{t(`knowledge.fillRun.stage.${step.step}`, { defaultValue: t('knowledge.fillRun.stageOther') })} · {t('knowledge.fillRun.agents.time', { seconds: seconds(step.wallMs) })}</Metadata>
               ))}
             </Stack>
           )}

@@ -82,6 +82,8 @@ const RUN = {
     { seq: 4, at: new Date(Date.now() - 2000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
   ],
   records: 12, publishedUnits: 2, agentUsage: null,
+  // The run's trace as its run view states it: the stage's own id and the time it took.
+  summary: { wallMs: 29_000, steps: [{ step: 'plugin-turns', wallMs: 29_000 }] },
 };
 
 /** One agent unit's exchange, as madarch records it (madarch-64o5.88): its prompt, its steps, its files, its answer. */
@@ -307,8 +309,21 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     const journal = page.container.querySelector('[data-testid="fill-run-journal"]');
     expect(journal?.textContent).toContain('Журнал запуска');
     expect(journal?.textContent).toContain('Повтор: Файлы · disk. ×2');
+    // The failure's own words stand on the page, with the file and line it stands at, and the next action beside them.
+    const causeText = journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent ?? '';
+    expect(causeText).toContain('cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers');
+    // The engine's retry tail is the run's bookkeeping, not the cause: the page states the cause and then what to do.
+    expect(causeText).not.toContain('the attempt is retried');
     expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('Включите контроллеры для своей сессии');
-    expect(text).not.toContain('/product/src/plugin/cgroup.ts');
+    // The event's own wrapper sentence stays out: the page shows the cause's words, not the engine's framing of them.
+    expect(text).not.toContain('demo.alpha failed');
+    // A failure links to its own row in the logs: the run, the unit's name and the error level.
+    const rowLink = journal?.querySelector('[data-testid="fill-run-and-logs"]');
+    expect(rowLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1&q=disk%3Ademo.alpha&level=error');
+    // The stages are named in the reader's words, never by the engine's key.
+    const stages = page.container.querySelector('[data-testid="fill-run-stage-times"]');
+    expect(stages?.textContent).toContain('Плагины · 29 с');
+    expect(stages?.textContent).not.toContain('plugin-turns');
     const logsLink = journal?.querySelector('[data-testid="fill-run-logs-link"]');
     expect(logsLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1');
     await act(async () => { (logsLink as HTMLElement).click(); });
