@@ -3,7 +3,7 @@
 Change: madarch-64o5.85
 Base: ef989dae1b707459a69421ca1d4bdee54cd6904b
 Tasks: madarch-64o5.85
-Kind: request
+Kind: no-behavior
 
 ## Intent
 The owner's 0.3.0 walk and its second look: a home that explains the product
@@ -47,8 +47,9 @@ repositories, overview, presentation and internationalization requirements.
 - product-wiki/internationalization: static test mutation review
 
 ## Where it is seen
-Kind: request
+Kind: screen
 Place: a served product's home at `/`, its catalogue at `/p/catalogue`, a kind's page opened from the sidebar, and a fill run's page at `/p/run`
+Mockup: docs/changes/madarch-64o5.85/home-1440.png
 
 1. Open a fresh product's home after `madarch init` while a fill has never run: the guide says what madarch is and the three steps, the recommended set and the wizard stand inline, «Выбрать в каталоге» is a button, and the repository init connected stands under «Репозитории».
 2. Stop the server or cut the tunnel while the page is open: one line at the top says the server cannot be reached, the next retry and the time of the data on the page; the page keeps its last counts, dimmed, and «Заполнить…» is disabled with a tooltip saying why.

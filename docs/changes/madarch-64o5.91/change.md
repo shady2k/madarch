@@ -3,7 +3,7 @@
 Change: madarch-64o5.91
 Base: ef989dae1b707459a69421ca1d4bdee54cd6904b
 Tasks: madarch-64o5.91
-Kind: request
+Kind: no-behavior
 
 ## Intent
 A reader who keeps the wiki open while a fill runs sees what the fill has
@@ -42,8 +42,9 @@ serve requirements for a page that follows a fill.
 - product-wiki/serve: static test mutation review
 
 ## Where it is seen
-Kind: request
+Kind: screen
 Place: the product wiki's home at `/`, its sidebar, its catalogue at `/p/catalogue`, and an open kind's page while a fill runs
+Mockup: docs/changes/madarch-64o5.91/fill-sidebar-1440.png
 
 1. Start a fill on a product whose code has new files, and open the run page with the sidebar visible.
 2. Before the run ends, the sidebar gains the kinds the units publish and its counts grow; the changed kind rows flash once.
