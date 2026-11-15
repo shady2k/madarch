@@ -31,7 +31,7 @@ Place: bun run check:catalog and the fill-plan response
 3. Generate schema and storage contracts: waiting edges have neither types nor tables.
 
 ## Blocking questions
-- Local tracker data is unavailable; no acceptance or tracker transition is claimed.
+None.
 
 ## Acceptance evidence
 Scripted checks only. See the hand-in report for commands and counts. No owner acceptance, independent review or mutation result is claimed.
