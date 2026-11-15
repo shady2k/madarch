@@ -591,52 +591,75 @@ export function useCommandRead<T>(key: string, load: (signal: AbortSignal) => Pr
 // ---- the product's one change stream ------------------------------------------------------------------------------
 
 interface SharedStream {
-  readonly source: EventSource;
+  source: EventSource;
   readonly listeners: Set<(notice: ChangeNotice) => void>;
+  /** Whether the current connection's opening revision was read. */
+  opened: boolean;
+  /** The last revision this tab read; a reconnect's opening revision is a change only if it moved. */
+  seenRevision: string | undefined;
 }
 
 const changeStreams = new Map<string, SharedStream>();
 
+function wire(stream: SharedStream): void {
+  const source = stream.source;
+  stream.opened = false;
+  source.addEventListener('change', (event: MessageEvent<string>) => {
+    let notice: ChangeNotice = { revision: '' };
+    try {
+      const data = JSON.parse(event.data) as Record<string, unknown>;
+      notice = {
+        revision: typeof data['revision'] === 'string' ? data['revision'] : '',
+        ...(Array.isArray(data['kinds']) ? { kinds: data['kinds'].filter((kind): kind is string => typeof kind === 'string') } : {}),
+        ...(typeof data['facts'] === 'number' ? { facts: data['facts'] } : {}),
+        ...(data['structure'] === true ? { structure: true } : {}),
+      };
+    } catch {
+      // A notice without JSON is a revision change alone.
+    }
+    const opening = !stream.opened;
+    stream.opened = true;
+    if (opening) {
+      // The first notice names the revision this connection opened at. It is not a change when it is the revision the
+      // tab last read; it is one when the graph moved while the stream was away.
+      if (stream.seenRevision === undefined || notice.revision === stream.seenRevision) {
+        stream.seenRevision = notice.revision;
+        return;
+      }
+    }
+    stream.seenRevision = notice.revision;
+    changes += 1;
+    for (const listener of stream.listeners) listener(notice);
+  });
+  source.addEventListener('error', () => { reportOffline(); });
+  source.addEventListener('open', () => { stream.opened = false; reportOnline(); });
+}
+
 function streamFor(base: string): SharedStream {
   let stream = changeStreams.get(base);
   if (stream === undefined) {
-    const listeners = new Set<(notice: ChangeNotice) => void>();
-    const source = new EventSource(eventsAddress(base));
-    // The stream opens by naming the revision the graph is at; the page's own reads already answer that revision, so the
-    // first notice is not a change and does not make every reader ask again. A notice after it moves the tab's change
-    // count and wakes every reader. The stream is also the app's continuous line to the server: its loss is the frame's
-    // calm state even when the reader presses nothing, and its return is what lifts it.
-    let opened = false;
-    source.addEventListener('change', (event: MessageEvent<string>) => {
-      // Every connection opens by naming the revision the page has already read; only a notice after it is a change.
-      if (!opened) { opened = true; return; }
-      changes += 1;
-      let notice: ChangeNotice = { revision: '' };
-      try {
-        const data = JSON.parse(event.data) as Record<string, unknown>;
-        notice = {
-          revision: typeof data['revision'] === 'string' ? data['revision'] : '',
-          ...(Array.isArray(data['kinds']) ? { kinds: data['kinds'].filter((kind): kind is string => typeof kind === 'string') } : {}),
-          ...(typeof data['facts'] === 'number' ? { facts: data['facts'] } : {}),
-          ...(data['structure'] === true ? { structure: true } : {}),
-        };
-      } catch {
-        // A notice without JSON is a revision change alone.
-      }
-      for (const listener of listeners) listener(notice);
-    });
-    source.addEventListener('error', () => { reportOffline(); });
-    source.addEventListener('open', () => { opened = false; reportOnline(); });
-    stream = { source, listeners };
+    stream = { source: new EventSource(eventsAddress(base)), listeners: new Set(), opened: false, seenRevision: undefined };
+    wire(stream);
     changeStreams.set(base, stream);
   }
   return stream;
+}
+
+/** A server that refused the stream closes it for good; a return replaces it, keeping the last revision. */
+function reopenChangeStream(base: string): void {
+  const stream = changeStreams.get(base);
+  if (stream === undefined || stream.source.readyState !== 2) return;
+  const old = stream.source;
+  stream.source = new EventSource(eventsAddress(base));
+  wire(stream);
+  old.close();
 }
 
 /** Calls the listener whenever the product's change stream says something changed; one stream is shared by every caller. */
 export function useChangeStream(base: string, onChange: (notice: ChangeNotice) => void): void {
   const listener = useRef(onChange);
   listener.current = onChange;
+  const connection = useConnection();
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
     const stream = streamFor(base);
@@ -651,6 +674,10 @@ export function useChangeStream(base: string, onChange: (notice: ChangeNotice) =
       }
     };
   }, [base]);
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return;
+    if (connection.generation > 0) reopenChangeStream(base);
+  }, [base, connection.generation]);
 }
 
 /** A tab with no reader and no stream forgets what it read: the next app on the page starts from nothing. */
