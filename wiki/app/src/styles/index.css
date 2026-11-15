@@ -2400,7 +2400,6 @@ a.graph-diagram-element-label:hover {
   --colors-border-outline: var(--border);
 }
 @media (max-width: 700px) { .dg-likec4-view { height: 420px; } }
-.dg-full .dg-likec4-view { height: calc(100vh - 190px); min-height: 360px; }
 /* The relations block keeps a reading window at a 12 px label: a taller frame holds more of the neighbourhood. */
 [data-block="relations"] .dg-likec4-view,
 [data-block="relations"] .dg-iframe { height: 760px; }
@@ -2424,17 +2423,6 @@ a.graph-diagram-element-label:hover {
   .dg-element-place { flex-basis: 100%; }
 }
 
-/* Full screen for every diagram. */
-.dg-fullable { position: relative; }
-.dg-fullable .dg-toolbar { padding-right: 44px; }
-.dg-fs-button { position: absolute; top: 4px; right: 4px; z-index: 5; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-page); color: var(--text); cursor: pointer; }
-.dg-fs-button:hover { background: var(--surface-hover); }
-.dg-full { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; padding: 12px; overflow: auto; background: var(--surface-page); }
-.dg-full .dg-iframe { height: calc(100vh - 190px); min-height: 360px; }
-.dg-full .dg-frame { flex: 1 1 auto; }
-.dg-zoombox { position: relative; overflow: auto; }
-.dg-zoombox.dg-zoombox-full { max-height: calc(100vh - 190px); }
-.dg-zoom-buttons { position: sticky; top: 0; z-index: 3; display: flex; gap: 4px; justify-content: flex-end; padding: 4px; }
 /* The content keeps the width it is given: zooming out shrinks it, and centring is the margin's job. */
 .dg-zoom-content { min-width: 0; margin-inline: auto; }
 
@@ -2447,3 +2435,12 @@ a.graph-diagram-element-label:hover {
 
 /* A list the kit draws: rows, never browser markers. The reading rules mark their own ul/li; this rule comes after them. */
 ul.ui-plain-list, ul.ui-plain-list > li { list-style: none; padding-left: 0; }
+
+/* A diagram at full screen (madarch-64o5.129): the kit's dialog takes the window, and the picture takes the dialog's
+   body — the panes that size themselves to their frame fill it. */
+.dg-fullscreen { width: min(96vw, 1900px); max-width: none; height: 92dvh; max-height: none; }
+.dg-fullscreen-body { min-height: 0; height: 100%; overflow: auto; }
+.dg-fullscreen-body > div { height: 100%; }
+.dg-fullscreen-body .dg-likec4-view { height: 100%; min-height: 360px; }
+.dg-fullscreen-body .dg-iframe { height: 100%; }
+.dg-fullscreen-body .dg-frame-box { max-height: none; }
