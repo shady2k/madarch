@@ -81,6 +81,18 @@ sections:
         - { label: { en: Stated by, ru: Назвал }, path: producer }
         - { label: { en: Version, ru: Версия }, path: version }
         - { label: { en: Stated, ru: Заявлено }, path: statedAt, format: date }
+  - id: filetext
+    after: facts
+    component: file-text
+    title: { en: Text, ru: Текст }
+    query: |
+      id
+      repository
+      path
+    params:
+      repositoryPath: repository
+      pathPath: path
+      chunk: 400
   - id: latest
     component: facts
     on: root
@@ -94,7 +106,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate
@@ -135,7 +147,7 @@ sections:
           node {
             id
             kind
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               subject
               commitDate
               codeAuthoredOf(first: 1) {
@@ -214,7 +226,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate

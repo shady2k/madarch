@@ -200,7 +200,7 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
   manifest.setIn([], {
     ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
-    fields: ['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
+    fields: ['title', 'repository', 'path', 'markdown'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
       { name: 'anchors', type: 'json', producers: ['fixture'] },
       { name: 'links', type: 'json', producers: ['fixture'] },
     ]),
@@ -223,7 +223,7 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
         const title = /^# (.+)$/m.exec(markdown)?.[1];
         if (title === undefined) throw new Error(`the fixture document ${file} has no title`);
         const node = await ensureVertex(tx, contract, { kind: 'document', key: { title } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, source_text: markdown, anchors: {}, links: [] } }, 1, journal);
+        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: null, path: file.slice(folder.length + 1).split('\\').join('/'), markdown, anchors: {}, links: [] } }, 1, journal);
       }
       await writeJournal(tx, journal);
     });

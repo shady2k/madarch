@@ -10,6 +10,7 @@ import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
+import { cataloguePageTemplate } from '../src/knowledge/page-template-kind.js';
 import { MANIFEST_CONTRACT } from '../src/graph/manifest-contract.js';
 
 const project = join(import.meta.dir, '..');
@@ -85,7 +86,8 @@ for (const running of [false, true]) test(`reset starts a filled fixture over ${
       await owner.ready;
       const kinds = await owner.run((tx) => tx.query<{ entity: string }>('SELECT DISTINCT e.name AS entity FROM node n JOIN entity e ON e.id=n.entity_id WHERE NOT n.removed ORDER BY entity'));
       expect(kinds.rows.map((row) => row.entity)).toContain('manifest.catalogue');
-      const catalogue = new Set([...MANIFEST_CONTRACT.vertex.map((kind) => kind.name), 'product', 'value-set', 'value-set-entry']);
+      // The manifest's own catalogue, its value sets, and the page templates it publishes at start (2026-11-15).
+      const catalogue = new Set([...MANIFEST_CONTRACT.vertex.map((kind) => kind.name), 'product', 'value-set', 'value-set-entry', cataloguePageTemplate().name]);
       expect(kinds.rows.every((row) => catalogue.has(row.entity))).toBe(true);
     } finally { await owner.close(); }
   } finally {

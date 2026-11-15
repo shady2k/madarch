@@ -22,14 +22,17 @@ import { withSpan } from '../obs/trace.js';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { generatedTableName, type FieldType } from '../graph/contract.js';
 import { byCodePoint } from '../model/order.js';
-import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
-import { fieldNameOf, typeNameOf } from '../graphql/names.js';
+import { fileTextKind, homeKind, type KindsManifest } from '../product/manifest/kinds.js';
+import { fieldNameOf, kindTypeNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
 import type { ProductTemplates } from './product-templates.js';
 import { MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from './manifest-contract.js';
+import { join } from 'node:path';
+import { catalogueFileTextRole } from '../knowledge/file-text-kind.js';
 import { relationWords } from '../knowledge/relation-labels.js';
 import { checkProductTemplates } from './template-check.js';
-import { join } from 'node:path';
+import type { TemplateFile } from '../page-contract/template.js';
+import type { TemplateFinding } from '../page-contract/validate.js';
 
 /** One open opinion of a vertex or an edge, as the read holds it. */
 export interface OpinionRow {
@@ -365,14 +368,23 @@ export class ReadContext {
     private readonly structure: string,
     /** The product's templates and the pages they open, as the bootstrap states them. */
     private readonly productTemplates: ProductTemplates,
+    /** The template files and their own findings, read from the graph: the page's diagnostics are drawn from these. */
+    private readonly templateFiles: readonly TemplateFile[] = [],
+    private readonly templateBodies: ReadonlyMap<string, string> = new Map(),
+    private readonly templateFindings: readonly TemplateFinding[] = [],
+    /**
+     * The read of one file's text by the blob the graph names (decision 0037), given by the role that answers it: the api
+     * role asks the store's queue, and a read that has no reader answers null.
+     */
+    private readonly readText?: (ask: { readonly repository: string; readonly path: string; readonly blob: string; readonly moved: boolean; readonly from: number; readonly to?: number; readonly fromColumn?: number }) => Promise<Record<string, unknown> | undefined>,
   ) {
     this.published = published;
     this.lang = lang ?? manifest.language ?? 'en';
     this.fallbackLang = manifest.language ?? 'en';
     for (const kind of published.kinds) {
-      const type = typeNameOf(kind.name);
+      const type = kindTypeNameOf(kind.name);
       this.kindByType.set(type, kind);
-      this.kindByRoot.set(`all${type}`, kind);
+      this.kindByRoot.set(`all${typeNameOf(kind.name)}`, kind);
       this.vertexTable.set(kind.name, generatedTableName(kind.name, 'vertex'));
       this.fieldsByType.set(type, new Map(kind.fields.map((field) => [fieldNameOf(field.name), field])));
       const title = manifest.kinds.get(kind.name)?.title;
@@ -383,14 +395,14 @@ export class ReadContext {
       this.edgeTable.set(edge.name, generatedTableName(edge.name, 'edge'));
       // An `any` end stands on the Entity interface: the field answers on every entity, the catalogue's too.
       for (const from of edge.from) {
-        for (const type of from === 'any' ? everyType : [typeNameOf(from)]) {
+        for (const type of from === 'any' ? everyType : [kindTypeNameOf(from)]) {
           const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
           held.set(fieldNameOf(edge.name), { edge, side: 'from' });
           this.relationByType.set(type, held);
         }
       }
       for (const to of edge.to) {
-        for (const type of to === 'any' ? everyType : [typeNameOf(to)]) {
+        for (const type of to === 'any' ? everyType : [kindTypeNameOf(to)]) {
           const held = this.relationByType.get(type) ?? new Map<string, { edge: PublishedEdge; side: 'from' | 'to' }>();
           held.set(`${fieldNameOf(edge.name)}Of`, { edge, side: 'to' });
           this.relationByType.set(type, held);
@@ -400,7 +412,7 @@ export class ReadContext {
     for (const kind of published.kinds) {
       for (const field of kind.fields) {
         if (field.reference === undefined) continue;
-        const target = typeNameOf(field.reference);
+        const target = kindTypeNameOf(field.reference);
         const held = this.referenceInverseByType.get(target) ?? new Map<string, { source: PublishedKind; field: PublishedField }>();
         held.set(`${fieldNameOf(field.name)}Of${typeNameOf(kind.name)}`, { source: kind, field });
         this.referenceInverseByType.set(target, held);
@@ -616,7 +628,7 @@ export class ReadContext {
     if (queue === undefined) return;
     for (const [kind, nodes] of queue) {
       const cache = this.fieldCache.get(kind) ?? new Map<string, { columns: Set<string>; rows: OpinionRow[] }>();
-      const declared = this.kindByType.get(typeNameOf(kind));
+      const declared = this.kindByType.get(kindTypeNameOf(kind));
       if (declared === undefined) throw new Error(`Cannot read fields of undeclared kind: ${kind}`);
       const wanted = new Set<string>();
       for (const [id, columns] of nodes) {
@@ -1165,6 +1177,44 @@ export class ReadContext {
 
   // ---- roots -------------------------------------------------------------------------------------------------
 
+  /**
+   * One file's text, read by the blob the graph names (decision 0037): the entity is found by the roles the product
+   * declares, and the bytes are read by the role that answers a read — never from a working copy.
+   */
+  private async sourceOf(args: Record<string, unknown>): Promise<unknown> {
+    if (this.readText === undefined) return null;
+    const repository = typeof args['repository'] === 'string' ? args['repository'] : '';
+    const path = typeof args['path'] === 'string' ? args['path'] : '';
+    if (repository === '' || path === '') return null;
+    const declared = fileTextKind(this.manifest);
+    const roles = declared?.fileText ?? catalogueFileTextRole();
+    const kind = declared?.name ?? roles.kind;
+    if (kind === undefined) return null;
+    const table = this.vertexTable.get(kind);
+    if (table === undefined) return null;
+    // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
+    const found = await this.tx.query<{ blob: unknown }>(
+      `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
+        WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
+          AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`,
+      [roles.repository, repository, roles.path, path],
+    );
+    const blob = found.rows[0]?.blob;
+    if (typeof blob !== 'string' || blob === '') return null;
+    // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
+    // says so, so two revisions are never interleaved.
+    const held = typeof args['blob'] === 'string' ? args['blob'] : undefined;
+    const moved = held !== undefined && held !== blob;
+    const integer = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined;
+    const answer = await this.readText({
+      repository, path, blob, moved,
+      from: moved ? 1 : integer(args['from']) ?? 1,
+      ...(integer(args['to']) === undefined || moved ? {} : { to: integer(args['to'])! }),
+      ...(moved ? {} : integer(args['fromColumn']) === undefined ? {} : { fromColumn: integer(args['fromColumn'])! }),
+    });
+    return answer ?? null;
+  }
+
   private async root(field: string, args: Record<string, unknown>): Promise<unknown> {
     const lang = typeof args['lang'] === 'string' ? args['lang'] : undefined;
     if (field === 'entity') {
@@ -1197,11 +1247,14 @@ export class ReadContext {
     }
     if (field === 'allCatalogueEntity') return this.allCatalogue(args as ConnectionArgs, lang);
     if (field === 'home') return this.home(lang);
+    if (field === 'source') return await this.sourceOf(args);
     if (field === 'search') return this.search(args, lang);
     if (field === 'searchGroups') return this.searchGroups(args, lang);
     if (field === 'bootstrap') return this.bootstrap();
     if (field === 'navigation') return this.navigation(lang);
-    if (field === 'templateFindings') return checkProductTemplates(this.folder, this.manifest).map((finding) => ({ ...finding, file: join(this.folder, finding.file) }));
+    // The templates a page draws are the graph's entities (the owner's decision of 2026-11-15): their findings are read from
+    // the same revision the page is read at, and no folder is opened here.
+    if (field === 'templateFindings') return checkProductTemplates(this.templateFiles, this.templateBodies, this.templateFindings, this.manifest).map((finding) => ({ ...finding, file: join(this.folder, finding.file) }));
     return null;
   }
 
@@ -1276,7 +1329,7 @@ export class ReadContext {
     const columns = await this.vertexColumns();
     const parts: string[] = [];
     for (const kind of this.published.kinds) {
-      if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(typeNameOf(kind.name))) continue;
+      if (wanted !== undefined && !wanted.has(kind.name) && !wanted.has(kindTypeNameOf(kind.name))) continue;
       const held = columns.get(this.vertexTable.get(kind.name) ?? '') ?? new Set<string>();
       // The whole text of a file or a document is not a search index: a path, a name or a definition is; a field
       // holding the whole source would make every word scan the tree.
@@ -1543,7 +1596,7 @@ export class ReadContext {
       return Number(found.rows[0]?.n ?? 0);
     }
     const fieldName = typeof args['field'] === 'string' ? args['field'] : '';
-    const field = this.fieldsByType.get(typeNameOf(kind.name))?.get(fieldName);
+    const field = this.fieldsByType.get(kindTypeNameOf(kind.name))?.get(fieldName);
     if (field === undefined) return [];
     const filtered = this.aggregateSource(aggregate, field);
     if (name === 'groupBy') {
@@ -2003,7 +2056,7 @@ export class ReadContext {
   /** The `<Type>Where` of one kind, as SQL over the agreed values. */
   private vertexWhere(kind: PublishedKind, where: Readonly<Record<string, unknown>> | undefined, sql: Sql, alias: string, lang: string | undefined): string {
     if (where === undefined || where === null) return '';
-    const type = typeNameOf(kind.name);
+    const type = kindTypeNameOf(kind.name);
     const clauses: string[] = [];
     for (const [name, filter] of Object.entries(where)) {
       const field = this.fieldsByType.get(type)?.get(name);
@@ -2019,7 +2072,7 @@ export class ReadContext {
 
   /** The `<Type>Order` of one kind: the agreed value of each named field then the vertex's id. */
   private vertexOrder(kind: PublishedKind, orderBy: readonly Readonly<Record<string, unknown>>[] | undefined, sql: Sql, alias: string, lang: string | undefined): { keys: { at: number; expr: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] } {
-    const type = typeNameOf(kind.name);
+    const type = kindTypeNameOf(kind.name);
     const keys: { at: number; expr: string; direction: 'ASC' | 'DESC'; nulls: 'FIRST' | 'LAST'; type: FieldType }[] = [];
     for (const one of orderBy ?? []) {
       const field = this.fieldsByType.get(type)?.get(String(one['field']));
@@ -2072,7 +2125,7 @@ export class ReadContext {
       const catalogue = this.catalogueRead?.byId.get(nodeId);
       return catalogue === undefined ? undefined : { nodeId, uid, kind: 'catalogue', key, typeName: 'CatalogueEntity', catalogue, ...(lang === undefined ? {} : { lang }) };
     }
-    const typeName = typeNameOf(entityName);
+    const typeName = kindTypeNameOf(entityName);
     if (!this.kindByType.has(typeName)) return undefined;
     return { nodeId, uid, kind: entityName, key, typeName, ...(lang === undefined ? {} : { lang }) };
   }

@@ -132,12 +132,15 @@ test('a standalone fill does not start validation, while an explicit request sti
     expect(judgeCalls).toBe(0);
     expect(existsSync(file)).toBe(false);
     product = new KnowledgeProduct({ productFolder: draft.folder, storeRoot });
-    const read = spyOn(product as unknown as { sourceOpinions: () => Promise<unknown> }, 'sourceOpinions');
+    // The evidence is each file's text by its blob (decision 0037), read once a file for the whole run: a file two
+    // verdicts name is one read, not two.
+    const read = spyOn(product as unknown as { fileText: (repository: string, path: string) => Promise<unknown> }, 'fileText');
     try {
       const verdict = await product.graphVerdicts();
       expect(verdict.rows.length).toBeGreaterThan(0);
       expect(existsSync(file)).toBe(true);
-      expect(read).toHaveBeenCalledTimes(1);
+      const paths = read.mock.calls.map((call) => String(call[1]));
+      expect(paths.length).toBe(new Set(paths).size);
     } finally { read.mockRestore(); }
   } finally {
     await product?.close();

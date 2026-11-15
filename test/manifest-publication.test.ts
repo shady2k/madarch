@@ -266,7 +266,7 @@ kinds:
     // The graph's published manifest is the one that answers: the checkout's later edit changes nothing.
     expect([...manifest.kinds.keys()]).toEqual(['term']);
     expect(manifest.kinds.get('term')?.fields?.map((field) => field.name)).toEqual(['summary']);
-    expect(graphqlSchemaOf(publishedManifestOf(manifest))).toContain('type Term implements Entity');
+    expect(graphqlSchemaOf(publishedManifestOf(manifest))).toContain('type KindTerm implements Entity');
     const contents = await owner.run((tx) => tx.query<{ count: string }>("SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'code.file'"));
     expect(contents.rows[0]!.count).toBe('0');
   } finally { await owner.close(); }

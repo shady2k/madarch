@@ -1,6 +1,10 @@
 {
   "name": "glossary",
   "version": "1.0.0",
+  "tier": "ordinary",
+  "capabilities": [
+    "git"
+  ],
   "entry": "main.ts",
   "runtime": {
     "name": "bun",
@@ -19,6 +23,6 @@
   "concurrency": 1,
   "labels": {
     "en": "Glossary",
-    "ru": "Глоссарий"
+    "ru": "\u0413\u043b\u043e\u0441\u0441\u0430\u0440\u0438\u0439"
   }
 }

@@ -12,7 +12,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type { FieldType } from '../graph/contract.js';
-import { SCALAR_NAMES, SchemaRefusal, NameRegistry, fieldNameOf, typeNameOf } from './names.js';
+import { SCALAR_NAMES, SchemaRefusal, NameRegistry, fieldNameOf, kindTypeNameOf, typeNameOf } from './names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from './manifest.js';
 
 interface ArgumentDef {
@@ -76,6 +76,8 @@ function entityFields(): FieldDef[] {
   ];
 }
 
+
+
 /** The arguments every connection takes: the filter and the order when the type has one, then the page's bounds. */
 function connectionArgs(where?: string, order?: string): ArgumentDef[] {
   return [
@@ -125,6 +127,7 @@ class Builder {
       'EntityEdge', 'EntityConnection', 'Outgoing', 'OutgoingEdge', 'OutgoingConnection', 'CatalogueEntity', 'CatalogueField',
       'CatalogueEntityEdge', 'CatalogueEntityConnection', 'PageTemplate', 'Bootstrap', 'BootstrapHome', 'RecordTemplate', 'OwnTemplate',
       'TemplateFinding', 'Navigation', 'NavigationGroup', 'NavigationKind', 'NavigationPurpose', 'Aggregate', 'Group', 'Bucket', 'Ranked', 'Cochange', 'SearchHit', 'SearchGroup',
+      'SourceText', 'SourceTextNext',
       'String', 'Int', 'Boolean', 'ID', 'Float', 'BigInt', 'DateTime', 'JSON']) {
       this.registry.claimGeneratedType(name, `the schema's own type "${name}"`);
     }
@@ -133,6 +136,20 @@ class Builder {
       { name: 'path', type: 'String!' }, { name: 'message', type: 'String!' },
     ]);
     this.type('PageInfo', [{ name: 'endCursor', type: 'String' }, { name: 'hasNextPage', type: 'Boolean!' }]);
+    // The text of one file, as a page reads it by the blob the graph names (decision 0037).
+    this.type('SourceText', [
+      { name: 'text', type: 'String!' },
+      { name: 'blob', type: 'String!' },
+      { name: 'lines', type: 'Int!' },
+      { name: 'byteLength', type: 'Int!' },
+      { name: 'binary', type: 'Boolean!' },
+      { name: 'from', type: 'Int!' },
+      { name: 'complete', type: 'Boolean!' },
+      { name: 'language', type: 'String' },
+      { name: 'moved', type: 'Boolean' },
+      { name: 'next', type: 'SourceTextNext' },
+    ]);
+    this.type('SourceTextNext', [{ name: 'line', type: 'Int!' }, { name: 'column', type: 'Int!' }]);
     this.type('Evidence', [
       { name: 'type', type: 'String!' },
       { name: 'repository', type: 'String' },
@@ -321,7 +338,7 @@ class Builder {
 
   private buildKinds(): void {
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
-      const name = typeNameOf(kind.name);
+      const name = kindTypeNameOf(kind.name);
       this.registry.claimType(name, `the kind "${kind.name}"`);
       this.kindTypes.set(kind.name, name);
       this.type(name, [], ['Entity']);
@@ -455,7 +472,8 @@ class Builder {
       for (const field of kind.fields) {
         if (field.reference === undefined) continue;
         const target = this.referencedType(field.reference, `the field "${field.name}" of the kind "${kind.name}"`);
-        const name = `${fieldNameOf(field.name)}Of${source}`;
+        // The inverse is named by the kind's own encoding, not the type's family: `repositoryOfDemoFile`.
+        const name = `${fieldNameOf(field.name)}Of${typeNameOf(kind.name)}`;
         inverses.push({
           type: target,
           field: { name, type: `${source}Connection!`, args: connectionArgs(this.whereOf.get(source), this.orderOf.get(source)) },
@@ -475,7 +493,8 @@ class Builder {
     ];
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
       const type = this.kindTypes.get(kind.name)!;
-      const name = `all${type}`;
+      // The list is named by the kind's own encoding, not by the type's family: `allCodeFile` for `KindCodeFile`.
+      const name = `all${typeNameOf(kind.name)}`;
       this.registry.claimField('Query', name, `the list root of the kind "${kind.name}"`);
       fields.push({ name, type: `${type}Connection!`, args: [...connectionArgs(this.whereOf.get(type), this.orderOf.get(type)), { name: 'lang', type: 'String' }] });
       const aggregateName = `${name}Aggregate`;
@@ -493,6 +512,8 @@ class Builder {
     this.registry.claimField('Query', 'contributors', 'the entities one more relation beyond an entity');
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
     this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
+    // One file's text, by the repository and path the graph names (decision 0037): the one read surface a page uses.
+    this.registry.claimField('Query', 'source', 'the source text of one file');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
@@ -500,6 +521,7 @@ class Builder {
       { name: 'search', type: 'EntityConnection!', args: [{ name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
       { name: 'navigation', type: 'Navigation!', args: [{ name: 'lang', type: 'String' }] },
+      { name: 'source', type: 'SourceText', args: [{ name: 'repository', type: 'String!' }, { name: 'path', type: 'String!' }, { name: 'from', type: 'Int' }, { name: 'to', type: 'Int' }, { name: 'fromColumn', type: 'Int' }, { name: 'blob', type: 'String' }] },
       { name: 'templateFindings', type: '[TemplateFinding!]!' },
       { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },

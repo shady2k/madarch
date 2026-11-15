@@ -197,7 +197,7 @@ describe('the handshake', () => {
     const session = await open(probeFolder);
     try {
       expect(session.declared.name).toBe('plugin-probe');
-      expect(session.declared.protocol).toBe('madarch.plugins/2');
+      expect(session.declared.protocol).toBe('madarch.plugins/3');
       expect(session.declared.outputs.vertices.map((kind) => kind.kind)).toEqual(['probe']);
       expect(session.closureHash).toBe(probeClosure.hash);
     } finally {

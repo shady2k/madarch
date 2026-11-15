@@ -16,8 +16,14 @@ test('agent natural-key references survive validation and real graph publication
   const answer = { vertices: [{ kind: 'summary', key: { repository: { kind: 'repository', key: { name: 'repo' } }, name: 'A' }, evidence: { repository: 'repo', path: 'a.md', lineStart: 1, lineEnd: 1 } }], end: { state: 'complete' } };
   const bridge = new PluginAgentBridge({ prompt: 'Extract', roots: ['repo'] }, {
     adapter: { id: 'fixture', command: 'unused' },
+    // The graph names the file's blob and the host answers its text by it (decision 0037): the evidence check reads the
+    // same bytes a page reads.
+    readFile: async () => 'Source',
     connect: async () => ({ initialize: async () => ({}), close: async () => {}, newSession: async () => ({ sessionId: 'fixture', model: null, models: null, configOptions: [], usage: () => ({ reported: false, turns: 1, reports: 0 }), prompt: async () => ({ text: JSON.stringify(answer), stopReason: 'end_turn', updates: [] }) } as unknown as AcpSession) } as unknown as AcpConnection),
-  }, { files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'a.md' } }], value: async () => 'Source' }, outputs);
+  }, {
+    files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'a.md' } }],
+    value: async (_kind: string, _key: Readonly<Record<string, string | number>>, field: string) => field === 'blob' ? 'blob-a.md' : null,
+  }, outputs);
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
     const result = await bridge.run('unit', {});

@@ -11,6 +11,9 @@ import { assertDeclaration, DEFAULT_QUEUE_SCHEMA, ENQUEUE_STAMP_TABLE, ownerData
 const FILL_QUEUES: readonly QueueDeclaration[] = [
   { name: 'fill-runs', leaseSeconds: 900, retries: 1, retryDelaySeconds: 5, retryBackoff: false, singletons: true },
   { name: 'fill-units', leaseSeconds: 60, retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true },
+  // A page's read of a file's text (madarch-u3vw.16): the fill role claims it, reads the blob through the git plugin and
+  // settles the job with the bytes. It is the same queue, the same adapter and the same prepared schema as the fills.
+  { name: 'file-texts', leaseSeconds: 120, retries: 1, retryDelaySeconds: 1, retryBackoff: false },
 ];
 
 export interface QueueSchemaOptions {
