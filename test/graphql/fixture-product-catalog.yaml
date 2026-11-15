@@ -16,6 +16,9 @@ edges:
   - name: demo.contains
     from: [demo.repository]
     to: [demo.file]
+    labels:
+      en: { out: "contains", in: "contained in" }
+      ru: { out: "содержит", in: "содержится в" }
     fields:
       - { name: position, type: integer, nullable: true, producers: [agent] }
   - name: demo.touched
@@ -23,19 +26,31 @@ edges:
     to: [demo.file]
     repeats: true
     discriminator: path
+    labels:
+      en: { out: "touched", in: "changed by" }
+      ru: { out: "затронул", in: "изменён коммитами" }
     fields:
       - { name: changed_at, type: timestamp, nullable: true, producers: [agent] }
       - { name: weight, type: bigint, nullable: true, producers: [agent] }
   - name: demo.related
     from: [demo.file]
     to: [demo.file]
+    labels:
+      en: { out: "relates to", in: "relates to" }
+      ru: { out: "связано с", in: "связано с" }
   - name: mentions
     from: [any]
     to: [any]
     repeats: true
     discriminator: place
+    labels:
+      en: { out: "mentions", in: "mentioned by" }
+      ru: { out: "упоминает", in: "упомянут в" }
   - name: demo.sized
     from: [demo.repository]
     to: [demo.file]
+    labels:
+      en: { out: "has size", in: "size of" }
+      ru: { out: "имеет размер", in: "размер чего" }
     fields:
       - { name: weight, type: integer, producers: [agent] }

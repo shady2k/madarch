@@ -235,6 +235,12 @@ export interface EdgeDecl {
   readonly discriminator?: string;
   readonly fields: readonly FieldDecl[];
   readonly capability?: string;
+  /**
+   * The words the edge reads as at each end, per interface language: `{ en: { out, in }, ru: { out, in } }`. They are
+   * the product's declaration, so no renderer guesses a relation's words from its key (owner's decision, 2026-11-15);
+   * both ends are declared whether or not the pages read the inverse.
+   */
+  readonly labels: Readonly<Record<string, { readonly out: string; readonly in: string }>>;
   readonly line: number;
 }
 
@@ -2027,8 +2033,29 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         findings.push({ file, line, message: 'an edge is { name: <name>, from: [<kind>, ...], to: [<kind>, ...], repeats?: true, discriminator?: <field>, fields?: [...], capability?: <name> }' });
         return;
       }
-      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability'].includes(key));
-      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields and capability` }); return; }
+      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability', 'labels'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields, capability and labels` }); return; }
+      // Every edge kind declares the words it reads as at both ends in each interface language (owner's decision,
+      // 2026-11-15): relation words are product data, and no renderer derives them from the key.
+      const labels: Record<string, { out: string; in: string }> = {};
+      const rawLabels = body['labels'];
+      if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
+        findings.push({ file, line: at(['edges', index, 'labels']), message: `edge "${body['name']}": "labels" names the words the edge reads as at each end, per interface language: { en: { out, in }, ru: { out, in } }` });
+        return;
+      }
+      for (const [language, words] of Object.entries(rawLabels as Record<string, unknown>)) {
+        const held = words as { out?: unknown; in?: unknown } | null;
+        if (held === null || typeof held !== 'object' || typeof held.out !== 'string' || held.out.trim() === '' || typeof held.in !== 'string' || held.in.trim() === '') {
+          findings.push({ file, line: at(['edges', index, 'labels', language]), message: `edge "${body['name']}": the words in "${language}" are { out: <the words at the source>, in: <the words at the target> }` });
+          return;
+        }
+        labels[language] = { out: held.out.trim(), in: held.in.trim() };
+      }
+      for (const language of LABEL_LANGUAGES) {
+        if (labels[language] !== undefined) continue;
+        findings.push({ file, line: at(['edges', index, 'labels']), message: `edge "${body['name']}": the edge declares no words in "${language}": every edge kind names both ends in ${LABEL_LANGUAGES.join(' and ')}` });
+        return;
+      }
       const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
       const fields: FieldDecl[] = [];
       const rawFields = body['fields'];
@@ -2055,7 +2082,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (repeats && discriminator === undefined) { findings.push({ file, line: at(['edges', index]), message: 'an edge kind that repeats names the field that tells its repeats apart (discriminator)' }); return; }
       if (!repeats && discriminator !== undefined) { findings.push({ file, line: at(['edges', index, 'discriminator']), message: 'an edge kind that does not repeat has no discriminator' }); return; }
       const capability = typeof body['capability'] === 'string' ? body['capability'] : undefined;
-      edges.set(body['name'], { name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, ...(capability === undefined ? {} : { capability }), line });
+      edges.set(body['name'], { name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, ...(capability === undefined ? {} : { capability }), labels, line });
     });
   }
   // The plugins the product holds (decision 0035, items 3, 11 and 20): the manifest binds a major version and names

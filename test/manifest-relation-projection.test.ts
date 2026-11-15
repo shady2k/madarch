@@ -11,7 +11,13 @@ test('relation projections retain field-qualified declarations without inventing
   try {
     mkdirSync(join(folder, 'madarch'));
     writeFolderManifest(folder, `edges:
-  - { name: mentions, from: [any], to: [any], repeats: false }
+  - name: mentions
+    from: [any]
+    to: [any]
+    repeats: false
+    labels:
+      en: { out: mentions, in: mentioned by }
+      ru: { out: упоминает, in: упомянут в }
 kinds:
   page:
     source: document

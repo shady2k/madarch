@@ -89,6 +89,20 @@ function appended(manifest: string, kind: string, row: { id: string; group: stri
   ].join('\n');
 }
 
+/** One edge kind's `labels` block removed, leaving the edge without words. */
+function edgeWithoutLabels(manifest: string, edge: string): string {
+  const lines = manifest.split('\n');
+  const start = lines.indexOf(`  - name: ${edge}`);
+  if (start < 0) throw new Error(`the starter set declares no edge ${edge}`);
+  let end = start + 1;
+  while (end < lines.length && !lines[end]!.startsWith('  - ') && !(lines[end]!.startsWith('  #'))) end += 1;
+  const held = lines.slice(start + 1, end);
+  const at = held.findIndex((line) => line === '    labels:');
+  if (at < 0) throw new Error(`the edge ${edge} declares no labels`);
+  const kept = held.filter((_line, index) => index < at || index > at + 2);
+  return [...lines.slice(0, start + 1), ...kept, ...lines.slice(end)].join('\n');
+}
+
 describe('the catalog check over the starter set', () => {
   test('the starter set `madarch init` writes passes, and the run names the counts it read', () => {
     const done = run();
@@ -117,6 +131,14 @@ describe('the catalog check over the starter set', () => {
     expect(read.catalog!.kinds.has('code.entry-point')).toBe(false);
     expect(read.kinds.has('code.entry-point')).toBe(false);
     expect(read.catalog!.kinds.has('code.file')).toBe(true);
+  }, 30_000);
+
+  test('an edge kind without both languages of words is refused, naming the file, the line and the edge', () => {
+    const folder = product(edgeWithoutLabels(MANIFEST, 'domain.covers'));
+    const done = run(folder);
+    expect(done.code).toBe(1);
+    expect(done.err).toContain('edge "domain.covers": "labels" names the words the edge reads as at each end');
+    expect(done.err).toMatch(/madarch\/catalog\.yaml:\d+: edge "domain\.covers"/u);
   }, 30_000);
 
   test('a subgroup above its bound is refused, naming the subgroup and the kinds it holds', () => {

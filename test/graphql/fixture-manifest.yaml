@@ -51,6 +51,9 @@ edges:
   - name: demo.contains
     from: [demo.repository]
     to: [demo.file]
+    labels:
+      en: { out: "contains", in: "contained in" }
+      ru: { out: "содержит", in: "содержится в" }
     fields:
       - { name: position, type: integer, nullable: true, producers: [agent] }
   - name: demo.touched
@@ -58,6 +61,9 @@ edges:
     to: [demo.file]
     repeats: true
     discriminator: path
+    labels:
+      en: { out: "touched", in: "changed by" }
+      ru: { out: "затронул", in: "изменён коммитами" }
     fields:
       - { name: change, type: text, nullable: true, producers: [agent] }
       - { name: added, type: bigint, nullable: true, producers: [agent] }
@@ -69,8 +75,14 @@ edges:
   - name: demo.authored
     from: [demo.author]
     to: [demo.commit]
+    labels:
+      en: { out: "authored", in: "authored by" }
+      ru: { out: "автор", in: "автор" }
   - name: mentions
     from: [any]
     to: [any]
     repeats: true
     discriminator: place
+    labels:
+      en: { out: "mentions", in: "mentioned by" }
+      ru: { out: "упоминает", in: "упомянут в" }

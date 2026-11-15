@@ -32,12 +32,22 @@ export interface PublishedEdge {
   readonly repeats: boolean;
   readonly discriminator?: string;
   readonly fields: readonly PublishedField[];
+  /** The words the edge reads as at each end, per interface language, as its declaration states them. */
+  readonly labels: Readonly<Record<string, { readonly out: string; readonly in: string }>>;
+}
+
+/** One relation the product's catalogue declares: its name and the words at each end, per language. */
+export interface PublishedRelation {
+  readonly name: string;
+  readonly labels: Readonly<Record<string, { readonly out: string; readonly in: string }>>;
 }
 
 /** A product's published manifest: what the schema is derived from, and nothing else. */
 export interface PublishedManifest {
   readonly kinds: readonly PublishedKind[];
   readonly edges: readonly PublishedEdge[];
+  /** The relation vocabulary, for the relations no edge kind carries (a reference field's own relation). */
+  readonly relations: readonly PublishedRelation[];
 }
 
 function fieldOf(declared: FieldDecl | PluginFieldDecl): PublishedField {
@@ -118,6 +128,21 @@ export function publishedManifestOf(manifest: KindsManifest): PublishedManifest 
       repeats: edge.repeats,
       ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
       fields: edgeFieldsOf(edge, manifest),
+      labels: edge.labels,
     })),
+    relations: [...(manifest.catalog?.schema.relationLabels ?? new Map()).entries()]
+      .map(([name, labels]) => ({ name, labels }))
+      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)),
   };
+}
+
+/**
+ * The words a relation reads as at one end, from the published catalogue alone: an edge kind's own `labels`, or the
+ * relation vocabulary's for a relation no edge kind carries. Empty when the catalogue names none — a renderer prints no
+ * key in its place (owner's decision, 2026-11-15).
+ */
+export function publishedRelationWords(published: PublishedManifest, name: string, language: string, inverse: boolean): string {
+  const labels = published.edges.find((one) => one.name === name)?.labels ?? published.relations.find((one) => one.name === name)?.labels;
+  const words = labels?.[language] ?? labels?.[language.split('-')[0]!];
+  return words?.[inverse ? 'in' : 'out'] ?? '';
 }
