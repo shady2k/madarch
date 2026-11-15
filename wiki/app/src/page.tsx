@@ -6,6 +6,8 @@ import type { ReactElement } from 'react';
 import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
 import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
 import { HeaderSection } from './components/header.js';
+import { at } from './components/format.js';
+import { edgesOf } from './components/connection.js';
 import { FactsSection } from './components/facts.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
@@ -24,6 +26,7 @@ import { FillKindSection } from './components/fill-kind.js';
 import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
+import { ProductOverviewSection } from './components/overview.js';
 import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
@@ -54,7 +57,12 @@ export function PageView({ composition, data, runtime }: { readonly composition:
     const ids = [...(Array.isArray(section.params['sections']) ? section.params['sections'] : []), ...groups.flatMap((group) => (Array.isArray(group.sections) ? group.sections : []))];
     for (const id of ids) if (typeof id === 'string') tabbed.add(id);
   }
-  const render = (section: ComposedSection): ReactElement => {
+  // A section the data leaves empty is not drawn at all: an entity with no relations shows no empty relation box, and
+  // no heading over nothing (madarch-64o5.83).
+  const drawsNothing = (section: ComposedSection): boolean =>
+    section.component === 'relations' && edgesOf(at(data[section.id], section.params['path'])).length === 0;
+  const render = (section: ComposedSection): ReactElement | null => {
+    if (drawsNothing(section)) return null;
     const context: SectionContext = {
       section,
       data: data[section.id],
@@ -107,5 +115,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'problem-actions': return <ProblemsSection context={context} />;
     case 'settings-form': return <SettingsSection context={context} />;
     case 'sources': return <SourcesSection context={context} />;
+    case 'product-overview': return <ProductOverviewSection context={context} />;
   }
 }

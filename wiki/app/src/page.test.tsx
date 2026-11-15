@@ -88,7 +88,8 @@ test('a code page titles the file and trails the folders that hold it', async ()
   );
   try {
     expect(page.container.querySelector('h1')?.textContent).toBe('write.ts');
-    expect(page.container.querySelector('[data-testid="page-path"]')?.textContent).toBe('src/graph/write.ts');
+    // The path is not printed twice: the trail names the folders, the title the file (madarch-64o5.83).
+    expect(page.container.querySelector('[data-testid="page-path"]')).toBeNull();
     const trail = page.container.querySelector('[data-testid="trail"]')?.textContent ?? '';
     expect(trail.startsWith('As')).toBe(true);
     expect(trail).toContain('madarch / src');
@@ -156,10 +157,12 @@ test('a relation row names the relation and links to the entity at its other end
   }
 });
 
-test('an empty relation section says so', async () => {
+test('an empty relation section is not drawn at all, and its empty sentence is gone (madarch-64o5.83)', async () => {
+  // A relation with no rows is no relation: the page shows no box and no heading over nothing (the owner's fix (a) 5).
   const page = await renderPage([section('backlinks', 'relations', { path: 'backlinks', emptyText: { en: 'Nothing links to it yet.' } })], { backlinks: null });
   try {
-    expect(page.container.textContent).toContain('Nothing links to it yet.');
+    expect(page.container.textContent).not.toContain('Nothing links to it yet.');
+    expect(page.container.querySelector('[data-section="backlinks"]')).toBeNull();
   } finally {
     await page.close();
   }
@@ -299,20 +302,18 @@ test('the diagram shows the server\'s three pictures as tabs, and asks for one f
   try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
   const page = await renderPage([section('diagram', 'diagram', { depth: 1, aggregateAbove: 12 })], { diagram: { id: 'uid' } });
   try {
-    const tabs = [...page.container.querySelectorAll('[role="tab"]')].map((one) => one.textContent);
-    expect(tabs).toEqual(['LikeC4', 'Mermaid', 'archify']);
-    // The first tab is the picture drawn by itself: LikeC4's view is asked for at once.
+    // One picture with a renderer choice, not three tabs beside each other (madarch-64o5.83).
+    const renderers = [...page.container.querySelectorAll('[data-testid^="diagram-renderer-"]')].map((one) => one.textContent);
+    expect(renderers).toEqual(['LikeC4', 'Mermaid', 'archify']);
+    // The first renderer is the picture drawn by itself: LikeC4's view is asked for at once.
     expect(requested).toHaveLength(1);
-    expect(requested[0]).toContain('format=likec4');
-    const likeC4Tab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'LikeC4');
-    await act(async () => { likeC4Tab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
     expect(requested[0]).toContain('/render/diagram?entity=uid');
     expect(requested[0]).toContain('format=likec4');
-    const mermaidTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'Mermaid');
-    await act(async () => { mermaidTab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
+    const mermaid = page.container.querySelector('[data-testid="diagram-renderer-mermaid"]');
+    await act(async () => { mermaid?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 })); await Promise.resolve(); });
     expect(requested.some((one) => one.includes('format=mermaid'))).toBe(true);
-    const archifyTab = [...page.container.querySelectorAll('[role="tab"]')].find((one) => one.textContent === 'archify');
-    await act(async () => { archifyTab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await Promise.resolve(); });
+    const archify = page.container.querySelector('[data-testid="diagram-renderer-archify"]');
+    await act(async () => { archify?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 })); await Promise.resolve(); });
     const frame = page.container.querySelector('iframe');
     expect(frame?.getAttribute('src')).toContain('format=archify');
   } finally {

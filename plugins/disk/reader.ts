@@ -438,3 +438,8 @@ export function classOfPath(path: string, rules: readonly FileClassRule[]): stri
   for (const rule of rules) if (rule.paths?.some((pattern) => classPattern(pattern).test(path)) === true) return rule.name;
   return rules.find((rule) => rule.default === true)?.name;
 }
+
+/** Whether a path is one the product's kind declaration leaves out (`exclude:`), by the manifest's own patterns. */
+export function excludedPath(path: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => classPattern(pattern).test(path));
+}

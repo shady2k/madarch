@@ -51,3 +51,13 @@ test('an entity the graph answered is addressed by its kind and id', () => {
   expect(entityHref({ kind: 'a.b', id: '1' })).toBe('/e/a.b/1');
   expect(entityHref({ label: 'no id' })).toBeUndefined();
 });
+
+test('a search shared as ?q= searches the same words as ?text= (madarch-64o5.83)', () => {
+  const shared = parseAddress('/p/search', '?q=fill', '');
+  expect(shared.page.template).toBe('search');
+  expect(shared.page.params?.['text']).toBe('fill');
+  const named = parseAddress('/p/search', '?text=fill', '');
+  expect(named.page.params?.['text']).toBe('fill');
+  // Another template keeps its own parameters untouched.
+  expect(parseAddress('/p/run', '?q=fill', '').page.params?.['q']).toBe('fill');
+});

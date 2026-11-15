@@ -519,7 +519,9 @@
       "absent": "Not here",
       "filled": "Read by a fill",
       "notFilled": "Not filled",
-      "truncated": "Showing {{shown}} of {{total}}."
+      "truncated": "Showing {{shown}} of {{total}}.",
+      "empty": "No documents yet. The fill reads the product repository and the code repositories; its documents appear here once a fill has read them.",
+      "noMatch": "Nothing matches “{{text}}” in a document’s title or path."
     },
     "filterSources": "Filter by title or path",
     "cardOpen": "{{kind}} page",
@@ -562,7 +564,7 @@
     "searchLabel": "Search the wiki",
     "searchHint": "Search pages and entities (Ctrl/Cmd+K)",
     "searchResults": "Search results",
-    "searchEmpty": "Nothing matches this search.",
+    "searchEmpty": "Nothing matches “{{text}}” in entity names, paths and texts.",
     "searchFailed": "The search could not be read: {{message}}",
     "groupOther": "Other",
     "tabs": "Open pages",
@@ -1172,8 +1174,8 @@
       "unknown": "Estimate unknown for {{count}} kinds.",
       "estimate": "About {{tokens}} tokens · {{seconds}} seconds",
       "invalidCap": "Enter a positive whole-number token cap.",
-    "capRequired": "Name a token cap: with an agent the run does not start without one.",
-    "agentRequired": "Choose an agent: the selected kinds leave fields to it.",
+      "capRequired": "Name a token cap: with an agent the run does not start without one.",
+      "agentRequired": "Choose an agent: the selected kinds leave fields to it.",
       "search": "Find a kind",
       "noMatch": "No kind matches.",
       "order": "Fill order",
@@ -1247,7 +1249,8 @@
     "catalogueMore": "Show more kinds",
     "diagramFailed": "The diagram could not be built.",
     "diagramTooLarge": "The diagram is too large to show.",
-    "diagramBadRequest": "The server refused the diagram request."
+    "diagramBadRequest": "The server refused the diagram request.",
+    "diagramRenderer": "Renderer"
   },
   "loop": {
     "questionsTitle": "Questions",
@@ -1642,7 +1645,10 @@
     "intro": "Every fill of this product, newest first. Open a run to see its progress, its result and its log.",
     "back": "All runs",
     "newFill": "Choose what to fill",
-    "none": "No fills yet."
+    "none": "No fills yet.",
+    "took": "Took {{duration}}",
+    "failedUnits": "{{count}} units failed",
+    "kinds": "The kinds this run asked for ({{count}})"
   },
   "fillKind": {
     "button": "Fill this kind"
@@ -1827,5 +1833,14 @@
     "complete": "Complete",
     "indeterminate": "Indeterminate",
     "typography": "Page structure and typography"
+  },
+  "overview": {
+    "title": "Where this product stands",
+    "description": "What this product is for is written on its own page, by an agent or a person; until then, this is what the graph holds.",
+    "problems": "{{count}} open problems in the code, the documents and the wiki",
+    "noFill": "No fill has run yet.",
+    "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
+    "notKnown": "Problems: not known right now",
+    "fillUnknown": "The last fill is not known right now"
   }
 }

@@ -31,6 +31,8 @@ sections:
       }
     params:
       path: .
-      emptyText: { en: No fill stage has written a glossary term yet, ru: Ни один этап заполнения пока не написал термин }
+      # A reader's words, not ours: the glossary is what a person or an agent writes, and the plugin reads `docs/` for it
+      # (madarch-64o5.83).
+      emptyText: { en: No glossary terms yet. A person or an agent writes them; the glossary plugin reads the product's documents when a fill runs., ru: Терминов пока нет. Их пишет человек или агент; плагин глоссария читает документы продукта во время заполнения. }
       columns:
         - { label: { en: Term, ru: Термин }, path: node.label }
