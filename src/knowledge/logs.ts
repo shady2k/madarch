@@ -54,6 +54,15 @@ export interface LogEntry {
   /** The unit of the run the entry belongs to, when the log names one. */
   readonly unit: string | null;
   readonly message: string;
+  /**
+   * The engine's own event, when the message is one: a code the page words in the reader's language, and the
+   * message's arguments. Null for text madarch did not write — a plugin's standard error, the store's log, an agent's
+   * own words — which stands as it was written and is marked `quoted`.
+   */
+  readonly code: string | null;
+  readonly arguments: Readonly<Record<string, string>>;
+  /** Whether the message is verbatim text the page must not word: outside text, or an engine message with no code. */
+  readonly quoted: boolean;
   /** The place an error stands at: the file, its line and the full path of the thing it failed on. */
   readonly file: string | null;
   readonly line: number | null;
@@ -139,6 +148,64 @@ function placeOf(message: string): { file: string | null; line: number | null } 
   return match === null ? { file: null, line: null } : { file: match[1] ?? null, line: Number(match[2]) };
 }
 
+/**
+ * The engine's own log messages, by the code the page words them with. A message not here and matching no family below
+ * is text the page cannot word: it stands as written and is marked quoted, so a reader knows whose words they are.
+ */
+const ENGINE_MESSAGES: Readonly<Record<string, string>> = {
+  'fill started': 'fill-started',
+  'fill ended': 'fill-ended',
+  'fill failed': 'fill-failed',
+  'fill was refused': 'fill-refused',
+  'plugin closure hashed': 'plugin-closure-hashed',
+  'plugin closure copied': 'plugin-closure-copied',
+  'plugin sandbox started': 'plugin-sandbox-started',
+  'plugin introduced': 'plugin-introduced',
+  'plugin paused': 'plugin-paused',
+  'plugin resumed': 'plugin-resumed',
+  'plugin cancelled': 'plugin-cancelled',
+  'plugin ignored stop': 'plugin-ignored-stop',
+  'the plugin was cancelled after ignoring stop': 'plugin-stop-cancelled',
+  'the plugin reported an error': 'plugin-reported-error',
+  'a plugin cgroup outlived its tree': 'plugin-cgroup-outlived',
+  'unit extracted': 'unit-extracted',
+  'plugin agent file read': 'agent-file-read',
+  'plugin agent file written': 'agent-file-written',
+  'plugin agent update': 'agent-update',
+  'plugin agent tool refused': 'agent-tool-refused',
+  'plugin agent result validated': 'agent-result-validated',
+  'the sandbox cannot run here': 'sandbox-refused',
+  'sandbox filter installed': 'sandbox-filter-installed',
+  'the macOS sandbox bounds the tree by rlimits and its process group': 'sandbox-darwin-bounds',
+};
+
+/** The engine's messages that carry a text of their own behind a fixed opening: the opening is the code, the rest is an argument. */
+const ENGINE_FAMILIES: readonly { readonly pattern: RegExp; readonly code: string; readonly names: readonly string[] }[] = [
+  { pattern: /^unit not extracted: (.*)$/su, code: 'unit-not-extracted', names: ['detail'] },
+  { pattern: /^the plugin session failed: (.*)$/su, code: 'plugin-session-failed', names: ['detail'] },
+  { pattern: /^the sandbox could not resolve a runtime dependency: (.*)$/su, code: 'sandbox-dependency', names: ['detail'] },
+  { pattern: /^(\S+) failed with no retry left: (.*)$/su, code: 'unit-failed-retry', names: ['unit', 'detail'] },
+  { pattern: /^(\S+) failed: (.*)$/su, code: 'unit-failed', names: ['unit', 'detail'] },
+  { pattern: /^(\S+) is blocked: (.*)$/su, code: 'unit-blocked', names: ['unit', 'detail'] },
+  { pattern: /^(\S+) cannot split: (.*)$/su, code: 'unit-cannot-split', names: ['unit', 'detail'] },
+  { pattern: /^(\S+) waits for a resolution: a child failed$/su, code: 'unit-blocked-child', names: ['unit'] },
+  { pattern: /^the run is blocked: (.*)$/su, code: 'run-blocked', names: ['detail'] },
+];
+
+/** The code and arguments of an engine message, or null for a text the page must show as it was written. */
+export function engineEventOf(message: string): { readonly code: string; readonly arguments: Readonly<Record<string, string>> } | null {
+  const exact = ENGINE_MESSAGES[message];
+  if (exact !== undefined) return { code: exact, arguments: {} };
+  for (const family of ENGINE_FAMILIES) {
+    const match = family.pattern.exec(message);
+    if (match === null) continue;
+    const args: Record<string, string> = {};
+    family.names.forEach((name, index) => { args[name] = cutText(match[index + 1] ?? '').text; });
+    return { code: family.code, arguments: args };
+  }
+  return null;
+}
+
 /** The level a log record states, or `info` for a level madarch does not name. */
 function levelOf(value: unknown): LogLevel {
   return value === 'debug' || value === 'warn' || value === 'error' ? value : 'info';
@@ -209,7 +276,11 @@ function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'se
     const time = typeof record['time'] === 'string' ? Date.parse(record['time']) : Number.NaN;
     const error = record['error'] as { name?: unknown; message?: unknown; stack?: unknown } | undefined;
     const detail = error === undefined ? null : cutText(typeof error.stack === 'string' ? error.stack : typeof error.message === 'string' ? error.message : '');
-    const place = placeOf(record['message']);
+    const event = engineEventOf(record['message']);
+    // An error's place stands where it is written: at the message's own head, or in the cause the event carries as an
+    // argument (`the plugin session failed: src/x.ts:1: …`), which is where a family's file and line are.
+    const own = placeOf(record['message']);
+    const place = own.file !== null || event?.arguments['detail'] === undefined ? own : placeOf(event.arguments['detail']);
     entries.push({
       id: `${run ?? ''}:${basename(file)}:${String(index)}`,
       at: Number.isFinite(time) ? time : null,
@@ -218,6 +289,9 @@ function entriesOfLogFile(file: string, run: string | null, source: 'fill' | 'se
       run,
       unit: typeof record['unitId'] === 'string' ? record['unitId'] : null,
       message: cutText(record['message']).text,
+      code: event?.code ?? null,
+      arguments: event?.arguments ?? {},
+      quoted: event === null,
       file: place.file,
       line: place.line,
       path: typeof record['path'] === 'string' ? record['path'] : null,
@@ -241,7 +315,7 @@ function entriesOfPluginLog(file: string, run: string | null, unit: string | nul
     entries.push({
       id: `${run ?? ''}:${unit ?? ''}:${basename(file)}:${String(index)}`,
       at, level: 'info', source: 'plugin', run, unit,
-      message: held.text, file: null, line: null, path: null,
+      message: held.text, code: null, arguments: {}, quoted: true, file: null, line: null, path: null,
       detail: held.cut ? held.text : null, cut: held.cut, fields: {},
     });
   }
@@ -273,6 +347,7 @@ function entriesOfTraceFile(file: string, run: string | null): { entries: LogEnt
       level: failed ? 'error' : 'info',
       source: 'trace', run, unit: null,
       message: `${span.name} ${Number.isFinite(start) && Number.isFinite(end) ? `${String(Math.max(0, Math.round(end - start)))} ms` : ''}`.trim(),
+      code: null, arguments: {}, quoted: false,
       file: null, line: null, path: null, detail: failed ? (typeof (span.status as { message?: unknown }).message === 'string' ? (span.status as { message: string }).message : null) : null,
       cut: false, fields,
     });
@@ -299,17 +374,20 @@ function entriesOfAgentFile(file: string, run: string | null): { entries: LogEnt
   const given = cutText(typeof record.given?.prompt === 'string' ? record.given.prompt : '');
   entries.push({
     id: `${run ?? ''}:${unit}:given`, at: Number.isFinite(start) ? start : null, level: 'info', source: 'agent', run, unit,
-    message: `the agent ${label} was given the unit ${unit}`, file: null, line: null, path: null,
+    message: `the agent ${label} was given the unit ${unit}`, code: 'agent-given', arguments: { agent: label, unit },
+    quoted: false, file: null, line: null, path: null,
     detail: given.text === '' ? null : given.text, cut: given.cut, fields: {},
   });
   for (const [index, step] of (record.steps ?? []).entries()) {
     const at = typeof step.at === 'string' ? Date.parse(step.at) : Number.NaN;
     const text = typeof step.text === 'string' ? step.text : typeof step.title === 'string' ? `${step.title}${typeof step.status === 'string' ? ` (${step.status})` : ''}` : JSON.stringify(step.detail ?? step);
     const held = cutText(text);
+    const stepKind = typeof step.kind === 'string' ? step.kind : 'other';
     entries.push({
       id: `${run ?? ''}:${unit}:step:${String(index)}`, at: Number.isFinite(at) ? at : null,
       level: step.status === 'failed' || step.status === 'error' ? 'warn' : 'info', source: 'agent', run, unit,
-      message: `${typeof step.kind === 'string' ? `${step.kind}: ` : ''}${held.text.split('\n')[0] ?? ''}`.slice(0, MAX_LINE_CHARACTERS),
+      message: `${stepKind}: ${held.text.split('\n')[0] ?? ''}`.slice(0, MAX_LINE_CHARACTERS),
+      code: `agent-${stepKind}`, arguments: { text: held.text.split('\n')[0] ?? '' }, quoted: false,
       file: null, line: null, path: null,
       detail: held.text.includes('\n') || held.cut ? held.text : null, cut: held.cut, fields: {},
     });
@@ -319,7 +397,9 @@ function entriesOfAgentFile(file: string, run: string | null): { entries: LogEnt
   entries.push({
     id: `${run ?? ''}:${unit}:returned`, at: Number.isFinite(end) ? end : null, level: failed ? 'error' : 'info', source: 'agent', run, unit,
     message: failed ? `the agent unit ${unit} failed: ${typeof record.failure === 'string' ? record.failure : 'no cause was recorded'}` : `the agent unit ${unit} returned ${String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0)} characters`,
-    file: null, line: null, path: null,
+    code: failed ? 'agent-failed' : 'agent-returned',
+    arguments: failed ? { unit, detail: cutText(typeof record.failure === 'string' ? record.failure : '').text } : { unit, characters: String(typeof record.returned?.text === 'string' ? record.returned.text.length : 0) },
+    quoted: false, file: null, line: null, path: null,
     detail: failed ? (typeof record.failure === 'string' ? record.failure : null) : answer.text === '' ? null : answer.text,
     cut: failed ? false : answer.cut, fields: {},
   });
@@ -338,7 +418,8 @@ function entriesOf(file: { file: string; run: string | null; unit: string | null
     const read = readTail(file.file);
     const entries = read.text.split('\n').filter((line) => line.trim() !== '').map((line, index): LogEntry => ({
       id: `store:${basename(file.file)}:${String(index)}`, at: null, level: 'info', source: 'store', run: null, unit: null,
-      message: cutText(line, MAX_LINE_CHARACTERS).text, file: null, line: null, path: null, detail: null, cut: false, fields: {},
+      message: cutText(line, MAX_LINE_CHARACTERS).text, code: null, arguments: {}, quoted: true,
+      file: null, line: null, path: null, detail: null, cut: false, fields: {},
     }));
     return { entries, cut: read.cut };
   }

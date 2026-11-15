@@ -1900,7 +1900,9 @@
     "typography": "Структура страницы и типографика",
     "logsTitle": "Просмотр журнала",
     "logsLive": "Слежение",
-    "logsPaused": "Пауза"
+    "logsPaused": "Пауза",
+    "closed": "Закрыт",
+    "chosen": "Выбран"
   },
   "overview": {
     "title": "Где сейчас продукт",
@@ -1962,6 +1964,51 @@
       "previous": "Предыдущий месяц",
       "next": "Следующий месяц",
       "close": "Закрыть"
-    }
+    },
+    "event": {
+      "fill-started": "Заполнение начато.",
+      "fill-ended": "Заполнение завершено.",
+      "fill-failed": "Заполнение не удалось.",
+      "fill-refused": "Заполнение отклонено.",
+      "plugin-closure-hashed": "Набор файлов плагина захеширован.",
+      "plugin-closure-copied": "Набор файлов плагина скопирован.",
+      "plugin-sandbox-started": "Песочница плагина запущена.",
+      "plugin-introduced": "Плагин представился.",
+      "plugin-paused": "Плагин приостановлен.",
+      "plugin-resumed": "Плагин продолжен.",
+      "plugin-cancelled": "Плагин отменён.",
+      "plugin-ignored-stop": "Плагин проигнорировал остановку.",
+      "plugin-stop-cancelled": "Плагин отменён после игнорирования остановки.",
+      "plugin-reported-error": "Плагин сообщил об ошибке.",
+      "plugin-cgroup-outlived": "Cgroup плагина пережил его процессы.",
+      "unit-extracted": "Единица извлечена.",
+      "agent-file-read": "Агент прочитал файл.",
+      "agent-file-written": "Агент записал файл.",
+      "agent-update": "Агент прислал обновление.",
+      "agent-tool-refused": "Запрос инструмента агента отклонён.",
+      "agent-result-validated": "Ответ агента проверен.",
+      "sandbox-refused": "Песочница здесь работать не может.",
+      "sandbox-filter-installed": "Фильтр песочницы установлен.",
+      "sandbox-darwin-bounds": "Песочница macOS ограничивает дерево rlimits и группой процессов.",
+      "unit-not-extracted": "Единица не извлечена: {{detail}}",
+      "plugin-session-failed": "Сбой сессии плагина: {{detail}}",
+      "sandbox-dependency": "Песочница не нашла зависимость времени выполнения: {{detail}}",
+      "unit-failed-retry": "{{unit}}: не удалось, повторов больше нет: {{detail}}",
+      "unit-failed": "{{unit}}: не удалось: {{detail}}",
+      "unit-blocked": "{{unit}} заблокирована: {{detail}}",
+      "unit-cannot-split": "{{unit}} нельзя разделить: {{detail}}",
+      "unit-blocked-child": "{{unit}} ждёт дочернюю единицу, которая не удалась.",
+      "run-blocked": "Запуск заблокирован: {{detail}}",
+      "agent-given": "Агенту {{agent}} передана единица {{unit}}.",
+      "agent-message": "Агент сказал: {{text}}",
+      "agent-thought": "Агент размышлял: {{text}}",
+      "agent-tool-call": "Агент вызвал инструмент: {{text}}",
+      "agent-tool-call-update": "Инструмент ответил: {{text}}",
+      "agent-plan": "План агента: {{text}}",
+      "agent-other": "Обновление агента: {{text}}",
+      "agent-returned": "Единица агента {{unit}} вернула {{characters}} символов.",
+      "agent-failed": "Единица агента {{unit}} не удалась: {{detail}}"
+    },
+    "quoted": "цитата"
   }
 }

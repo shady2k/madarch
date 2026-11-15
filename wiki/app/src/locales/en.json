@@ -1900,7 +1900,9 @@
     "typography": "Page structure and typography",
     "logsTitle": "Log viewer",
     "logsLive": "Live",
-    "logsPaused": "Paused"
+    "logsPaused": "Paused",
+    "closed": "Closed",
+    "chosen": "Chosen"
   },
   "overview": {
     "title": "Where this product stands",
@@ -1962,6 +1964,51 @@
       "previous": "Previous month",
       "next": "Next month",
       "close": "Close"
-    }
+    },
+    "event": {
+      "fill-started": "Fill started.",
+      "fill-ended": "Fill ended.",
+      "fill-failed": "The fill failed.",
+      "fill-refused": "The fill was refused.",
+      "plugin-closure-hashed": "The plugin's closure was hashed.",
+      "plugin-closure-copied": "The plugin's closure was copied.",
+      "plugin-sandbox-started": "The plugin's sandbox started.",
+      "plugin-introduced": "The plugin introduced itself.",
+      "plugin-paused": "The plugin paused.",
+      "plugin-resumed": "The plugin resumed.",
+      "plugin-cancelled": "The plugin was cancelled.",
+      "plugin-ignored-stop": "The plugin ignored the stop.",
+      "plugin-stop-cancelled": "The plugin was cancelled after ignoring the stop.",
+      "plugin-reported-error": "The plugin reported an error.",
+      "plugin-cgroup-outlived": "A plugin's cgroup outlived its processes.",
+      "unit-extracted": "The unit was extracted.",
+      "agent-file-read": "The agent read a file.",
+      "agent-file-written": "The agent wrote a file.",
+      "agent-update": "The agent streamed an update.",
+      "agent-tool-refused": "The agent's tool request was refused.",
+      "agent-result-validated": "The agent's result was validated.",
+      "sandbox-refused": "The sandbox cannot run here.",
+      "sandbox-filter-installed": "The sandbox's filter was installed.",
+      "sandbox-darwin-bounds": "The macOS sandbox bounds the tree by rlimits and its process group.",
+      "unit-not-extracted": "The unit was not extracted: {{detail}}",
+      "plugin-session-failed": "The plugin session failed: {{detail}}",
+      "sandbox-dependency": "The sandbox could not resolve a runtime dependency: {{detail}}",
+      "unit-failed-retry": "{{unit}} failed with no retry left: {{detail}}",
+      "unit-failed": "{{unit}} failed: {{detail}}",
+      "unit-blocked": "{{unit}} is blocked: {{detail}}",
+      "unit-cannot-split": "{{unit}} cannot split: {{detail}}",
+      "unit-blocked-child": "{{unit}} waits for a child that failed.",
+      "run-blocked": "The run is blocked: {{detail}}",
+      "agent-given": "The agent {{agent}} was given the unit {{unit}}.",
+      "agent-message": "The agent said: {{text}}",
+      "agent-thought": "The agent thought: {{text}}",
+      "agent-tool-call": "The agent called a tool: {{text}}",
+      "agent-tool-call-update": "The tool answered: {{text}}",
+      "agent-plan": "The agent's plan: {{text}}",
+      "agent-other": "The agent's update: {{text}}",
+      "agent-returned": "The agent unit {{unit}} returned {{characters}} characters.",
+      "agent-failed": "The agent unit {{unit}} failed: {{detail}}"
+    },
+    "quoted": "quoted"
   }
 }

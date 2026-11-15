@@ -4,6 +4,7 @@
  * page is the whole kit's one list: a component that is not here is not the kit's.
  */
 import { useState, type ReactElement } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { ArrowRightIcon, CircleHelpIcon } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
@@ -80,14 +81,17 @@ import {
 
 const CONTENTS = [{ id: 'kit-intro', label: 'UI kit' }, { id: 'kit-forms', label: 'Forms' }];
 
-/** The entries the kit's log viewer is shown with: one error with its stack, a warn, two records and a plugin line. */
-const LOG_SAMPLE: readonly LogViewerEntry[] = [
-  { id: 'sample-1', at: '2026-11-15T09:41:02.114Z', level: 'info', source: 'Fill', run: 'fill-sample', unit: 'disk:code.file', message: 'unit disk:code.file is leased to worker-1 under fence 3, attempt 1', detail: null, fields: { attempt: '1', fence: '3' } },
-  { id: 'sample-2', at: '2026-11-15T09:41:02.480Z', level: 'warn', source: 'Plugin', run: 'fill-sample', unit: 'disk:code.file', message: 'the plugin read a file whose language its parser does not know', detail: null, fields: { path: 'repos/app/src/notes.txt' } },
-  { id: 'sample-3', at: '2026-11-15T09:41:07.007Z', level: 'error', source: 'Fill', run: 'fill-sample', unit: 'disk:code.repository', message: 'the plugin session failed: src/plugin/host.ts:1: the plugin is pinned to bun 1.4.2, and this madarch runs another interpreter', detail: 'Error: src/plugin/host.ts:1: the plugin is pinned to bun 1.4.2, and this madarch runs another interpreter\n    at startPluginProcess (src/plugin/sandbox.ts:210:11)\n    at PluginHost.open (src/plugin/host.ts:344:7)', fields: { code: 'plugin-closure', file: 'madarch/plugins.lock', path: 'plugins/disk/plugin.json' } },
-  { id: 'sample-4', at: '2026-11-15T09:41:07.240Z', level: 'info', source: 'Store', run: null, unit: null, message: 'database system is ready to accept connections', detail: null, fields: {} },
-  { id: 'sample-5', at: '2026-11-15T09:41:08.902Z', level: 'debug', source: 'Agent', run: 'fill-sample', unit: 'agent-fill:doc.term', message: 'tool-call: Read docs/terms.md (completed)', detail: null, fields: {} },
-];
+/** The entries the kit's log viewer is shown with: worded engine events, one quoted outside line, and their context. */
+function logSample(t: TFunction): readonly LogViewerEntry[] {
+  const detail = 'src/index.ts:3: the fixture plugin refused the unit';
+  return [
+    { id: 'sample-1', at: '2026-11-15T09:41:02.114Z', level: 'info', source: t('logs.source.fill'), run: 'fill-sample', unit: 'disk:code.file', message: t('logs.event.unit-extracted'), quoted: false, detail: null, fields: { attempt: '1', fence: '3' } },
+    { id: 'sample-2', at: '2026-11-15T09:41:02.480Z', level: 'warn', source: t('logs.source.plugin'), run: 'fill-sample', unit: 'disk:code.file', message: 'the plugin read a file whose language its parser does not know', quoted: true, detail: null, fields: { path: 'repos/app/src/notes.txt' } },
+    { id: 'sample-3', at: '2026-11-15T09:41:07.007Z', level: 'error', source: t('logs.source.fill'), run: 'fill-sample', unit: 'disk:code.repository', message: t('logs.event.plugin-session-failed', { detail }), raw: `the plugin session failed: ${detail}`, quoted: false, detail: 'Error: the plugin is pinned to bun 1.4.2, and this madarch runs another interpreter\n    at startPluginProcess (src/plugin/sandbox.ts:210:11)', fields: { code: 'plugin-closure', file: 'madarch/plugins.lock', path: 'plugins/disk/plugin.json' } },
+    { id: 'sample-4', at: '2026-11-15T09:41:07.240Z', level: 'info', source: t('logs.source.store'), run: null, unit: null, message: 'database system is ready to accept connections', quoted: true, detail: null, fields: {} },
+    { id: 'sample-5', at: '2026-11-15T09:41:08.902Z', level: 'debug', source: t('logs.source.agent'), run: 'fill-sample', unit: 'agent-fill:doc.term', message: t('logs.event.agent-tool-call', { text: 'Read docs/terms.md (completed)' }), quoted: false, detail: null, fields: {} },
+  ];
+}
 
 export function KitPage(): ReactElement {
   const { t, i18n } = useTranslation();
@@ -98,7 +102,7 @@ export function KitPage(): ReactElement {
   const [toggled, setToggled] = useState(false);
   const [logFilters, setLogFilters] = useState<LogViewerFilters>({ source: '', level: '', run: '', from: '', to: '', query: '' });
   const [logLive, setLogLive] = useState(false);
-  const [menuChoice, setMenuChoice] = useState('all');
+  const [, setMenuChoice] = useState('all');
   const [moment, setMoment] = useState('2026-11-15T12:22:19.850Z');
   const dateTimeLabels: DateTimeLabels = {
     none: t('logs.dateTime.none'), title: t('logs.dateTime.title'), clear: t('logs.dateTime.clear'), done: t('logs.dateTime.done'),
@@ -106,13 +110,15 @@ export function KitPage(): ReactElement {
     previous: t('logs.dateTime.previous'), next: t('logs.dateTime.next'), close: t('logs.dateTime.close'),
   };
   const logLabels: LogViewerLabels = {
-    source: state('name'), level: state('default'), run: state('selected'), from: state('name'), to: state('name'),
-    search: state('name'), all: state('sample'), older: state('content'), empty: t('logs.empty'), loading: t('logs.loading'),
+    source: t('logs.filters.source'), level: t('logs.filters.level'), run: t('logs.filters.run'),
+    from: t('logs.filters.from'), to: t('logs.filters.to'), search: t('logs.filters.search'), all: t('logs.filters.all'),
+    older: t('logs.filters.older'), empty: t('logs.empty'), loading: t('logs.loading'),
     follow: t('logs.filters.follow'), pause: t('logs.filters.pause'), copy: t('logs.filters.copy'), copied: t('logs.filters.copied'),
-    context: t('logs.filters.context'), details: t('logs.filters.details'),
+    context: t('logs.filters.context'), details: t('logs.filters.details'), quoted: t('logs.quoted'),
     dateTime: dateTimeLabels,
     levels: { debug: t('logs.level.debug'), info: t('logs.level.info'), warn: t('logs.level.warn'), error: t('logs.level.error') },
   };
+
   return (
     <KitPageLayout title={state('title')} description={state('intro')}>
       <Alert><AlertTitle>{state('approvalTitle')}</AlertTitle><AlertDescription>{state('approval')}</AlertDescription></Alert>
@@ -190,23 +196,28 @@ export function KitPage(): ReactElement {
       </KitSection>
 
       <KitSection title="ChoiceMenu / DateTimeField">
-        <KitState label={state('default')}>
-          <ChoiceMenu label={state('name')} value={menuChoice} options={[{ value: 'all', label: state('sample') }, { value: 'one', label: state('content') }]} onChange={setMenuChoice} testId="kit-choice-menu" />
+        <KitState label={state('closed')}>
+          <ChoiceMenu label={t('logs.filters.source')} value="" options={[{ value: '', label: t('logs.filters.all') }, { value: 'fill', label: t('logs.source.fill') }]} onChange={setMenuChoice} testId="kit-choice-menu" />
+        </KitState>
+        <KitState label={state('chosen')}>
+          <ChoiceMenu label={t('logs.filters.source')} value="fill" options={[{ value: '', label: t('logs.filters.all') }, { value: 'fill', label: t('logs.source.fill') }]} onChange={setMenuChoice} testId="kit-choice-chosen" />
         </KitState>
         <KitState label={state('open')}>
-          <ChoiceMenu label={state('name')} value={menuChoice} options={[{ value: 'all', label: state('sample') }, { value: 'one', label: state('content') }]} onChange={setMenuChoice} open onOpenChange={() => undefined} testId="kit-choice-open" />
+          {/* The open state is a picture of the menu inside its own sample: the kit's menu itself opens over the page. */}
+          <Stack className="w-56 rounded-lg border border-line bg-page p-1 text-ink shadow" data-testid="kit-choice-open" aria-hidden="true">
+            <Metadata className="px-2 py-1.5 text-small uppercase tracking-wide text-muted">{t('logs.filters.source')}</Metadata>
+            <Stack className="rounded bg-chrome px-2 py-1.5 text-small">{t('logs.filters.all')}</Stack>
+            <Stack className="px-2 py-1.5 text-small">{t('logs.source.fill')}</Stack>
+          </Stack>
         </KitState>
-        <KitState label={state('selected')}>
-          <ChoiceMenu label={state('name')} value="one" options={[{ value: 'all', label: state('sample') }, { value: 'one', label: state('content') }]} onChange={setMenuChoice} testId="kit-choice-chosen" />
-        </KitState>
-        <KitState label={state('default')}>
-          <DateTimeField label={state('name')} value={moment} onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment" />
+        <KitState label={state('closed')}>
+          <DateTimeField label={t('logs.filters.from')} value={moment} onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment" />
         </KitState>
         <KitState label={state('empty')}>
-          <DateTimeField label={state('name')} value="" onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment-empty" />
+          <DateTimeField label={t('logs.filters.from')} value="" onChange={setMoment} locale={language} labels={dateTimeLabels} testId="kit-moment-empty" />
         </KitState>
         <KitState label={state('open')}>
-          <DialogPreview title={state('name')} description={t('logs.dateTime.title')}>
+          <DialogPreview title={t('logs.filters.from')} description={t('logs.dateTime.title')}>
             <DateTimePanel value={moment} locale={language} labels={dateTimeLabels} onCommit={setMoment} onClear={() => { setMoment(''); }} />
           </DialogPreview>
         </KitState>
@@ -312,10 +323,10 @@ export function KitPage(): ReactElement {
 
       <KitSection title={state('logsTitle')} description={t('logs.intro')}>
         <KitState label={state('default')}>
-          <LogViewer entries={LOG_SAMPLE} filters={logFilters} onFilters={setLogFilters} sources={[{ value: 'fill', label: t('logs.source.fill') }, { value: 'plugin', label: t('logs.source.plugin') }, { value: 'agent', label: t('logs.source.agent') }, { value: 'store', label: t('logs.source.store') }]} runs={[{ value: 'fill-sample', label: 'fill-sample' }]} labels={logLabels} live={logLive} onLive={setLogLive} summary="5 of 5" locale={language} />
+          <LogViewer entries={logSample(t)} filters={logFilters} onFilters={setLogFilters} sources={[{ value: 'fill', label: t('logs.source.fill') }, { value: 'plugin', label: t('logs.source.plugin') }, { value: 'agent', label: t('logs.source.agent') }, { value: 'store', label: t('logs.source.store') }]} runs={[{ value: 'fill-sample', label: 'fill-sample' }]} labels={logLabels} live={logLive} onLive={setLogLive} summary={t('logs.summary', { shown: 5, scanned: 5 })} locale={language} />
         </KitState>
         <KitState label={state('error')}>
-          <LogViewer entries={LOG_SAMPLE} filters={{ ...logFilters, level: 'error', query: 'pinned' }} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} initialSelectedId="sample-3" summary="1 of 5" locale={language} />
+          <LogViewer entries={logSample(t)} filters={{ ...logFilters, level: 'error', query: 'pinned' }} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} initialSelectedId="sample-3" summary={t('logs.summary', { shown: 1, scanned: 5 })} locale={language} />
         </KitState>
         <KitState label={state('empty')}>
           <LogViewer entries={[]} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} locale={language} />
@@ -324,7 +335,7 @@ export function KitPage(): ReactElement {
           <LogViewer entries={[]} loading filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} locale={language} />
         </KitState>
         <KitState label={state('logsLive')}>
-          <LogViewer entries={LOG_SAMPLE.slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} locale={language} />
+          <LogViewer entries={logSample(t).slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} locale={language} />
         </KitState>
       </KitSection>
 

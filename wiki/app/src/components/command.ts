@@ -466,6 +466,12 @@ export interface LogEntryView {
   readonly run: string | null;
   readonly unit: string | null;
   readonly message: string;
+  /** The engine's own event code, worded by the page, or null for text shown as it was written. */
+  readonly code: string | null;
+  /** The event's arguments, when the code has any. */
+  readonly arguments: Readonly<Record<string, string>>;
+  /** Whether the message is verbatim text (a plugin's standard error, the store's log, an unwritten sentence). */
+  readonly quoted: boolean;
   readonly file: string | null;
   readonly line: number | null;
   readonly path: string | null;

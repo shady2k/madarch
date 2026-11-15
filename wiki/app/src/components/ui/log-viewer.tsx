@@ -8,6 +8,7 @@
  * entries are the caller's too — a page reads them from its own API and hands the component what it shows.
  */
 import { Fragment, useEffect, useRef, useState, type ReactElement } from 'react';
+import { Badge } from './badge.js';
 import { CopyIcon, PauseIcon, PlayIcon } from 'lucide-react';
 import { Button } from './button.js';
 import { ChoiceMenu } from './choice-menu.js';
@@ -29,7 +30,12 @@ export interface LogViewerEntry {
   readonly source: string;
   readonly run: string | null;
   readonly unit: string | null;
+  /** The message as the page words it; a quoted message is the verbatim text. */
   readonly message: string;
+  /** Whether the message is verbatim outside text: it is drawn as a quotation, never as the page's own words. */
+  readonly quoted?: boolean;
+  /** The record's own words when the page worded them: the detail shows them beside the wording. */
+  readonly raw?: string;
   /** The whole text: a stack, a plugin's raw output, an answer. */
   readonly detail: string | null;
   /** The entry's own context, already free of secrets. */
@@ -64,6 +70,8 @@ export interface LogViewerLabels {
   readonly copied: string;
   readonly context: string;
   readonly details: string;
+  /** The word that marks a verbatim text as a quotation. */
+  readonly quoted: string;
   /** The words of the moment field: its empty state, its hour, minute and second, and its buttons. */
   readonly dateTime: DateTimeLabels;
   readonly levels: Readonly<Record<LogViewerEntry['level'], string>>;
@@ -141,7 +149,8 @@ function highlighted(text: string, query: string): ReactElement {
 
 /** The whole row as one text, for the copy control: its time, its level, its source and its words, then its detail. */
 export function logRowText(entry: LogViewerEntry, level: string, locale: string): string {
-  const head = `${logTimeOf(entry.at, locale)} ${level} ${entry.source}${entry.unit === null ? '' : ` ${entry.unit}`}: ${entry.message}`;
+  const said = entry.raw === undefined || entry.raw === entry.message ? entry.message : `${entry.message}\n${entry.raw}`;
+  const head = `${logTimeOf(entry.at, locale)} ${level} ${entry.source}${entry.unit === null ? '' : ` ${entry.unit}`}: ${said}`;
   return entry.detail === null ? head : `${head}\n${entry.detail}`;
 }
 
@@ -250,7 +259,9 @@ export function LogViewer({ entries, filters, onFilters, sources, runs, labels, 
                     <Metadata className="shrink-0 whitespace-nowrap font-mono tabular-nums" data-testid="log-time">{logTimeOf(entry.at, locale)}</Metadata>
                     {levelMarker(entry.level, labels.levels[entry.level])}
                     <Metadata className="max-w-[6.5rem] shrink-0 truncate" data-testid="log-source">{entry.source}</Metadata>
-                    <span className="min-w-0 flex-1 truncate" data-testid="log-message">{highlighted(entry.message, filters.query)}</span>
+                    {entry.quoted === true
+                      ? <q className="min-w-0 flex-1 truncate text-secondary" data-testid="log-message" data-quoted="true">{highlighted(entry.message, filters.query)}</q>
+                      : <span className="min-w-0 flex-1 truncate" data-testid="log-message" data-quoted="false">{highlighted(entry.message, filters.query)}</span>}
                     <Button size="icon-sm" variant="ghost" aria-label={labels.copy} data-testid="log-copy" onClick={(event) => { event.stopPropagation(); void copy(entry); }}>
                       <CopyIcon aria-hidden="true" size={13} />
                     </Button>
@@ -265,12 +276,13 @@ export function LogViewer({ entries, filters, onFilters, sources, runs, labels, 
       {shown === null ? null : (
         <Stack className="grid gap-1 rounded-[var(--radius-code)] border border-line p-3" data-testid="log-detail">
           <Stack className="flex items-center justify-between gap-2">
-            <Metadata>{logTimeOf(shown.at, locale)} · {labels.levels[shown.level]} · {shown.source}{shown.run === null ? '' : ` · ${shown.run}`}{shown.unit === null ? '' : ` · ${shown.unit}`}</Metadata>
+            <Metadata className="flex items-center gap-2">{logTimeOf(shown.at, locale)} · {labels.levels[shown.level]} · {shown.source}{shown.run === null ? '' : ` · ${shown.run}`}{shown.unit === null ? '' : ` · ${shown.unit}`}{shown.quoted === true ? <Badge variant="outline" data-testid="log-quoted">{labels.quoted}</Badge> : null}</Metadata>
             <Button size="icon-sm" variant="ghost" aria-label={labels.copy} data-testid="log-detail-copy" onClick={() => { const picked = window.getSelection()?.toString().trim() ?? ''; void copyText(picked === '' ? logRowText(shown, labels.levels[shown.level], locale) : picked); }}>
               <CopyIcon aria-hidden="true" size={13} />
             </Button>
           </Stack>
           <TechnicalText className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all" data-testid="log-detail-message">{shown.message}</TechnicalText>
+          {shown.raw === undefined || shown.raw === shown.message ? null : <TechnicalText className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all text-muted" data-testid="log-detail-raw-message">{shown.raw}</TechnicalText>}
           {shown.detail === null ? null : <TechnicalText className="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-all" data-testid="log-detail-raw">{shown.detail}</TechnicalText>}
           {shown.fields === undefined || Object.keys(shown.fields).length === 0 ? null : (
             <Stack className="grid gap-1" data-testid="log-detail-context">

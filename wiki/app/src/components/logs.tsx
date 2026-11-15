@@ -128,7 +128,7 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
     from: t('logs.filters.from'), to: t('logs.filters.to'), search: t('logs.filters.search'), all: t('logs.filters.all'),
     older: t('logs.filters.older'), empty: t('logs.empty'), loading: t('logs.loading'),
     follow: t('logs.filters.follow'), pause: t('logs.filters.pause'), copy: t('logs.filters.copy'), copied: t('logs.filters.copied'),
-    context: t('logs.filters.context'), details: t('logs.filters.details'),
+    context: t('logs.filters.context'), details: t('logs.filters.details'), quoted: t('logs.quoted'),
     dateTime: {
       none: t('logs.dateTime.none'), title: t('logs.dateTime.title'), clear: t('logs.dateTime.clear'), done: t('logs.dateTime.done'),
       hour: t('logs.dateTime.hour'), minute: t('logs.dateTime.minute'), second: t('logs.dateTime.second'),
@@ -136,22 +136,29 @@ function LogsView({ base, initialRun, open, locale, title }: { readonly base: st
     },
     levels: { debug: t('logs.level.debug'), info: t('logs.level.info'), warn: t('logs.level.warn'), error: t('logs.level.error') },
   };
-  const view = (entry: LogEntryView): LogViewerEntry => ({
-    id: entry.id,
-    at: entry.at === null ? null : new Date(entry.at).toISOString(),
-    level: entry.level,
-    source: t(`logs.source.${entry.source}`, { defaultValue: entry.source }),
-    run: entry.run,
-    unit: entry.unit,
-    message: entry.message,
-    detail: entry.detail,
-    fields: {
-      ...(entry.file === null ? {} : { file: entry.line === null ? entry.file : `${entry.file}:${String(entry.line)}` }),
-      ...(entry.path === null ? {} : { path: entry.path }),
-      ...(entry.cut ? { cut: t('logs.cut') } : {}),
-      ...entry.fields,
-    },
-  });
+  const view = (entry: LogEntryView): LogViewerEntry => {
+    // The engine sends an event's code and its arguments: the page words it. Any other text — a plugin's standard
+    // error, the store's log, an engine message no locale covers — stands as it was written and is drawn as a quotation.
+    const worded = entry.code == null ? '' : t(`logs.event.${entry.code}`, { ...entry.arguments, defaultValue: '' });
+    return {
+      id: entry.id,
+      at: entry.at === null ? null : new Date(entry.at).toISOString(),
+      level: entry.level,
+      source: t(`logs.source.${entry.source}`, { defaultValue: entry.source }),
+      run: entry.run,
+      unit: entry.unit,
+      message: worded === '' ? entry.message : worded,
+      ...(worded === '' || worded === entry.message ? {} : { raw: entry.message }),
+      quoted: entry.quoted === true,
+      detail: entry.detail,
+      fields: {
+        ...(entry.file === null ? {} : { file: entry.line === null ? entry.file : `${entry.file}:${String(entry.line)}` }),
+        ...(entry.path === null ? {} : { path: entry.path }),
+        ...(entry.cut ? { cut: t('logs.cut') } : {}),
+        ...entry.fields,
+      },
+    };
+  };
   const sources = (answer?.sources ?? []).map((source) => ({ value: source, label: t(`logs.source.${source}`, { defaultValue: source }) }));
   const runs = (answer?.runs ?? []).map((run) => ({ value: run, label: run }));
   const shown = answer === null ? 0 : entries.length;

@@ -21,11 +21,11 @@ afterAll(() => { GlobalRegistrator.unregister(); });
 /** One page of the route's answer: a server record, a plugin's error line, an agent's step and a run's span. */
 const ANSWER = {
   entries: [
-    { id: 'fill-a:fill-a.log.jsonl:0', at: Date.parse('2026-11-15T09:41:01.000Z'), level: 'info', source: 'fill', run: 'fill-a', unit: 'disk:code.file', message: 'fill started', file: null, line: null, path: null, detail: null, cut: false, fields: {} },
-    { id: 'fill-a:fill-a.log.jsonl:2', at: Date.parse('2026-11-15T09:41:03.000Z'), level: 'error', source: 'fill', run: 'fill-a', unit: null, message: 'src/plugin/host.ts:1: the plugin is pinned to an interpreter this machine does not run', file: 'host.ts', line: 1, path: '/work/product/plugins/disk/plugin.json', detail: 'Error: the plugin is pinned\n    at startPluginProcess (src/plugin/sandbox.ts:210:11)', cut: false, fields: { code: 'plugin-closure' } },
-    { id: 'fill-a:disk:0', at: Date.parse('2026-11-15T09:41:03.500Z'), level: 'info', source: 'plugin', run: 'fill-a', unit: 'disk:code.file', message: 'reading src/index.ts', file: null, line: null, path: null, detail: null, cut: false, fields: {} },
-    { id: 'fill-a:agent-fill:doc.term:given', at: Date.parse('2026-11-15T09:41:04.000Z'), level: 'info', source: 'agent', run: 'fill-a', unit: 'agent-fill:doc.term', message: 'the agent fixture was given the unit agent-fill:doc.term', file: null, line: null, path: null, detail: 'Fill the term.', cut: false, fields: {} },
-    { id: 'fill-a:fill-a.jsonl:0', at: Date.parse('2026-11-15T09:41:05.000Z'), level: 'info', source: 'trace', run: 'fill-a', unit: null, message: 'plugin.unit 500 ms', file: null, line: null, path: null, detail: null, cut: false, fields: { 'madarch.plugin.unit': 'disk:code.file' } },
+    { id: 'fill-a:fill-a.log.jsonl:0', at: Date.parse('2026-11-15T09:41:01.000Z'), level: 'info', source: 'fill', run: 'fill-a', unit: 'disk:code.file', message: 'fill started', code: 'fill-started', arguments: {}, quoted: false, file: null, line: null, path: null, detail: null, cut: false, fields: {} },
+    { id: 'fill-a:fill-a.log.jsonl:2', at: Date.parse('2026-11-15T09:41:03.000Z'), level: 'error', source: 'fill', run: 'fill-a', unit: null, message: 'the plugin session failed: the plugin is pinned to an interpreter this machine does not run', code: 'plugin-session-failed', arguments: { detail: 'the plugin is pinned to an interpreter this machine does not run' }, quoted: false, file: 'host.ts', line: 1, path: '/work/product/plugins/disk/plugin.json', detail: 'Error: the plugin is pinned\n    at startPluginProcess (src/plugin/sandbox.ts:210:11)', cut: false, fields: { code: 'plugin-closure' } },
+    { id: 'fill-a:disk:0', at: Date.parse('2026-11-15T09:41:03.500Z'), level: 'info', source: 'plugin', run: 'fill-a', unit: 'disk:code.file', message: 'reading src/index.ts', code: null, arguments: {}, quoted: true, file: null, line: null, path: null, detail: null, cut: false, fields: {} },
+    { id: 'fill-a:agent-fill:doc.term:given', at: Date.parse('2026-11-15T09:41:04.000Z'), level: 'info', source: 'agent', run: 'fill-a', unit: 'agent-fill:doc.term', message: 'the agent fixture was given the unit agent-fill:doc.term', code: 'agent-given', arguments: { agent: 'fixture', unit: 'agent-fill:doc.term' }, quoted: false, file: null, line: null, path: null, detail: 'Fill the term.', cut: false, fields: {} },
+    { id: 'fill-a:fill-a.jsonl:0', at: Date.parse('2026-11-15T09:41:05.000Z'), level: 'info', source: 'trace', run: 'fill-a', unit: null, message: 'plugin.unit 500 ms', code: null, arguments: {}, quoted: false, file: null, line: null, path: null, detail: null, cut: false, fields: { 'madarch.plugin.unit': 'disk:code.file' } },
   ],
   more: false,
   scanned: 5,
@@ -92,6 +92,14 @@ test('the logs page reads every source, filters through the route and opens a ro
     const rows = page.container.querySelectorAll('[data-testid="log-row"]');
     expect(rows).toHaveLength(5);
     expect(page.container.textContent).toContain('Показано 5 записей из 5 прочитанных');
+    // The engine's own events are worded from the locales on a Russian page; outside text stays as written and is drawn
+    // as a quotation, so a reader knows whose words they are.
+    const messages = [...page.container.querySelectorAll('[data-testid="log-message"]')].map((row) => row.textContent ?? '');
+    expect(messages).toContain('Заполнение начато.');
+    expect(messages).toContain('Сбой сессии плагина: the plugin is pinned to an interpreter this machine does not run');
+    const quoted = page.container.querySelectorAll('[data-testid="log-message"][data-quoted="true"]');
+    expect([...quoted].map((row) => row.textContent)).toEqual(['reading src/index.ts']);
+    expect(messages).not.toContain('fill started');
     // The error row carries its level marker, and opening it shows the whole text, the stack and the context.
     const error = [...rows].find((row) => row.getAttribute('data-level') === 'error');
     expect(error?.querySelector('[data-testid="log-level"]')?.getAttribute('data-level')).toBe('error');
@@ -99,6 +107,8 @@ test('the logs page reads every source, filters through the route and opens a ro
     await settle(2);
     const detail = page.container.querySelector('[data-testid="log-detail"]');
     expect(detail?.textContent).toContain('the plugin is pinned to an interpreter this machine does not run');
+    // A worded row keeps the record's own words in its detail.
+    expect(detail?.querySelector('[data-testid="log-detail-raw-message"]')?.textContent).toContain('the plugin session failed:');
     expect(detail?.querySelector('[data-testid="log-detail-raw"]')?.textContent).toContain('at startPluginProcess');
     expect(detail?.textContent).toContain('host.ts:1');
     expect(detail?.textContent).toContain('/work/product/plugins/disk/plugin.json');
@@ -168,10 +178,17 @@ test('the kit page draws the log viewer in its states, and the list is virtualis
     // The kit's own filter controls stand beside the viewer, in their states: the menu (closed and open) and the moment
     // field (with a moment, empty, and its panel open).
     expect(container.querySelector('[data-testid="kit-choice-menu"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="kit-choice-open"]')?.getAttribute('aria-expanded')).toBe('true');
+    // Its open state is a picture inside its own sample: nothing of the kit's own floats over the page at rest.
+    expect(container.querySelector('[data-testid="kit-choice-open"]')?.textContent).toContain('Источник');
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[data-radix-popper-content-wrapper]')).toBeNull();
     expect(container.querySelector('[data-testid="kit-moment"]')?.textContent).toMatch(/2026/u);
     expect(container.querySelector('[data-testid="kit-moment-empty"]')?.textContent).toBe('Любое время');
     expect(container.querySelector('[data-testid="date-time-panel"]')).not.toBeNull();
+    // Every word of the kit's samples is the reader's: the labels name the control, and the count is a sentence.
+    expect(container.textContent).not.toContain('5 of 5');
+    expect(container.textContent).not.toContain('1 of 5');
+    expect(container.querySelectorAll('[data-testid="log-viewer"]')[0]?.textContent).toContain('Показано 5 записей из 5 прочитанных');
   } finally {
     await act(async () => { root.unmount(); });
     container.remove();
@@ -191,7 +208,7 @@ test('the list is virtualised: thousands of entries draw only the rows in view',
   const labels = {
     source: 'Источник', level: 'Уровень', run: 'Запуск', from: 'С', to: 'По', search: 'Поиск', all: 'Все', older: 'Старые',
     empty: 'Пусто', loading: 'Читаю', follow: 'Следить', pause: 'Пауза', copy: 'Копировать', copied: 'Скопировано',
-    context: 'Контекст', details: 'Записи', levels: { debug: 'Отладка', info: 'Информация', warn: 'Предупреждение', error: 'Ошибка' },
+    context: 'Контекст', details: 'Записи', quoted: 'цитата', levels: { debug: 'Отладка', info: 'Информация', warn: 'Предупреждение', error: 'Ошибка' },
     dateTime: { none: 'Любое время', title: 'Выберите момент', clear: 'Сбросить', done: 'Готово', hour: 'Часы', minute: 'Минуты', second: 'Секунды', previous: 'Предыдущий месяц', next: 'Следующий месяц', close: 'Закрыть' },
   };
   await act(async () => { root.render(createElement(LogViewer, { entries, filters, onFilters: () => undefined, sources: [], runs: [], labels, live: false, onLive: () => undefined, locale: 'ru' })); });
