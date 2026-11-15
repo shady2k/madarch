@@ -11,6 +11,7 @@ import type { AcpConnection, AcpSession } from '../src/fill/acp.js';
 import { PluginAgentBridge, type PluginAgentOptions } from '../src/plugin/agent.js';
 import { englishOnly, isLocaleMap } from '../src/plugin/english-task.js';
 import type { PluginUnitResult } from '../src/plugin/protocol.js';
+import { agentMeaningOf } from '../src/product/manifest/kinds.js';
 
 const outputs = { vertices: [{ kind: 'domain', key: ['id'], fields: [{ name: 'id', type: 'text' as const, required: true, meaning: 'The area’s stable identity.', example: 'billing' }] }], edges: [] };
 const result: PluginUnitResult = { unitId: 'ignored', vertices: [], end: { state: 'complete' } };
@@ -75,9 +76,15 @@ describe('an agent’s task is English only', () => {
     expect((kind['labels'] as Record<string, unknown>)['one']).toBe('Domain');
     expect((kind['labels'] as Record<string, unknown>)['many']).toBe('Domains');
     expect((kind['fields'] as { labels: unknown }[])[1]?.labels).toBe('Definition');
-    // A map that names no English text is not sent in another language, and a value that is no locale map stands.
+    // Only the keys the manifest declares localized are read as translations: an object whose keys merely look like
+    // language tags is data and passes untouched (madarch-64o5.107).
     const mixed = { note: { ru: 'Только по-русски' }, id: 'billing', count: 3, list: ['a', { en: 'A', ru: 'А' }] } as unknown as Record<string, unknown>;
-    expect(englishOnly(mixed)).toEqual({ id: 'billing', count: 3, list: ['a', 'A'] });
+    expect(englishOnly(mixed)).toEqual(mixed);
+    expect(englishOnly({ values: { id: 'billing', os: 'linux' } })).toEqual({ values: { id: 'billing', os: 'linux' } });
+    expect(englishOnly({ schema: { type: 'object', properties: { en: { type: 'string' }, ru: { type: 'number' } }, required: ['en', 'ru'] } }))
+      .toEqual({ schema: { type: 'object', properties: { en: { type: 'string' }, ru: { type: 'number' } }, required: ['en', 'ru'] } });
+    // A declared key with no English text is left out; a plain string under a declared key stands.
+    expect(englishOnly<Record<string, unknown>>({ labels: { ru: 'Только по-русски' }, description: 'A sentence.' })).toEqual({ description: 'A sentence.' });
     expect(isLocaleMap({ en: 'x', ru: 'y' })).toBe(true);
     expect(isLocaleMap({ one: 'x', many: 'y' })).toBe(false);
     expect(isLocaleMap({ name: 'domain' })).toBe(false);
@@ -110,4 +117,18 @@ describe('an agent’s task is English only', () => {
     }));
     expect(await promptOf(task)).not.toMatch(/[\u0400-\u04FF]/u);
   });
+});
+
+
+test("the meaning madarch builds from a starter kind's two languages is the English description alone", () => {
+  // The production path (madarch-64o5.107): a catalogue-agent kind whose description is declared in two languages, and a
+  // field with no agent binding takes its meaning from that description. The join must read English only.
+  const kind = { descriptions: { en: 'An area.', ru: 'Область.' }, labels: { en: 'Area', ru: 'Область' } };
+  const meaning = agentMeaningOf(kind, { name: 'note', type: 'text' } as never);
+  expect(meaning).toBe('An area.');
+  expect(JSON.stringify(meaning)).not.toMatch(/[\u0400-\u04FF]/u);
+  // A field whose agent binding states its description keeps that one text; a kind with no English description names
+  // the field itself rather than another language.
+  expect(agentMeaningOf({ descriptions: { ru: 'Область.' } }, { name: 'note', binding: { kind: 'agent', description: 'The note.' } } as never)).toBe('The note.');
+  expect(agentMeaningOf({ descriptions: { ru: 'Область.' } }, { name: 'note' } as never)).toBe('note');
 });
