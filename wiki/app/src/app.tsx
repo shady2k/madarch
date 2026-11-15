@@ -11,7 +11,7 @@ import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
-import { normalizeLanguage, setWikiLanguage } from './i18n.js';
+import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
@@ -125,6 +125,9 @@ export function App(): ReactElement {
     }
     setBootstrap(read.bootstrap);
     setNavigation(read.navigation ?? null);
+    // A reader who saved no language reads the wiki in the product's own: the first open of a product made in Russian
+    // speaks Russian, and a reader's saved choice always stands (madarch-64o5.84).
+    await adoptProductLanguage(read.bootstrap.language);
     return read.bootstrap;
   }, [base, language]);
 
