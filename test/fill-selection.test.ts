@@ -134,13 +134,40 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(pressed.body.error.code).toBe('fill/agent-required');
   });
 
-  test('a press that chooses an agent and no token cap is refused, naming the cap', async () => {
-    // The plan runs the agent for doc.term's fields, and the engine invents no cap: the press must name one.
-    const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: 'codex', tokenCap: null }) });
+  test('a press that chooses an agent and no token cap runs under the product\'s default cap', async () => {
+    // The product holds a default cap (madarch-64o5.90), so a press that names none is not refused for the cap: it goes
+    // on to resolve the agent and stops only there. The agent is one no machine installs, so the answer is the engine's
+    // own words and never this box's (a real agent's message names whatever its adapter says here).
+    const settings = await call('/api/product-settings');
+    expect(settings.status).toBe(200);
+    expect(settings.body.tokenCap).toBe(200_000);
+    const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: 'no-such-agent', tokenCap: null }) });
     expect(pressed.status).toBe(409);
-    expect(JSON.stringify(pressed.body)).toContain('token cap');
-    expect(JSON.stringify(pressed.body)).toContain('--token-cap');
-    expect(pressed.body.error.code).toBe('fill/token-cap');
+    expect(pressed.body.error.code).not.toBe('fill/token-cap');
+    expect(JSON.stringify(pressed.body)).not.toContain('--token-cap');
+    // The press reached the agent: the refusal is the unknown id, and the cap was no part of it.
+    expect(pressed.body.error.message).toContain('unknown agent');
+  });
+
+  test('the agent choices route asks the agent the press picked, saved or not', async () => {
+    const settings = await call('/api/product-settings');
+    expect(settings.body.chosenAgent).toBeNull();
+    // Nothing is saved, yet the named agent is the one asked: the route never answers «no agent is chosen» for a name.
+    const named = await call('/api/agent-choices?agent=prime-agent');
+    expect(named.status).toBe(409);
+    expect(named.body.error.message).not.toContain('no agent is chosen');
+    expect(named.body.error.message).toContain('prime');
+  });
+
+  test('the default token cap is a product setting, saved and refused by name', async () => {
+    const saved = await call('/api/product-settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenCap: 250_000 }) });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body.tokenCap).toBe(250_000);
+    const refused = await call('/api/product-settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenCap: 0 }) });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.field).toBe('tokenCap');
+    const back = await call('/api/product-settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenCap: 200_000 }) });
+    expect(back.status).toBe(200);
   });
 
   test('the fill plan answers which plugin fills which field, and which fields the agent fills', async () => {

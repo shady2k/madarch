@@ -117,6 +117,17 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     answer = task.kind === 'domain'
       ? { vertices: domains, edges, end: { state: 'complete' } }
       : { vertices: modules, edges: [], end: { state: 'complete' } };
+    // The malformed mode: the entries the agent got right stand beside entries no contract can take — an undeclared
+    // field, an undeclared kind, evidence at a file the graph does not hold, and an edge of no declared kind (owner's
+    // rule, 2026-11-15: a produced result is never discarded, entry by entry).
+    if (process.argv[3] === 'malformed' && task.kind === 'domain') {
+      answer.vertices.push(
+        { kind: 'domain', key: { name: 'Ghost' }, values: { colour: 'red' }, evidence: domains[0].evidence },
+        { kind: 'nonsense', key: { name: 'Nothing' }, values: {}, evidence: domains[0].evidence },
+        { kind: 'domain', key: { name: 'Absent' }, values: { description: 'read from a file that is not there' }, evidence: { repository: 'app', path: 'src/absent.ts', lineStart: 1, lineEnd: 1 } },
+      );
+      answer.edges.push({ kind: 'domain.links-to-nothing', from: { kind: 'domain', key: domains[0].key }, to: { kind: 'domain', key: domains[0].key }, evidence: domains[0].evidence });
+    }
   } catch (error) {
     answer = { vertices: [], edges: [], end: { state: 'partial', cause: String(error) } };
   }
@@ -274,6 +285,49 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       // Only one turn asked the model anything: the second unit ended before its prompt.
       const turns = readFileSync(f.record, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { task: { kind: string } });
       expect(turns.map((turn) => turn.task.kind)).toHaveLength(1);
+    } finally {
+      await owner.close();
+      if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];
+      else process.env['MADARCH_PLUGIN_SANDBOX'] = previous;
+    }
+  }, 180_000);
+
+  test('a malformed answer with entries that stand publishes those entries, and the run says it answered partly', async () => {
+    // Owner's rule (2026-11-15): a produced result is never discarded, even incomplete — the entries the contract and
+    // the graph can take are published, the rest are named with the reason, and the run says the answer was partial.
+    const f = fixture();
+    const declarations = readKinds(f.product);
+    if (!declarations.present) return;
+    const previous = process.env['MADARCH_PLUGIN_SANDBOX'];
+    process.env['MADARCH_PLUGIN_SANDBOX'] = 'off';
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
+    try {
+      const run = await runFill({
+        product: f.product, targets: { kinds: ['domain'], requested: ['domain'] },
+        tokenCap: 200_000, database: owner,
+        prepareContract: async (contract) => { await prepareStore(owner, { contract }); },
+        home: f.home, steps: ['plugin-turns'], workers: 1,
+        pluginAgent: { adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake, f.record, 'malformed'] }, connect: connectAcpAgent },
+      });
+      expect(run.ok).toBe(true);
+      if (!run.ok) return;
+      expect(run.state).toBe('succeeded');
+      // The two entries that stand are published; the three the contract or the graph cannot take are not.
+      const domains = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string }>(`SELECT n.key->>'name' AS name FROM ${generatedTableName('domain', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));
+      expect(domains.rows.map((row) => row.name)).toEqual(['Identity', 'Orders']);
+      const covered = await owner.transaction('snapshot', async (tx) => await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${generatedTableName('domain.covers-folder', 'edge')} WHERE state = 'open'`));
+      expect(covered.rows[0]?.count).toBe('2');
+      // The run says the answer was partial, and names what was left out and why.
+      const events = await owner.transaction('snapshot', async (tx) => await tx.query<{ kind: string; summary: string }>('SELECT kind, summary FROM fill_event ORDER BY seq'));
+      const partial = events.rows.find((event) => event.kind === 'unit-progress' && event.summary.includes('answered partly and published what it held'));
+      expect(partial?.summary).toContain('published what it held (4)');
+      expect(partial?.summary).toContain('declares no field "colour"');
+      expect(partial?.summary).toContain('declares no vertex kind "nonsense"');
+      expect(partial?.summary).toContain('is no file of the graph');
+      expect(partial?.summary).toContain('declares no edge kind "domain.links-to-nothing"');
+      // The record holds the whole answer the agent gave: five vertices and three edges, of which the two that stand were kept.
+      const turns = readFileSync(f.record, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { answer: { vertices: unknown[]; edges: unknown[] } });
+      expect([turns[0]?.answer.vertices.length, turns[0]?.answer.edges.length]).toEqual([5, 3]);
     } finally {
       await owner.close();
       if (previous === undefined) delete process.env['MADARCH_PLUGIN_SANDBOX'];

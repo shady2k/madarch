@@ -203,21 +203,61 @@ export class PluginAgentBridge {
           throw unusable('the agent answer is no JSON');
         }
         if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw unusable('the agent answer is not a JSON object');
-        const result = { ...raw, unitId };
-        if (!Value.Check(PluginUnitResult, result)) throw unusable(`invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
-        const checked = validateUnitResult(this.outputs, result);
-        if (!checked.ok) throw unusable(checked.refusal.message);
-        for (const item of [...(result.vertices ?? []), ...(result.edges ?? [])]) {
-          const evidence = item.evidence;
-          if (typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
-          const file = byPath.get(virtualPath(`${evidence.repository}/${evidence.path}`));
-          if (file === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
+        // Whatever the agent produced is kept, entry by entry (owner's rule, 2026-11-15): an entry the contract or the
+        // graph cannot take is left out and named, and never costs the entries beside it what the agent got right.
+        const envelope = raw as Record<string, unknown>;
+        const dropped: { where: string; reason: string }[] = [];
+        const keeps = async (name: 'vertices' | 'edges', entry: unknown, index: number): Promise<boolean> => {
+          const single = { unitId, vertices: name === 'vertices' ? [entry] : [], edges: name === 'edges' ? [entry] : [], end: { state: 'complete' as const } };
+          if (!Value.Check(PluginUnitResult, single)) {
+            dropped.push({ where: `${name}[${String(index)}]`, reason: `it is no ${name === 'vertices' ? 'vertex' : 'edge'} of the protocol` });
+            return false;
+          }
+          const checked = validateUnitResult(this.outputs, single);
+          if (!checked.ok) {
+            // The single-entry check names its place from the entry's own zero: the answer's place is the one a person reads.
+            const reason = checked.refusal.message.replace(new RegExp(`^${name}\\[0\\]\\.?`, 'u'), '');
+            dropped.push({ where: `${name}[${String(index)}]`, reason });
+            return false;
+          }
+          const evidence = (entry as { evidence?: { repository?: unknown; path?: unknown; lineStart?: unknown; lineEnd?: unknown } }).evidence;
+          const reason = typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined
+            ? 'it names no graph file and line range as its evidence'
+            : byPath.get(virtualPath(`${evidence.repository}/${evidence.path}`)) === undefined
+              ? `its evidence ${JSON.stringify(`${evidence.repository}/${evidence.path}`)} is no file of the graph`
+              : undefined;
+          if (reason !== undefined) {
+            dropped.push({ where: `${name}[${String(index)}]`, reason });
+            return false;
+          }
+          const file = byPath.get(virtualPath(`${evidence!.repository as string}/${evidence!.path as string}`))!;
           const content = await this.graph.value(file.kind, file.key, 'content');
-          const start = evidence.lineStart;
-          const end = evidence.lineEnd;
-          if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
-        }
-        log.info('plugin agent result validated', { unitId, vertices: result.vertices?.length ?? 0, edges: result.edges?.length ?? 0 });
+          const start = evidence!.lineStart as number;
+          const end = evidence!.lineEnd as number;
+          if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) {
+            dropped.push({ where: `${name}[${String(index)}]`, reason: 'its evidence line range is outside the graph file' });
+            return false;
+          }
+          return true;
+        };
+        const vertices: unknown[] = [];
+        for (const [index, entry] of (Array.isArray(envelope['vertices']) ? envelope['vertices'] : []).entries()) if (await keeps('vertices', entry, index)) vertices.push(entry);
+        const edges: unknown[] = [];
+        for (const [index, entry] of (Array.isArray(envelope['edges']) ? envelope['edges'] : []).entries()) if (await keeps('edges', entry, index)) edges.push(entry);
+        const agentEnd = envelope['end'] as { readonly state?: unknown; readonly cause?: unknown } | undefined;
+        const droppedText = dropped.length === 0
+          ? undefined
+          : `${String(dropped.length)} ${dropped.length === 1 ? 'entry' : 'entries'} could not be taken and were left out: ${dropped.map((one) => `${one.where}: ${one.reason}`).join('; ')}`;
+        const end = droppedText === undefined
+          ? agentEnd ?? { state: 'complete' }
+          : { state: 'partial', cause: agentEnd?.state === 'partial' && typeof agentEnd.cause === 'string' ? `${agentEnd.cause}; ${droppedText}` : droppedText };
+        const candidate = { ...envelope, unitId, vertices, edges, end };
+        const result = Value.Check(PluginUnitResult, candidate) ? candidate : { unitId, vertices, edges, end };
+        if (!Value.Check(PluginUnitResult, result)) throw unusable(`invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
+        const whole = validateUnitResult(this.outputs, result);
+        if (!whole.ok) throw unusable(whole.refusal.message);
+        if (dropped.length > 0) log.warn('plugin agent entries left out', { unitId, leftOut: dropped.length, of: `${String(vertices.length + dropped.length)} vertices and edges` });
+        log.info('plugin agent result validated', { unitId, vertices: vertices.length, edges: edges.length, leftOut: dropped.length });
         return result;
       } finally {
         this.activeUnits.delete(unitId);
