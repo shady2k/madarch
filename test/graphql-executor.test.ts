@@ -237,9 +237,9 @@ describe('the GraphQL executor', () => {
     expect((repository['entity'] as Record<string, any>).trail).toEqual([]);
   });
 
-  test('provenance names the place the newest opinion rests on', async () => {
-    const data = await graphql(`query ($id: ID!) { entity(id: $id) { provenance } }`, { id: repositoryId });
-    expect((data['entity'] as Record<string, any>).provenance).toBeNull();
+  test('origin names the place the newest opinion rests on', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { origin } }`, { id: repositoryId });
+    expect((data['entity'] as Record<string, any>).origin).toBeNull();
   });
 
   test('a list filters, orders and pages with a cursor', async () => {
