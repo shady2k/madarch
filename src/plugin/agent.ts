@@ -32,6 +32,11 @@ export interface PluginAgentOptions {
   readonly preferences?: AgentPreferences;
   /** Host-owned adapter environment, including the person’s authentication settings. */
   readonly environment?: Readonly<Record<string, string>>;
+  /**
+   * Reads one blob's text through the same plugin path a page uses (decision 0037): the host supplies it, and the agent's
+   * file reads ask it by the blob id the graph holds, never by a working-copy path.
+   */
+  readonly readFile?: (request: { readonly repository: string; readonly blob: string; readonly from?: number; readonly limit?: number }) => Promise<string>;
   /** Repository identities mapped to writable host folders. Missing identities cannot be written. */
   readonly repositories?: Readonly<Record<string, string>>;
   readonly cwd?: string;
@@ -105,13 +110,14 @@ export class PluginAgentBridge {
               const name = virtualPath(params.path);
               const file = byPath.get(name);
               if (file === undefined) throw new Error(`${WHERE}: graph read denied for ${name}`);
-              const content = await this.graph.value(file.kind, file.key, 'content');
-              if (typeof content !== 'string') throw new Error(`${WHERE}: graph file ${name} has no text content`);
-              log.debug('plugin agent file read', { unitId, path: name });
-              const lines = content.split('\n');
-              const start = (params.line ?? 1) - 1;
-              const limit = params.limit ?? undefined;
-              return { content: params.line == null && limit === undefined ? content : lines.slice(start, limit === undefined ? undefined : start + limit).join('\n') };
+              // The text is the blob the graph names, read by the host through the git plugin (decision 0037): the agent
+              // and the page share one read path, and neither reads a working copy.
+              const blob = await this.graph.value(file.kind, file.key, 'blob');
+              if (typeof blob !== 'string' || blob === '') throw new Error(`${WHERE}: graph file ${name} holds no blob id, and a file's text is read by its blob`);
+              if (this.options.readFile === undefined) throw new Error(`${WHERE}: this host answers no blob read, and a file's text is read through the host`);
+              log.debug('plugin agent file read', { unitId, path: name, blob });
+              const content = await this.options.readFile({ repository: String(file.key['repository']), blob, ...(params.line == null ? {} : { from: params.line }), ...(params.limit == null ? {} : { limit: params.limit }) });
+              return { content };
             },
             writeTextFile: async (params) => {
               checkSession(params.sessionId);

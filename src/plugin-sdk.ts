@@ -23,7 +23,23 @@
  */
 
 /** The protocol version this SDK speaks. */
-export const PROTOCOL_VERSION = 'madarch.plugins/2';
+export const PROTOCOL_VERSION = 'madarch.plugins/3';
+
+/** The reader's request, as the host names it (decision 0037): a repository root the plugin sees, a blob id and lines. */
+export interface PluginReadRequest {
+  readonly repository: string;
+  readonly blob: string;
+  readonly from?: number;
+  readonly to?: number;
+}
+
+/** What a read answers: the lines' text, the blob's counts, and whether it is text at all. */
+export interface PluginReadResult {
+  readonly text: string;
+  readonly lines: number;
+  readonly bytes: number;
+  readonly binary: boolean;
+}
 
 /** One graph read a plugin may declare. */
 export type GraphReadName = 'files' | 'value' | 'unresolved' | 'removedEnds' | 'unevidenced';
@@ -252,6 +268,12 @@ export interface PluginDefinition {
   /** The one function the author writes: the unit in, its answer out. */
   readonly planOutput?: (unit: Unit, context: ExtractContext, cursor?: string) => Promise<OutputPlan> | OutputPlan;
   readonly extract: (unit: Unit, context: ExtractContext) => Promise<UnitResult> | UnitResult;
+  /**
+   * The bytes one blob holds, read by the host on demand (decision 0037, madarch-u3vw.16): a page's «Текст» asks for
+   * lines by blob id, and the agent's file reads ask the same way. A plugin that declares no read answers the host with
+   * a refusal by name.
+   */
+  readonly read?: (request: PluginReadRequest) => Promise<PluginReadResult> | PluginReadResult;
 }
 
 /** The JSON-RPC id a message answers or asks by. */
@@ -409,6 +431,16 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
         else takeUnit(message.id, message.params, message.method === 'planOutput');
         return;
       }
+      if (message.method === 'read') {
+        const request = message.params as unknown as PluginReadRequest | undefined;
+        if (definition.read === undefined) { refuse(message.id, RPC_INVALID_PARAMS, 'this plugin declares no read: its contract answers no blob'); return; }
+        if (request === undefined || typeof request.repository !== 'string' || typeof request.blob !== 'string') { refuse(message.id, RPC_INVALID_PARAMS, 'a read stands under params, with a repository and a blob id'); return; }
+        void Promise.resolve(definition.read(request)).then(
+          (result) => { answer(message.id!, result); },
+          (error: unknown) => { refuse(message.id!, RPC_PLUGIN_ERROR, error instanceof Error ? error.message : String(error), 'read-failed'); },
+        );
+        return;
+      }
       if (message.method === 'pause') { paused = true; answer(message.id, { paused: true }); return; }
       if (message.method === 'resume') { paused = false; answer(message.id, { paused: false }); return; }
       if (message.method === 'stop') {
@@ -447,6 +479,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
     method: 'introduce',
     params: {
       protocol: PROTOCOL_VERSION,
+      ...(definition.read === undefined ? {} : { read: true }),
       name: definition.name,
       version: definition.version,
       rights: { network: 'none', ...(definition.graph === true ? { graph: true } : {}), ...(definition.graphReads === undefined ? {} : { graphReads: definition.graphReads }), ...(definition.filesystem === true ? { filesystem: true } : {}) },

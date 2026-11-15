@@ -339,6 +339,21 @@ const query = (params: Record<string, string | undefined>): string => {
   return search.size === 0 ? '' : `?${search.toString()}`;
 };
 
+/** One file's text by (repository, blob id) through the plugin host (madarch-u3vw.16): the lines asked for, and whether it is text. */
+export interface FileTextAnswer {
+  readonly text: string;
+  readonly lines: number;
+  readonly bytes: number;
+  readonly binary: boolean;
+  readonly blob: string;
+  readonly from: number;
+  readonly repository: string;
+  readonly path: string;
+}
+
+export const readFileText = (base: string, ask: { readonly repository: string; readonly path: string; readonly from?: number; readonly to?: number }): Promise<FileTextAnswer> =>
+  command<FileTextAnswer>(base, `/api/source${query({ repo: ask.repository, path: ask.path, ...(ask.from === undefined ? {} : { from: String(ask.from) }), ...(ask.to === undefined ? {} : { to: String(ask.to) }) })}`);
+
 /** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
 export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal, pluginsOnly = false): Promise<FillPlanAnswer> {
   return command<FillPlanAnswer>(base, '/api/fill-plan', { method: 'POST', body: JSON.stringify({ selected, ...(pluginsOnly ? { pluginsOnly: true } : {}) }), ...(signal === undefined ? {} : { signal }) });

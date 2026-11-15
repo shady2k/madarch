@@ -19,7 +19,7 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'facts', 'text', 'file-text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
   'product-overview',
@@ -80,6 +80,11 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     required: ['rows'],
   },
   text: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  /** A file's text, by (repository, blob id) through the plugin host (madarch-u3vw.16): its range and its page's chunks. */
+  'file-text': {
+    parameters: { repositoryPath: { type: 'string' }, pathPath: { type: 'string' }, chunk: { type: 'number' }, emptyText: LOCALIZED_TEXT_SCHEMA },
+    required: ['repositoryPath', 'pathPath'],
+  },
   relations: {
     parameters: {
       path: { type: 'string' },

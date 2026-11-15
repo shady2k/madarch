@@ -182,6 +182,11 @@ export function sandboxInputPath(name: string, folder: string, env: Readonly<Rec
   return env['MADARCH_PLUGIN_SANDBOX'] === 'off' || platform.startsWith('darwin') ? folder : `/inputs/${name}`;
 }
 
+/** The path the sandbox's one repository is bound at, as a plugin names it in a read (decision 0037). */
+export function sandboxRepositoryPath(folder: string, env: Readonly<Record<string, string | undefined>> = process.env, platform = process.platform): string {
+  return env['MADARCH_PLUGIN_SANDBOX'] === 'off' || platform.startsWith('darwin') ? folder : '/repo';
+}
+
 /** Whether this process has already warned about explicitly unconfined plugins. */
 let warnedUnconfined = false;
 

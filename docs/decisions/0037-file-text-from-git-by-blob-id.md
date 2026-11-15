@@ -30,11 +30,15 @@ The owner chose: «Да, из git по хэшу».
    fill.
 
 ## Consequences
-- The plugin protocol needs a read operation: the host asks the plugin, in the plugin's own sandbox, for one blob's range
-  and receives text, line count, byte count and whether it is text at all. Today the protocol carries extraction units
-  and host calls the plugin makes; it has no read the host makes of the plugin. `madarch.plugins/3` adds it.
-- The api role serves pages and never reads git: a page's text request reaches the plugin host through the store (a
-  request row the host claims and answers), the same way a pressed fill reaches the fill role.
+- The plugin protocol carries the read: `madarch.plugins/3` lets the host ask the plugin, in the plugin's own sandbox, for
+  one blob's range, and the plugin answers text, line count, byte count and whether it is text at all. The git plugin
+  implements it with `git cat-file blob` on the repository the sandbox bound read-only; the host keeps one reader session
+  per (plugin, repository) and ends it when idle.
+- The api role serves pages and never reads git: a page's text request reaches the plugin host through the store — the
+  `file_text_request` table, created by the store's preparation — which the fill role claims and answers, the same way a
+  pressed fill reaches it. The page asks through the source route (`/api/source`), which answers a code file by its blob
+  id; the graph-only read rule keeps its routes.
+- The agent's file reads call the same host read (`readBlobThroughPlugin`), so a page and an agent get one mechanism.
 - The page asks for ranges, so a large file costs one range, not a whole file; the host bounds a single read by bytes and
   answers the rest only when asked.
 - The `content` field leaves the catalog, the disk plugin's contract and every reader of it; the agent's reads move to

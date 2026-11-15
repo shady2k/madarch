@@ -316,6 +316,19 @@ function fillRefusalCode(message: string): string | undefined {
       // The source view answers the text the graph was filled with, at the commit it was filled from (section 8): a past
       // commit this graph cannot name is refused rather than answered with the current tree's bytes.
       if (query.has('at')) return refused(409, { field: 'at', message: `historical source is not covered: this graph holds the text of the commit it was filled from, and no other` });
+      // A code file's text is read by the blob id the graph holds, through the plugin host (madarch-u3vw.16, decision
+      // 0037): the graph names the bytes, git serves them, and a page asks for line ranges.
+      if (repo !== null && repo !== '') {
+        const askedFrom = query.get('from');
+        const askedTo = query.get('to');
+        const from = askedFrom === null ? 1 : Number(askedFrom);
+        const to = askedTo === null ? undefined : Number(askedTo);
+        for (const [field, value] of [['from', from], ['to', to]] as const) {
+          if (value !== undefined && (!Number.isInteger(value) || value < 1)) return refused(400, { field, message: `"${field}" is a line number, a whole number from 1` });
+        }
+        const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }) });
+        if (held !== undefined) return { response: json(200, { repo, language: languageOf(path), ...held }) };
+      }
       const read = await product.source(repo === null || repo === '' ? null : repo, path);
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
       // A past commit's text the graph cannot name is a 404 that says why, never the current tree's bytes under that commit's name.

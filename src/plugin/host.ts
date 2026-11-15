@@ -24,7 +24,7 @@ import { log } from '../obs/log.js';
 import { annotateSpan, withSpan, withSpanSync } from '../obs/trace.js';
 import type { CgroupCounters } from './cgroup.js';
 import { ClosureRefusal, closureOf, interpreterPinProblem, pluginReadsOf, pluginRightsOf, type Closure } from './closure.js';
-import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
+import { graphReadsOf, PluginOutputPlan, PluginResultChunk, PluginGraphFilesRequest, PluginAgentRunRequest, PluginGraphValueRequest, PluginUnitResult, PROTOCOL_VERSION, PluginGraphPageRequest, PluginReadResult, type PluginGraphRead, type PluginGraphRemovedEnd, type PluginGraphUnevidencedOpinion, type PluginGraphUnresolvedReference, type PluginIntroduce, type PluginProgress, type PluginReadRequest, type PluginUnitRequest, type PluginErrorReport, type PluginRights } from './protocol.js';
 import { validateUnitResult, type ResultRefusal, type ValidatedUnit } from './results.js';
 import { closureTrustProblem, snapshotClosure, type ClosureTrust } from './snapshot.js';
 import { startPluginProcess, type SandboxProcess, type SandboxSpec, type StderrLog } from './sandbox.js';
@@ -32,6 +32,9 @@ import { errorReportOf, failureText, heartbeatOf, isNotification, isRequest, isR
 
 /** Where a refusal stands. */
 const WHERE = 'src/plugin/host.ts';
+
+/** How long one blob read may take: a repository on the machine answers in milliseconds, and a hang must not hold a page. */
+const READ_DEADLINE_MS = 20_000;
 
 /**
  * The bounds of one plugin run, each with a default a caller may lower: the
@@ -233,6 +236,8 @@ export interface PluginSession {
   readonly unitsAtOnce: number;
   readonly workFolder: string;
   planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan>;
+  /** One blob read, by the repository the sandbox binds and the blob id the graph holds (decision 0037). */
+  readBlob(request: PluginReadRequest): Promise<PluginReadResult>;
   runUnit(unit: PluginUnitRequest): Promise<UnitOutcome>;
   agentReports(): ReadonlyMap<string, PluginAgentReport>;
   pause(): Promise<void>;
@@ -395,6 +400,7 @@ ${text === '' ? '(empty)' : text}` };
       unitsAtOnce,
       workFolder,
       planOutput: async (unit, cursor) => await this.planOutput(unit, cursor),
+      readBlob: async (request) => await this.readBlob(request),
       runUnit: async (unit) => await this.runUnit(unit),
       agentReports: () => new Map(this.reports),
       pause: async () => await this.pause(),
@@ -665,6 +671,20 @@ ${text === '' ? '(empty)' : text}` };
       this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onSession: (report) => {
         this.reports.set(report.unitId, report);
         this.options.agent?.onSession?.(report);
+      }, readFile: async (request) => {
+        // The agent's file reads go through the one blob read (decision 0037): the product's repository, the blob the
+        // graph names, and the git plugin in its own sandbox.
+        const { readBlobThroughPlugin } = await import('../knowledge/file-texts.js');
+        const read = await readBlobThroughPlugin({
+          product: this.options.repository,
+          plugin: join('plugins', 'git'),
+          repository: request.repository,
+          root: join(this.options.repository, 'repos', request.repository),
+          blob: request.blob,
+          ...(request.from === undefined ? {} : { from: request.from }),
+          ...(request.limit === undefined ? {} : { to: request.from === undefined ? request.limit : request.from + request.limit - 1 }),
+        });
+        return read.text;
       } }, this.options.graph, declared.outputs);
     }
     this.write(successText(id, { protocol: PROTOCOL_VERSION, units: 1 }));
@@ -831,6 +851,32 @@ ${text === '' ? '(empty)' : text}` };
       if (decoded === null || typeof decoded !== 'object' || (decoded as { unitId?: unknown }).unitId !== unitId) throw new Error('fragmented result names the wrong unit');
       return decoded;
     } catch (error) { throw { code: 'malformed-result', message: `${WHERE}:1: fragmented result is invalid: ${(error as Error).message}` }; }
+  }
+
+  /**
+   * One blob read the host asks of the plugin (decision 0037): the plugin reads its own repository copy with its own
+   * code, and the host bounds the wait. A plugin that declared no read answers by name.
+   */
+  private async readBlob(request: PluginReadRequest): Promise<PluginReadResult> {
+    if (this.declared?.read !== true) throw { code: 'read-unsupported', message: `${WHERE}:1: the plugin ${this.declared?.name ?? 'unknown'} declares no read, and a blob is read through the plugin that holds the repository` };
+    if (this.failure !== undefined) throw this.failure.cause;
+    if (this.sandbox === undefined) throw { code: 'plugin-exited', message: `${WHERE}:1: the plugin's process is gone, so it cannot read a blob` };
+    const id = `read-${String(this.nextId++)}`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject({ code: 'read-timeout', message: `${WHERE}:1: the plugin answered no read of ${request.blob} within ${String(READ_DEADLINE_MS)} ms` }), READ_DEADLINE_MS);
+    });
+    const response = new Promise<unknown>((resolve, reject) => { this.pending.set(id, { resolve, reject }); });
+    this.write(requestText(id, 'read', { ...request }));
+    try {
+      const value = await Promise.race([response, deadline]);
+      const [error] = Value.Errors(PluginReadResult, value);
+      if (error !== undefined) throw { code: 'malformed-read', message: `${WHERE}:1: a read answers text, lines, bytes and binary: ${error.message}` };
+      return value as PluginReadResult;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      this.pending.delete(id);
+    }
   }
 
   private async planOutput(unit: PluginUnitRequest, cursor?: string): Promise<PluginOutputPlan> {

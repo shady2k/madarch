@@ -15,6 +15,7 @@ import { TableSection } from './components/table.js';
 import { BarsSection } from './components/bars.js';
 import { DiagramSection } from './components/diagram.js';
 import { SourceSection } from './components/source.js';
+import { FileTextSection } from './components/file-text.js';
 import { TabsSection } from './components/tabs.js';
 import { SearchSection } from './components/search.js';
 import { RunSection } from './components/run.js';
@@ -103,6 +104,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'bars': return <BarsSection context={context} />;
     case 'diagram': return <DiagramSection context={context} />;
     case 'source': return <SourceSection context={context} />;
+    case 'file-text': return <FileTextSection context={context} />;
     case 'tabs': return <TabsSection context={context} sections={sections} />;
     case 'search': return <SearchSection context={context} />;
     case 'kinds': return <KindsSection context={context} />;

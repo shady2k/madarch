@@ -103,11 +103,6 @@ fields:
   nullable: true
   producers:
   - disk
-- name: content
-  type: text
-  nullable: true
-  producers:
-  - disk
 - name: language
   type: text
   nullable: true

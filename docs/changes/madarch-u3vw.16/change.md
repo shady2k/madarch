@@ -11,10 +11,16 @@ The owner's walk found a file page with no text (2026-11-15, after the first age
 never the text; the text is read by (repository, blob id) from git's object store through the git plugin in the plugin
 host, for the page and for the agent's file reads alike. Decision 0037 records it.
 
-This change record stands for the decision only: the implementation needs the plugin protocol's read operation
-(`madarch.plugins/3`), the store channel from the api role to the plugin host, the template's «Текст» section with the
-Rendered / Source switch, the range reads and the agent's switch to the blob path. Those are not in this commit and the
-task stays open until they are.
+Implemented: `madarch.plugins/3` adds the host's read of a blob, answered by the git plugin in its sandbox; the store's
+`file_text_request` table (prepared with the store's schema) carries a page's request to the plugin host and its answer
+back; `/api/source` answers a code file by the blob id the graph holds, line ranges included; the code-file template's
+«Текст» section renders Markdown with the documents' own component and a Rendered / Source switch, and every other text
+file as a line-numbered source at the page's width with soft wrap and chunked ranges; the agent's ACP file reads ask the
+same host read by blob id instead of a graph-held text; the disk plugin no longer publishes `content` and the catalogue
+drops the field.
+
+Not verified on this machine: the bundled plugin closures are pinned to bun 1.4.2 and this box runs 1.4.4, so no plugin
+fill can run here (the same on main), and the screenshots of a filled product could not be taken.
 
 ## Out of scope
 The code-search index for agents (filed apart) and the file page's facts and relations, which stand as they are.

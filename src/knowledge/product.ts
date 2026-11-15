@@ -34,6 +34,9 @@ import { KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManif
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
+import { askFileText, forgetFileText, readFileTextAnswer } from '../adapters/file-text-store.js';
+import { typeNameOf } from '../graphql/names.js';
+import { randomUUID } from 'node:crypto';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { askRunControl, readFillEnd, readRunConfiguration } from '../fill/orchestrator-store.js';
@@ -105,6 +108,9 @@ import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } fr
  * this is the product's default, editable in the product settings, and the prepare page offers it for one run.
  */
 export const DEFAULT_TOKEN_CAP = 200_000;
+
+/** How long a page waits for its text: the plugin host claims the request within a pass, and a read of a blob is quick. */
+const FILE_TEXT_DEADLINE_MS = 30_000;
 
 /**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
@@ -2260,6 +2266,52 @@ export class KnowledgeProduct {
    * A file of a repository as the graph was filled from it, for the source view (decision 0036, section 8): the text of
    * the `source_text` opinion a fill published, never a second read of the checkout.
    */
+  /**
+   * One file's text, by (repository, blob id) from git's object store through the plugin host (madarch-u3vw.16, decision
+   * 0037): the graph names the blob, the host reads it with the git plugin, and the page answers the lines asked for.
+   * Nothing here reads a file: the api role never touches a product's working copy.
+   */
+  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string } | undefined> {
+    await this.open();
+    await this.followStoreFill();
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const read = await this.manifestRead(product.folder);
+    if (!read.present) return undefined;
+    const kind = [...read.manifest.kinds.values()].find((declared) => declared.fields?.some((field) => field.name === 'blob') === true && declared.fields?.some((field) => field.name === 'path') === true);
+    if (kind === undefined) return undefined;
+    const field = `all${typeNameOf(kind.name)}`;
+    const answer = await this.graphql({
+      query: `query($repository: String!, $path: String!) { ${field}(where: { repository: { _eq: $repository }, path: { _eq: $path } }, first: 1) { edges { node { id blob } } } }`,
+      variables: { repository, path },
+    });
+    const body = answer.body as { data?: Record<string, { edges?: { node?: { id?: unknown; blob?: unknown } }[] }>; errors?: unknown };
+    const node = body.data?.[field]?.edges?.[0]?.node;
+    if (node === undefined || typeof node.blob !== 'string' || node.blob === '') return undefined;
+    // The plugin reads the repository the product connected, and only that one: the request names it, and the host
+    // checks it lies under the product's repos/ (src/knowledge/file-texts.ts).
+    const root = join(product.folder, 'repos', repository);
+    const owner = await this.open();
+    const id = randomUUID();
+    const from = Math.max(1, Math.trunc(options.from ?? 1));
+    await askFileText(owner, { id, product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, to: options.to === undefined ? null : Math.trunc(options.to) });
+    try {
+      const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
+      while (Date.now() < deadline) {
+        const held = await readFileTextAnswer(owner, id);
+        if (held !== null) {
+          if (held.error !== undefined) throw new WikiReadError(held.error);
+          if (held.answer === undefined) throw new WikiReadError(`${import.meta.filename}:1: the file read of ${path} answered nothing`);
+          return { ...held.answer, blob: node.blob, from, repository, path };
+        }
+        await Bun.sleep(50);
+      }
+      throw new WikiReadError(`${import.meta.filename}:1: no file read answered within ${String(FILE_TEXT_DEADLINE_MS)} ms: the page reads a file through the plugin host, and no fill role is answering (madarch serve starts one)`);
+    } finally {
+      await forgetFileText(owner, id).catch(() => undefined);
+    }
+  }
+
   async source(repo: string | null, path: string): Promise<SourceRead | undefined> {
     // A fill another process published moves the store before this answer reads it: the follow step the old page context
     // ran, so the commit named here and the kinds the text is read from are the store's, not this process's last look.

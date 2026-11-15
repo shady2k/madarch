@@ -48,3 +48,10 @@ export async function gitText(root: string, args: readonly string[]): Promise<st
   return Buffer.concat(parts).toString('utf8');
 }
 
+
+/** One git command's whole standard output as bytes: a blob is read for its bytes, never for a decoded guess. */
+export async function gitBytes(root: string, args: readonly string[]): Promise<Buffer> {
+  const parts: Buffer[] = [];
+  await gitStream(root, args, (chunk) => parts.push(Buffer.from(chunk)));
+  return Buffer.concat(parts);
+}

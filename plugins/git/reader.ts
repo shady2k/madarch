@@ -1,7 +1,7 @@
 /** Git history parsing is owned by the git plugin. */
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { gitStream, gitText } from './git-bytes.js';
+import { gitBytes, gitStream, gitText } from './git-bytes.js';
 export interface RepositoryAt { readonly repository: string; readonly root: string; readonly commit: string; readonly url?: string; readonly defaultBranch?: string }
 export interface HistoryCommit {
   readonly hash: string;
@@ -299,4 +299,39 @@ function pathPattern(pattern: string): RegExp {
 /** Whether a path is one the product's kind declaration leaves out (`exclude:`). */
 export function excludedPath(path: string, patterns: readonly string[]): boolean {
   return patterns.some((pattern) => pathPattern(pattern).test(path));
+}
+
+/**
+ * The text of one blob, by the id the graph holds (madarch-u3vw.16, decision 0037): git's object store answers, never a
+ * working copy, so the text is the file at the revision the facts were read from. A range is cut from the blob's own
+ * lines, so a page can virtualise a large file; a blob that is no UTF-8 text is binary and has no text.
+ */
+export interface BlobText {
+  /** The lines asked for, joined with their own line breaks. */
+  readonly text: string;
+  /** Every line of the blob, so a page knows what it did not ask for. */
+  readonly lines: number;
+  readonly bytes: number;
+  /** True when the blob is no UTF-8 text: it has no text, and the page says so. */
+  readonly binary: boolean;
+}
+
+export async function readBlobText(root: string, blob: string, range: { readonly from?: number; readonly to?: number } = {}): Promise<BlobText> {
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(blob)) throw new Error(`the blob id ${JSON.stringify(blob)} is no git object id: the graph holds the id the disk plugin read from the pinned revision`);
+  const bytes = await gitBytes(root, ['cat-file', 'blob', blob]);
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return { text: '', lines: 0, bytes: bytes.length, binary: true };
+  }
+  if (text.includes('\u0000')) return { text: '', lines: 0, bytes: bytes.length, binary: true };
+  const all = text.split('\n');
+  // A trailing newline ends the last line rather than starting an empty one.
+  const total = text.endsWith('\n') ? all.length - 1 : all.length;
+  const from = Math.max(1, Math.trunc(range.from ?? 1));
+  const to = range.to === undefined ? total : Math.min(total, Math.trunc(range.to));
+  if (from > total || to < from) return { text: '', lines: total, bytes: bytes.length, binary: false };
+  const asked = all.slice(from - 1, to);
+  return { text: `${asked.join('\n')}${to < all.length || text.endsWith('\n') ? '\n' : ''}`, lines: total, bytes: bytes.length, binary: false };
 }
