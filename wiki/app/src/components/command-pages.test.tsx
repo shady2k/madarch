@@ -14,7 +14,6 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('../page.js');
 const { setWikiLanguage } = await import('../i18n.js');
-const { resetCommandClient } = await import('./command.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -93,7 +92,6 @@ function answer(_path: string, body: unknown): Response {
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
-  resetCommandClient();
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');

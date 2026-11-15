@@ -84,12 +84,14 @@ export function setConnectionProbe(next: () => Promise<void>): () => void {
   probe = next;
   if (offline) schedule();
   return () => {
-    if (probe === next) probe = undefined;
+    if (probe !== next) return;
+    probe = undefined;
+    forgetConnection();
   };
 }
 
-/** Forgets the link's state: a fresh tab's first read, and the tests' own reset before each case. */
-export function resetConnection(): void {
+/** Forgets the link's state: an app that went away leaves the next mount a fresh line to the server. */
+function forgetConnection(): void {
   if (timer !== undefined) {
     clearTimeout(timer);
     timer = undefined;
@@ -97,7 +99,6 @@ export function resetConnection(): void {
   offline = false;
   attempt = 0;
   generation = 0;
-  probe = undefined;
   publish();
 }
 

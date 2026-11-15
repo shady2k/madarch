@@ -619,20 +619,18 @@ export function useChangeStream(base: string, onChange: () => void): void {
       if (stream.listeners.size === 0) {
         stream.source.close();
         if (changeStreams.get(base) === stream) changeStreams.delete(base);
+        forgetReadsWhenIdle();
       }
     };
   }, [base]);
 }
 
-/** Forgets every shared read and closes the stream: the tests' own reset before each case. */
-export function resetCommandClient(): void {
-  for (const entry of readEntries.values()) {
-    entry.controller?.abort();
-    entry.listeners.clear();
-  }
+/** A tab with no reader and no stream forgets what it read: the next app on the page starts from nothing. */
+function forgetReadsWhenIdle(): void {
+  if (changeStreams.size > 0) return;
+  for (const entry of readEntries.values()) if (entry.listeners.size > 0) return;
+  for (const entry of readEntries.values()) entry.controller?.abort();
   readEntries.clear();
   queuedReloads.clear();
   changes = 0;
-  for (const stream of changeStreams.values()) stream.source.close();
-  changeStreams.clear();
 }

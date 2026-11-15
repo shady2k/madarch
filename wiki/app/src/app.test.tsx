@@ -11,8 +11,6 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { App } = await import('./app.js');
-const { resetConnection } = await import('./connection.js');
-const { resetCommandClient } = await import('./components/command.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -95,8 +93,6 @@ function answerFor(query: string, variables: Record<string, unknown>): unknown {
 beforeEach(() => {
   requests.length = 0;
   readerRole = 'everything';
-  resetConnection();
-  resetCommandClient();
   try { window.localStorage.clear(); } catch { /* no storage */ }
   // The frame's «Заполнить…» button reads the product's command state, and the change stream is silent here.
   (globalThis as { EventSource?: unknown }).EventSource = undefined;

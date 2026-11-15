@@ -2,7 +2,7 @@
  * The home page's overview (madarch-64o5.83): the numbers stand only on a successful answer; a request that failed or has
  * not answered says so ("not known") instead of reporting zero problems or no fill as a fact.
  */
-import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -11,7 +11,6 @@ const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { i18n } = await import('../i18n.js');
 const { ProductOverviewSection } = await import('./overview.js');
-const { resetCommandClient } = await import('./command.js');
 await i18n.changeLanguage('en');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
@@ -28,7 +27,6 @@ async function render(): Promise<{ text: string; close: () => Promise<void> }> {
   return { text: (host.textContent ?? '').replace(/\s+/g, ' '), close: async () => { await act(async () => { root.unmount(); }); host.remove(); } };
 }
 
-beforeEach(() => { resetCommandClient(); });
 beforeAll(() => {
   (globalThis as { fetch: typeof fetch }).fetch = (async () => new Response(JSON.stringify({ message: 'the store is closed' }), { status: 500 })) as unknown as typeof fetch;
 });
