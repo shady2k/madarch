@@ -11,7 +11,7 @@ import { Badge } from './components/ui/badge.js';
 import {
   Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from './components/ui/breadcrumb.js';
-import { Button } from './components/ui/button.js';
+import { Button, IconButton } from './components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card.js';
 import { Checkbox } from './components/ui/checkbox.js';
 import { ChoiceCard, ChoiceDescription } from './components/ui/choice-card.js';
@@ -104,11 +104,27 @@ export function KitPage(): ReactElement {
         </KitState>
       </KitSection>
 
-      <KitSection title="Button">
-        <KitState label={state('default')}><Button variant="default" size="default">{state('action')}</Button></KitState>
-        <KitState label={state('ghost')}><Button size="default">{state('action')}</Button></KitState>
-        <KitState label={state('disabled')}><Button variant="default" size="default" disabled>{state('action')}</Button></KitState>
-        <KitState label="Icon"><ShellIconLink href="/" aria-label={state('hint')}><CircleHelpIcon aria-hidden="true" size={18} /></ShellIconLink></KitState>
+      <KitSection title={state('buttons')} description={state('buttonsHint')}>
+        <KitState label={state('default')}><Button data-testid="kit-button-default">{state('action')}</Button></KitState>
+        <KitState label={state('hover')}><Button data-testid="kit-button-hover">{state('action')}</Button></KitState>
+        <KitState label={state('focus')}><Button data-testid="kit-button-focus">{state('action')}</Button></KitState>
+        <KitState label={state('disabled')}><Button data-testid="kit-button-disabled" disabled disabledReason={state('disabledReason')}>{state('action')}</Button></KitState>
+        <KitState label={state('iconButton')}><IconButton label={state('hint')} data-testid="kit-icon-default"><CircleHelpIcon aria-hidden="true" size={18} /></IconButton></KitState>
+        <KitState label={state('iconHover')}><IconButton label={state('hint')} data-testid="kit-icon-hover"><CircleHelpIcon aria-hidden="true" size={18} /></IconButton></KitState>
+        <KitState label={state('iconFocus')}><IconButton label={state('hint')} data-testid="kit-icon-focus"><CircleHelpIcon aria-hidden="true" size={18} /></IconButton></KitState>
+        <KitState label={state('iconDisabled')}><IconButton label={state('hint')} data-testid="kit-icon-disabled" disabled disabledReason={state('disabledReason')}><CircleHelpIcon aria-hidden="true" size={18} /></IconButton></KitState>
+        <KitState label={state('toggleOff')}><Toggle pressed={false} onPressedChange={() => undefined} data-testid="kit-toggle-off">{state('action')}</Toggle></KitState>
+        <KitState label={state('toggleOn')}><Toggle pressed onPressedChange={() => undefined} data-testid="kit-toggle-on">{state('selected')}</Toggle></KitState>
+        <KitState label={state('toggleHover')}><Toggle pressed={false} onPressedChange={() => undefined} data-testid="kit-toggle-hover">{state('action')}</Toggle></KitState>
+        <KitState label={state('toggleFocus')}><Toggle pressed={false} onPressedChange={() => undefined} data-testid="kit-toggle-focus">{state('action')}</Toggle></KitState>
+        <KitState label={state('toggleDisabled')}><Toggle pressed={false} onPressedChange={() => undefined} disabled disabledReason={state('disabledReason')} data-testid="kit-toggle-disabled">{state('action')}</Toggle></KitState>
+        <KitState label={state('choiceGroup')}>
+          <SegmentedChoice label={state('name')} testId="kit-segmented" value={segment} options={[{ value: 'one', label: state('sample'), testId: 'kit-seg-1' }, { value: 'two', label: state('content'), testId: 'kit-seg-2' }]} onChange={setSegment} />
+        </KitState>
+        <KitState label={state('choiceGroupDisabled')}>
+          <SegmentedChoice label={state('name')} testId="kit-segmented-disabled" value="one" options={[{ value: 'one', label: state('sample'), testId: 'kit-seg-disabled-1' }]} onChange={() => undefined} disabled disabledReason={state('disabledReason')} />
+        </KitState>
+        <KitState label={state('iconLink')}><ShellIconLink href="/" aria-label={state('hint')}><CircleHelpIcon aria-hidden="true" size={18} /></ShellIconLink></KitState>
       </KitSection>
 
       <KitSection title="Input / Textarea">
@@ -154,9 +170,9 @@ export function KitPage(): ReactElement {
 
       <KitSection title="FilterBar">
         <FilterResults>
-          <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button variant="default" size="sm">{state('action')}</Button></FilterBar>
+          <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button>{state('action')}</Button></FilterBar>
         </FilterResults>
-        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label="next"><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
+        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><IconButton label={state('next')}><ArrowRightIcon aria-hidden="true" size={16} /></IconButton></PaginationBar>
       </KitSection>
 
       <KitSection title="Tabs">
@@ -173,23 +189,23 @@ export function KitPage(): ReactElement {
 
       <KitSection title="Dialog" description={state('overlayHint')}>
         <KitState label={state('open')}>
-          <DialogPreview title={state('notice')} description={state('description')} footer={<Button size="default" disabled>{state('disabled')}</Button>}>
+          <DialogPreview title={state('notice')} description={state('description')} footer={<Button disabled disabledReason={state('disabledReason')}>{state('disabled')}</Button>}>
             <Alert variant="problem"><AlertDescription>{state('required')}</AlertDescription></Alert>
           </DialogPreview>
         </KitState>
         <Dialog>
-          <DialogTrigger asChild><Button variant="default" size="default">{state('open')}</Button></DialogTrigger>
+          <DialogTrigger asChild><Button>{state('open')}</Button></DialogTrigger>
           <DialogContent closeLabel={state('close')}>
             <DialogHeader><DialogTitle>{state('notice')}</DialogTitle><DialogDescription>{state('description')}</DialogDescription></DialogHeader>
             <DialogBody><Paragraph>{state('content')}</Paragraph></DialogBody>
-            <DialogFooter><DialogClose asChild><Button size="default">{state('close')}</Button></DialogClose></DialogFooter>
+            <DialogFooter><DialogClose asChild><Button>{state('close')}</Button></DialogClose></DialogFooter>
           </DialogContent>
         </Dialog>
       </KitSection>
 
       <KitSection title="Menus">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="default" size="default">{state('open')}</Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button>{state('open')}</Button></DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuLabel>{state('name')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -198,7 +214,7 @@ export function KitPage(): ReactElement {
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip>
-          <TooltipTrigger asChild><Button variant="default" size="default">{state('hint')}</Button></TooltipTrigger>
+          <TooltipTrigger asChild><Button>{state('hint')}</Button></TooltipTrigger>
           <TooltipContent>{state('description')}</TooltipContent>
         </Tooltip>
       </KitSection>
@@ -245,7 +261,6 @@ export function KitPage(): ReactElement {
         <KitState label="Code"><CodeFrame><Preformatted><SyntaxToken colors={{ color: 'var(--text)' }}>const value = 1;</SyntaxToken></Preformatted></CodeFrame></KitState>
         <KitState label="Text"><TechnicalText>{state('sample')}</TechnicalText><ClippedLabel>{state('description')}</ClippedLabel><FileTitle>example.ts</FileTitle></KitState>
         <KitState label="Quote"><ReadingContent compact><Blockquote>{state('sample')}</Blockquote></ReadingContent></KitState>
-        <KitState label="Segmented"><SegmentedChoice label={state('name')} testId="kit-segmented" value={segment} options={[{ value: 'one', label: state('sample'), testId: 'kit-seg-1' }, { value: 'two', label: state('content'), testId: 'kit-seg-2' }]} onChange={setSegment} /></KitState>
       </KitSection>
 
       <KitSection title="Search">

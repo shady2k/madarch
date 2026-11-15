@@ -2,12 +2,12 @@
 import { createContext, useContext, forwardRef, type ComponentProps, type ReactNode, type HTMLAttributes } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
-import { Button } from './button.js';
+import { IconButton } from './button.js';
 import { cn } from '@/lib/utils.js';
 
 const dialogSurface = 'flex min-h-0 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] text-ink shadow-[var(--shadow-high)]';
 
-const CloseContext = createContext<{ label: string; show: boolean; disabled: boolean } | null>(null);
+const CloseContext = createContext<{ label: string; show: boolean; disabled: boolean; disabledReason: string } | null>(null);
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
@@ -18,11 +18,16 @@ export const DialogOverlay = forwardRef<HTMLDivElement, ComponentProps<typeof Di
   return <DialogPrimitive.Overlay ref={ref} className={cn('fixed inset-0 wiki-modal-layer bg-ink/40', className)} {...props} />;
 });
 
-export const DialogContent = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string; showCloseButton?: boolean; closeDisabled?: boolean }>(function DialogContent({ className, children, closeLabel = 'Close', showCloseButton = true, closeDisabled = false, ...props }, ref) {
+/** The close press is either enabled, or disabled with the words that say why (madarch-64o5.123). */
+type DialogCloseState =
+  | { readonly closeDisabled?: false; readonly closeDisabledReason?: never }
+  | { readonly closeDisabled: boolean; readonly closeDisabledReason: string };
+
+export const DialogContent = forwardRef<HTMLDivElement, Omit<ComponentProps<typeof DialogPrimitive.Content>, 'children'> & { closeLabel?: string; showCloseButton?: boolean; children?: ReactNode } & DialogCloseState>(function DialogContent({ className, children, closeLabel = 'Close', showCloseButton = true, closeDisabled, closeDisabledReason, ...props }, ref) {
   return <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content ref={ref} className={cn(dialogSurface, 'fixed left-1/2 top-1/2 wiki-modal-layer max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 outline-none', className)} {...props}>
-      <CloseContext.Provider value={{ label: closeLabel, show: showCloseButton, disabled: closeDisabled }}>{children}</CloseContext.Provider>
+      <CloseContext.Provider value={{ label: closeLabel, show: showCloseButton, disabled: closeDisabled === true, disabledReason: closeDisabledReason ?? '' }}>{children}</CloseContext.Provider>
     </DialogPrimitive.Content>
   </DialogPortal>;
 });
@@ -31,7 +36,11 @@ export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElem
   const close = useContext(CloseContext);
   return <div data-slot="dialog-header" className={cn('relative shrink-0 flex flex-col gap-2 border-b border-line p-6 pr-14', className)} {...props}>
     {props.children}
-    {close?.show && <DialogPrimitive.Close asChild><Button size="icon" disabled={close.disabled} aria-label={close.label} className="absolute right-3 top-3"><XIcon aria-hidden="true" size={16} /></Button></DialogPrimitive.Close>}
+    {close?.show && <span className="absolute right-3 top-3"><DialogPrimitive.Close asChild>
+      {close.disabled && close.disabledReason !== ''
+        ? <IconButton label={close.label} disabled disabledReason={close.disabledReason}><XIcon aria-hidden="true" size={16} /></IconButton>
+        : <IconButton label={close.label}><XIcon aria-hidden="true" size={16} /></IconButton>}
+    </DialogPrimitive.Close></span>}
   </div>;
 }
 

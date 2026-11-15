@@ -46,7 +46,7 @@ export function ConnectionBanner({ lastDataAt }: { readonly lastDataAt: number |
             </Text>
           ) : null}
           {connection.offline ? (
-            <Button variant="outline" size="sm" onClick={retryNow} data-testid="connection-retry">{t('connection.retryNow')}</Button>
+            <Button onClick={retryNow} data-testid="connection-retry">{t('connection.retryNow')}</Button>
           ) : null}
           {connection.offline && dataTime !== null ? (
             <Metadata data-testid="connection-data-as-of">{t('connection.dataAsOf', { time: dataTime })}</Metadata>

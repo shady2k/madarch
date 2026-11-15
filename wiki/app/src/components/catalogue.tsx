@@ -12,6 +12,7 @@ import { ChevronDownIcon } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import { Toggle } from './ui/toggle.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Input } from './ui/input.js';
@@ -236,9 +237,9 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
       <Stack className="flex flex-wrap items-end justify-between gap-3">
         <Paragraph className="m-0 text-secondary">{t('knowledge.catalogueIntro')}</Paragraph>
         {selecting ? (
-          <Button variant="ghost" size="default" onClick={leaveSelection} data-testid="catalogue-exit">{t('catalogue.exitSelection')}</Button>
+          <Button onClick={leaveSelection} data-testid="catalogue-exit">{t('catalogue.exitSelection')}</Button>
         ) : (
-          <Button variant="default" size="default" onClick={enterSelection} data-testid="catalogue-select">{t('catalogue.select')}</Button>
+          <Button onClick={enterSelection} data-testid="catalogue-select">{t('catalogue.select')}</Button>
         )}
       </Stack>
       {allRead.error === null ? null : <Alert variant="problem" data-testid="catalogue-error"><AlertDescription>{allRead.error}</AlertDescription></Alert>}
@@ -255,7 +256,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
           </Stack>
           <Stack className="flex flex-wrap items-center gap-3">
             <Text className="text-small text-muted" data-testid="catalogue-shown">{t('catalogue.shown', { count: shownCount })}</Text>
-            {selecting ? <Button size="default" variant={onlySelected ? 'default' : 'ghost'} onClick={() => setOnlySelected((held) => !held)} data-testid="catalogue-show-selected">{t(onlySelected ? 'catalogue.showAll' : 'catalogue.showSelected')}</Button> : null}
+            {selecting ? <Toggle pressed={onlySelected} onPressedChange={() => setOnlySelected((held) => !held)} data-testid="catalogue-show-selected">{t(onlySelected ? 'catalogue.showAll' : 'catalogue.showSelected')}</Toggle> : null}
           </Stack>
           {areas.length === 0 ? <Paragraph className="text-small text-muted" data-testid="catalogue-nomatch">{t('catalogue.noMatch')}</Paragraph> : null}
           {areas.map((top) => (
@@ -282,7 +283,12 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
       {selecting ? (
         <Stack className="sticky bottom-0 z-10 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-page px-4 py-2 shadow-sm" data-testid="catalogue-bottom">
           <Text className="text-small" data-testid="catalogue-selected-count">{t('catalogue.selectedCount', { count: selected.size })}{' · '}{t('catalogue.dependencyCount', { count: added.size })}</Text>
-          <Button variant="default" size="default" disabled={selection.length === 0 || planRead.busy || (selectionPlan?.errors.length ?? 0) > 0} onClick={() => context.open(prepareAddress(selection))} data-testid="catalogue-prepare">{t('catalogue.toPrepare')}</Button>
+          <Button
+            disabled={selection.length === 0 || planRead.busy}
+            disabledReason={selection.length === 0 ? t('catalogue.toPrepareNeedsKind') : t('catalogue.toPrepareBusy')}
+            onClick={() => context.open(prepareAddress(selection))}
+            data-testid="catalogue-prepare"
+          >{t('catalogue.toPrepare')}</Button>
         </Stack>
       ) : null}
     </Stack>

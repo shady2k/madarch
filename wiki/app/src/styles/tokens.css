@@ -29,6 +29,8 @@
   --fs-h6: 1em;
   /* a floor, not a ratio: nesting it must not compound (14px at the body size) */
   --fs-small: max(14px, 0.78em);
+  /* The kit's one control type size: a press reads the same at any depth (madarch-64o5.127). */
+  --fs-control: 14px;
 
   /* 4.4 Rhythm and measure. */
   --leading: 1.58; /* unitless body line height */

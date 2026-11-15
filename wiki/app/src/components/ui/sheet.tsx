@@ -7,7 +7,7 @@
 import { forwardRef, type ReactElement } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
-import { Button } from './button.js';
+import { IconButton } from './button.js';
 import { DialogBody, DialogHeader } from './dialog.js';
 import { cn } from '@/lib/utils.js';
 
@@ -38,7 +38,7 @@ export const SheetContent = forwardRef<
       >
         <DialogHeader>
           <DialogPrimitive.Title className="m-0 text-body font-semibold">{title}</DialogPrimitive.Title>
-          <DialogPrimitive.Close asChild><Button size="icon" className="absolute right-2 top-2" aria-label={closeLabel}><XIcon aria-hidden="true" size={16} /></Button></DialogPrimitive.Close>
+          <span className="absolute right-2 top-2"><DialogPrimitive.Close asChild><IconButton label={closeLabel}><XIcon aria-hidden="true" size={16} /></IconButton></DialogPrimitive.Close></span>
         </DialogHeader>
         <DialogBody>{children}</DialogBody>
       </DialogPrimitive.Content>

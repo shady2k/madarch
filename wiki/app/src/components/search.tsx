@@ -153,7 +153,7 @@ export function SearchSection({ context }: { readonly context: SectionContext })
           {t('knowledge.searchLabel')}
           <Input value={text} aria-label={t('knowledge.searchLabel')} data-testid="page-search" placeholder={t('knowledge.searchPlaceholder')} onChange={(event) => { setText(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter') void ask(); }} />
         </FilterField>
-        <Button variant="default" size="sm" onClick={() => { void ask(); }}>{t('knowledge.searchButton')}</Button>
+        <Button onClick={() => { void ask(); }}>{t('knowledge.searchButton')}</Button>
       </FilterBar>
       {failed === undefined ? null : <Paragraph>{failed}</Paragraph>}
       {groups === undefined ? null : (groups.length === 0 ? <Paragraph>{t('knowledge.searchEmpty')}</Paragraph> : <GroupsOf groups={groups} base={context.base} open={context.open} />)}

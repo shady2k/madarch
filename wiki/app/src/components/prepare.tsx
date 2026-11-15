@@ -21,7 +21,6 @@ import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
-import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
 import { agentUsable } from './agent-words.js';
 import {
@@ -98,6 +97,23 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const sendsAgent = !pluginsOnly && requiresAgent;
   const agentReady = !sendsAgent || (agent !== null && usableAgent && agentChoices !== null);
   const settingsReady = !sendsAgent || settings.data !== null;
+  // A disabled press says which of its conditions holds, in the order a person reads it (madarch-64o5.123).
+  const runReason = (): string => {
+    if (connection.offline) return t('connection.actionsDisabled');
+    if (busy) return t('prepare.starting');
+    if (planRead.busy) return t('prepare.planBusy');
+    if (errors.length > 0) return t('prepare.blockedByErrors');
+    if (!validCap) return t('prepare.invalidCap');
+    if (!runnable) return t('prepare.nothingToRun');
+    if (!agentReady) return t('prepare.agentNotReady');
+    return t('prepare.settingsNotReady');
+  };
+  const saveReason = (): string => {
+    if (connection.offline) return t('connection.actionsDisabled');
+    if (savedDefaults === 'saving') return t('prepare.savingDefaults');
+    if (!agentReady) return t('prepare.agentNotReady');
+    return t('prepare.settingsNotReady');
+  };
 
   // A link with another selection or mode, or the back button, starts the panel from that address again.
   useEffect(() => {
@@ -203,7 +219,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
             // for changing and starting, not for reading eighty kind rows before the first fill.
             <Stack className="flex flex-wrap items-center gap-3" data-testid="prepare-inline-set">
               <Paragraph className="m-0 text-secondary">{t('prepare.inlineSet', { count: plan.selectedKinds.length })}</Paragraph>
-              <Button variant="outline" size="default" onClick={() => context.open(prepareAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested, pluginsOnly, true))} data-testid="prepare-open-plan">
+              <Button onClick={() => context.open(prepareAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested, pluginsOnly, true))} data-testid="prepare-open-plan">
                 {t('prepare.openPlan')}
               </Button>
             </Stack>
@@ -302,9 +318,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={capText} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
               {modelChoice === null && reasoningChoice === null ? null : (
-                <OfflineAction offline={connection.offline}>
-                  <Button variant="default" size="default" disabled={connection.offline || savedDefaults === 'saving' || !agentReady || !settingsReady} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
-                </OfflineAction>
+                <Button disabled={connection.offline || savedDefaults === 'saving' || !agentReady || !settingsReady} disabledReason={saveReason()} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
               )}
             </Stack>
           ) : null}
@@ -314,11 +328,9 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <OfflineAction offline={connection.offline}>
-              <Button variant="default" size="default" disabled={connection.offline || busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady} onClick={run} data-testid="prepare-run">
-                {t(busy ? 'prepare.starting' : 'prepare.run')}
-              </Button>
-            </OfflineAction>
+            <Button disabled={connection.offline || busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady} disabledReason={runReason()} onClick={run} data-testid="prepare-run">
+              {t(busy ? 'prepare.starting' : 'prepare.run')}
+            </Button>
             {runnable ? <Text className="text-small text-muted" data-testid="prepare-estimate">{estimate}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
           </Stack>
         </CardContent>

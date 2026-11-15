@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '../ui/button.js';
+import { Button, IconButton } from '../ui/button.js';
 import { Metadata } from '../ui/typography.js';
 import { DiagramScaled, DiagramZoomBar, DiagramZoomBox } from '../ui/drawing.js';
 import type { MermaidAnswer } from '../diagram-types.js';
@@ -140,9 +140,9 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
   return svg === null ? <Metadata>{t('knowledge.loadingPicture')}</Metadata> : (
     <div data-testid="mermaid-pane-zoom">
       <DiagramZoomBar>
-        <Button size="icon-sm" variant="default" aria-label={t('knowledge.diagramZoomOut')} onClick={() => step(1 / 1.25)} data-testid="diagram-zoom-out">−</Button>
-        <Button size="icon-sm" variant="default" aria-label={t('knowledge.diagramZoomIn')} onClick={() => step(1.25)} data-testid="diagram-zoom-in">+</Button>
-        <Button size="sm" variant="default" onClick={() => setZoom(null)} data-testid="diagram-zoom-fit">{t('knowledge.diagramFit')}</Button>
+        <IconButton label={t('knowledge.diagramZoomOut')} onClick={() => step(1 / 1.25)} data-testid="diagram-zoom-out">−</IconButton>
+        <IconButton label={t('knowledge.diagramZoomIn')} onClick={() => step(1.25)} data-testid="diagram-zoom-in">+</IconButton>
+        <Button onClick={() => setZoom(null)} data-testid="diagram-zoom-fit">{t('knowledge.diagramFit')}</Button>
         {zoom === null ? null : <Metadata data-testid="diagram-zoom-level">{`${String(Math.round(scale * 100))}%`}</Metadata>}
       </DiagramZoomBar>
       <DiagramZoomBox

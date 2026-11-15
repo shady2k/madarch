@@ -16,14 +16,13 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Progress } from './ui/progress.js';
 import { Skeleton } from './ui/skeleton.js';
-import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
+import { InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import {
   isOffline, pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillRunGroup,
 } from './command.js';
 import { RUNS_PAGE } from '../address.js';
 import { InlineCode } from './ui/inline-content.js';
-import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
 import type { SectionContext } from './types.js';
 
@@ -181,7 +180,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
               <AlertDescription>
                 <Paragraph className="m-0">{cause === undefined ? t(`knowledge.fillRun.final.${run.phase}`) : t(`knowledge.fillRun.cause.${cause}`)}</Paragraph>
                 <Paragraph className="m-0">{t('knowledge.fillRun.next.retry')}</Paragraph>
-                <Button variant="default" size="sm" className="mt-2" data-testid="fill-run-retry" onClick={() => context.open('/p/catalogue?select=1')}>{t('knowledge.fillRun.next.retryAction')}</Button>
+                <InlineGroup className="mt-2"><Button data-testid="fill-run-retry" onClick={() => context.open('/p/catalogue?select=1')}>{t('knowledge.fillRun.next.retryAction')}</Button></InlineGroup>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -196,14 +195,10 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           <Paragraph className="m-0 text-small" data-testid="fill-run-records">{t('knowledge.fillRun.records', { count: run.records })}</Paragraph>
           <Stack className="mt-4 flex flex-wrap gap-2">
             {run.phase === 'running' ? (
-              <OfflineAction offline={connection.offline}>
-                <Button variant="default" size="default" disabled={connection.offline || busy} onClick={() => act('pause')} data-testid="run-pause">{t('knowledge.fillPage.pause')}</Button>
-              </OfflineAction>
+              <Button disabled={connection.offline || busy} disabledReason={connection.offline ? t('connection.actionsDisabled') : t('knowledge.fillPage.acting')} onClick={() => act('pause')} data-testid="run-pause">{t('knowledge.fillPage.pause')}</Button>
             ) : null}
             {STOPPABLE.includes(run.phase) ? (
-              <OfflineAction offline={connection.offline}>
-                <Button size="default" disabled={connection.offline || busy || run.state === 'cancelling'} onClick={() => setConfirming(true)} data-testid="run-stop">{t('knowledge.fillPage.stop')}</Button>
-              </OfflineAction>
+              <Button disabled={connection.offline || busy || run.state === 'cancelling'} disabledReason={connection.offline ? t('connection.actionsDisabled') : run.state === 'cancelling' ? t('knowledge.fillPage.stopping') : t('knowledge.fillPage.acting')} onClick={() => setConfirming(true)} data-testid="run-stop">{t('knowledge.fillPage.stop')}</Button>
             ) : null}
           </Stack>
           {failure === null ? null : <Paragraph role="alert" className="mt-2 text-small">{failure}</Paragraph>}
@@ -272,12 +267,12 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
       <Paragraph><TextLink href={context.base + RUNS_PAGE} onClick={(event) => { event.preventDefault(); context.open(RUNS_PAGE); }}>{t('runs.back')}</TextLink></Paragraph>
 
       <Dialog open={confirming} onOpenChange={(open) => { if (!busy) setConfirming(open); }}>
-        <DialogContent data-testid="stop-dialog" closeLabel={t('knowledge.fillPage.stopCancel')} closeDisabled={busy}>
+        <DialogContent data-testid="stop-dialog" closeLabel={t('knowledge.fillPage.stopCancel')} closeDisabled={busy} closeDisabledReason={t('knowledge.fillPage.stopping')}>
           <DialogHeader><DialogTitle>{t('knowledge.fillPage.stopTitle')}</DialogTitle></DialogHeader>
           <DialogBody><DialogDescription>{t('knowledge.fillRun.stopWords')}</DialogDescription></DialogBody>
           <DialogFooter>
-            <Button variant="default" size="default" disabled={connection.offline || busy} onClick={() => act('stop')} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
-            <Button size="default" disabled={busy} onClick={() => setConfirming(false)}>{t('knowledge.fillPage.stopCancel')}</Button>
+            <Button disabled={connection.offline || busy} disabledReason={connection.offline ? t('connection.actionsDisabled') : t('knowledge.fillPage.stopping')} onClick={() => act('stop')} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
+            <Button disabled={busy} disabledReason={t('knowledge.fillPage.stopping')} onClick={() => setConfirming(false)}>{t('knowledge.fillPage.stopCancel')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

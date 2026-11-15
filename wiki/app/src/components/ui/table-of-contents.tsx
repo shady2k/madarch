@@ -82,7 +82,7 @@ export function ResponsiveContents({ title, items }: {
   const contents = <TableOfContents title={title} items={items} activeId={activeId} onNavigate={navigate} />;
   return <>
     <Stack className="order-first wide:hidden">
-      <Button variant="default" size="default" aria-label={title} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>{title}</Button>
+      <Button aria-label={title} aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>{title}</Button>
       {open && <Stack id={panelId} className="mt-3" data-testid="catalogue-compact-contents">{contents}</Stack>}
     </Stack>
     <ContentsSidebar data-testid="catalogue-contents">{contents}</ContentsSidebar>

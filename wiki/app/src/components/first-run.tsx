@@ -38,7 +38,7 @@ export function FirstRunSection({ context }: { readonly context: SectionContext 
           <ListItem>{t('firstRun.stepThree')}</ListItem>
         </OrderedList>
         <InlineGroup className="mb-0">
-          <Button variant="outline" size="default" onClick={() => context.open(catalogueSelectionAddress(chosen))} data-testid="first-run-manual">
+          <Button onClick={() => context.open(catalogueSelectionAddress(chosen))} data-testid="first-run-manual">
             {t('firstRun.manual')}
           </Button>
         </InlineGroup>

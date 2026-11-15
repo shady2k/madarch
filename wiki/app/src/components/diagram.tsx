@@ -104,7 +104,7 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
             <Stack>
               <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
               <InlineGroup>
-                <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
+                <Button data-testid="diagram-retry" onClick={() => {
                   setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
                   void ask(tab);
                 }}>{t('knowledge.retry')}</Button>

@@ -70,6 +70,29 @@ describe('UI kit architecture', () => {
     }
     expect(isUiSource(file)).toBe(true);
   });
+  test('the kit\'s one button refuses a shape prop and a disabled press without its reason', () => {
+    const button = 'import { Button, IconButton } from "../components/ui/button.js";';
+    const toggle = 'import { Toggle } from "../components/ui/toggle.js";';
+    for (const prop of ['variant="default"', 'size="icon"', 'className="mt-2"']) {
+      expect(rules(`${button} const view = <Button ${prop}>Save</Button>;`)).toContain('button-variant');
+    }
+    expect(rules(`${button} const view = <IconButton label="Refresh" size="sm" />;`)).toContain('button-variant');
+    expect(rules(`${toggle} const view = <Toggle pressed={false} onPressedChange={() => {}} className="x">One</Toggle>;`)).toContain('button-variant');
+    for (const source of [
+      `${button} const view = <Button disabled>Save</Button>;`,
+      `${button} const view = <Button disabled={busy}>Save</Button>;`,
+      `${button} const view = <IconButton label="Next" disabled />;`,
+      `${toggle} const view = <Toggle pressed={false} onPressedChange={() => {}} disabled>One</Toggle>;`,
+    ]) expect(rules(source)).toContain('button-disabled-reason');
+    // An alias and a namespace resolve to the same control.
+    expect(rules('import { Button as Press } from "../components/ui/button.js"; const view = <Press variant="ghost">Save</Press>;')).toContain('button-variant');
+    expect(rules('import * as ui from "../components/ui/button.js"; const view = <ui.Button disabled>Save</ui.Button>;')).toContain('button-disabled-reason');
+    // The kit's own files are where the look and the reason live, so they are not held to the rule.
+    expect(uiViolations('wiki/app/src/components/ui/button.tsx', 'const view = <button className="px-3" />;')).toEqual([]);
+    // A shaped press that is neither disabled nor shapes a kit control passes.
+    expect(rules(`${button} ${toggle} const view = <><Button disabled disabledReason="Nothing to save">Save</Button><IconButton label="Next" /><Toggle pressed={false} onPressedChange={() => {}}>One</Toggle></>;`)).toEqual([]);
+    expect(rules('const view = <Button variant="default" className="mt-2">Save</Button>;')).toEqual([]);
+  });
   test('baseline refuses new, stale and duplicate debt and round-trips deterministically', () => {
     const found = uiViolations(file, 'const view = <button />');
     expect(compareUiDebt(found, []).added).toEqual(found);

@@ -11,6 +11,9 @@ let RadioGroup: typeof import('./radio-group.js').RadioGroup;
 let RadioGroupItem: typeof import('./radio-group.js').RadioGroupItem;
 let Switch: typeof import('./switch.js').Switch;
 let Progress: typeof import('./progress.js').Progress;
+let Button: typeof import('./button.js').Button;
+let IconButton: typeof import('./button.js').IconButton;
+let Toggle: typeof import('./toggle.js').Toggle;
 beforeAll(async () => {
   GlobalRegistrator.register();
   previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -18,6 +21,8 @@ beforeAll(async () => {
   ({ RadioGroup, RadioGroupItem } = await import('./radio-group.js'));
   ({ Switch } = await import('./switch.js'));
   ({ Progress } = await import('./progress.js'));
+  ({ Button, IconButton } = await import('./button.js'));
+  ({ Toggle } = await import('./toggle.js'));
 });
 afterEach(async () => {
   await act(async () => { root?.unmount(); });
@@ -52,6 +57,31 @@ test('radio and switch expose checked state; progress exposes bounds', async () 
   expect(progress.getAttribute('aria-valuemax')).toBe('50');
 });
 
+
+test('a disabled press shows its reason beside it and names it as its accessible description', async () => {
+  const container = mount();
+  await act(async () => {
+    root!.render(<>
+      <Button disabled disabledReason="Nothing is chosen">Save</Button>
+      <IconButton label="Refresh" disabled disabledReason="A reload is running"><svg aria-hidden="true" width="16" height="16" /></IconButton>
+      <Toggle pressed={false} onPressedChange={() => undefined} disabled disabledReason="The list is being read">One</Toggle>
+      <Button>Open</Button>
+    </>);
+  });
+  const presses = [...container.querySelectorAll<HTMLButtonElement>('button')];
+  expect(presses).toHaveLength(4);
+  for (const [at, reason] of [[0, 'Nothing is chosen'], [1, 'A reload is running'], [2, 'The list is being read']] as const) {
+    const press = presses[at]!;
+    expect(press.disabled).toBe(true);
+    const described = press.getAttribute('aria-describedby');
+    expect(described).not.toBeNull();
+    expect(container.querySelector(`#${CSS.escape(described!)}`)?.textContent).toBe(reason);
+    // Outside the button: the reason is a sibling, so the press is still announced by its own words.
+    expect(press.textContent).not.toContain(reason);
+  }
+  expect(presses[3]!.getAttribute('aria-describedby')).toBeNull();
+  expect(presses.every((press) => press.parentElement?.className.includes('inline-flex'))).toBe(true);
+});
 
 test('invalid fields retain accessible names and error descriptions', async () => {
   const { Input } = await import('./input.js');

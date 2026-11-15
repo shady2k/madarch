@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import { Toggle } from './ui/toggle.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { InlineCode } from './ui/inline-content.js';
@@ -87,8 +88,8 @@ function ProblemRow({ problem, base, open, refresh }: {
         {problem.by === null || problem.at === null ? null : <Text> · {t('loop.by', { name: problem.by.name, email: problem.by.email })}</Text>}
       </Paragraph>
       <Stack className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="default" variant="ghost" disabled={working !== null} onClick={() => setAsking((held) => !held)} data-testid="problem-not-a-problem">{t('loop.problemNotAProblem')}</Button>
-        <Button size="default" variant="ghost" disabled={working !== null} onClick={task} data-testid="problem-create-task">{t('loop.problemCreateTask')}</Button>
+        <Button disabled={working !== null} disabledReason={t('loop.problemWorking')} onClick={() => setAsking((held) => !held)} data-testid="problem-not-a-problem">{t('loop.problemNotAProblem')}</Button>
+        <Button disabled={working !== null} disabledReason={t('loop.problemWorking')} onClick={task} data-testid="problem-create-task">{t('loop.problemCreateTask')}</Button>
         {done === null ? null : <Text className="text-small text-muted" data-testid="problem-done">{done}</Text>}
         {error === null ? null : <Text className="text-small" role="alert" data-testid="problem-action-error">{error}</Text>}
       </Stack>
@@ -98,8 +99,8 @@ function ProblemRow({ problem, base, open, refresh }: {
             <Textarea className="mt-1 w-full" rows={2} value={reason} onInput={(event) => setReason(event.currentTarget.value)} data-testid="problem-dismiss-reason" />
           </FieldLabel>
           <Stack className="mt-1 flex gap-2">
-            <Button size="default" data-testid="problem-dismiss-confirm" disabled={working !== null || reason.trim() === ''} onClick={act}>{t('loop.problemDismissConfirm')}</Button>
-            <Button size="default" variant="ghost" onClick={() => setAsking(false)}>{t('loop.cancel')}</Button>
+            <Button data-testid="problem-dismiss-confirm" disabled={working !== null || reason.trim() === ''} disabledReason={working !== null ? t('loop.problemWorking') : t('loop.problemDismissNeedsReason')} onClick={act}>{t('loop.problemDismissConfirm')}</Button>
+            <Button onClick={() => setAsking(false)}>{t('loop.cancel')}</Button>
           </Stack>
         </Stack>
       ) : null}
@@ -129,7 +130,7 @@ export function ProblemsSection({ context }: { readonly context: SectionContext 
       {listing?.notes.map((note) => <Alert key={note.message} data-testid="problems-note"><AlertDescription>{note.textKey === undefined ? note.message : t(`loop.problemNote.${note.textKey}`, { ...(note.textArgs ?? {}), defaultValue: note.message })}</AlertDescription></Alert>)}
       <Stack className="flex flex-wrap items-center gap-2" data-testid="problems-filters">
         {filters.map((filter) => (
-          <Button key={filter.key} size="default" variant={section === filter.section ? 'default' : 'ghost'} data-testid={`problems-filter-${filter.key}`} onClick={() => setSection(filter.section)}>{filter.label}</Button>
+          <Toggle key={filter.key} pressed={section === filter.section} onPressedChange={() => setSection(filter.section)} data-testid={`problems-filter-${filter.key}`}>{filter.label}</Toggle>
         ))}
       </Stack>
       {listing === null ? null : <Paragraph className="m-0 text-secondary" data-testid="problems-total">{t('loop.problemCount', { count: listing.open, total: listing.open + listing.closed })}</Paragraph>}

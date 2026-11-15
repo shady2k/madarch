@@ -29,7 +29,7 @@ export function RunsSection({ context }: { readonly context: SectionContext }): 
   return (
     <Stack className="grid gap-4" data-testid="runs-page">
       <Paragraph className="m-0 text-secondary">{t('runs.intro')}</Paragraph>
-      <Button variant="default" size="default" className="w-fit" onClick={() => context.open(catalogueSelectionAddress())} data-testid="runs-new">
+      <Button onClick={() => context.open(catalogueSelectionAddress())} data-testid="runs-new">
         {t('runs.newFill')}
       </Button>
       {read.error === null ? null : <Alert variant="problem" data-testid="runs-error"><AlertDescription>{read.error}</AlertDescription></Alert>}

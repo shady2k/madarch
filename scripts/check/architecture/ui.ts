@@ -9,7 +9,7 @@ export const RAW_UI_ELEMENTS = new Set([
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
   'details', 'summary', 'dialog', 'progress', 'meter',
 ]);
-export const UI_RULES = ['raw-ui-element', 'inline-style', 'styled-components', 'arbitrary-tailwind', 'local-styled-component', 'dialog-whole-scroll', 'sidebar-missing-icon'] as const;
+export const UI_RULES = ['raw-ui-element', 'inline-style', 'styled-components', 'arbitrary-tailwind', 'local-styled-component', 'dialog-whole-scroll', 'sidebar-missing-icon', 'button-variant', 'button-disabled-reason'] as const;
 export type UiRule = typeof UI_RULES[number];
 export interface UiDebt {
   readonly rule: UiRule;
@@ -20,6 +20,11 @@ export interface UiViolation extends UiDebt {
   readonly line: number;
 }
 export const UI_BASELINE = '.architecture/ui-violations.json';
+
+/** The kit's presses (madarch-64o5.127): one look, so a page passes none of the shape props the kit dropped. */
+export const CONTROL_NAMES = ['Button', 'IconButton', 'Toggle', 'SegmentedChoice', 'ShellMenuButton', 'ShellRoleButton', 'ShellLanguageButton'] as const;
+export const CONTROL_MODULES = /(?:^|\/)(?:components\/ui|ui)\/(?:button|toggle|segmented-choice|shell)\.js$/;
+export const SHAPE_PROPS = ['variant', 'size', 'className'] as const;
 const compare = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 export const debtKey = (entry: UiDebt): string => JSON.stringify([entry.rule, entry.file, entry.subject]);
 
@@ -41,10 +46,23 @@ export function uiViolations(file: string, source: string): UiViolation[] {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const aliases = new Map<string, string>();
   const namespaces = new Set<string>();
+  const controls = new Map<string, string>();
+  const controlNamespaces = new Set<string>();
   for (const statement of tree.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (!/(?:components\/ui\/|^\.\/)(?:dialog|sheet|navigation)\.js$/.test(statement.moduleSpecifier.text)) continue;
+    const from = statement.moduleSpecifier.text;
     const bindings = statement.importClause?.namedBindings;
+    if (CONTROL_MODULES.test(from)) {
+      if (bindings && ts.isNamespaceImport(bindings)) controlNamespaces.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const entry of bindings.elements) {
+          const exported = entry.propertyName?.text ?? entry.name.text;
+          if ((CONTROL_NAMES as readonly string[]).includes(exported)) controls.set(entry.name.text, exported);
+        }
+      }
+      continue;
+    }
+    if (!/(?:components\/ui\/|^\.\/)(?:dialog|sheet|navigation)\.js$/.test(from)) continue;
     if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
     if (bindings && ts.isNamedImports(bindings)) {
       for (const entry of bindings.elements) aliases.set(entry.name.text, entry.propertyName?.text ?? entry.name.text);
@@ -109,6 +127,21 @@ export function uiViolations(file: string, source: string): UiViolation[] {
         if (!icon || !ts.isJsxAttribute(icon) || !icon.initializer || empty) add('sidebar-missing-icon', node);
       }
       if (!kit && intrinsic(node) && RAW_UI_ELEMENTS.has(node.tagName.getText(tree))) add('raw-ui-element', node);
+      // The kit's one button has no shape props, and a press is disabled only with the words that say why
+      // (madarch-64o5.127, madarch-64o5.123). The names resolve through the import, never the text of a tag; a namespace
+      // import names the kit's button as `ui.Button` or `Press.Button`, and the member is the control.
+      const namedControl = controls.has(rawTag) ||
+        (ts.isPropertyAccessExpression(node.tagName) && ts.isIdentifier(node.tagName.expression) && controlNamespaces.has(node.tagName.expression.text) &&
+          (CONTROL_NAMES as readonly string[]).includes(node.tagName.name.text));
+      if (!kit && namedControl) {
+        for (const attr of node.attributes.properties) {
+          if (!ts.isJsxAttribute(attr)) continue;
+          if ((SHAPE_PROPS as readonly string[]).includes(attr.name.getText(tree))) add('button-variant', attr);
+        }
+        const off = node.attributes.properties.some(attr => ts.isJsxAttribute(attr) && attr.name.getText(tree) === 'disabled');
+        const why = node.attributes.properties.some(attr => ts.isJsxAttribute(attr) && attr.name.getText(tree) === 'disabledReason');
+        if (off && !why) add('button-disabled-reason', node);
+      }
       for (const attr of node.attributes.properties) {
         if (!ts.isJsxAttribute(attr)) continue;
         if (!kit && attr.name.getText(tree) === 'style') add('inline-style', attr);

@@ -1,36 +1,40 @@
+/**
+ * One group of choices (madarch-64o5.127): the map's renderer switch, the settings page's language and reader role.
+ * The choices are the kit's toggles, never buttons of another look; a disabled group carries the reason the kit shows
+ * beside each choice (madarch-64o5.123).
+ */
 import type { ReactElement } from 'react';
-import { Button } from './button.js';
+import type { DisabledState } from './button.js';
+import { Toggle } from './toggle.js';
 
-/** One group of the map's controls: its label and a segmented choice, never breaking inside the group. */
-export function SegmentedChoice({ label, testId, value, options, onChange, disabled = false }: {
-  label: string;
-  testId: string;
-  value: string;
-  options: readonly { value: string; label: string; testId: string }[];
-  onChange: (value: string) => void;
-  disabled?: boolean;
-}): ReactElement {
+export function SegmentedChoice({ label, testId, value, options, onChange, ...state }: {
+  readonly label: string;
+  readonly testId: string;
+  readonly value: string;
+  readonly options: readonly { readonly value: string; readonly label: string; readonly testId: string }[];
+  readonly onChange: (value: string) => void;
+} & DisabledState): ReactElement {
+  // The group is a press too: a disabled choice group carries the words that say why, as the kit's button does.
+  const off = state.disabled === true ? { disabled: true as const, disabledReason: state.disabledReason } : {};
   return (
     <div className="dg-seg" data-testid={testId}>
       <span className="dg-seg-label">{label}</span>
       <div className="dg-seg-options" role="radiogroup" aria-label={label}>
         {options.map((option) => (
-          <Button variant="ghost" size="content"
+          <Toggle
             key={option.value}
-            type="button"
             role="radio"
             aria-checked={value === option.value}
-            className="dg-seg-option"
-            data-state={value === option.value ? 'on' : 'off'}
-            disabled={disabled}
-            onClick={() => onChange(option.value)}
+            aria-pressed={undefined}
+            pressed={value === option.value}
+            onPressedChange={() => onChange(option.value)}
+            {...off}
             data-testid={option.testId}
           >
             {option.label}
-          </Button>
+          </Toggle>
         ))}
       </div>
     </div>
   );
 }
-

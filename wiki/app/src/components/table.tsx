@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from './ui/button.js';
+import { Button, IconButton } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
 import { Select } from './ui/select.js';
@@ -133,7 +133,7 @@ export function TableSection({ context }: { readonly context: SectionContext }):
               <Select aria-label={t('knowledge.tableField')} value={filterField} onChange={(event) => { setFilterField(event.target.value); }} options={filters.map((one) => ({ value: String(one.field ?? ''), label: localized(one.label, language) ?? String(one.field ?? '') }))} />
             </FilterField>
           ) : null}
-          {canFilter ? <Button variant="default" size="sm" onClick={() => { askFilter(filterText, filterField); }}>{t('knowledge.tableFilter')}</Button> : null}
+          {canFilter ? <Button onClick={() => { askFilter(filterText, filterField); }}>{t('knowledge.tableFilter')}</Button> : null}
           {canSort ? (
             <FilterField>
               {t('knowledge.tableSort')}
@@ -162,8 +162,8 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           <PaginationSummary>{`${String(before + 1)}–${String(before + rows.length)} / ${new Intl.NumberFormat(language).format(total)}`}</PaginationSummary>
           {canPage ? (
             <>
-              <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</Button>
-              <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => { askPage(next.cursor, page + 1); }}>→</Button>
+              <IconButton label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} disabledReason={page === 0 ? t('knowledge.firstPage') : t('knowledge.pageBusy')} onClick={() => { askPage(cursors[page - 1], page - 1); }}>←</IconButton>
+              <IconButton label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} disabledReason={!next.hasNext ? t('knowledge.lastPage') : t('knowledge.pageBusy')} onClick={() => { askPage(next.cursor, page + 1); }}>→</IconButton>
             </>
           ) : null}
         </PaginationBar>

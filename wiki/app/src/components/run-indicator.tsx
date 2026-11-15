@@ -35,7 +35,7 @@ export function RunIndicator({ base, open }: { readonly base: string; readonly o
     ? t('navigation.runPaused', { done: done ?? 0, total: total ?? 0 })
     : t('navigation.runGoing', { done: done ?? 0, total: total ?? 0 });
   return (
-    <Button variant="default" size="default" data-testid="run-indicator" onClick={() => open(RUNS_PAGE)}>
+    <Button data-testid="run-indicator" onClick={() => open(RUNS_PAGE)}>
       {words}
     </Button>
   );

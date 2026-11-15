@@ -3,7 +3,6 @@
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
-import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
 import { catalogueSelectionAddress } from '../address.js';
 
@@ -11,10 +10,8 @@ export function FillEntry({ open }: { readonly open: (path: string) => void }): 
   const { t } = useTranslation();
   const connection = useConnection();
   return (
-    <OfflineAction offline={connection.offline}>
-      <Button variant="default" size="default" data-testid="fill-entry" disabled={connection.offline} onClick={() => open(catalogueSelectionAddress())}>
-        {t('knowledge.fillRun.open')}
-      </Button>
-    </OfflineAction>
+    <Button data-testid="fill-entry" disabled={connection.offline} disabledReason={t('connection.actionsDisabled')} onClick={() => open(catalogueSelectionAddress())}>
+      {t('knowledge.fillRun.open')}
+    </Button>
   );
 }

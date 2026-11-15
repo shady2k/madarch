@@ -8,8 +8,8 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConnection } from '../connection.js';
 import { Alert, AlertDescription } from './ui/alert.js';
-import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import { Toggle } from './ui/toggle.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
 import { Input } from './ui/input.js';
@@ -167,6 +167,11 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
   };
   const capValue = Number(cap ?? data?.tokenCap ?? 0);
   const capValid = Number.isSafeInteger(capValue) && capValue > 0;
+  // A disabled save says which of its conditions holds, in the order the press is read.
+  const capReason = (): string => connection.offline ? t('connection.actionsDisabled')
+    : working !== null ? t('settings.fills.saving')
+      : !capValid ? t('settings.fills.tokenCapInvalid')
+        : t('settings.fills.unchanged');
   const namedAgents = Object.entries(data?.agentNames ?? {});
   const roleOptions = [
     ...namedAgents.map(([id, name]) => {
@@ -202,15 +207,21 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
                   {agent.login === 'signed-in' ? ` ${t('knowledge.writer.signedIn')}` : agent.login === 'not-signed-in' ? ` ${t('knowledge.writer.notSignedIn', { agent: agent.label })}` : ''}
                 </Text>
               </Text>
-              {chosen?.id === agent.id ? <Badge variant="solid" data-testid="settings-agent-chosen">{t('settings.agent.chosen')}</Badge> : (
-                <Button variant="default" size="default" disabled={connection.offline || working !== null || data.busy} onClick={() => choose(agent.id)} data-testid={`settings-agent-choose-${agent.id}`}>{agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}</Button>
-              )}
+              <Toggle
+                pressed={chosen?.id === agent.id}
+                onPressedChange={() => choose(agent.id)}
+                disabled={connection.offline || working !== null || data.busy}
+                disabledReason={connection.offline ? t('connection.actionsDisabled') : t('settings.agent.working')}
+                data-testid={`settings-agent-choose-${agent.id}`}
+              >
+                {chosen?.id === agent.id ? t('settings.agent.chosen') : agent.installed ? t('settings.agent.choose') : t('settings.agent.installAndChoose')}
+              </Toggle>
             </ListItem>
           ))}
           {agents.data === null && agents.error === null ? <ListItem className="text-muted">{t('knowledge.loading')}</ListItem> : null}
         </PlainList>
         {agents.error === null ? null : <Paragraph className="mb-0 mt-3 text-small" role="alert">{agents.error}</Paragraph>}
-        {chosen === null ? null : <Paragraph className="mb-0 mt-3"><Button variant="default" size="default" disabled={connection.offline || working !== null || data.busy} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
+        {chosen === null ? null : <Paragraph className="mb-0 mt-3"><Button disabled={connection.offline || working !== null || data.busy} disabledReason={connection.offline ? t('connection.actionsDisabled') : t('settings.agent.working')} onClick={() => choose(null)} data-testid="settings-agent-none">{t('settings.agent.none')}</Button></Paragraph>}
       </Section>
 
       <Section id="model" title={t('settings.model.title')} intro={t('settings.model.intro')}>
@@ -223,7 +234,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
           <Alert variant="problem" data-testid="settings-model-error">
             <AlertDescription>
               {t('settings.model.failed')}: {choices.error}
-              <Paragraph className="mt-2"><Button variant="default" size="default" disabled={connection.offline} onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
+              <Paragraph className="mt-2"><Button disabled={connection.offline} disabledReason={t('connection.actionsDisabled')} onClick={() => setRound(round + 1)}>{t('settings.model.retry')}</Button></Paragraph>
             </AlertDescription>
           </Alert>
         )}
@@ -249,6 +260,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
             { value: 'en', label: t('navigation.english'), testId: 'settings-language-en' },
           ]}
           disabled={connection.offline}
+          disabledReason={t('connection.actionsDisabled')}
           onChange={(value) => saveSettings({ language: value })}
         />
         <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.language.note')}</Paragraph>
@@ -259,7 +271,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
           <FieldLabel className="grid gap-1 text-small">{t('settings.fills.tokenCap')}
             <Input data-testid="settings-token-cap" type="number" min={1} step={1} value={cap ?? String(data.tokenCap)} aria-invalid={!capValid} onInput={(event) => setCap(event.currentTarget.value)} />
           </FieldLabel>
-          <Button variant="default" size="default" disabled={connection.offline || working !== null || !capValid || capValue === data.tokenCap} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
+          <Button disabled={connection.offline || working !== null || !capValid || capValue === data.tokenCap} disabledReason={capReason()} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
         </Stack>
         <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-token-cap-note">{capValid ? t('settings.fills.tokenCapNote', { cap: capValue }) : t('settings.fills.tokenCapInvalid')}</Paragraph>
       </Section>
@@ -276,6 +288,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
               testId: `settings-reader-${role}`,
             }))}
             disabled={connection.offline}
+            disabledReason={t('connection.actionsDisabled')}
             onChange={saveReader}
           />
         )}

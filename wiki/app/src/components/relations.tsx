@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { titleIn } from '../../../../src/page-contract/index.js';
 import { relationWords } from '../../../../src/knowledge/relation-labels.js';
 import { useRef, useState } from 'react';
-import { Button } from './ui/button.js';
+import { IconButton } from './ui/button.js';
 import { PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Metadata, Paragraph, SectionTitle, TextLink } from './ui/typography.js';
@@ -77,16 +77,16 @@ export function RelationsSection({ context }: { readonly context: SectionContext
       {canPage ? (
         <PaginationBar>
           <PaginationSummary>{`${String(page + 1)} · ${new Intl.NumberFormat(context.language).format(totalOf(connection))}`}</PaginationSummary>
-          <Button size="icon-sm" aria-label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} onClick={() => {
+          <IconButton label={t('knowledge.previousPage')} disabled={page === 0 || context.busy} disabledReason={page === 0 ? t('knowledge.firstPage') : t('knowledge.pageBusy')} onClick={() => {
             const previous = cursors.current[page - 1];
             context.reload({ [`${context.section.id}_after`]: previous ?? null });
             setPage(page - 1);
-          }}>←</Button>
-          <Button size="icon-sm" aria-label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} onClick={() => {
+          }}>←</IconButton>
+          <IconButton label={t('knowledge.nextPage')} disabled={!next.hasNext || context.busy} disabledReason={!next.hasNext ? t('knowledge.lastPage') : t('knowledge.pageBusy')} onClick={() => {
             cursors.current = [...cursors.current.slice(0, page + 1), next.cursor];
             context.reload({ [`${context.section.id}_after`]: next.cursor ?? null });
             setPage(page + 1);
-          }}>→</Button>
+          }}>→</IconButton>
         </PaginationBar>
       ) : null}
     </>
