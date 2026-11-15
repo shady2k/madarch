@@ -22,11 +22,3 @@ export function agentUsable(agent: AgentOffer): boolean {
   return agent.installed && agent.login !== 'not-signed-in';
 }
 
-/** The state, followed by the sign-in state when the adapter is installed. */
-export function agentStateNote(t: TFunction, agent: AgentOffer): string {
-  const note = agentNote(t, agent);
-  if (!agent.installed) return note;
-  if (agent.login === 'signed-in') return `${note} ${t('knowledge.writer.signedIn')}`;
-  if (agent.login === 'not-signed-in') return `${note} ${t('knowledge.writer.notSignedIn', { agent: agent.label })}`;
-  return note;
-}
