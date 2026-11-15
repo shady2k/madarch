@@ -27,31 +27,12 @@ sections:
     component: first-run
     after: header
     title: { en: First run, ru: Первый запуск }
+  # The repositories the product connects, from its workspace and manifest: they stand here before any fill has put
+  # them in the graph (madarch-64o5.85, the owner's walk).
   - id: repositories
-    component: table
+    component: repositories
     on: root
     title: { en: Repositories, ru: Репозитории }
-    query: |
-      allCodeRepository(first: 20) {
-        edges {
-          node {
-            id
-            kind
-            label
-            ... on CodeRepository {
-              name
-              defaultBranch
-            }
-          }
-        }
-        totalCount
-      }
-    params:
-      path: .
-      emptyText: { en: No code repository is connected yet, ru: Ни один репозиторий кода пока не подключён }
-      columns:
-        - { label: { en: Repository, ru: Репозиторий }, path: node.label }
-        - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
   - id: kinds
     component: kinds
     on: root
