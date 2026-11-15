@@ -63,3 +63,27 @@ export function localized(value: unknown, language: string): string | undefined 
 export function at(data: unknown, path: unknown): unknown {
   return valueAt(data, typeof path === 'string' ? path : '');
 }
+
+/** A span of work as a person reads it: "3 min 34 sec", "1 hr 02 min", "12 sec" (madarch-64o5.83). */
+export function durationWords(ms: number, language: string): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const unit = (value: number, name: 'hour' | 'minute' | 'second', digits = 1): string =>
+    new Intl.NumberFormat(language, { style: 'unit', unit: name, unitDisplay: 'short', minimumIntegerDigits: digits }).format(value);
+  if (hours > 0) return `${unit(hours, 'hour')} ${unit(minutes, 'minute', 2)}`;
+  if (minutes > 0) return `${unit(minutes, 'minute')} ${unit(seconds, 'second')}`;
+  return unit(seconds, 'second');
+}
+
+/**
+ * A moment as a reader in a language reads it: the month's name and a 24-hour clock where the language uses one, never a
+ * bare numeric date that means two things in two places (madarch-64o5.83). The language is the page's, so Russian keeps
+ * Russian months and English its own.
+ */
+export function momentWords(iso: string, language: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(at);
+}

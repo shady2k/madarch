@@ -53,10 +53,18 @@ facts:
   where: { removed_at: null }
 template-policy: page
 source: graph
+# The paths this kind leaves out: a product's own declaration, so no engine list decides what a repository's
+# knowledge is. Only what is never a person's source by nature stands here — the dependency tree and the repository's
+# own folder; a build output can be a product's tracked code (a GitHub Action's bundle), so it is not excluded by
+# default and a product that wants it gone names it itself (madarch-64o5.83).
+exclude:
+  - "**/node_modules/**"
+  - "**/.git/**"
 fields:
 - name: state_machines
   type: json
   nullable: true
+  labels: { en: State machines, ru: Машины состояний }
   binding:
     agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
       use [] when none exist and preserve source positions.'

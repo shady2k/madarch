@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
+import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
@@ -25,6 +26,7 @@ import { Skeleton } from './components/ui/skeleton.js';
 import { PageBreadcrumb } from './components/ui/breadcrumb.js';
 import { PageSection, Paragraph, Stack } from './components/ui/typography.js';
 import { TooltipProvider } from './components/ui/tooltip.js';
+import { RoleFirstVisit } from './components/role-first.js';
 import { STALE_STRUCTURE } from './stale.js';
 
 const ROLE_KEY = 'madarch-wiki-role';
@@ -34,12 +36,18 @@ function templateTask(template: string | undefined, t: TFunction): string | null
   if (template === 'catalogue') return t('navigation.catalogue');
   if (template === 'glossary') return t('knowledge.glossary.title');
   if (template === 'search') return t('knowledge.searchResults');
+  if (template === 'prepare') return t('prepare.title');
+  if (template === 'runs') return t('navigation.runs');
+  if (template === 'run') return t('knowledge.fillRun.title');
+  if (template === 'problems') return t('loop.problemsTitle');
+  if (template === 'sources') return t('navigation.documents');
+  if (template === 'settings') return t('settings.title');
   return null;
 }
 
 function storedRole(): string {
   try {
-    return window.localStorage.getItem(ROLE_KEY) ?? 'all';
+    return window.localStorage.getItem(ROLE_KEY) ?? 'everything';
   } catch {
     return 'all';
   }
@@ -68,6 +76,12 @@ export function App(): ReactElement {
   const [role, setRole] = useState(storedRole);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [navigation, setNavigation] = useState<Navigation | null>(null);
+  // The run page polls its own run; the problems listing reads the whole product and would stand in its way while a
+  // fill writes. Its count is read on every other page.
+  const onRunPage = path.split('?')[0] === '/p/run';
+  const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
+  const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product-identity', (signal) => readProduct(base, signal));
+  const savedRole = useCommandRead<ReaderSettingsAnswer>('active-reader-role', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,12 +128,24 @@ export function App(): ReactElement {
     return read.bootstrap;
   }, [base, language]);
 
+  // A publication moves the graph: the same event that refreshes the problems count refreshes the frame's navigation, so
+  // a run that published its kinds shows them in the sidebar without a page reload.
+  useChangeStream(base, () => { problems.reload(); void loadBootstrap(); });
+
   // The bootstrap and the navigation are read once per structure and language: what they hold changes only with the
   // product's files or the reader's language.
   useEffect(() => {
     setBootstrap(null);
     void loadBootstrap();
   }, [loadBootstrap]);
+
+  // The saved role is the active role on every browser, not only in the first-visit dialog. A role changed on this page or
+  // in Settings is applied by `applyRole` and, for the top bar's menu, saved back to the same file.
+  useEffect(() => {
+    if (savedRole.data === null || typeof savedRole.data.role !== 'string') return;
+    setRole(savedRole.data.role);
+    keepRole(savedRole.data.role);
+  }, [savedRole.data]);
 
   // The document says the language the reader reads and names the product, as the browser's tab shows them.
   useEffect(() => {
@@ -152,7 +178,7 @@ export function App(): ReactElement {
   }, [address, base, bootstrap, language, loadBootstrap, role]);
 
   // One page view, one operation: the page is composed from the bootstrap and the address, then asked once.
-  const compositionKey = `${language}\u0000${role}\u0000${path}\u0000${bootstrap?.structureRevision ?? ''}`;
+  const compositionKey = `${language}\u0000${role}\u0000${path}\u0000${bootstrap?.structureRevision ?? ''}\u0000${String(bootstrapVersion.current)}`;
   useEffect(() => {
     if (bootstrap === null) return;
     if (address.unknown) {
@@ -166,10 +192,25 @@ export function App(): ReactElement {
       setLoaded(null);
       return;
     }
+    // An older product may have no `problems` template: its Problems page is the frame's template-findings page, not a
+    // composition finding. A product with the template draws its own listing.
+    if (address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')) {
+      setFailure(null);
+      setLoaded(null);
+      return;
+    }
     const composition = composePage(bootstrap, { ...address.page, lang: language, role });
     if (composition.findings.length > 0) {
       setFailure(composition.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('\n'));
       setLoaded(null);
+      return;
+    }
+    // A page whose sections ask the graph nothing (`fill`, `run`) is drawn from the command reads alone: it sends no
+    // empty operation, and the page's own components make their requests.
+    if (composition.operation === '') {
+      setFailure(null);
+      setBusy(false);
+      setLoaded({ composition, variables: composition.variables, data: {} });
       return;
     }
     void ask(composition, composition.variables);
@@ -185,14 +226,17 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
+  const productName = identity.data?.name ?? navigation?.product ?? null;
+  const applyRole = useCallback((next: string): void => { setRole(next); keepRole(next); }, []);
+  const chooseRole = useCallback((next: string): void => { applyRole(next); void saveReaderRole(base, next).catch(() => undefined); }, [applyRole, base]);
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, open, reload, product: navigation?.product ?? null, navigation, pageName };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} />
+    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} />
   );
   const [menuOpen, setMenuOpen] = useState(false);
   // The graph could not be read at all: the frame says so instead of a page.
@@ -218,10 +262,16 @@ export function App(): ReactElement {
       </Stack>
     );
   }
-  // The kit and template findings have frame pages; other sections wait for their pages.
-  const page = section === null ? null : section === 'kit' ? <KitPage /> : section === 'problems' ? <ProblemsPage base={base} /> : <RebuildingPage word={frameWord(section, t)} />;
+  // The kit and template findings have frame pages; other sections wait for their pages. A product without a
+  // `problems` template still has the frame's template-findings page at the same address.
+  const page = section !== null
+    ? section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />
+    : address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')
+      ? <ProblemsPage base={base} />
+      : null;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
+      <RoleFirstVisit base={base} onChosen={applyRole} />
       <Stack layout="shell" data-testid="wiki-app">
         <ShellSidebar id="app-nav" aria-label={t('navigation.aria')}>
           <Stack layout="navigation">{navigationPanel(() => undefined)}</Stack>
@@ -238,7 +288,7 @@ export function App(): ReactElement {
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
               onLanguage={(next) => { void setWikiLanguage(next); }}
-              onRole={(next) => { setRole(next); keepRole(next); }}
+              onRole={chooseRole}
               onReload={() => { void loadBootstrap(); }}
             />
           </ShellFixed>

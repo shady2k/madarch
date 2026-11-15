@@ -106,7 +106,9 @@ async function noServers(home: string): Promise<void> {
 }
 
 async function openStore(fix: Fixture, base: string): Promise<void> {
-  const started = await fetch(`${base}/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.repository', 'code.directory', 'code.file'], agent: null, tokenCap: null }) });
+  // The kinds here are the ones the plugins finish alone: this case is about stopping the database server, never about
+  // an agent, and the catalogue binds code.file's state machines to one, which a fill without an agent is refused for.
+  const started = await fetch(`${base}/api/fill-selected`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['code.directory'], agent: null, tokenCap: null, pluginsOnly: true }) });
   if (started.status !== 202) throw new Error(`the fill press answered ${String(started.status)}: ${await started.text()}`);
   await waitUntil('the store PostgreSQL server to start', () => servers(fix.home).some((server) => alive(server.pid)), 30_000);
 }

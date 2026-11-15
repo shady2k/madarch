@@ -73,6 +73,7 @@ export interface ContractFieldData {
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   readonly nullable?: boolean;
+  readonly labels?: Readonly<Record<string, string>>;
   readonly producers?: readonly string[];
   readonly reference?: string;
   /**

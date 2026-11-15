@@ -13,6 +13,8 @@ export interface SectionContext {
   readonly language: string;
   readonly base: string;
   readonly busy: boolean;
+  /** The page's variables as the composition bound them: a command component reads the one its parameters name. */
+  readonly variables: Readonly<Record<string, unknown>>;
   readonly open: (path: string) => void;
   /** The same page, asked again with the variables the press named (a table's page, a filter, a sort). */
   readonly reload: (variables: Record<string, unknown>) => void;
@@ -21,6 +23,8 @@ export interface SectionContext {
   /** The product's name and the kinds the frame's navigation read: what a page's own words come from. */
   readonly product: string | null;
   readonly navigation: Navigation | null;
+  /** Applies a role the reader chose on this page and keeps it for the frame. */
+  readonly onRole?: (role: string) => void;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind instead. */
   readonly pageName: string | null;
 }

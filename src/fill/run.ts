@@ -40,7 +40,7 @@ export interface RunFillOptions {
    * The kinds this fill was asked for (madarch-stm0.6, decision 0035 items 11 and 31), in the dependency order to run
    * them in, and with a vertex the one entity it rewrites. Left out, the fill takes every kind as a whole fill does.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean };
   /** The plugin closures this run trusts beside the release's: a test's fixture, or a person's approval. */
   readonly releaseHashes?: readonly string[];
   /** The supervised ACP adapter available to agent plugin turns, only for this run. */

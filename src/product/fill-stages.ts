@@ -68,7 +68,7 @@ export interface StagesFillOptions {
    * dependency order, and with a vertex the one entity it rewrites. Left out, the run fills every kind the manifest binds
    * a plugin to, as a whole fill does.
    */
-  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] };
+  readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean };
   /** The plugin closures this fill trusts beside the release's. */
   readonly releaseHashes?: readonly string[];
   /** The supervised ACP adapter available to this run's agent plugin turns. */
@@ -156,8 +156,9 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     return readFillManifests(own, folder);
   });
   if (kindsRead.present) {
-    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined, options.targets?.requested);
-    // A plan that runs an agent unit runs under a cap the person chose: the engine sets no cap of its own.
+    const plan = planManifestFill(kindsRead.manifest, folder, options.targets?.kinds, options.pluginAgent !== undefined, options.targets?.requested, options.targets?.pluginsOnly === true);
+    // A plan that runs an agent unit runs under a cap the person chose: the engine sets no cap of its own. A plugins-only
+    // press plans no agent unit, so it needs no cap.
     if (options.pluginAgent !== undefined && plan.requiresAgent && options.tokenCap === undefined) {
       throw new Error(`${folder}/madarch/catalog.yaml:1: this fill runs an agent, and a token cap is required: pass --token-cap <n>, a positive whole number of tokens`);
     }

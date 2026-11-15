@@ -16,19 +16,16 @@ sections:
       }
     params:
       titlePath: label
-  - id: body
-    component: text
-    on: root
-    title: { en: What it is, ru: Что это }
-    query: |
-      home(lang: $lang) {
-        id
-        ... on Product {
-          body
-        }
-      }
-    params:
-      path: body
+      # The product's own name (its files' name, the top bar's), not the home entity's page title.
+      productTitle: true
+  # Who the product is and what needs a person now: the open problems and the last fill, before the counts (madarch-64o5.83).
+  - id: overview
+    component: product-overview
+    after: header
+    title: { en: Overview, ru: Обзор }
+  - id: firstRun
+    component: first-run
+    after: header
   - id: repositories
     component: table
     on: root
@@ -54,6 +51,16 @@ sections:
       columns:
         - { label: { en: Repository, ru: Репозиторий }, path: node.label }
         - { label: { en: Branch, ru: Ветка }, path: node.defaultBranch }
+  - id: kinds
+    component: kinds
+    on: root
+    title: { en: What the graph holds, ru: Что держит граф }
+    query: |
+      navigation(lang: $lang) {
+        kinds { kind one many count entryId }
+      }
+    params: {}
+
   - id: byLanguage
     component: bars
     on: root
@@ -76,12 +83,3 @@ sections:
     params:
       path: groupBy
       valuePath: count
-  - id: kinds
-    component: kinds
-    on: root
-    title: { en: What the graph holds, ru: Что держит граф }
-    query: |
-      navigation(lang: $lang) {
-        kinds { kind one many count entryId }
-      }
-    params: {}

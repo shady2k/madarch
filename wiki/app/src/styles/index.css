@@ -65,7 +65,7 @@
     font-family: var(--font-mono);
   }
 
-  ::selection {
+::selection {
     background: var(--selection);
   }
 }
@@ -2365,3 +2365,7 @@ a.graph-diagram-element-label:hover {
 .dg-zoombox .diagram-mermaid { margin: 0; padding: 0; border: 0; overflow: visible; }
 .dg-zoombox .diagram-mermaid svg { margin-right: 0; margin-bottom: 12px; }
 .dg-view-hint { margin: 0; padding: 4px 12px; font-size: var(--fs-small); color: var(--text-muted); }
+
+
+/* A list the kit draws: rows, never browser markers. The reading rules mark their own ul/li; this rule comes after them. */
+ul.ui-plain-list, ul.ui-plain-list > li { list-style: none; padding-left: 0; }

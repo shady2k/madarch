@@ -46,6 +46,10 @@ export interface KnowledgePart {
   /** Starts the fill page’s selected kinds, with their dependencies in order. */
   fillSelected: (request: Request) => Promise<Handled>;
   fillRuns: (request: Request) => Promise<Handled>;
+  /** The open problems the Problems page groups, and a count for the sidebar (workflow state, not a graph read). */
+  problems: (request: Request) => Promise<Handled>;
+  /** The product's Markdown documents and repositories (the frame's Sources page). */
+  sources: (request: Request) => Promise<Handled>;
   /** A person's «Пауза»: the page and the commit in progress are finished, and the run ends before the next one. */
   pause: (request: Request) => Promise<Handled>;
   /** A person's «Остановить»: the run ends now; the body's `confirm` is the second press that ends it. */
@@ -152,15 +156,15 @@ export function createKnowledgePart(
  * the agent is a string or null, and the cap is a whole number of tokens, 1 or more, or null for no cap.
  */
   async function selectionBody(request: Request): Promise<
-    | { readonly selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null } }
+    | { readonly selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null; readonly pluginsOnly: boolean } }
   | { readonly bad: Handled }
 > {
   const plain = notJson(request);
   if (plain !== undefined) return { bad: refused(415, { message: `${here()}: ${plain}` }) };
   let body: unknown;
   try { body = await request.json(); } catch (error) { return { bad: refused(400, { message: `${here()}: the request body is not JSON: ${(error as Error).message}` }) }; }
-  const asked = body as { selected?: unknown; agent?: unknown; tokenCap?: unknown } | null;
-  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: `${here()}: the body is { selected: [kind...], agent?, tokenCap? }` }) };
+  const asked = body as { selected?: unknown; agent?: unknown; tokenCap?: unknown; pluginsOnly?: unknown } | null;
+  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: `${here()}: the body is { selected: [kind...], agent?, tokenCap?, pluginsOnly? }` }) };
   const selected = asked.selected;
   if (!Array.isArray(selected) || selected.some((kind) => typeof kind !== 'string' || kind.trim() === '')) {
     return { bad: refused(400, { field: 'selected', message: `${here()}: "selected" is the list of entity kinds the catalogue has checked, each a kind of the product's manifest` }) };
@@ -171,7 +175,17 @@ export function createKnowledgePart(
   if (asked.tokenCap !== undefined && asked.tokenCap !== null && (typeof asked.tokenCap !== 'number' || !Number.isInteger(asked.tokenCap) || asked.tokenCap < 1)) {
     return { bad: refused(400, { field: 'tokenCap', message: `${product.folder}/madarch/catalog.yaml:1: token cap must be a positive integer` }) };
   }
-  return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null } };
+  if (asked.pluginsOnly !== undefined && typeof asked.pluginsOnly !== 'boolean') {
+    return { bad: refused(400, { field: 'pluginsOnly', message: `${here()}: "pluginsOnly" is true to run the deterministic plugins only, leaving the agent's fields unfilled` }) };
+  }
+  return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null, pluginsOnly: asked.pluginsOnly === true } };
+}
+
+/** The code a fill press refusal carries, so a page can say it in the reader's language. */
+function fillRefusalCode(message: string): string | undefined {
+  if (message.includes('to an agent, and none is chosen')) return 'fill/agent-required';
+  if (message.includes('token cap is required')) return 'fill/token-cap';
+  return undefined;
 }
 
 
@@ -261,7 +275,7 @@ export function createKnowledgePart(
     identity: guarded('read the product identity', async () => {
       const identity = product.product();
       if ('message' in identity) throw new WikiReadError(identity.message);
-      return { response: json(200, { id: identity.id, name: identity.name }) };
+      return { response: json(200, { id: identity.id, name: identity.name, folder: identity.folder }) };
     }, false),
     status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) }), false),
     kindUsage: guarded('read the kind\'s agent spend', async (request) => {
@@ -316,6 +330,13 @@ export function createKnowledgePart(
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
     }, true, true),
+    problems: guarded('list the problems', async (request) => {
+      const listing = await product.problems();
+      const count = new URL(request.url).searchParams.get('count');
+      if (count === '1') return { response: json(200, { open: listing.open, closed: listing.closed, dismissed: listing.dismissed, sections: listing.sections }) };
+      return { response: json(200, listing) };
+    }),
+    sources: guarded('list the sources', async () => ({ response: json(200, await product.sources()) })),
     fillRuns: guarded('read fill history', async (request) => {
       const runId = new URL(request.url).searchParams.get('run');
       const runs = await product.fillRuns(runId ?? undefined);
@@ -327,7 +348,7 @@ export function createKnowledgePart(
       if (own) return refused(409, { message: `${here()}: madarch's own wiki is documentation: it has no code to read and no entities of a product to fill` });
       const asked = await selectionBody(request);
       if ('bad' in asked) return asked.bad;
-      const plan = product.fillPlan(asked.selection.selected);
+      const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
       return { response: json(200, { plan }) };
     }, true),
     fillSelected: guarded('fill the selected entities', async (request) => {
@@ -337,13 +358,13 @@ export function createKnowledgePart(
       if ('bad' in asked) return asked.bad;
       const kinds = readKinds(product.folder);
       if (!kinds.present) return refused(409, { message: `${kinds.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares` });
-      const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected });
+      const targets = readFillTargets(kinds.manifest, { entities: asked.selection.selected }, asked.selection.pluginsOnly);
       if (!targets.ok) return refused(400, { field: 'selected', message: targets.message });
       // The press answers the plan it runs, which fields the agent fills included: a press that needs an agent and chose
       // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
-      const plan = product.fillPlan(asked.selection.selected);
-      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }) } });
-      if (!started.started) return refused(409, { message: started.message });
+      const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
+      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), pluginsOnly: asked.selection.pluginsOnly, targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }), ...(asked.selection.pluginsOnly ? { pluginsOnly: true } : {}) } });
+      if (!started.started) return refused(409, { message: started.message, ...(fillRefusalCode(started.message) === undefined ? {} : { code: fillRefusalCode(started.message) }) });
       return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order, plan }) };
     }, true, true),
     pause: guarded('pause the fill', async (request) => {

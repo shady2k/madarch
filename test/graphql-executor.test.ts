@@ -100,7 +100,7 @@ beforeAll(async () => {
     await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'demo.repository', key: { name: 'r1' }, values: { url: 'https://one.test', size: 2, archived: true }, producer: 'one', producerVersion: '1' },
-        { kind: 'demo.file', key: file('a.ts').key, values: { lines: 10, language: 'TypeScript', primary: repository('r1') }, producer: 'one', producerVersion: '1' },
+        { kind: 'demo.file', key: file('a.ts').key, values: { lines: 10, language: 'TypeScript', primary: repository('r1'), preferred: repository('r1') }, producer: 'one', producerVersion: '1' },
         { kind: 'demo.file', key: file('b.ts').key, values: { lines: 20, primary: repository('r1') }, producer: 'one', producerVersion: '1' },
         { kind: 'demo.file', key: file('c.ts').key, values: {}, producer: 'one', producerVersion: '1' },
       ],
@@ -285,6 +285,14 @@ describe('the GraphQL executor', () => {
     expect((agreed['r2'] as Record<string, any>).primaryOfDemoFile.totalCount).toBe(0);
   });
 
+  test('a reference declared text answers its inverse and its backlink, not a database error (madarch-64o5.83)', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { preferredOfDemoFile(first: 10) { totalCount edges { node { path } } } backlinks(first: 20) { edges { node { relation } } } } } }`, { id: repositoryId });
+    const repository = data['entity'] as Record<string, any>;
+    expect(repository.preferredOfDemoFile.totalCount).toBe(1);
+    expect(repository.preferredOfDemoFile.edges.map((edge: any) => edge.node.path)).toEqual(['a.ts']);
+    expect(repository.backlinks.edges.map((edge: any) => edge.node.relation)).toContain('preferredOfDemoFile');
+  });
+
   test('pagination over a null order value neither skips nor repeats a row (#6)', async () => {
     const where = '{ path: { _in: ["a.ts", "b.ts", "c.ts"] } }';
     const first = await graphql(`{ allDemoFile(where: ${where}, orderBy: [{ field: lines }], first: 1) { pageInfo { endCursor hasNextPage } edges { node { path } } } }`);
@@ -314,7 +322,7 @@ describe('the GraphQL executor', () => {
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
   });
 
-  test('the starter catalogue template composes into one operation that reads the catalogue', async () => {
+  test('the starter catalogue template composes its header, and its kinds are the command read', async () => {
     const bootstrap: Bootstrap = {
       structureRevision: 'r',
       home: null,
@@ -324,12 +332,11 @@ describe('the GraphQL executor', () => {
     };
     const page = composePage(bootstrap, { template: 'catalogue' });
     expect(page.findings).toEqual([]);
+    // The header reads the product's name; the catalogue's kinds come from the command's navigation and plan reads.
+    expect(page.operation).toContain('s_header: home');
+    expect(page.operation).not.toContain('s_kinds');
     const data = await graphql(page.operation, page.variables);
-    // A root section's data is the value of its own root field: the table's path is the section's own data.
-    const kinds = data['s_kinds'] as Record<string, any>;
-    expect(kinds.totalCount).toBe(2);
-    expect(kinds.edges.map((edge: any) => edge.node.name).sort()).toEqual(['demo.file', 'demo.repository']);
-    expect(kinds.edges[0].node.label).toBeTruthy();
+    expect(data).toHaveProperty('s_header');
   });
 
   test('the bootstrap names the templates, the pages they open and the roles', async () => {

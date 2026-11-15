@@ -49,9 +49,9 @@ test('Problems shows actionable template findings through the product GraphQL en
     expect(main?.textContent).toContain(`${finding.file}:${finding.line}`);
     expect(main?.textContent).toContain(finding.path);
     expect(page.container.querySelector('[data-testid="frame-rebuilding"]')).toBeNull();
-    expect(requests).toHaveLength(2);
-    expect(requests.every(({ url }) => url === '/products/example/graphql')).toBe(true);
-    expect(requests[1]?.query).toContain('templateFindings { file line path message }');
+    const graphql = requests.filter(({ url }) => url === '/products/example/graphql');
+    expect(graphql).toHaveLength(2);
+    expect(graphql[1]?.query).toContain('templateFindings { file line path message }');
   } finally { await page.close(); }
 });
 

@@ -1,9 +1,9 @@
 import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 'madarch-plugin-sdk';
-import { classOfPath, readRepositoryTree, type FileClassRule, type RepositoryAt } from './reader.js';
+import { classOfPath, excludedPath, readRepositoryTree, type FileClassRule, type RepositoryAt } from './reader.js';
 
 /** Reads pinned objects itself; the host supplies only read-only mounts and pin metadata. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] }; paths?: readonly string[]; keys?: readonly { repository: string; path: string }[]; classRules?: readonly FileClassRule[] };
+  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] }; paths?: readonly string[]; keys?: readonly { repository: string; path: string }[]; classRules?: readonly FileClassRule[]; exclude?: readonly string[] };
   if (!Array.isArray(inputs?.repositories)) throw new Error('disk needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
   for (const pin of inputs.repositories) {
@@ -19,7 +19,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
     vertices.push({ ...repository, values: { url: tree.repository.url, default_branch: pin.defaultBranch ?? null }, evidence });
     const folders = new Set<string>();
     const within = (path: string): boolean => inputs.paths === undefined || inputs.paths.some(prefix => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`));
-    for (const file of tree.files.filter(file => within(file.path))) {
+    // The product's own exclusions: a repository's node_modules or build output is not the product's knowledge unless the
+    // catalogue says it is (madarch-64o5.83).
+    for (const file of tree.files.filter(file => within(file.path) && !excludedPath(file.path, inputs.exclude ?? []))) {
       const entity = { kind: 'code.file', key: { repository: pin.repository, path: file.path } };
       const fileClass = classOfPath(file.path, inputs.classRules ?? []);
       vertices.push({ ...entity, values: { directory: file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.', mode: file.mode, blob: file.blob, bytes: file.bytes, form: file.form, lines: file.lines, content: file.content, language: file.language, languages: file.candidates, ...(fileClass === undefined ? {} : { class: fileClass }) }, evidence: { ...evidence, path: file.path } });
@@ -29,7 +31,7 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       if (!file.path.includes('/')) folder = '';
       while (folder !== '') { folders.add(folder); const at = folder.lastIndexOf('/'); folder = at < 0 ? '' : folder.slice(0, at); }
     }
-    for (const link of tree.gitlinks.filter(link => within(link.path))) {
+    for (const link of tree.gitlinks.filter(link => within(link.path) && !excludedPath(link.path, inputs.exclude ?? []))) {
       const entity = { kind: 'code.gitlink', key: { repository: pin.repository, path: link.path } };
       vertices.push({ ...entity, values: { other_repository: link.otherRepository, commit_hash: link.commit }, evidence: { ...evidence, path: link.path } });
       let folder = link.path.includes('/') ? link.path.slice(0, link.path.lastIndexOf('/')) : '';

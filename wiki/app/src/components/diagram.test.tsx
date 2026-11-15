@@ -17,7 +17,7 @@ async function settle(): Promise<void> {
 function context(id: string, depth = 1, aggregateAbove = 12, language = 'en'): SectionContext {
   return {
     section: { id: 'diagram', component: 'diagram', on: 'subject', replace: false, params: { depth, aggregateAbove }, line: 1, alias: 's_diagram' },
-    data: { id }, language, base: '', busy: false, open: () => undefined, reload: () => undefined,
+    data: { id }, language, base: '', busy: false, variables: {}, open: () => undefined, reload: () => undefined,
     renderSection: () => null, product: null, navigation: null, pageName: null,
   };
 }
