@@ -152,7 +152,7 @@ export interface FillOrchestratorServiceOptions {
 const DEFAULT_FILL_QUEUE = 'fill-units';
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
-const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale'];
+const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
 
 /** The most wall-clock time a host spends waiting for a run's own retry moments before it reports the run as it stands. */
 const RETRY_WAIT_BUDGET_MS = 60_000;

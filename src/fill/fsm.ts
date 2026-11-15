@@ -19,65 +19,74 @@
  * cancelled, only marked stale and linked to its replacement.
  *
  * ```mermaid
- * stateDiagram-v2
- *   [*] --> planned
- *   blocked --> cancelled: cancel
- *   blocked --> failed: fail [generation-current & fence-current & fail-cause]
- *   blocked --> stale: invalidate [replacement-named]
- *   blocked --> ready: unblock [generation-current & resolution-named]
- *   draft --> blocked: block [generation-current & fence-current & block-reason-named]
- *   draft --> cancelled: cancel
- *   draft --> failed: fail [generation-current & fence-current & fail-cause]
- *   draft --> stale: invalidate [replacement-named]
- *   draft --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
- *   draft --> validating: validate-draft [generation-current & fence-current]
- *   leased --> blocked: block [generation-current & fence-current & block-reason-named]
- *   leased --> cancelled: cancel
- *   leased --> failed: fail [generation-current & fence-current & fail-cause]
- *   leased --> stale: invalidate [replacement-named]
- *   leased --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
- *   leased --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-transient-failure]
- *   leased --> running: start [generation-current & fence-current]
- *   planned --> ready: admit [generation-current]
- *   planned --> cancelled: cancel
- *   planned --> failed: fail [generation-current & fence-current & fail-cause]
- *   planned --> stale: invalidate [replacement-named]
- *   published --> stale: invalidate [replacement-named]
- *   ready --> blocked: block [generation-current & fence-current & block-reason-named]
- *   ready --> cancelled: cancel
- *   ready --> failed: fail [generation-current & fence-current & fail-cause]
- *   ready --> stale: invalidate [replacement-named]
- *   ready --> leased: lease [fence-advances]
- *   retry_wait --> cancelled: cancel
- *   retry_wait --> failed: fail [generation-current & fence-current & fail-cause]
- *   retry_wait --> stale: invalidate [replacement-named]
- *   retry_wait --> ready: retry [generation-current & retry-elapsed]
- *   running --> blocked: block [generation-current & fence-current & block-reason-named]
- *   running --> cancelled: cancel
- *   running --> failed: fail [generation-current & fence-current & fail-cause]
- *   running --> stale: invalidate [replacement-named]
- *   running --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
- *   running --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-transient-failure]
- *   running --> draft: submit-draft [generation-current & fence-current]
- *   running --> waiting_children: wait-for-children [generation-current & fence-current & children-sealed]
- *   validating --> blocked: block [generation-current & fence-current & block-reason-named]
- *   validating --> cancelled: cancel
- *   validating --> failed: fail [generation-current & fence-current & fail-cause]
- *   validating --> stale: invalidate [replacement-named]
- *   validating --> published: publish [generation-current & fence-current & reads-fresh]
- *   validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
- *   validating --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-validation-problem]
- *   waiting_children --> blocked: block [generation-current & fence-current & block-reason-named]
- *   waiting_children --> cancelled: cancel
- *   waiting_children --> failed: fail [generation-current & fence-current & fail-cause]
- *   waiting_children --> failed: fail [generation-current & fence-current & cause-child-failed]
- *   waiting_children --> stale: invalidate [replacement-named]
- *   waiting_children --> ready: join [generation-current & children-accepted-partial]
- *   waiting_children --> ready: join [generation-current & children-published-and-fresh]
- *   cancelled --> [*]
- *   failed --> [*]
- *   stale --> [*]
- * ```
+stateDiagram-v2
+  [*] --> planned
+  blocked --> cancelled: cancel
+  blocked --> failed: fail [generation-current & fence-current & fail-cause]
+  blocked --> stale: invalidate [replacement-named]
+  blocked --> skipped: skip [skip-cause-named]
+  blocked --> ready: unblock [generation-current & resolution-named]
+  draft --> blocked: block [generation-current & fence-current & block-reason-named]
+  draft --> cancelled: cancel
+  draft --> failed: fail [generation-current & fence-current & fail-cause]
+  draft --> stale: invalidate [replacement-named]
+  draft --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+  draft --> skipped: skip [skip-cause-named]
+  draft --> validating: validate-draft [generation-current & fence-current]
+  leased --> blocked: block [generation-current & fence-current & block-reason-named]
+  leased --> cancelled: cancel
+  leased --> failed: fail [generation-current & fence-current & fail-cause]
+  leased --> stale: invalidate [replacement-named]
+  leased --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+  leased --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-transient-failure]
+  leased --> skipped: skip [skip-cause-named]
+  leased --> running: start [generation-current & fence-current]
+  planned --> ready: admit [generation-current]
+  planned --> cancelled: cancel
+  planned --> failed: fail [generation-current & fence-current & fail-cause]
+  planned --> stale: invalidate [replacement-named]
+  planned --> skipped: skip [skip-cause-named]
+  published --> stale: invalidate [replacement-named]
+  ready --> blocked: block [generation-current & fence-current & block-reason-named]
+  ready --> cancelled: cancel
+  ready --> failed: fail [generation-current & fence-current & fail-cause]
+  ready --> stale: invalidate [replacement-named]
+  ready --> leased: lease [fence-advances]
+  ready --> skipped: skip [skip-cause-named]
+  retry_wait --> cancelled: cancel
+  retry_wait --> failed: fail [generation-current & fence-current & fail-cause]
+  retry_wait --> stale: invalidate [replacement-named]
+  retry_wait --> ready: retry [generation-current & retry-elapsed]
+  retry_wait --> skipped: skip [skip-cause-named]
+  running --> blocked: block [generation-current & fence-current & block-reason-named]
+  running --> cancelled: cancel
+  running --> failed: fail [generation-current & fence-current & fail-cause]
+  running --> stale: invalidate [replacement-named]
+  running --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+  running --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-transient-failure]
+  running --> skipped: skip [skip-cause-named]
+  running --> draft: submit-draft [generation-current & fence-current]
+  running --> waiting_children: wait-for-children [generation-current & fence-current & children-sealed]
+  validating --> blocked: block [generation-current & fence-current & block-reason-named]
+  validating --> cancelled: cancel
+  validating --> failed: fail [generation-current & fence-current & fail-cause]
+  validating --> stale: invalidate [replacement-named]
+  validating --> published: publish [generation-current & fence-current & reads-fresh]
+  validating --> retry_wait: retry [generation-current & retries-remain & retry-time-named & cause-lease-expired]
+  validating --> retry_wait: retry [generation-current & fence-current & retries-remain & retry-time-named & cause-validation-problem]
+  validating --> skipped: skip [skip-cause-named]
+  waiting_children --> blocked: block [generation-current & fence-current & block-reason-named]
+  waiting_children --> cancelled: cancel
+  waiting_children --> failed: fail [generation-current & fence-current & fail-cause]
+  waiting_children --> failed: fail [generation-current & fence-current & cause-child-failed]
+  waiting_children --> stale: invalidate [replacement-named]
+  waiting_children --> ready: join [generation-current & children-accepted-partial]
+  waiting_children --> ready: join [generation-current & children-published-and-fresh]
+  waiting_children --> skipped: skip [skip-cause-named]
+  cancelled --> [*]
+  failed --> [*]
+  skipped --> [*]
+  stale --> [*]```
  *
  * The run machine walks created → planning → running → succeeded,
  * completed_partial, blocked or failed, pauses through pausing → paused →
@@ -99,7 +108,7 @@ import { createFillMachine, transition } from './fsm-core.js';
 /** The states of a unit generation, in the order decision 0027 lists them. */
 export const UNIT_STATES = [
   'planned', 'ready', 'leased', 'running', 'draft', 'validating', 'published',
-  'waiting_children', 'retry_wait', 'blocked', 'failed', 'stale', 'cancelled',
+  'waiting_children', 'retry_wait', 'blocked', 'failed', 'stale', 'cancelled', 'skipped',
 ] as const;
 export type UnitState = typeof UNIT_STATES[number];
 
@@ -117,6 +126,8 @@ export interface UnitContext {
   readonly retryAt: number | null;
   /** The generation that replaces this one once it went stale; null while it stands. */
   readonly replacedBy: number | null;
+  /** Why the run skipped this generation, when it ended without the generation finishing. */
+  readonly skippedBecause?: string | null;
 }
 
 /** What a unit failed on: its budget, its retries, or a child whose failure the policy propagates. */
@@ -168,7 +179,8 @@ export type UnitEvent =
   | { readonly type: 'unblock'; readonly at: number; readonly generation: number; readonly resolution: string }
   | { readonly type: 'fail'; readonly at: number; readonly generation: number; readonly fence: number; readonly cause: UnitFailCause }
   | { readonly type: 'invalidate'; readonly at: number; readonly replacement: number; readonly cause: string }
-  | { readonly type: 'cancel'; readonly at: number; readonly cause: string };
+  | { readonly type: 'cancel'; readonly at: number; readonly cause: string }
+  | { readonly type: 'skip'; readonly at: number; readonly cause: string };
 
 /** The step that takes a lease, which only the store may issue: it writes the lease row with the token. */
 export type UnitLeaseEvent = Extract<UnitEvent, { readonly type: 'lease' }>;
@@ -258,6 +270,10 @@ const unitGuards: MachineSpec<UnitState, UnitEvent, UnitContext>['guards'] = {
     describe: 'the replacement generation is the next one after this generation',
     check: (context, event) => event.type === 'invalidate' && event.replacement === context.generation + 1,
   },
+  'skip-cause-named': {
+    describe: 'the run names the failed unit or the ending that leaves this generation skipped',
+    check: (_context, event) => event.type === 'skip' && named(event.cause),
+  },
 };
 
 const revokeAndRetract = ['revoke-lease', 'retract-draft', 'emit-progress'] as const;
@@ -295,6 +311,11 @@ const unitActions: MachineSpec<UnitState, UnitEvent, UnitContext>['actions'] = {
     kind: 'context',
     describe: 'links this generation to the one that replaces it',
     apply: (context, event) => ({ ...context, replacedBy: event.type === 'invalidate' ? event.replacement : context.replacedBy }),
+  },
+  'record-skip': {
+    kind: 'context',
+    describe: 'records why the run skipped this generation',
+    apply: (context, event) => ({ ...context, skippedBecause: event.type === 'skip' ? event.cause : context.skippedBecause ?? null }),
   },
   'enqueue-ready': {
     kind: 'effect',
@@ -420,6 +441,9 @@ const unitTransitions: MachineSpec<UnitState, UnitEvent, UnitContext>['transitio
   // Cancellation is the run control's authority over whatever generation stands, so it names none.
   unitTransition('planned', 'cancel', 'cancelled', { actions: ['revoke-authority', 'retract-draft', 'emit-progress'] }),
   ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from) => unitTransition(from, 'cancel', 'cancelled', { actions: cancelActions })),
+  // The run ends and this generation never finished: a final record that names the failed unit it waited on,
+  // instead of a pending state a reader could mistake for work still to come.
+  ...LIVE_UNIT_STATES.map((from) => unitTransition(from, 'skip', 'skipped', { guards: ['skip-cause-named'], actions: ['record-skip'] })),
 ];
 
 /** The unit machine: generations, attempts and fencing tokens, as decision 0027 declares them. */
@@ -438,7 +462,7 @@ export const unitMachine = createFillMachine<UnitState, UnitEvent, UnitContext>(
  * reused by a later generation of the same unit.
  */
 export function newUnitContext(options: { readonly generation: number; readonly retries: number; readonly fence?: number }): UnitContext {
-  return { generation: options.generation, attempt: 0, fence: options.fence ?? 0, retriesLeft: options.retries, retryAt: null, replacedBy: null };
+  return { generation: options.generation, attempt: 0, fence: options.fence ?? 0, retriesLeft: options.retries, retryAt: null, replacedBy: null, skippedBecause: null };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -461,8 +485,16 @@ export interface RunSelection {
   readonly groups?: readonly { readonly kind: string; readonly group: string | null; readonly plugin: string; readonly stageUnitId: string }[];
 }
 
+/** The process identity that owns a run: the daemon/store-owner token it was started under, never a pid alone. */
+export interface RunOwner {
+  readonly token: string;
+  readonly pid: number;
+}
+
 export interface RunContext {
   readonly selection?: RunSelection;
+  /** The process identity that created this run; null when it had no token to name itself with. */
+  readonly owner?: RunOwner | null;
   /** How many times planning ran; a resume after a pause opens the next epoch. */
   readonly planningEpoch: number;
   /** True once planning closed its epoch; completion needs it closed. */
@@ -491,7 +523,7 @@ export type RunEvent =
   | { readonly type: 'complete'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'complete-partial'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'block'; readonly at: number; readonly starvationPath: string }
-  | { readonly type: 'fail'; readonly at: number; readonly cause: 'budget-exhausted' | 'initialization-failed'; readonly detail: string }
+  | { readonly type: 'fail'; readonly at: number; readonly cause: 'budget-exhausted' | 'initialization-failed' | 'process-ended'; readonly detail: string }
   | { readonly type: 'pause'; readonly at: number }
   | { readonly type: 'drain'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'resume'; readonly at: number }
@@ -550,6 +582,10 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
   'cause-budget-exhausted': {
     describe: 'the run\'s budget is spent',
     check: (_context, event) => event.type === 'fail' && event.cause === 'budget-exhausted',
+  },
+  'process-ended': {
+    describe: 'the process that ran this run is gone, and its ending is named',
+    check: (_context, event) => event.type === 'fail' && event.cause === 'process-ended' && named(event.detail),
   },
 };
 
@@ -645,6 +681,9 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   runTransition('running', 'complete-partial', 'completed_partial', { guards: ['planning-closed', 'nothing-runnable-in-flight-or-waiting', 'no-pending-publication', 'required-coverage-unmet'], actions: ['record-partial-completion', 'emit-progress'] }),
   runTransition('running', 'block', 'blocked', { guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] }),
   runTransition('running', 'fail', 'failed', { label: 'budget-exhausted', guards: ['cause-budget-exhausted'], actions: ['record-failure', 'emit-progress'] }),
+  // A run whose process died is ended by the next start, never left standing `running` with no one to
+  // advance it. The next start names the process ending as the cause and the run reaches `failed`.
+  ...(['created', 'planning', 'running', 'pausing', 'cancelling'] as const).map((from) => runTransition(from, 'fail', 'failed', { label: 'process-ended', guards: ['process-ended'], actions: ['record-failure', 'emit-progress'] })),
   runTransition('running', 'pause', 'pausing', { actions: ['record-pause-intent', 'emit-progress'] }),
   runTransition('pausing', 'drain', 'paused', { guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] }),
   runTransition('paused', 'resume', 'planning', { actions: ['reopen-planning-epoch', 'emit-progress'] }),
@@ -666,8 +705,118 @@ export const runMachine = createFillMachine<RunState, RunEvent, RunContext>({
 });
 
 /** A run's context when it is first created. */
-export function newRunContext(): RunContext {
-  return { planningEpoch: 0, planningClosed: false };
+export function newRunContext(owner: RunOwner | null = ownerOfProcess()): RunContext {
+  return { planningEpoch: 0, planningClosed: false, ...(owner === null ? {} : { owner }) };
+}
+
+/** The token this process can prove it owns a run with: the daemon token, else the store-owner token. */
+export function ownerOfProcess(env: NodeJS.ProcessEnv = process.env, pid = process.pid): RunOwner | null {
+  const token = env['MADARCH_DAEMON_TOKEN'] ?? env['MADARCH_STORE_OWNER_TOKEN'];
+  return token === undefined || token === '' ? null : { token, pid };
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// The public state machines
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The run's reader-facing state machine: queued → running ⇄ paused → succeeded | partial |
+ * failed | stopped. The persisted run machine has finer steps; every reader maps through
+ * `runPhaseOf`, and no page, API answer or indicator keeps its own idea of "finished".
+ */
+export const RUN_PHASES = ['queued', 'running', 'paused', 'succeeded', 'partial', 'failed', 'stopped'] as const;
+export type RunPhase = typeof RUN_PHASES[number];
+
+/** Every transition of the public run machine, with the reason it carries. */
+const RUN_PHASE_TRANSITIONS: readonly { readonly from: RunPhase; readonly event: string; readonly to: RunPhase; readonly reason: string }[] = [
+  { from: 'queued', event: 'start', to: 'running', reason: 'the run began planning' },
+  { from: 'running', event: 'pause', to: 'paused', reason: 'a person paused the run after its work drained' },
+  { from: 'paused', event: 'resume', to: 'running', reason: 'a person resumed the run' },
+  { from: 'running', event: 'succeed', to: 'succeeded', reason: 'every required unit published' },
+  { from: 'running', event: 'partial', to: 'partial', reason: 'the run ended with some work uncovered' },
+  { from: 'running', event: 'fail', to: 'failed', reason: 'the run failed or became blocked' },
+  { from: 'running', event: 'stop', to: 'stopped', reason: 'a person stopped the run' },
+  { from: 'queued', event: 'fail', to: 'failed', reason: 'initialization failed before any work ran' },
+  { from: 'queued', event: 'stop', to: 'stopped', reason: 'a person stopped the run before it began' },
+  { from: 'paused', event: 'fail', to: 'failed', reason: 'a paused run could not continue' },
+  { from: 'paused', event: 'stop', to: 'stopped', reason: 'a person stopped the paused run' },
+];
+
+/** The states a run never leaves. */
+const FINAL_RUN_PHASES: readonly RunPhase[] = ['succeeded', 'partial', 'failed', 'stopped'];
+
+/** Whether a public run phase is final. */
+export function isFinalRunPhase(phase: RunPhase): boolean {
+  return FINAL_RUN_PHASES.includes(phase) && !RUN_PHASE_TRANSITIONS.some((transition) => transition.from === phase);
+}
+
+/** The public phase of one persisted run state. */
+export function runPhaseOf(state: RunState): RunPhase {
+  switch (state) {
+    case 'created': case 'planning': return 'queued';
+    case 'running': case 'pausing': return 'running';
+    case 'paused': return 'paused';
+    case 'succeeded': return 'succeeded';
+    case 'completed_partial': return 'partial';
+    case 'blocked': case 'failed': return 'failed';
+    case 'cancelling': return 'running';
+    case 'cancelled': return 'stopped';
+  }
+}
+
+/** The persisted states a run never leaves: a paused run is not finished, a cancelled one is. */
+export const FINAL_RUN_STATES: readonly RunState[] = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'];
+
+/** Whether a persisted run state is final in the public machine. */
+export function isFinalRunState(state: RunState): boolean {
+  return FINAL_RUN_STATES.includes(state);
+}
+
+/**
+ * The unit's reader-facing state machine: waiting → running → done | failed | skipped |
+ * cancelled. `skipped` always carries the failed unit or the ending that left it unrun.
+ */
+export const UNIT_PHASES = ['waiting', 'running', 'done', 'failed', 'skipped', 'cancelled'] as const;
+export type UnitPhase = typeof UNIT_PHASES[number];
+
+/** Every transition of the public unit machine, with the reason it carries. */
+const UNIT_PHASE_TRANSITIONS: readonly { readonly from: UnitPhase; readonly event: string; readonly to: UnitPhase; readonly reason: string }[] = [
+  { from: 'waiting', event: 'start', to: 'running', reason: 'a worker took the unit' },
+  { from: 'waiting', event: 'skip', to: 'skipped', reason: 'a required unit failed or the run ended' },
+  { from: 'waiting', event: 'cancel', to: 'cancelled', reason: 'a person stopped the run' },
+  { from: 'running', event: 'publish', to: 'done', reason: 'the unit published its facts' },
+  { from: 'running', event: 'fail', to: 'failed', reason: 'the unit exhausted its attempts or budget' },
+  { from: 'running', event: 'skip', to: 'skipped', reason: 'a required unit failed or the run ended' },
+  { from: 'running', event: 'cancel', to: 'cancelled', reason: 'a person stopped the run' },
+];
+
+/** The states a unit never leaves. */
+const FINAL_UNIT_PHASES: readonly UnitPhase[] = ['done', 'failed', 'skipped', 'cancelled'];
+
+/** Whether a public unit phase is final. */
+export function isFinalUnitPhase(phase: UnitPhase): boolean {
+  return FINAL_UNIT_PHASES.includes(phase) && !UNIT_PHASE_TRANSITIONS.some((transition) => transition.from === phase);
+}
+
+/** The public phase of one persisted unit generation. */
+export function unitPhaseOf(state: UnitState): UnitPhase {
+  switch (state) {
+    case 'published': return 'done';
+    case 'failed': return 'failed';
+    case 'skipped': case 'stale': return 'skipped';
+    case 'cancelled': return 'cancelled';
+    case 'leased': case 'running': case 'draft': case 'validating': return 'running';
+    case 'planned': case 'ready': case 'waiting_children': case 'retry_wait': case 'blocked': return 'waiting';
+  }
+}
+
+/** The persisted unit states that are already final; `superseded` is a legacy record of a replaced generation. */
+export const FINAL_UNIT_STATES: readonly string[] = ['published', 'failed', 'stale', 'cancelled', 'skipped', 'superseded'];
+
+/** Whether a persisted unit generation is final. */
+export function isFinalUnitState(state: string): boolean {
+  return FINAL_UNIT_STATES.includes(state);
 }
 
 // ---------------------------------------------------------------------------------------------

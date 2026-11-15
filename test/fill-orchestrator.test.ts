@@ -33,6 +33,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit } from '../src/fill/state-store.js';
+import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
@@ -1200,7 +1201,7 @@ describe('what the review found, kept as tests', () => {
     await admitUnits(opened.orchestrator, { runId: 'run-a' });
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('blocked');
     expect((await driveRun(opened.orchestrator, { runId: 'run-a', workers: 1 })).run.state).toBe('completed_partial');
-    expect((await readUnit(opened.owner, 'blocked-stage/src'))?.state).toBe('blocked');
+    expect((await readUnit(opened.owner, 'blocked-stage/src'))?.state).toBe('skipped');
 
     // The next fill of the product plans the unit again, as generation 2 under its own run, and publishes it.
     expect((await startRun(opened.orchestrator, { runId: 'run-b' })).ok).toBe(true);
@@ -1214,7 +1215,58 @@ describe('what the review found, kept as tests', () => {
     expect(unit).toMatchObject({ state: 'published', generation: 2, runId: 'run-b' });
     // The blocked generation stays as its own record, and the retry is its own transition.
     const generations = await opened.owner.run((tx) => tx.query<{ generation: number; state: string }>('SELECT generation, state FROM fill_unit_generation WHERE unit_id = $1 ORDER BY generation', ['blocked-stage/src']));
-    expect(generations.rows).toEqual([{ generation: 1, state: 'blocked' }, { generation: 2, state: 'published' }]);
+    expect(generations.rows).toEqual([{ generation: 1, state: 'skipped' }, { generation: 2, state: 'published' }]);
+  });
+
+  test('a run whose producer fails leaves its dependant skipped-because, and the run partial', async () => {
+    const stage = draftingStage('plugin-turns', { units: ['producer', 'consumer'], concurrency: 1 });
+    stage.unitScheduling = (id) => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
+    stage.execute = (unit, context) => {
+      if (unit.id === 'producer') throw new Error('the producer refused its input');
+      context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
+      return { outcome: 'draft' };
+    };
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { retries: 0 } });
+    const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
+    expect(driven.run.state).toBe('completed_partial');
+    expect((await readUnit(opened.owner, 'plugin-turns/producer'))?.state).toBe('failed');
+    const consumer = await readUnit(opened.owner, 'plugin-turns/consumer');
+    expect(consumer?.state).toBe('skipped');
+    expect(consumer?.context.skippedBecause).toContain('plugin-turns/producer failed');
+    expect(await isFinalRunState(driven.run.state)).toBe(true);
+    expect(await isFinalUnitState(consumer?.state ?? '')).toBe(true);
+  });
+
+  test('a dead owner\'s run ends once its lease expires, without waiting for run age', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
+    await admitUnits(opened.orchestrator, { runId });
+    await opened.owner.run((tx) => tx.query('UPDATE fill_run_lease SET expires_at = $1 WHERE run_id = $2', [NOW - 1, runId]));
+    const next = await startRun(opened.orchestrator, { runId: 'run-after-dead-owner' });
+    expect(next.ok).toBe(true);
+    expect((await readRun(opened.owner, runId))?.state).toBe('failed');
+    expect((await readRunUnits(opened.owner, runId)).every((unit) => isFinalUnitState(unit.state))).toBe(true);
+  });
+
+  test('a live owner\'s lease keeps a second start from ending its run', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
+    await admitUnits(opened.orchestrator, { runId });
+    const next = await startRun(opened.orchestrator, { runId: 'run-while-live' });
+    expect(next.ok).toBe(false);
+    expect((await readRun(opened.owner, runId))?.state).toBe('running');
+    expect((await readRunUnits(opened.owner, runId)).some((unit) => !isFinalUnitState(unit.state))).toBe(true);
+  });
+
+  test('a run whose process died is ended by the next start, and none of its units stays waiting', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
+    await admitUnits(opened.orchestrator, { runId });
+    await opened.owner.run((tx) => tx.query(`UPDATE fill_run SET updated_at = $1 WHERE run_id = $2`, [NOW, runId]));
+    opened.clock.advance(10 * 60_000);
+    const next = await startRun(opened.orchestrator, { runId: 'run-after-death' });
+    expect(next.ok).toBe(true);
+    expect((await readRun(opened.owner, runId))?.state).toBe('failed');
+    const units = await readRunUnits(opened.owner, runId);
+    expect(units.every((unit) => isFinalUnitState(unit.state))).toBe(true);
+    expect(units.map((unit) => unit.state)).toContain('skipped');
   });
 
   test('a unit a finished run left failed is retried too: a failed fill does not trap the product', async () => {

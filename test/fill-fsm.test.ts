@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createFillMachine, type MachineSpec } from '../src/fill/fsm-core.js';
-import { CHAIN_STATES, RUN_STATES, UNIT_STATES, chainMachine, newChainContext, newUnitContext, runMachine, unitMachine } from '../src/fill/fsm.js';
+import { CHAIN_STATES, RUN_PHASES, RUN_STATES, UNIT_PHASES, UNIT_STATES, chainMachine, isFinalRunPhase, isFinalUnitPhase, newChainContext, newUnitContext, runMachine, runPhaseOf, unitMachine, unitPhaseOf } from '../src/fill/fsm.js';
 import type { ChainEvent, RunContext, RunEvent, RunEvidence, RunState, UnitChildOutcome, UnitContext, UnitEvent, UnitFailedChildPolicy, UnitFailCause, UnitRetryCause, UnitState } from '../src/fill/fsm.js';
 
 /**
@@ -92,11 +92,12 @@ const UNIT_EXPECTED: readonly UnitExpectation[] = [
   // Cancellation is the run control's authority over whatever generation stands, so it names none.
   { from: 'planned', event: 'cancel', to: 'cancelled', guards: [], actions: ['revoke-authority', 'retract-draft', 'emit-progress'] },
   ...(['ready', ...LEASED_STATES, 'waiting_children', 'retry_wait', 'blocked'] as const).map((from): UnitExpectation => ({ from, event: 'cancel', to: 'cancelled', guards: [], actions: cancel })),
+  ...LIVE_STATES.map((from): UnitExpectation => ({ from, event: 'skip', to: 'skipped', guards: ['skip-cause-named'], actions: ['record-skip'] })),
 ];
 
 const UNIT_EVENTS: readonly UnitEvent['type'][] = [
   'admit', 'lease', 'start', 'submit-draft', 'validate-draft', 'publish', 'wait-for-children',
-  'join', 'retry', 'block', 'unblock', 'fail', 'invalidate', 'cancel',
+  'join', 'retry', 'block', 'unblock', 'fail', 'invalidate', 'cancel', 'skip',
 ];
 
 function contextIn(from: UnitState): UnitContext {
@@ -137,6 +138,7 @@ function eventFor(expectation: UnitExpectation): UnitEvent {
     case 'fail': return { type: 'fail', at, generation: context.generation, fence, cause: expectation.cause as UnitFailCause };
     case 'invalidate': return { type: 'invalidate', at, replacement: 2, cause: 'inputs changed' };
     case 'cancel': return { type: 'cancel', at, cause: 'the person stopped the run' };
+    case 'skip': return { type: 'skip', at, cause: 'unit code.file failed' };
   }
 }
 
@@ -284,7 +286,7 @@ describe('unit machine: the properties decision 0027 states in prose', () => {
       expect(leaving).toContain('fail→failed');
     }
     expect(unitMachine.from('published').map((transition) => `${transition.event}→${transition.to}`)).toEqual(['invalidate→stale']);
-    for (const terminal of ['failed', 'stale', 'cancelled'] as const) expect(unitMachine.from(terminal)).toEqual([]);
+    for (const terminal of ['failed', 'stale', 'cancelled', 'skipped'] as const) expect(unitMachine.from(terminal)).toEqual([]);
   });
 
   test('every worker step names its generation as well as its token, and no lease token is reused', () => {
@@ -294,7 +296,7 @@ describe('unit machine: the properties decision 0027 states in prose', () => {
     // whatever generation stands, and the run's own sweep, which is no worker's step — it moves a
     // generation whose lease lapsed into its retry wait, and wakes a wait whose time has come.
     for (const transition of unitMachine.spec.transitions) {
-      if (['invalidate', 'cancel'].includes(transition.event)) {
+      if (['invalidate', 'cancel', 'skip'].includes(transition.event)) {
         expect(transition.guards).not.toContain('fence-current');
         continue;
       }
@@ -383,6 +385,7 @@ describe('unit machine: a disallowed step is refused with the guard that refused
     { what: 'a fail reports retries exhausted while retries remain', state: 'retry_wait', context: { ...held('retry_wait'), retriesLeft: 1 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'retries-exhausted' }, guard: 'fail-cause' },
     { what: 'a leased unit reports retries exhausted while retries remain', state: 'leased', context: { ...held('leased'), retriesLeft: 3 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'retries-exhausted' }, guard: 'fail-cause' },
     { what: 'a waiting parent reports retries exhausted while retries remain', state: 'waiting_children', context: { ...held('waiting_children'), retriesLeft: 2 }, event: { type: 'fail', at: 10, generation: 1, fence: 1, cause: 'retries-exhausted' }, guard: 'fail-cause', guards: ['fail-cause', 'cause-child-failed'] },
+    { what: 'a skip names no cause', state: 'running', context: held('running'), event: { type: 'skip', at: 10, cause: ' ' }, guard: 'skip-cause-named' },
   ];
 
   test.each(refusals.map((refusal) => [refusal.what, refusal] as const))('refused: %s', (_what, refusal) => {
@@ -475,6 +478,8 @@ interface RunExpectation {
 
 const RUN_EXPECTED: readonly RunExpectation[] = [
   { from: 'created', event: 'fail', to: 'failed', guards: ['initialization-failure-named'], actions: ['record-failure', 'emit-progress'] },
+  { from: 'created', event: 'fail', to: 'failed', cause: 'process-ended', guards: ['process-ended'], actions: ['record-failure', 'emit-progress'] },
+  ...(['planning', 'running', 'pausing', 'cancelling'] as const).map((from): RunExpectation => ({ from, event: 'fail', to: 'failed', cause: 'process-ended', guards: ['process-ended'], actions: ['record-failure', 'emit-progress'] })),
   { from: 'created', event: 'plan', to: 'planning', guards: ['configuration-resolved'], actions: ['snapshot-configuration', 'emit-progress'] },
   { from: 'planning', event: 'start', to: 'running', guards: ['stage-graph-resolved'], actions: ['close-planning-epoch', 'bump-planning-epoch', 'enqueue-stages', 'emit-progress'] },
   { from: 'planning', event: 'block', to: 'blocked', guards: ['starvation-path-named'], actions: ['record-starvation', 'emit-progress'] },
@@ -510,9 +515,11 @@ function runEventFor(expectation: RunExpectation): RunEvent {
     case 'complete': return { type: 'complete', at, evidence: settled };
     case 'complete-partial': return { type: 'complete-partial', at, evidence: { ...settled, coverageMet: false } };
     case 'block': return { type: 'block', at, starvationPath: 'synthesis → claims → inventory (disabled)' };
-    case 'fail': return expectation.from === 'created'
-      ? { type: 'fail', at, cause: 'initialization-failed', detail: 'the product manifest could not be loaded' }
-      : { type: 'fail', at, cause: 'budget-exhausted', detail: 'the run spent its token budget' };
+    case 'fail': return expectation.cause === 'process-ended'
+      ? { type: 'fail', at, cause: 'process-ended', detail: 'the process that ran it ended' }
+      : expectation.from === 'created'
+        ? { type: 'fail', at, cause: 'initialization-failed', detail: 'the product manifest could not be loaded' }
+        : { type: 'fail', at, cause: 'budget-exhausted', detail: 'the run spent its token budget' };
     case 'pause': return { type: 'pause', at };
     case 'drain': return { type: 'drain', at, evidence: settled };
     case 'resume': return { type: 'resume', at };
@@ -538,7 +545,8 @@ describe('run machine: every allowed transition, from decision 0027', () => {
       if (!result.ok) return;
       expect(result.state).toBe(expectation.to);
       const declared = runMachine.spec.transitions.find((transition) => transition.from === expectation.from
-        && transition.event === expectation.event && transition.to === expectation.to);
+        && transition.event === expectation.event && transition.to === expectation.to
+        && transition.guards.length === expectation.guards.length && transition.guards.every((guard, at) => guard === expectation.guards[at]));
       expect(declared?.guards).toEqual(expectation.guards);
       expect(declared?.actions).toEqual(expectation.actions);
       expect(result.effects).toEqual(expectation.actions.filter((name) => runMachine.spec.actions[name]!.kind === 'effect'));
@@ -637,6 +645,19 @@ describe('run machine: every allowed transition, from decision 0027', () => {
       expect(result.refusal.guard).toBe(criterion.guard);
       expect(result.refusal.reason).toContain(`guard "${criterion.guard}"`);
     }
+  });
+});
+
+
+describe('the public state machines every reader maps through', () => {
+  test('every persisted run state has one public phase, and only the final phases are final', () => {
+    expect(RUN_STATES.map(runPhaseOf)).toEqual(['queued', 'queued', 'running', 'running', 'paused', 'running', 'stopped', 'succeeded', 'partial', 'failed', 'failed']);
+    expect(RUN_PHASES.filter(isFinalRunPhase)).toEqual(['succeeded', 'partial', 'failed', 'stopped']);
+  });
+
+  test('every persisted unit state has one public phase, with no waiting or blocked state final', () => {
+    expect(UNIT_STATES.map(unitPhaseOf)).toEqual(['waiting', 'waiting', 'running', 'running', 'running', 'running', 'done', 'waiting', 'waiting', 'waiting', 'failed', 'skipped', 'cancelled', 'skipped']);
+    expect(UNIT_PHASES.filter(isFinalUnitPhase)).toEqual(['done', 'failed', 'skipped', 'cancelled']);
   });
 });
 

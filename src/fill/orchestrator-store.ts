@@ -1127,7 +1127,7 @@ const PROGRESS_KINDS = [
   'stage-found-nothing', 'stage-planned', 'kind-abstained',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
-  'unit-stale', 'unit-inherited', 'unit-cancelled', 'unit-requeued', 'unit-refused', 'run-waiting',
+  'unit-stale', 'unit-inherited', 'unit-cancelled', 'unit-skipped', 'unit-requeued', 'unit-refused', 'run-waiting',
 ] as const;
 export type ProgressKind = (typeof PROGRESS_KINDS)[number];
 

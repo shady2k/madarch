@@ -95,6 +95,8 @@ export interface FillState {
    * `stopped` is a person's stop: the run ended now, and the pages it had rewritten stay as they are.
    */
   state: 'idle' | 'running' | 'paused' | 'stopped' | 'done' | 'failed';
+  /** The run's public phase from the one fill machine; absent at idle. */
+  runPhase?: 'queued' | 'running' | 'paused' | 'succeeded' | 'partial' | 'failed' | 'stopped';
   /** The repository being read. */
   repository?: string;
   /** Commits read of the commits to read, in the repository being read. */

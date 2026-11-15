@@ -49,7 +49,7 @@ test('named run keeps generations after replacement and derives real facts, grou
     await tx.query("INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ('terms-unit', 1, 'fixture', 7, 1500)");
   });
   const detail = await readFillRunDetail(owner, 'history', { now: 2000 });
-  expect(detail).toMatchObject({ records: 7, publishedUnits: 1, elapsedMs: 1000, remainingMs: 1000, groups: [{ kind: 'doc.term', group: 'docs', plugin: 'terms', done: 1, total: 1, state: 'published' }] });
+  expect(detail).toMatchObject({ records: 7, publishedUnits: 1, elapsedMs: 1000, remainingMs: 1000, phase: 'running', final: false, groups: [{ kind: 'doc.term', group: 'docs', plugin: 'terms', done: 1, total: 1, state: 'published', phase: 'done' }] });
   // A subsequent generation owns the unit's current pointer. History still reads this run's generation.
   await owner.transaction('write', async (tx) => {
     await tx.query("INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at) SELECT unit_id, 2, 'newer', 'planned', inputs_digest, fence, context, NULL, NULL, 3000 FROM fill_unit_generation WHERE unit_id = 'terms-unit' AND generation = 1");
@@ -105,7 +105,7 @@ test('paused Stop after worker exit uses canonical cancellation without loading 
   const detail = await readFillRunDetail(owner, 'paused-run', { now: Date.now() });
   expect(detail?.events.map((event) => event.type)).toContain('run-cancelled');
   expect(detail?.remainingMs).toBeNull();
-  expect(detail?.groups[0]?.state).toBe('cancelled');
+  expect(detail).toMatchObject({ phase: 'stopped', final: true, groups: [{ state: 'cancelled', phase: 'cancelled' }] });
 });
 
 test('initialization failure settles a precreated request and writes the end awaited by the API', async () => {

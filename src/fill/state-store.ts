@@ -74,7 +74,11 @@ import type {
 export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
 
 /** The tables this store owns, named in operation failures. */
-export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
+export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_run_lease', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
+
+/** The run owner's heartbeat and the point at which another start may take its run. */
+export const RUN_HEARTBEAT_MS = 5_000;
+export const RUN_LEASE_TTL_MS = 30_000;
 
 /** The store's own step ids: no machine declares them, and their prefix keeps them apart from the tables'. */
 export const FILL_STORE_STEPS = {
@@ -88,7 +92,7 @@ export const FILL_STORE_STEPS = {
  * and the run that spent its attempts has ended. A published generation is replaced only when its cache key moved
  * (`replaceStaleGeneration`), and a generation of a run that has not ended is another run's, not a retry.
  */
-export const RETRYABLE_UNIT_STATES: readonly UnitState[] = ['failed', 'blocked', 'cancelled'];
+export const RETRYABLE_UNIT_STATES: readonly UnitState[] = ['failed', 'blocked', 'cancelled', 'skipped'];
 
 /** Verifies that store preparation installed the fill state schema. */
 export async function createFillStateSchema(database: FillStateDatabase): Promise<void> {
@@ -208,7 +212,10 @@ function requireRunContext(value: unknown, runId: string): RunContext {
   if (stored === null || typeof stored !== 'object') raise(`table fill_run, row ${runId}: the context is not an object`);
   if (!isInteger(stored.planningEpoch) || stored.planningEpoch < 0) raise(`table fill_run, row ${runId}: planningEpoch is not a whole number of epochs`);
   if (typeof stored.planningClosed !== 'boolean') raise(`table fill_run, row ${runId}: planningClosed is not a boolean`);
-  return { planningEpoch: stored.planningEpoch, planningClosed: stored.planningClosed, ...(stored.selection === undefined ? {} : { selection: stored.selection }) };
+  if (stored.owner !== undefined && stored.owner !== null) {
+    if (typeof stored.owner !== 'object' || typeof (stored.owner as { token?: unknown }).token !== 'string' || typeof (stored.owner as { pid?: unknown }).pid !== 'number') raise(`table fill_run, row ${runId}: owner is neither null nor { token, pid }`);
+  }
+  return { planningEpoch: stored.planningEpoch, planningClosed: stored.planningClosed, ...(stored.owner === undefined ? {} : { owner: stored.owner as import('./fsm.js').RunOwner | null }), ...(stored.selection === undefined ? {} : { selection: stored.selection }) };
 }
 
 function requireUnitContext(value: unknown, key: string, generation: number, fence: number): UnitContext {
@@ -218,6 +225,7 @@ function requireUnitContext(value: unknown, key: string, generation: number, fen
   if (!isInteger(stored.retriesLeft) || stored.retriesLeft < 0) raise(`table fill_unit_generation, row ${key}: retriesLeft is not a whole number of retries`);
   if (stored.retryAt !== null && typeof stored.retryAt !== 'number') raise(`table fill_unit_generation, row ${key}: retryAt is neither null nor epoch milliseconds`);
   if (stored.replacedBy !== null && !isInteger(stored.replacedBy)) raise(`table fill_unit_generation, row ${key}: replacedBy is neither null nor a generation number`);
+  if (stored.skippedBecause !== undefined && stored.skippedBecause !== null && typeof stored.skippedBecause !== 'string') raise(`table fill_unit_generation, row ${key}: skippedBecause is neither null nor a string`);
   if (!isInteger(fence) || fence < 0) raise(`table fill_unit_generation, row ${key}: fence is not a whole fencing token`);
   // The columns are the authority for the generation and its fencing token; the JSON carries the rest.
   return {
@@ -227,6 +235,7 @@ function requireUnitContext(value: unknown, key: string, generation: number, fen
     retriesLeft: stored.retriesLeft,
     retryAt: stored.retryAt ?? null,
     replacedBy: stored.replacedBy ?? null,
+    skippedBecause: stored.skippedBecause ?? null,
   };
 }
 
@@ -328,9 +337,9 @@ export async function advanceChain(database: FillStateDatabase, options: { reado
 }
 
 /** Creates one run in `created`. */
-export async function createRun(database: FillStateDatabase, options: { readonly runId: string; readonly product: string; readonly at: number; readonly selection?: import('./fsm.js').RunSelection }): Promise<RunRecord> {
+export async function createRun(database: FillStateDatabase, options: { readonly runId: string; readonly product: string; readonly at: number; readonly selection?: import('./fsm.js').RunSelection; readonly owner?: import('./fsm.js').RunOwner | null }): Promise<RunRecord> {
   const at = here();
-  const context = { ...newRunContext(), ...(options.selection === undefined ? {} : { selection: options.selection }) };
+  const context = { ...newRunContext(options.owner), ...(options.selection === undefined ? {} : { selection: options.selection }) };
   return run(at, database, `createRun(${options.runId})`, ['fill_run'], async (executor) => {
     await executor.query(
       'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
@@ -410,6 +419,54 @@ export async function readRun(database: FillStateDatabase, runId: string): Promi
  * are two runs, and the answer is still one of them, never an arbitrary one of
  * two reads.
  */
+/** One run lease: the process identity that owns the run, and when that ownership lapses. */
+export interface RunLeaseRecord {
+  readonly runId: string;
+  readonly ownerToken: string;
+  readonly ownerPid: number;
+  readonly heartbeatAt: number;
+  readonly expiresAt: number;
+}
+
+/** The run's lease, or null when no owner has claimed it. */
+export async function readRunLease(database: FillStateDatabase, runId: string): Promise<RunLeaseRecord | null> {
+  return await run(here(), database, `readRunLease(${runId})`, ['fill_run_lease'], async (executor) => {
+    const { rows } = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>('SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1', [runId]);
+    const row = rows[0];
+    return row === undefined ? null : { runId: row.run_id, ownerToken: row.owner_token, ownerPid: Number(row.owner_pid), heartbeatAt: millis(row.heartbeat_at), expiresAt: millis(row.expires_at) };
+  }, 'snapshot');
+}
+
+/**
+ * Claims a run's lease. The same owner renews its own lease; a different owner
+ * may claim only after the lease has expired. The row lock makes the claim and
+ * any planning step that names the lease one fence: a live planner renewing it
+ * wins, and a recovery that finds it live writes nothing.
+ */
+export async function claimRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly ownerPid: number; readonly at: number; readonly ttlMs?: number }): Promise<RunLeaseRecord | null> {
+  return await run(here(), database, `claimRunLease(${options.runId})`, ['fill_run_lease', 'fill_run'], async (executor) => {
+    const { rows } = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>('SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE', [options.runId]);
+    const current = rows[0];
+    const ttl = options.ttlMs ?? RUN_LEASE_TTL_MS;
+    if (current !== undefined && current.owner_token !== options.ownerToken && millis(current.expires_at) > options.at) return null;
+    const expiresAt = options.at + ttl;
+    if (current === undefined) {
+      await executor.query('INSERT INTO fill_run_lease (run_id, owner_token, owner_pid, heartbeat_at, expires_at) VALUES ($1, $2, $3, $4, $5)', [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
+    } else {
+      await executor.query('UPDATE fill_run_lease SET owner_token = $2, owner_pid = $3, heartbeat_at = $4, expires_at = $5 WHERE run_id = $1', [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
+    }
+    return { runId: options.runId, ownerToken: options.ownerToken, ownerPid: options.ownerPid, heartbeatAt: options.at, expiresAt };
+  }, 'write');
+}
+
+/** Renews a lease only for the token that holds it; false when another owner or no lease stands. */
+export async function renewRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly at: number; readonly ttlMs?: number }): Promise<boolean> {
+  return await run(here(), database, `renewRunLease(${options.runId})`, ['fill_run_lease'], async (executor) => {
+    const { rows } = await executor.query<{ run_id: string }>('UPDATE fill_run_lease SET heartbeat_at = $3, expires_at = $4 WHERE run_id = $1 AND owner_token = $2 RETURNING run_id', [options.runId, options.ownerToken, options.at, options.at + (options.ttlMs ?? RUN_LEASE_TTL_MS)]);
+    return rows.length > 0;
+  }, 'write');
+}
+
 export async function readLatestRun(database: FillStateDatabase, product: string): Promise<RunRecord | null> {
   const at = here();
   return run(at, database, `readLatestRun(${product})`, ['fill_run'], async (executor) => {
