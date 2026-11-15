@@ -62,6 +62,25 @@ sections:
         - { label: { en: Commits, ru: Коммитов }, path: commitCount, format: number }
         - { label: { en: Repository, ru: Репозиторий }, path: repository }
         - { label: { en: Folder, ru: Папка }, path: directory }
+  - id: languages
+    component: table
+    title: { en: Language opinions, ru: Мнения о языке }
+    query: |
+      languageOpinions {
+        value
+        producer
+        version
+        lang
+        statedAt
+      }
+    params:
+      path: .
+      emptyText: { en: No producer states a language for this file, ru: Ни один источник не называет язык этого файла }
+      columns:
+        - { label: { en: Language, ru: Язык }, path: value }
+        - { label: { en: Stated by, ru: Назвал }, path: producer }
+        - { label: { en: Version, ru: Версия }, path: version }
+        - { label: { en: Stated, ru: Заявлено }, path: statedAt, format: date }
   - id: latest
     component: facts
     on: root

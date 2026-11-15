@@ -25,10 +25,25 @@ export function TabsSection({ context, sections }: { readonly context: SectionCo
       ?? '';
     return { title, ids };
   }).filter((tab) => tab.ids.length > 0);
-  const [active, setActive] = useState(tabs[0]?.title ?? '');
-  const held = tabs.find((tab) => tab.title === active) ?? tabs[0];
+  // The tab a reader left a page on is the tab it opens with: the page's own address names the memory, and the first
+  // section of a tab is what is remembered (a title changes with the language, a section id does not).
+  const memory = (): string => {
+    try { return window.localStorage.getItem(`madarch-wiki-tab:${window.location.pathname}${window.location.search}`) ?? ''; } catch { return ''; }
+  };
+  const firstIds = tabs.map((tab) => tab.ids[0] ?? '');
+  const [active, setActive] = useState<string>(() => {
+    const remembered = memory();
+    return firstIds.includes(remembered) ? remembered : (firstIds[0] ?? '');
+  });
+  const held = tabs.find((tab) => (tab.ids[0] ?? '') === active) ?? tabs[0];
+  const choose = (title: string): void => {
+    const picked = tabs.find((tab) => tab.title === title);
+    const id = picked?.ids[0] ?? '';
+    setActive(id);
+    try { window.localStorage.setItem(`madarch-wiki-tab:${window.location.pathname}${window.location.search}`, id); } catch { /* no storage */ }
+  };
   return (
-    <Tabs value={held?.title ?? ''} onValueChange={setActive}>
+    <Tabs value={held?.title ?? ''} onValueChange={choose}>
       <TabsList aria-label={titleIn(context.section.title, context.language) ?? context.section.id}>
         {tabs.map((tab) => <TabsTrigger key={tab.title} value={tab.title}>{tab.title}</TabsTrigger>)}
       </TabsList>
