@@ -21,8 +21,8 @@ import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, T
 import { InlineCode } from './ui/inline-content.js';
 import { agentStateNote, agentUsable } from './agent-words.js';
 import {
-  CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
-  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer,
+  CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, startFillSelection, useCommandRead,
+  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { PluginNames } from './plugin-names.js';
@@ -48,7 +48,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   // saved agent stands, else plugins-only: the agents are always visible, and no agent spend happens without a pick.
   const [picked, setPicked] = useState<string | null>(null);
   const lastVars = useRef(`${String(context.variables['kinds'] ?? '')}\u0000${String(context.variables['pluginsOnly'] ?? '')}`);
-  const [cap, setCap] = useState('');
+  // The token cap as typed: `null` until the person changes the product's default, which the field offers.
+  const [cap, setCap] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const key = requested.join(',');
@@ -60,16 +61,20 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const planRead = useCommandRead<{ plan: FillPlanView }>(`prepare-plan:${key}:${String(pluginsOnly)}`, (signal) => readFillPlan(base, requested, signal, pluginsOnly), requested.length > 0);
   const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('prepare-product', (signal) => readProduct(base, signal));
   const status = useCommandRead<FillStatusAnswer>('prepare-status', (signal) => readFillStatus(base, signal));
+  const settings = useCommandRead<ProductSettingsAnswer>('prepare-settings', (signal) => readProductSettings(base, signal));
   const plan = planRead.data?.plan;
   const needsAgent = plan?.needsAgent ?? [];
   const requiresAgent = needsAgent.length > 0;
   const errors = plan?.errors ?? [];
   const skipped = plan?.skipped ?? [];
   const runnable = (plan?.order.length ?? 0) > 0;
-  const capChosen = !pluginsOnly && requiresAgent && agent !== null;
-  const capRequired = capChosen && cap.trim() === '';
-  const capInvalid = cap.trim() !== '' && !(Number.isSafeInteger(Number(cap)) && Number(cap) > 0);
-  const validCap = !capRequired && !capInvalid;
+  // The product's default cap fills the field until the person types another (madarch-64o5.90): an empty field is the
+  // default, never a refusal, and a typed cap is this run's alone.
+  const defaultCap = settings.data?.tokenCap ?? null;
+  const capText = cap ?? (defaultCap === null ? '' : String(defaultCap));
+  const capNumber = capText.trim() === '' ? null : Number(capText);
+  const capInvalid = capText.trim() !== '' && !(capNumber !== null && Number.isSafeInteger(capNumber) && capNumber > 0);
+  const validCap = !capInvalid;
   const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null);
 
   // A link with another selection or mode, or the back button, starts the panel from that address again.
@@ -97,7 +102,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     startFillSelection(base, {
       selected: plan.requestedKinds.length > 0 ? plan.requestedKinds : requested,
       agent: pluginsOnly || !requiresAgent ? null : agent,
-      tokenCap: pluginsOnly || !requiresAgent || cap.trim() === '' ? null : Number(cap),
+      tokenCap: pluginsOnly || !requiresAgent ? null : capNumber,
       pluginsOnly,
     }).then(
       (answer) => { setBusy(false); context.open(runAddress(answer.runId)); },
@@ -211,14 +216,14 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
               <FieldLabel className="grid gap-1 text-small">{t('prepare.cap')}
-                <Input data-testid="prepare-cap" type="number" min={1} step={1} value={cap} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
+                <Input data-testid="prepare-cap" type="number" min={1} step={1} value={capText} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
             </Stack>
           ) : null}
           {!pluginsOnly && requiresAgent && choices.data?.choices.model?.current !== null && choices.data?.choices.model?.current !== undefined ? <Paragraph className="mt-2 text-small text-muted">{t('prepare.model', { model: choices.data.choices.model.current })}</Paragraph> : null}
           {!pluginsOnly && requiresAgent ? <Paragraph className="mt-2 text-small text-muted" data-testid="prepare-cap-note">{t('prepare.capNote')}</Paragraph> : null}
-          {capRequired ? <Paragraph role="alert" className="mt-2 text-small" data-testid="prepare-cap-required">{t('prepare.capRequired')}</Paragraph> : null}
-          {capInvalid ? <Paragraph role="alert" className="mt-2 text-small">{t('prepare.invalidCap')}</Paragraph> : null}
+          {!pluginsOnly && requiresAgent && capNumber === null && defaultCap !== null ? <Paragraph className="mt-1 text-small text-muted" data-testid="prepare-cap-default">{t('prepare.capDefault', { cap: new Intl.NumberFormat(language).format(defaultCap) })}</Paragraph> : null}
+          {capInvalid ? <Paragraph role="alert" className="mt-2 text-small" data-testid="prepare-invalid-cap">{t('prepare.invalidCap')}</Paragraph> : null}
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">

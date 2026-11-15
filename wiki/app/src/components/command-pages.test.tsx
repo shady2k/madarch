@@ -113,6 +113,7 @@ beforeEach(async () => {
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
     if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
+    if (url.pathname.endsWith('/api/product-settings')) return answer(url.pathname, { tokenCap: 200_000 });
     if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
     if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
     if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
@@ -228,12 +229,14 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
     expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
     expect(page.container.textContent).toContain('Модель: opus');
-    // The server needs a positive cap for agent work: the form says so and holds the press until it has one.
-    expect(page.container.querySelector('[data-testid="prepare-cap-required"]')).not.toBeNull();
-    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
+    // The cap offers the product's default (madarch-64o5.90), and an empty field runs under it rather than blocking.
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
-    await act(async () => { type(cap, '1000'); });
+    expect(cap.value).toBe('200000');
+    expect(page.container.querySelector('[data-testid="prepare-cap-default"]')).toBeNull();
+    await act(async () => { type(cap, ''); });
+    expect(page.container.querySelector('[data-testid="prepare-cap-default"]')?.textContent).toContain('200');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { type(cap, '1000'); });
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
@@ -267,8 +270,6 @@ test('a server refusal is shown in the reader\'s language by its code', async ()
   try {
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
     await settle();
-    const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
-    await act(async () => { type(cap, '1000'); });
     fillSelectionFailure = { status: 409, body: { error: { message: 'this fill runs the agent claude-code, and a token cap is required', code: 'fill/token-cap' } } };
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();

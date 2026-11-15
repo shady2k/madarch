@@ -139,6 +139,8 @@ export interface ProductSettingsAnswer {
     readonly maxDomains: number;
     readonly editorialRequestsPerPage: number;
   };
+  /** The cap a fill runs under when the person names none (madarch-64o5.90). */
+  readonly tokenCap: number;
   readonly danger?: unknown;
   readonly dangerError?: string;
   readonly busy: boolean;
@@ -364,7 +366,7 @@ export const chooseModelRole = (base: string, role: string, agent: string | null
 export const readProductSettings = (base: string, signal?: AbortSignal): Promise<ProductSettingsAnswer> => command(base, '/api/product-settings', signal === undefined ? {} : { signal });
 
 /** Saves the settings the retained route takes: the pages' language, the agent's model and reasoning, the editorial bound. */
-export const saveProductSettings = (base: string, change: { readonly language?: string; readonly model?: string | null; readonly reasoning?: string | null; readonly editorialRequestsPerPage?: number }): Promise<ProductSettingsAnswer> =>
+export const saveProductSettings = (base: string, change: { readonly language?: string; readonly model?: string | null; readonly reasoning?: string | null; readonly editorialRequestsPerPage?: number; readonly tokenCap?: number }): Promise<ProductSettingsAnswer> =>
   command(base, '/api/product-settings', { method: 'POST', body: JSON.stringify(change) });
 
 /** `GET /api/settings`: the reader's own role on this machine. */

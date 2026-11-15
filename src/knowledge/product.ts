@@ -101,6 +101,12 @@ import { structureRevisionOf } from '../graph/graphql-execute.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
 
 /**
+ * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
+ * this is the product's default, editable in the product settings, and the prepare page offers it for one run.
+ */
+export const DEFAULT_TOKEN_CAP = 200_000;
+
+/**
  * What a manifest declares for the graph reader: the graph kinds its contract names, and the tables its own field
  * bindings build. No kind's name stands here: the manifest is the product's data and the reader reads it.
  */
@@ -864,17 +870,14 @@ export class KnowledgeProduct {
     // Plugins-only is the person's explicit choice: it runs the deterministic producers and leaves the agent's fields
     // unfilled. A press that names no agent and no plugins-only choice is the agent plan's to refuse or accept.
     const pluginsOnly = options.pluginsOnly === true || options.targets?.pluginsOnly === true;
+    // The cap this run spends under, when it runs an agent: the press's own, or the product's default (madarch-64o5.90).
+    let tokenCap: number | undefined;
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
-      // The plan is read before the adapter is resolved, so a press that chooses an agent and no cap is refused with the
-      // cap's own words: whenever the plan runs an agent unit, a positive cap is the person's to choose (madarch-64o5.63).
       const wantedAgent = options.agent === undefined ? this.chosenAgent()?.id ?? null : options.agent;
-      if (!pluginsOnly && wantedAgent !== null && options.tokenCap === undefined) {
-        const plannedUnderAgent = planManifestFill(read.manifest, product.folder, options.targets?.kinds, true, options.targets?.requested);
-        if (plannedUnderAgent.requiresAgent) {
-          return { started: false, message: `${read.manifest.file}:1: this fill runs the agent ${wantedAgent}, and a token cap is required: name a positive --token-cap <n> for the fill; the engine sets no cap of its own`, fill: this.fill };
-        }
-      }
+      // A press that names no cap runs under the product's default cap (madarch-64o5.90): 200 000 tokens at first, then
+      // whatever the product settings say. A cap named for this run is the run's own and is written nowhere.
+      tokenCap = pluginsOnly || wantedAgent === null || options.agent === null ? options.tokenCap : options.tokenCap ?? this.defaultTokenCap();
       const selectedAgent = pluginsOnly ? undefined : options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
       const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested, pluginsOnly);
       const files = workingTreeFiles(product.folder);
@@ -965,7 +968,7 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(pluginsOnly ? { pluginsOnly: true } : {}) } }) };
+    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(tokenCap === undefined ? {} : { tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(pluginsOnly ? { pluginsOnly: true } : {}) } }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
@@ -1248,6 +1251,32 @@ export class KnowledgeProduct {
     return readAgentSettings(this.choiceFile());
   }
 
+  /**
+   * The token cap a fill runs under when the person names none (madarch-64o5.90): the product's own setting, 200 000
+   * at first. A cap named for one run is that run's and is written nowhere; this one is what the page offers.
+   */
+  private defaultTokenCap(): number {
+    const file = this.choiceFile();
+    const value = this.settingsRecord()['tokenCap'];
+    if (value === undefined) return DEFAULT_TOKEN_CAP;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw new Error(`${file}:1: tokenCap is the most tokens one fill may spend, a positive whole number; got ${JSON.stringify(value)}`);
+    }
+    return value;
+  }
+
+  /** Saves the default token cap: the cap the prepare page offers and a press without its own cap runs under. */
+  async setDefaultTokenCap(value: number): Promise<{ ok: true; value: number } | { ok: false; status: number; message: string }> {
+    const file = this.choiceFile();
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+      return { ok: false, status: 400, message: `${file}:1: tokenCap is the most tokens one fill may spend, a positive whole number; got ${JSON.stringify(value)}` };
+    }
+    const body = this.settingsRecord();
+    body.tokenCap = value;
+    await this.writeSettings(body);
+    return { ok: true, value };
+  }
+
   /** The most revision requests one page may receive in a pass: the stored setting, or the default when none is set. */
   private editorialRequestsPerPage(): number {
     const file = this.choiceFile();
@@ -1270,12 +1299,18 @@ export class KnowledgeProduct {
     }
     const body = this.settingsRecord();
     body.editorialRequestsPerPage = value;
+    await this.writeSettings(body);
+    return { ok: true, value };
+  }
+
+  /** Writes the product's settings file whole, the way every setting is stored: one file, one atomic rename. */
+  private async writeSettings(body: Record<string, unknown>): Promise<void> {
+    const file = this.choiceFile();
     await mkdir(dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
     await writeFile(temporary, `${JSON.stringify(body)}\n`, 'utf8');
     await rename(temporary, file);
     this.notify();
-    return { ok: true, value };
   }
 
   /**
@@ -1775,6 +1810,8 @@ export class KnowledgeProduct {
     /** The name every agent madarch offers is known by, so a page names an agent before it has read the agents (madarch-j6ho.2). */
     agentNames: Record<string, string>;
     bounds: WriterBounds;
+    /** The cap the prepare page offers and a press without its own cap runs under (madarch-64o5.90). */
+    tokenCap: number;
     danger: Awaited<ReturnType<KnowledgeProduct['dangerPlan']>>;
     /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
     dangerError?: string;
@@ -1800,6 +1837,8 @@ export class KnowledgeProduct {
       roles: this.modelRoles(),
       agentNames: Object.fromEntries(WRITER_AGENTS.map((id) => [id, adapterOf(id)?.label ?? id])),
       bounds: { ...WRITER_BOUNDS, editorialRequestsPerPage: this.editorialRequestsPerPage() },
+      /** The cap a fill runs under when the person names none (madarch-64o5.90). */
+      tokenCap: this.defaultTokenCap(),
       danger,
       ...(dangerError === undefined ? {} : { dangerError }),
       busy: this.running !== undefined,

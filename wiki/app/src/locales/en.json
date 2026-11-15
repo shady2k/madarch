@@ -1632,6 +1632,7 @@
     "nothing": "nothing",
     "cap": "Token cap",
     "capNote": "The cap counts the agent's tokens for this run. When it runs out, the run stops and leaves the rest unfilled.",
+    "capDefault": "Left empty, the field uses the product's default: up to {{cap}} tokens.",
     "model": "Model: {{model}}",
     "invalidCap": "Enter a positive whole-number token cap.",
     "capRequired": "Name a token cap: with an agent the run does not start without one.",
@@ -1779,6 +1780,14 @@
       "range": "{{from}}–{{to}} of {{total}}",
       "previous": "Previous",
       "next": "Next"
+    },
+    "fills": {
+      "title": "Fills",
+      "intro": "What one fill of this product may spend when the run names no bound of its own.",
+      "tokenCap": "Default token cap",
+      "tokenCapNote": "The prepare page offers this cap, and a run that names none spends up to {{cap}} tokens.",
+      "tokenCapInvalid": "The default token cap is a positive whole number of tokens.",
+      "save": "Save"
     }
   },
   "errors": {
