@@ -6,6 +6,7 @@
  *
  * Nothing here writes: an agent's write is its answer to the unit, which the fill publishes with its evidence.
  */
+import { parse, visit } from 'graphql';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { executeGraphql } from './graphql-execute.js';
 import { publishedManifestOf } from '../graphql/manifest.js';
@@ -69,6 +70,25 @@ function lineNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1;
 }
 
+/**
+ * The reader's page-layer roots: `bootstrap` hands out the product's page templates as the reader's own bundles
+ * (bodies read from files under `templates/`), and `templateFindings` names absolute files of this machine. The general
+ * GraphQL executor serves them for the wiki; the agent's server does not (owner's rule, 2026-11-15: the agent reads only
+ * the graph).
+ */
+const PAGE_ROOTS: readonly string[] = ['bootstrap', 'templateFindings'];
+
+/** Every field name a GraphQL operation mentions, or undefined when its text is no operation. */
+function fieldNames(text: string): Set<string> | undefined {
+  try {
+    const names = new Set<string>();
+    visit(parse(text), { Field: { enter: (node) => { names.add(node.name.value); } } });
+    return names;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Answers one of the agent's reads over the fill's own graph. */
 export async function callAgentGraphTool(source: AgentGraphSource, name: string, input: unknown): Promise<UnitToolAnswer> {
   try {
@@ -82,6 +102,11 @@ export async function callAgentGraphTool(source: AgentGraphSource, name: string,
     if (name === 'graph_query') {
       const query = args['query'];
       if (typeof query !== 'string' || query.trim() === '') return refused(`${WHERE}: "query" is the GraphQL operation text`);
+      const names = fieldNames(query);
+      if (names === undefined) return refused(`${WHERE}: "query" is not a GraphQL operation`);
+      for (const root of PAGE_ROOTS) {
+        if (names.has(root)) return refused(`${WHERE}: the agent reads only the graph, and ${root} is the reader's page layer: it reads the product's files and templates, which this server does not answer`);
+      }
       const variables = args['variables'];
       if (variables !== undefined && variables !== null && (typeof variables !== 'object' || Array.isArray(variables))) return refused(`${WHERE}: "variables" is an object of the operation's variables`);
       const operationName = args['operationName'];
