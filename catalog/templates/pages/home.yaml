@@ -26,6 +26,7 @@ sections:
   - id: firstRun
     component: first-run
     after: header
+    title: { en: First run, ru: Первый запуск }
   - id: repositories
     component: table
     on: root

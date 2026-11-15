@@ -24,7 +24,7 @@ import {
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation } from '../client.js';
-import { catalogueSelectionAddress, runAddress } from '../address.js';
+import { catalogueSelectionAddress, prepareAddress, runAddress } from '../address.js';
 import type { SectionContext } from './types.js';
 
 const labelOf = (navigation: Navigation | null, kind: string): string => navigation?.kinds.find((one) => one.kind === kind)?.many ?? kind;
@@ -33,7 +33,7 @@ function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | 
   return needs.map((need) => `${labelOf(navigation, need.kind)}${need.fields.length === 0 ? '' : ` (${need.fields.map((field) => fieldLabel(plan, need.kind, field, language)).join(', ')})`}`).join(' · ');
 }
 
-export function PrepareSection({ context }: { readonly context: SectionContext }): ReactElement {
+export function PrepareSection({ context, inline = false }: { readonly context: SectionContext; readonly inline?: boolean }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
   const navigation = context.navigation;
@@ -80,6 +80,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   }, [context.variables]);
 
   const sync = (only: boolean): void => {
+    // The first-run wizard stands inside the home page: its toggles belong to the page, not to a preparation address.
+    if (inline) return;
     const query = new URLSearchParams({ kinds: key });
     if (only) query.set('pluginsOnly', '1');
     try { window.history.replaceState({}, '', `${base}/p/prepare?${query.toString()}`); } catch { /* no history */ }
@@ -124,7 +126,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const added = new Map(plan.added.map((entry) => [entry.kind, entry.neededBy]));
   return (
     <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
-      {wizard ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro', { count: plan.selectedKinds.length })}</AlertDescription></Alert> : null}
+      {wizard && !inline ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro', { count: plan.selectedKinds.length })}</AlertDescription></Alert> : null}
       <Stack className="flex flex-wrap items-center justify-between gap-3">
         <Paragraph className="m-0 text-secondary">{t('prepare.intro')}</Paragraph>
         <TextLink href={base + catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)} onClick={(event) => { event.preventDefault(); context.open(catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)); }} data-testid="prepare-change">
@@ -156,6 +158,16 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       <Card data-testid="prepare-set">
         <CardHeader><CardTitle>{t('prepare.finalSet')}</CardTitle></CardHeader>
         <CardContent>
+          {inline ? (
+            // The home's guide states the size of the set and keeps the whole list one press away: the wizard there is
+            // for changing and starting, not for reading eighty kind rows before the first fill.
+            <Stack className="flex flex-wrap items-center gap-3" data-testid="prepare-inline-set">
+              <Paragraph className="m-0 text-secondary">{t('prepare.inlineSet', { count: plan.selectedKinds.length })}</Paragraph>
+              <Button variant="outline" size="default" onClick={() => context.open(prepareAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested, pluginsOnly, true))} data-testid="prepare-open-plan">
+                {t('prepare.openPlan')}
+              </Button>
+            </Stack>
+          ) : (
           <PlainList className="m-0 grid list-none gap-2 p-0">
             {plan.selectedKinds.map((kind, at) => {
               const filled = filledBy(planKindOf(plan, kind));
@@ -173,7 +185,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
               );
             })}
           </PlainList>
-          {skipped.length === 0 ? null : (
+          )}
+          {inline || skipped.length === 0 ? null : (
             <Stack className="mt-3 grid gap-2" data-testid="prepare-skipped">
               <Text className="text-small font-medium">{t('prepare.skippedTitle')}</Text>
               <PlainList className="m-0 list-none p-0">
@@ -196,7 +209,11 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
             <Text><Text className="block font-medium">{t('prepare.pluginsOnly')}</Text><Text className="block text-muted">{t('prepare.pluginsOnlyNote')}</Text></Text>
           </FieldLabel>
           {pluginsOnly ? (
-            <Alert className="mb-3" data-testid="prepare-unfilled"><AlertDescription>{t('prepare.unfilled', { what: unfilledWords(needsAgent, navigation, plan, language) || t('prepare.nothing') })}</AlertDescription></Alert>
+            <Alert className="mb-3" data-testid="prepare-unfilled">
+              <AlertDescription>{inline
+                ? t('prepare.unfilledInline', { count: needsAgent.length })
+                : t('prepare.unfilled', { what: unfilledWords(needsAgent, navigation, plan, language) || t('prepare.nothing') })}</AlertDescription>
+            </Alert>
           ) : null}
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
