@@ -102,12 +102,20 @@
       "noHistory": "Запусков ещё не было.",
       "selectionUnknown": "Выбор не сохранён",
       "count": "Опубликовано {{done}} из {{total}} единиц",
+      "count_one": "Опубликовано {{done}} из {{total}} единицы",
+      "count_few": "Опубликовано {{done}} из {{total}} единиц",
+      "count_many": "Опубликовано {{done}} из {{total}} единиц",
+      "count_other": "Опубликовано {{done}} из {{total}} единицы",
       "elapsed": "Прошло: {{seconds}} с",
       "remainingUnknown": "Осталось: пока неизвестно",
       "remaining": "Осталось примерно {{seconds}} с",
       "tokensUnknown": "Токены: не сообщены",
       "tokens": "Токены: {{input}} вход · {{output}} выход · {{total}} всего",
       "records": "Записано фактов: {{count}}",
+      "records_one": "Записано {{count}} факт",
+      "records_few": "Записано {{count}} факта",
+      "records_many": "Записано {{count}} фактов",
+      "records_other": "Записано {{count}} факта",
       "stopWords": "Остановить этот запуск? Уже записанные данные сохранятся.",
       "log": "Журнал запуска",
       "back": "Выбрать новое заполнение",
@@ -120,7 +128,44 @@
       },
       "logEmpty": "Пока ничего не произошло.",
       "failed": "Запуск завершился ошибкой.",
-      "event": {
+      "phase": {
+      "queued": "В очереди",
+      "running": "Выполняется",
+      "paused": "На паузе",
+      "succeeded": "Завершён",
+      "partial": "Частично завершён",
+      "failed": "Ошибка",
+      "stopped": "Остановлен",
+      "skipped": "Пропущено",
+      "waiting": "Ожидает",
+      "done": "Опубликовано",
+      "cancelled": "Отменено",
+      "skippedBecause": "Пропущено: не выполнилась единица {{unit}}",
+      "skippedBecauseRunEnded": "Пропущено: запуск завершился"
+    },
+    "final": {
+      "succeeded": "Все обязательные единицы опубликованы.",
+      "partial": "Запуск завершён, но часть единиц не опубликована.",
+      "failed": "Запуск завершился ошибкой.",
+      "stopped": "Запуск остановлен."
+    },
+    "next": {
+      "retry": "Исправьте причину и повторите заполнение.",
+      "retryAction": "Повторить заполнение"
+    },
+    "status": {
+      "queued": "Идёт",
+      "running": "Идёт",
+      "paused": "Пауза",
+      "succeeded": "Завершён",
+      "partial": "Частично",
+      "failed": "Не удалось",
+      "stopped": "Остановлен"
+    },
+    "endedAt": "завершён {{time}}",
+    "attention": "Запуск завершился не полностью",
+    "duration": "{{seconds}} с",
+    "event": {
         "planned": "Запуск спланирован.",
         "started": "Запуск начат.",
         "paused": "Запуск на паузе.",
@@ -1691,6 +1736,10 @@
     "back": "Все запуски",
     "took": "Заняло {{duration}}",
     "failedUnits": "{{count}} единиц не удалось",
+    "failedUnits_one": "{{count}} единица не удалась",
+    "failedUnits_few": "{{count}} единицы не удалось",
+    "failedUnits_many": "{{count}} единиц не удалось",
+    "failedUnits_other": "{{count}} единицы не удалось",
     "kinds": "Виды, которые просил этот прогон ({{count}})"
   },
   "fillKind": {

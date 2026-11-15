@@ -258,7 +258,7 @@ export interface SourcesAnswer {
 
 /** The product's fill state, as much as the fill page and its button read (`GET /api/status`). */
 export interface FillStatusAnswer {
-  readonly fill: { readonly state: string; readonly runId?: string };
+  readonly fill: { readonly state: string; readonly runPhase?: string; readonly runId?: string };
   readonly product?: { readonly name: string; readonly id: string };
   readonly repositories?: readonly { readonly name: string; readonly filled: boolean }[];
   /** Whether a fill ever succeeded on this product. */
@@ -275,6 +275,8 @@ export interface FillRunGroup {
   readonly done: number;
   readonly total: number;
   readonly state: string;
+  /** The unit's reader-facing state from the server's one machine. */
+  readonly phase: string;
 }
 
 /** One thing a run recorded, as the run's own sequence states it. */
@@ -291,6 +293,9 @@ export interface FillRunEvent {
 export interface FillRunDetail {
   readonly runId: string;
   readonly state: string;
+  /** The public run phase (queued, running, paused, succeeded, partial, failed, stopped). */
+  readonly phase: string;
+  readonly final: boolean;
   readonly startedAt: string;
   readonly updatedAt: string;
   readonly finishedAt: string | null;
@@ -300,7 +305,7 @@ export interface FillRunDetail {
   readonly order: readonly string[] | null;
   readonly vertex: string | null;
   readonly groups: readonly FillRunGroup[];
-  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly generation: number; readonly attempts: number }[];
+  readonly units: readonly { readonly unitId: string; readonly stage: string; readonly scope: string; readonly status: string; readonly phase: string; readonly skippedBecause?: string; readonly generation: number; readonly attempts: number }[];
   readonly events: readonly FillRunEvent[];
   readonly records: number;
   readonly publishedUnits: number;
