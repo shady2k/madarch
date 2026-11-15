@@ -290,6 +290,19 @@ test('64o5.60: a kind configuring a missing agent plugin is an error naming its 
   }]);
 });
 
+
+test('a plugins-only plan keeps the agent fields and runs the deterministic producers', () => {
+  const manifest = manifestOf([kind('File')], [plugin('index', [output('File', ['title'])]), general()]);
+  const full = planManifestFill(manifest, '/product', ['File'], true);
+  expect(full.agentNeeds).toEqual([{ kind: 'File', fields: ['description'] }]);
+  const only = planManifestFill(manifest, '/product', ['File'], true, undefined, true);
+  expect(only.pluginsOnly).toBe(true);
+  expect(only.order).toEqual(['index']);
+  expect(only.outputs.has('general')).toBe(false);
+  expect(only.agentNeeds).toEqual([{ kind: 'File', fields: ['description'] }]);
+  expect(only.errors).toEqual([]);
+});
+
 /** A KindsManifest whose kind declarations carry real field declarations (bindings included). */
 function manifestWithFields(catalogue: readonly { name: string; fields: readonly Record<string, unknown>[]; derivesFrom?: readonly string[] }[], declarations: ReturnType<typeof plugin>[]): KindsManifest {
   return {

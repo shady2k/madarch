@@ -1,0 +1,12 @@
+# The product's fill runs (the design change of madarch-64o5.71): the history is always reachable from the sidebar, and
+# a run's own page stays separate at `/p/run?run=<id>`.
+template: runs
+sections:
+  - id: header
+    component: header
+    title: { en: Runs, ru: Запуски }
+    params:
+      titlePath: label
+  - id: runs
+    component: runs
+    after: header

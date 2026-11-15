@@ -1,0 +1,18 @@
+# One fill run (decision 0036, section 7): its progress per kind and plugin, its result, the reader's pause and stop, and
+# its log. The run's id is bound from the address's `?run=` parameter, and the command component `run` reads it.
+template: run
+variables:
+  run:
+    type: String
+    required: true
+sections:
+  - id: header
+    component: header
+    title: { en: Fill run, ru: Запуск заполнения }
+    params:
+      titlePath: label
+  - id: run
+    component: run
+    after: header
+    params:
+      runVariable: run

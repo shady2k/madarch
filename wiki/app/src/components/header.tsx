@@ -10,7 +10,7 @@ import { Badge } from './ui/badge.js';
 import { PageBreadcrumb, type TrailCrumb } from './ui/breadcrumb.js';
 import { InlineGroup, Metadata, PageHeader, PageHeading, PageTitle } from './ui/typography.js';
 import { follow } from './relations.js';
-import { CATALOGUE_PAGE, entityAddress } from '../address.js';
+import { entityAddress, PAGE_ADDRESSES } from '../address.js';
 import type { SectionContext } from './types.js';
 
 interface TrailParams {
@@ -29,13 +29,15 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   const titlePath = typeof params['titlePath'] === 'string' ? params['titlePath'] : 'label';
   const kindPath = typeof params['kindPath'] === 'string' ? params['kindPath'] : undefined;
   const provenancePath = typeof params['provenancePath'] === 'string' ? params['provenancePath'] : undefined;
+  // The home page names the product itself: its files' name, which the top bar shows, not the home entity's page title.
+  const productTitle = params['productTitle'] === true ? context.product ?? context.navigation?.product ?? undefined : undefined;
   const kind = kindPath === undefined ? undefined : textOf(valueAt(context.data, kindPath));
   const provenance = provenancePath === undefined ? undefined : textOf(valueAt(context.data, provenancePath));
   const trail = trailOf(params['trail'], context);
   // A code page is its file: the label is the whole path, so the title is the name and the path stands muted under it.
   const path = trail === null ? '' : trail.path;
   const name = lastSegment(path);
-  const title = name ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
+  const title = productTitle ?? name ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
   const heading = <PageTitle data-testid="page-title">{title}</PageTitle>;
   return (
     <PageHeader data-testid="page-header">
@@ -66,10 +68,10 @@ function linkTo(context: SectionContext, address: string, label: string): TrailC
  */
 function crumbsOf(context: SectionContext, catalogue: string, title: string, kind: string | undefined, trail: Trail | null): TrailCrumb[] {
   if (context.pageName !== null) return [{ label: context.pageName }];
-  if (kind === CATALOGUE_KIND) return [linkTo(context, CATALOGUE_PAGE, catalogue), { label: title }];
+  if (kind === CATALOGUE_KIND) return [linkTo(context, PAGE_ADDRESSES.catalogue, catalogue), { label: title }];
   if (kind === undefined) return trail === null ? [{ label: title }] : trailCrumbs(trail);
   const held = context.navigation?.kinds.find((one) => one.kind === kind);
-  const address = held === undefined || held.entryId === null ? CATALOGUE_PAGE : entityAddress(CATALOGUE_KIND, held.entryId);
+  const address = held === undefined || held.entryId === null ? PAGE_ADDRESSES.catalogue : entityAddress(CATALOGUE_KIND, held.entryId);
   const head = linkTo(context, address, held?.many ?? kindWord(kind, context));
   return trail === null ? [head, { label: title }] : trailCrumbs(trail, head);
 }

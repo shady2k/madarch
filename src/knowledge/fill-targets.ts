@@ -72,7 +72,7 @@ function lineOf(manifest: KindsManifest, kind: string): number {
  * The set one request fills: the kinds asked for and every transitive prerequisite, in dependency order. The walk is deterministic — code point
  * order at every step — so two runs of one request plan the same units in the same order.
  */
-export function fillTargets(manifest: KindsManifest, requested: readonly string[]): FillTargetRead {
+export function fillTargets(manifest: KindsManifest, requested: readonly string[], pluginsOnly = false): FillTargetRead {
   const kinds = declared(manifest);
   const unknown = [...new Set(requested)].filter((kind) => !manifest.kinds.has(kind)).sort(byCodePoint);
   if (unknown.length > 0) {
@@ -83,7 +83,10 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
       message: `${manifest.file}:1: the fill asks for ${unknown.map((kind) => JSON.stringify(kind)).join(', ')}, and the product's manifest declares no such kind: it declares ${kinds.length === 0 ? 'none' : kinds.join(', ')}`,
     };
   }
-  const declarations = declarationsOf(manifest);
+  // A plugins-only press runs no agent: its reads are not prerequisites of this fill, and must not pull kinds the agent
+  // would read (a folder needs its repository, not the files an agent would scan).
+  const declaredPlugins = declarationsOf(manifest);
+  const declarations = pluginsOnly ? { ...declaredPlugins, plugins: declaredPlugins.plugins.filter((plugin) => plugin.manifest.agent === undefined) } : declaredPlugins;
   // The kinds the person asked for: an agent's fallback for any other kind is not planned, so its reads order nothing.
   const asked = new Set(requested);
   // A producer's earlier read of its own kind is its snapshot, not a prerequisite kind: it orders nothing new.
@@ -170,7 +173,7 @@ function dependencyOrdered(manifest: KindsManifest, set: readonly string[], depe
  * <kind>:<key values>` for one entity only. A vertex fill names its kind in the key's first leg; the key's shape is the
  * graph's own id form, `<kind>:<key values joined by /">`.
  */
-export function readFillTargets(manifest: KindsManifest, asked: { readonly entities?: readonly string[]; readonly vertex?: string }): FillTargetRead {
+export function readFillTargets(manifest: KindsManifest, asked: { readonly entities?: readonly string[]; readonly vertex?: string }, pluginsOnly = false): FillTargetRead {
   const entities = [...(asked.entities ?? [])].map((kind) => kind.trim()).filter((kind) => kind !== '');
   if (asked.vertex !== undefined) {
     if (entities.length > 0) return { ok: false, file: manifest.file, line: 1, message: `${manifest.file}:1: --vertex fills one entity and --entity fills kinds: give one or the other, not both` };
@@ -185,5 +188,5 @@ export function readFillTargets(manifest: KindsManifest, asked: { readonly entit
     return { ok: true, targets: { order: [kind], entries: [{ kind, reason: 'requested', namedBy: kind }], vertex } };
   }
   if (entities.length === 0) return { ok: false, file: manifest.file, line: 1, message: `${manifest.file}:1: --entity names at least one kind, or --vertex names one entity` };
-  return fillTargets(manifest, entities);
+  return fillTargets(manifest, entities, pluginsOnly);
 }

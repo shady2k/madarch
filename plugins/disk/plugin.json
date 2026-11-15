@@ -39,5 +39,9 @@
       "reads": []
     }
   ],
-  "concurrency": 1
+  "concurrency": 1,
+  "labels": {
+    "en": "File system",
+    "ru": "Файловая система"
+  }
 }

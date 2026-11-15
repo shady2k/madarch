@@ -47,6 +47,8 @@ export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { method: '*', path: '/api/fill-plan' },
   { method: '*', path: '/api/fill-selected' },
   { method: '*', path: '/api/fill-runs' },
+  { method: '*', path: '/api/problems' },
+  { method: '*', path: '/api/sources' },
   { method: '*', path: '/api/pause' },
   { method: '*', path: '/api/stop' },
   { method: '*', path: '/api/agents' },

@@ -28,11 +28,19 @@ test('a template bound to no entity is its own address, and its query parameters
   expect(page.unknown).toBe(false);
 });
 
-test('a section of the frame answers at its own template address', () => {
+test('the old fill address opens the catalogue in selection mode', () => {
   const section = parseAddress('/p/fill', '', '');
-  expect(section.frame).toBe('fill');
-  expect(section.page.template).toBeUndefined();
+  expect(section.frame).toBeNull();
+  expect(section.page.template).toBe('catalogue');
+  expect(section.page.params).toEqual({ select: '1' });
   expect(section.unknown).toBe(false);
+});
+
+test('a product template answers at its own name, and the kit stays a frame page', () => {
+  const catalogue = parseAddress('/p/catalogue', '', '');
+  expect(catalogue.frame).toBeNull();
+  expect(catalogue.page.template).toBe('catalogue');
+  expect(parseAddress('/p/kit', '', '').frame).toBe('kit');
 });
 
 test('a path that is no page of the app says so', () => {

@@ -3,30 +3,56 @@
  * template bound to no entity. A query parameter binds a variable the template declares, and `lang` and `role` are the
  * reader's own: they are passed to the page's operation, never stored in it.
  *
- * The frame's own sections — the catalogue, the glossary, the fill, the loop's problems, the sources and the product's
- * settings — stand at their own addresses. Their pages are not rebuilt yet, so each opens a page that says it is being
- * rebuilt: the frame came back first, and the pages follow one by one.
+ * The catalogue, the glossary, the problems, the sources, the product's settings, the runs and the preparation panel are
+ * product templates at their own addresses (`/p/catalogue`, `/p/glossary`, `/p/problems`, `/p/sources`, `/p/settings`,
+ * `/p/runs`, `/p/prepare`), and one fill run is another (`/p/run?run=<id>`). The kit is the frame's own placeholder.
  */
 import type { PageAddress } from '../../../src/page-contract/index.js';
 
 /**
- * The frame's sections, by the address each stands at. The app answers `/`, `/e/` and `/p/` (decision 0036, section 7),
- * so a section of the frame stands at a template address of its own name until its page is a template from the product.
+ * The frame's own sections, by the address each stands at. The app answers `/`, `/e/` and `/p/` (decision 0036, section
+ * 7); only the kit is still a frame page, and every other address is a template the product's files hold.
  */
 export const FRAME_PAGES = {
-  fill: '/p/fill',
-  problems: '/p/problems',
-  documents: '/p/documents',
-  settings: '/p/settings',
   kit: '/p/kit',
 } as const;
 
+/** Every page the frame's sidebar links to: the placeholder above and the product templates the frame draws. */
+export const PAGE_ADDRESSES = {
+  ...FRAME_PAGES,
+  catalogue: '/p/catalogue',
+  glossary: '/p/glossary',
+  problems: '/p/problems',
+  sources: '/p/sources',
+  settings: '/p/settings',
+  runs: '/p/runs',
+} as const;
+
+/** The runs page: the history of fills, always reachable, and the way to choose a new fill. */
+export const RUNS_PAGE = '/p/runs';
+
+/** The preparation panel for a set of kinds; `pluginsOnly` leaves the agent's fields unfilled. */
+export function prepareAddress(kinds: readonly string[], pluginsOnly = false, wizard = false): string {
+  const query = new URLSearchParams({ kinds: [...new Set(kinds)].sort().join(',') });
+  if (pluginsOnly) query.set('pluginsOnly', '1');
+  if (wizard) query.set('wizard', '1');
+  return `/p/prepare?${query.toString()}`;
+}
+
+/** The catalogue in selection mode with these kinds checked; the server adds their prerequisites. */
+export function catalogueSelectionAddress(kinds: readonly string[] = []): string {
+  const query = new URLSearchParams({ select: '1' });
+  if (kinds.length > 0) query.set('kinds', [...new Set(kinds)].sort().join(','));
+  return `/p/catalogue?${query.toString()}`;
+}
+
+/** One fill run's page, the `run` template with the run's id as its variable. */
+export function runAddress(runId: string): string {
+  return `/p/run?run=${encodeURIComponent(runId)}`;
+}
+
 /** One of the frame's own sections. */
 export type FramePage = keyof typeof FRAME_PAGES;
-
-/** The addresses of the whole catalogue and the glossary: product templates, named as the frame's rows name them. */
-export const CATALOGUE_PAGE = '/p/catalogue';
-export const GLOSSARY_PAGE = '/p/glossary';
 
 /** One address of the app, as the page is composed from it. */
 export interface AppAddress {
@@ -64,6 +90,8 @@ export function parseAddress(pathname: string, search: string, base: string): Ap
   if (path === '' || path === '/') return { page: { ...shared, home: true }, home: true, unknown: false, frame: null };
   const entity = /^\/e\/([^/]+)\/([^/]+)\/?$/u.exec(path);
   if (entity !== null) return { page: { ...shared, kind: decode(entity[1]!), id: decode(entity[2]!) }, home: false, unknown: false, frame: null };
+  // The old fill address opens the catalogue's selection mode: the separate fill list page is gone.
+  if (path === '/p/fill') return { page: { ...shared, template: 'catalogue', params: { ...params, select: '1' } }, home: false, unknown: false, frame: null };
   const template = /^\/p\/([^/]+)\/?$/u.exec(path);
   if (template !== null) {
     const name = decode(template[1]!);

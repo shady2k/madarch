@@ -35,7 +35,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>, ru
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, product: 'Madarch', navigation: null, pageName: null, ...runtime },
+      runtime: { base: '', language: 'en', busy: false, variables: {}, product: 'Madarch', navigation: null, pageName: null, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, ...runtime },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -57,7 +57,7 @@ const ID = '00000000-0000-0000-0000-00000000dead';
 const navigation = {
   product: 'Madarch',
   groups: [],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', group: null, count: 2, entryId: ID }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: null, count: 2, entryId: ID }],
   purposes: [],
 };
 

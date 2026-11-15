@@ -19,7 +19,9 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds', 'catalogue',
+  'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  // Command components (section 7): they call the command API and read what they show from the retained command reads.
+  'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
@@ -37,6 +39,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
       titlePath: { type: 'string' },
       kindPath: { type: 'string' },
       provenancePath: { type: 'string' },
+      /** The home page takes the product's own name from the frame, not the home entity's page title. */
+      productTitle: { type: 'boolean' },
       /** The way up: the field holding the repository and the field holding the path, whose folders the trail names. */
       trail: {
         type: 'object',
@@ -159,9 +163,16 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   },
   search: { parameters: { kinds: { type: 'array', items: { type: 'string' } } }, required: [] },
   /** What the graph holds of each kind, the fullest first, each row opening the kind's catalogue page. */
-  kinds: { parameters: {} , required: [] },
-  /** The product's catalogue: every kind by area and subgroup, with its word, its definition, its count and its taking. */
-  catalogue: { parameters: { path: { type: 'string' }, pageSize: { type: 'integer' } }, required: [] },
+  kinds: { parameters: {}, required: [] },
+  catalogue: { parameters: {}, required: [] },
+  prepare: { parameters: {}, required: [] },
+  runs: { parameters: {}, required: [] },
+  'first-run': { parameters: {}, required: [] },
+  'fill-kind': { parameters: { kindPath: { type: 'string' } }, required: ['kindPath'] },
+  run: { parameters: { runVariable: { type: 'string' } }, required: ['runVariable'] },
+  'problem-actions': { parameters: { path: { type: 'string' } }, required: ['path'] },
+  'settings-form': { parameters: { group: { type: 'string' } }, required: ['group'] },
+  sources: { parameters: {}, required: [] },
 };
 
 /** The parameters of one section, as a schema: the object the `params` node of a section is judged by. */

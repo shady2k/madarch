@@ -314,7 +314,7 @@ describe('the GraphQL executor', () => {
     expect(file.demoTouched.edges.map((edge: any) => edge.node.weight)).toEqual(['2', '10']);
   });
 
-  test('the starter catalogue template composes into one operation that reads the catalogue', async () => {
+  test('the starter catalogue template composes its header, and its kinds are the command read', async () => {
     const bootstrap: Bootstrap = {
       structureRevision: 'r',
       home: null,
@@ -324,12 +324,11 @@ describe('the GraphQL executor', () => {
     };
     const page = composePage(bootstrap, { template: 'catalogue' });
     expect(page.findings).toEqual([]);
+    // The header reads the product's name; the catalogue's kinds come from the command's navigation and plan reads.
+    expect(page.operation).toContain('s_header: home');
+    expect(page.operation).not.toContain('s_kinds');
     const data = await graphql(page.operation, page.variables);
-    // A root section's data is the value of its own root field: the table's path is the section's own data.
-    const kinds = data['s_kinds'] as Record<string, any>;
-    expect(kinds.totalCount).toBe(2);
-    expect(kinds.edges.map((edge: any) => edge.node.name).sort()).toEqual(['demo.file', 'demo.repository']);
-    expect(kinds.edges[0].node.label).toBeTruthy();
+    expect(data).toHaveProperty('s_header');
   });
 
   test('the bootstrap names the templates, the pages they open and the roles', async () => {

@@ -1343,9 +1343,8 @@ describe('madarch repo add', () => {
     expect(readProduct(draft.folder)).toMatchObject({ ok: true, product: { repos: [{ name: 'library', url }] } });
     // And the fill that reads that repository succeeds, run the same way — from the home, naming the product relatively.
     const fill = runCommand(['fill', '--product', relative, '--home', products], { MADARCH_HOME: home }, home);
-    expect(fill.stderr).toBe(process.env['MADARCH_PLUGIN_SANDBOX'] === 'off'
-      ? 'Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off; they can read and write everything the user can.\n'
-      : '');
+    // A run with the plugin sandbox switched off names that once per process; it is the harness's notice, not the command's.
+    expect(fill.stderr.split('\n').filter((line) => line !== '' && !line.startsWith('Plugins run unconfined because MADARCH_PLUGIN_SANDBOX=off')).join('\n')).toBe('');
     expect(fill.status).toBe(0);
     expect(fill.stdout).toContain('Fill ');
     expect(fill.stdout).toContain('Units: ');
