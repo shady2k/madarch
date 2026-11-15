@@ -385,3 +385,33 @@ test('the clean-install walk\'s fixture plans nothing: a fieldless kind with no 
   expect(plan.agentNeeds).toEqual([]);
   expect(plan.selectedKinds).toEqual(['code.file']);
 });
+
+test('an agent chosen fills a pulled-in dependency\'s agent-bound field too: Домены over Файлы with state_machines', () => {
+  // The owner's refusal (madarch-64o5.102): selecting Домены pulls in Файлы, whose state_machines only the agent fills.
+  // The agent is the filler of last resort for a dependency as much as for the asked kind, so the run starts.
+  const manifest = manifestOf([kind('File', ['title', 'state_machines']), kind('Domain', ['title'], ['File'])], [plugin('index', [output('File', ['title']), output('Domain', ['title'])]), general(['File'])]);
+  const plan = planManifestFill(manifest, '/product', ['Domain'], true, ['Domain']);
+  expect(plan.errors).toEqual([]);
+  expect([...plan.selectedKinds]).toContain('Domain');
+  // The dependency's agent-bound field is named among the unfilled, not refused and not silently planned.
+  expect(plan.skipped).toEqual([{ kind: 'File', fields: ['state_machines'], reason: 'the agent fills it, and this fill does not ask for this kind' }]);
+});
+
+test('a page that names its plan\'s kinds does not turn a pulled-in dependency into an asked one', () => {
+  // The prepare route passes the plan's kinds (Домены and the Файлы it pulls in); the person asked for Домены only.
+  const manifest = manifestOf([kind('File', ['title', 'state_machines']), kind('Domain', ['title'], ['File'])], [plugin('index', [output('File', ['title']), output('Domain', ['title'])]), general(['File'])]);
+  const plan = planManifestFill(manifest, '/product', ['Domain', 'File'], true, ['Domain']);
+  expect(plan.errors).toEqual([]);
+  expect(plan.skipped).toEqual([{ kind: 'File', fields: ['state_machines'], reason: 'the agent fills it, and this fill does not ask for this kind' }]);
+});
+
+test('a pulled-in kind still names a field bound to a plugin the manifest lacks', () => {
+  // A pull-in must not hide a manifest error: File.body binds to the absent plugin `missing` while the titles are filled.
+  const file = { ...kind('File', ['title', 'body']), file: '/product/kinds.yaml', line: 4 };
+  const manifest = manifestOf([file, kind('Domain', ['title'], ['File'])], [plugin('index', [output('File', ['title']), output('Domain', ['title'])]), general(['File'])]);
+  const bound = manifest.kinds.get('File') as unknown as { fields: { name: string; binding?: { kind: string; plugin?: string } }[] };
+  bound.fields = bound.fields.map((field) => field.name === 'body' ? { ...field, binding: { kind: 'plugin', plugin: 'missing' } } : field);
+  const plan = planManifestFill(manifest, '/product', ['File', 'Domain'], true, ['Domain']);
+  expect(plan.errors.map((error) => error.kind)).toEqual(['File']);
+  expect(plan.skipped).toEqual([]);
+});
