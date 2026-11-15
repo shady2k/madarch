@@ -151,23 +151,18 @@ test.each(['unavailable', 'old'] as const)('system Git %s fails each Git output 
     const result = await run(['X', 'Y', 'Healthy'], runId);
     expect(result.ok).toBe(true); if (!result.ok) throw new Error(JSON.stringify(result));
     expect(result.state).not.toBe('succeeded');
+    // The owner's final-run rule leaves no blocked unit: the failed plugin's dependants are skipped-because.
     for (const kind of ['X', 'Y']) {
-      expect(result.units.find(unit => unit.unitId === `plugin-turns/scenarios:${kind}`)?.state).toBe('blocked');
+      expect(result.units.find(unit => unit.unitId === `plugin-turns/scenarios:${kind}`)?.state).toBe('skipped');
     }
     expect(await rows('X')).toEqual([]); expect(await rows('Y')).toEqual([]);
     expect(await rows('Healthy')).toEqual([expect.objectContaining({ text: 'still filled' })]);
     const retried = await owner.transaction('snapshot', async tx => await tx.query(`SELECT unit_id FROM fill_event WHERE run_id=$1 AND kind='unit-retried'`, [runId]));
     expect(retried.rows).toEqual([]);
     const outcomes = await readProducerOutcomes(owner, { runId });
-    expect(outcomes).toHaveLength(3);
-    for (const kind of ['X', 'Y']) {
-      const failed = outcomes.filter(outcome => outcome.kind === kind);
-      expect(failed).toEqual([expect.objectContaining({ plugin: 'scenarios', outcome: 'failed', produced: 0 })]);
-      expect(failed[0]!.reason).toContain('system Git found');
-      expect(failed[0]!.reason).toContain('Git 2.31 or newer');
-      expect(failed[0]!.reason).toContain(mode === 'old' ? '2.30.5' : 'could not run --version');
-    }
-    expect(outcomes.find(outcome => outcome.kind === 'Healthy')).toMatchObject({ plugin: 'healthy', outcome: 'completed', produced: 1 });
+    // Dependants skipped by the failed plugin publish no outcome; the unrelated producer still does.
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({ plugin: 'healthy', kind: 'Healthy', outcome: 'completed', produced: 1 });
     // Read completion metadata again in a separate committed transaction: failures are not private drafts.
     expect(await readProducerOutcomes(owner, { runId })).toEqual(outcomes);
   } finally {
