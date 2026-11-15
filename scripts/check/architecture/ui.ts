@@ -8,8 +8,13 @@ export const RAW_UI_ELEMENTS = new Set([
   'button', 'input', 'select', 'option', 'optgroup', 'textarea', 'label', 'form',
   'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
   'details', 'summary', 'dialog', 'progress', 'meter',
+  // The kit covers every construct a page reads in (madarch-64o5.130): a page draws no heading, paragraph, list, link,
+  // code block, quote, figure or page region of its own, so no page can hold a second component for that job.
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'a', 'pre', 'code', 'strong', 'em',
+  'b', 'i', 'small', 'blockquote', 'figure', 'figcaption', 'article', 'section', 'header', 'footer', 'nav', 'aside',
+  'time', 'address', 'hr', 'q', 'cite', 'abbr', 'kbd', 'samp', 'var', 'mark', 'sub', 'sup',
 ]);
-export const UI_RULES = ['raw-ui-element', 'inline-style', 'styled-components', 'arbitrary-tailwind', 'local-styled-component', 'dialog-whole-scroll', 'sidebar-missing-icon', 'button-variant', 'button-disabled-reason'] as const;
+export const UI_RULES = ['raw-ui-element', 'inline-style', 'styled-components', 'arbitrary-tailwind', 'local-styled-component', 'dialog-whole-scroll', 'sidebar-missing-icon', 'button-variant', 'button-disabled-reason', 'kit-duplicate-export'] as const;
 export type UiRule = typeof UI_RULES[number];
 export interface UiDebt {
   readonly rule: UiRule;
@@ -22,8 +27,8 @@ export interface UiViolation extends UiDebt {
 export const UI_BASELINE = '.architecture/ui-violations.json';
 
 /** The kit's presses (madarch-64o5.127): one look, so a page passes none of the shape props the kit dropped. */
-export const CONTROL_NAMES = ['Button', 'IconButton', 'Toggle', 'SegmentedChoice', 'ShellMenuButton', 'ShellRoleButton', 'ShellLanguageButton'] as const;
-export const CONTROL_MODULES = /(?:^|\/)(?:components\/ui|ui)\/(?:button|toggle|segmented-choice|shell)\.js$/;
+export const CONTROL_NAMES = ['Button', 'IconButton', 'Toggle', 'SegmentedChoice'] as const;
+export const CONTROL_MODULES = /(?:^|\/)(?:components\/ui|ui)\/(?:button|toggle|segmented-choice)\.js$/;
 export const SHAPE_PROPS = ['variant', 'size', 'className'] as const;
 const compare = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 export const debtKey = (entry: UiDebt): string => JSON.stringify([entry.rule, entry.file, entry.subject]);
@@ -32,6 +37,47 @@ export function isUiSource(file: string): boolean {
   return file.startsWith('wiki/app/src/') && file.endsWith('.tsx') &&
     !file.startsWith('wiki/app/src/components/ui/') &&
     !/(?:^|\/)(?:__tests__|__fixtures__)\//.test(file) && !/\.(?:test|spec)\.tsx$/.test(file);
+}
+
+/** A kit component or value one file exports, with the line it is written on. */
+export interface KitExport {
+  readonly name: string;
+  readonly line: number;
+  readonly file: string;
+}
+
+/** The components and values one kit file exports: the names the kit offers a page. */
+export function kitExports(file: string, source: string): KitExport[] {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const found: KitExport[] = [];
+  const lineOf = (node: ts.Node): number => tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1;
+  for (const statement of tree.statements) {
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    if (!modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (ts.isFunctionDeclaration(statement) && statement.name) found.push({ name: statement.name.text, line: lineOf(statement), file });
+    else if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) found.push({ name: declaration.name.text, line: lineOf(declaration), file });
+    }
+  }
+  return found.sort((left, right) => compare(left.name, right.name) || left.line - right.line);
+}
+
+/**
+ * A kit name offered by two files is two components for one job (madarch-64o5.130): the first file in code point order
+ * keeps it, every later one is refused. The rule reads names, so a second component for a job under another name — a
+ * menu's button beside the button, a switch beside the toggle — is a review's to catch, not this rule's.
+ */
+export function kitDuplicateExports(sources: ReadonlyMap<string, string>): UiViolation[] {
+  const first = new Map<string, string>();
+  const found: UiViolation[] = [];
+  for (const file of [...sources.keys()].sort(compare)) {
+    for (const entry of kitExports(file, sources.get(file)!)) {
+      const owner = first.get(entry.name);
+      if (owner === undefined) first.set(entry.name, file);
+      else found.push({ rule: 'kit-duplicate-export', file, subject: entry.name, line: entry.line });
+    }
+  }
+  return found;
 }
 
 /**
@@ -179,17 +225,26 @@ export function uiViolations(file: string, source: string): UiViolation[] {
 
 export function scanUi(root: string): UiViolation[] {
   const found: UiViolation[] = [];
+  const kit = new Map<string, string>();
   function walk(directory: string): void {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) walk(path);
       else {
         const file = relative(root, path).split('\\').join('/');
-        if (isUiSource(file) || (file.startsWith('wiki/app/src/components/ui/') && file.endsWith('.tsx'))) found.push(...uiViolations(file, readFileSync(path, 'utf8')));
+        if (isUiSource(file)) found.push(...uiViolations(file, readFileSync(path, 'utf8')));
+        else if (file.startsWith('wiki/app/src/components/ui/') && file.endsWith('.tsx')) {
+          // A kit file is shown and checked as the kit's own; one name offered by two kit files is two components for
+          // one job (madarch-64o5.130), refused by `kitDuplicateExports` after every file is read.
+          const source = readFileSync(path, 'utf8');
+          kit.set(file, source);
+          found.push(...uiViolations(file, source));
+        }
       }
     }
   }
   walk(resolve(root, 'wiki/app/src'));
+  found.push(...kitDuplicateExports(kit));
   return found.sort((a, b) => compare(debtKey(a), debtKey(b)));
 }
 

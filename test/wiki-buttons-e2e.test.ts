@@ -211,10 +211,11 @@ run('one button on every page', () => {
       expect([...radii]).toEqual(['6px']);
       const widths = new Set(all.map((one) => one.border.split(' ').slice(0, 2).join(' ')));
       expect([...widths]).toEqual(['1px solid']);
+      // A square press is the icon button: no side padding, and 36 px on both sides; every other press pads 12 px.
       for (const one of all) {
-        const icon = one.label !== null && one.text === '';
-        expect(`${one.page} ${one.testid ?? one.text}: ${one.padding}`).toBe(`${one.page} ${one.testid ?? one.text}: ${icon ? '0px 0px 0px 0px' : '0px 12px 0px 12px'}`);
-        if (icon) expect(`${one.page} ${one.testid ?? one.text}: ${String(one.width)}`).toBe(`${one.page} ${one.testid ?? one.text}: 36`);
+        const square = Math.abs(one.width - one.height) < 0.5 && one.width <= 40;
+        expect(`${one.page} ${one.testid ?? one.text}: ${one.padding}`).toBe(`${one.page} ${one.testid ?? one.text}: ${square ? '0px 0px 0px 0px' : '0px 12px 0px 12px'}`);
+        if (square) expect(`${one.page} ${one.testid ?? one.text}: ${String(one.width)}`).toBe(`${one.page} ${one.testid ?? one.text}: 36`);
       }
       // The ground is the kit's, not a page's: one colour for the enabled presses of a theme, and the pressed choice's own.
       for (const theme of ['light', 'dark']) {

@@ -25,6 +25,11 @@ export function KitSection({ title, description, children, className }: KitConte
   </section>;
 }
 
+/** A bounded frame for the examples that fill their container: the shell's regions and the error screen. */
+export function KitFrame({ height, children }: { readonly height: 'short' | 'tall'; readonly children: ReactNode }) {
+  return <div className={cn('relative overflow-hidden rounded-[var(--radius-card)] border border-line', height === 'short' ? 'h-40' : 'h-80')}>{children}</div>;
+}
+
 export function KitState({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   const id = useId();
   return <div role="group" aria-labelledby={id} className={cn('grid min-w-0 max-w-full gap-3', className)}>

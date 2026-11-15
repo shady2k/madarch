@@ -8,12 +8,9 @@ export const PageSection = forwardRef<HTMLElement, HTMLAttributes<HTMLElement>>(
 export function PageHeader({ className, ...props }: HTMLAttributes<HTMLElement>) {
   return <header className={cn('mb-6', className)} {...props} />;
 }
-export function PageTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h1 className={cn('text-title', className)} {...props} />;
-}
-/** A page's title with the path it stands at under it: the title is the file's name, the path its quiet line. */
-export function PageHeading({ path, children, className, ...props }: HTMLAttributes<HTMLDivElement> & { readonly path?: string }) {
-  return <div className={cn('page-heading', className)} {...props}>{children}{path === undefined ? null : <Metadata className="page-path" data-testid="page-path">{path}</Metadata>}</div>;
+/** The page's one title: its words, and for a file page the path it stands at under them. */
+export function PageTitle({ path, className, ...props }: HTMLAttributes<HTMLHeadingElement> & { readonly path?: string }) {
+  return <><h1 className={cn('text-title', className)} {...props} />{path === undefined ? null : <Metadata className="page-path" data-testid="page-path">{path}</Metadata>}</>;
 }
 export function SectionTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return <h2 className={cn('text-h2', className)} {...props} />;
@@ -39,10 +36,6 @@ export const CodeFrame = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
   return <div ref={ref} className={cn('source-view overflow-hidden rounded-[var(--radius-card)] border border-line', className)} {...props} />;
 });
 export function Preformatted(props: HTMLAttributes<HTMLPreElement>) { return <pre {...props} />; }
-
-export function FileTitle(props: HTMLAttributes<HTMLHeadingElement>) {
-  return <h1 className="break-all font-mono text-h2" {...props} />;
-}
 
 export function TextLink({ className, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
   return <a className={cn('text-ink underline decoration-current underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2', className)} {...props} />;
@@ -70,4 +63,3 @@ export function Form({ className, ...props }: FormHTMLAttributes<HTMLFormElement
 export function FieldLabel(props: LabelHTMLAttributes<HTMLLabelElement>) { return <label {...props} />; }
 
 export function ContentsSidebar({ className, ...props }: HTMLAttributes<HTMLElement>) { return <aside className={cn('hidden wide:order-last wide:block wide:sticky wide:top-4 wide:max-h-[calc(100dvh-10rem)] wide:overflow-y-auto', className)} {...props} />; }
-export function ClippedLabel({ className, ...props }: HTMLAttributes<HTMLSpanElement>) { return <span className={cn('min-w-0 max-w-[12rem] truncate', className)} {...props} />; }

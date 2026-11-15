@@ -313,11 +313,13 @@ export function App(): ReactElement {
   // The graph could not be read at all, or the server cannot be reached: the frame says so instead of a page.
   if (bootstrap === null && (failure !== null || connection.offline)) {
     return (
-      <ShellError>
-        {connection.offline
-          ? <ConnectionBanner lastDataAt={lastDataAt} />
-          : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
-      </ShellError>
+      <Stack layout="shell">
+        <ShellError>
+          {connection.offline
+            ? <ConnectionBanner lastDataAt={lastDataAt} />
+            : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
+        </ShellError>
+      </Stack>
     );
   }
   // The first read: the frame stands with its shapes, and nothing of the product is drawn yet.

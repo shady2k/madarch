@@ -12,7 +12,7 @@ import { useRef, useState } from 'react';
 import { IconButton } from './ui/button.js';
 import { PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
-import { Metadata, Paragraph, SectionTitle, TextLink } from './ui/typography.js';
+import { Metadata, PageSection, Paragraph, SectionTitle, TextLink } from './ui/typography.js';
 import { at, localized } from './format.js';
 import { CommitLine, isCommit, type CommitNode } from './commit.js';
 import { entityHref, edgesOf, nextOf, totalOf } from './connection.js';
@@ -60,7 +60,7 @@ export function RelationsSection({ context }: { readonly context: SectionContext
   return (
     <>
       {drawn.map((group) => (
-        <section key={group.key} data-testid="relation-group" data-relation={group.key}>
+        <PageSection key={group.key} data-testid="relation-group" data-relation={group.key}>
           <SectionTitle>{`${group.word} · ${String(group.total ?? group.rows.length)}`}</SectionTitle>
           <Table>
             <TableHeader>
@@ -72,7 +72,7 @@ export function RelationsSection({ context }: { readonly context: SectionContext
               ))}
             </TableBody>
           </Table>
-        </section>
+        </PageSection>
       ))}
       {canPage ? (
         <PaginationBar>

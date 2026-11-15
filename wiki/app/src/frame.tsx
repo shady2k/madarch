@@ -16,14 +16,14 @@ import {
   NavigationLabel, NavigationLink, NavigationScroll, NavigationSection, NavigationSubheading, ProductButton,
 } from './components/ui/navigation.js';
 import {
-  ShellActions, ShellBrandMark, ShellLanguageButton, ShellMenuButton, ShellNavigationSheet, ShellPhoneOnly,
-  ShellProductLink, ShellProductMenu, ShellRoleButton, ShellRoleLabel, ShellToolbar,
+  ShellActions, ShellBrandMark, ShellNavigationSheet, ShellPhoneOnly, ShellProductLink, ShellProductMenu, ShellRoleLabel,
+  ShellToolbar,
 } from './components/ui/shell.js';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from './components/ui/dropdown-menu.js';
-import { IconButton } from './components/ui/button.js';
+import { Button, IconButton } from './components/ui/button.js';
 import { Input } from './components/ui/input.js';
 import { SearchContainer } from './components/ui/search-results.js';
 import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
@@ -209,10 +209,10 @@ function RoleMenu({ role, roles, onRole }: { readonly role: string; readonly rol
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <ShellRoleButton aria-label={t('knowledge.roles.menu')} title={t('knowledge.roles.menuTitle')} data-testid="role-menu">
+        <Button aria-label={t('knowledge.roles.menu')} title={t('knowledge.roles.menuTitle')} data-testid="role-menu">
           <UserRoundIcon aria-hidden="true" size={18} />
           <ShellRoleLabel>{role === 'everything' ? name('everything') : name(role)}</ShellRoleLabel>
-        </ShellRoleButton>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={7}>
         <DropdownMenuLabel>{t('knowledge.roles.menu')}</DropdownMenuLabel>
@@ -232,9 +232,9 @@ function LanguageMenu({ language, onLanguage }: { readonly language: 'en' | 'ru'
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <ShellLanguageButton label={t('navigation.language')} title={t('tooltips.language')}>
+        <IconButton label={t('navigation.language')} title={t('tooltips.language')}>
           <GlobeIcon aria-hidden="true" size={18} />
-        </ShellLanguageButton>
+        </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={7}>
         <DropdownMenuLabel>{t('navigation.language')}</DropdownMenuLabel>
@@ -355,9 +355,9 @@ export function PhoneNavigation({ open, onOpenChange, children }: { readonly ope
     <Sheet open={open} onOpenChange={onOpenChange}>
       <ShellPhoneOnly>
         <SheetTrigger asChild>
-          <ShellMenuButton label={t('navigation.menu')} aria-expanded={open} data-testid="phone-menu">
+          <IconButton label={t('navigation.menu')} aria-expanded={open} data-testid="phone-menu">
             <MenuIcon aria-hidden="true" size={20} />
-          </ShellMenuButton>
+          </IconButton>
         </SheetTrigger>
       </ShellPhoneOnly>
       <ShellNavigationSheet side="left" title={t('navigation.aria')} closeLabel={t('navigation.close')} data-testid="phone-nav">

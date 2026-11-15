@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { compareUiDebt, isUiSource, RAW_UI_ELEMENTS, readUiBaseline, renderUiBaseline, uiViolations } from '../scripts/check/architecture/ui.js';
+import { compareUiDebt, isUiSource, kitDuplicateExports, RAW_UI_ELEMENTS, readUiBaseline, renderUiBaseline, uiViolations } from '../scripts/check/architecture/ui.js';
 const file = 'wiki/app/src/knowledge/fixture.tsx';
 const rules = (source: string) => uiViolations(file, source).map(entry => entry.rule);
 
@@ -56,8 +56,8 @@ describe('UI kit architecture', () => {
     ]) expect(rules(source)).toContain('local-styled-component');
   });
   test('kit-only composition, ordinary strings, and unstyled content pass', () => {
-    expect(rules(`import { Panel, Button, Stack } from '../components/ui';
-      export function Page() { return <Stack><Panel><h1>Title</h1><Button>Save</Button></Panel></Stack>; }
+    expect(rules(`import { Panel, Button, Stack, PageTitle } from '../components/ui';
+      export function Page() { return <Stack><Panel><PageTitle>Title</PageTitle><Button>Save</Button></Panel></Stack>; }
       const example = '<button style={} className="w-[4px]" />';
       // <button style={{}} />
     `)).toEqual([]);
@@ -92,6 +92,27 @@ describe('UI kit architecture', () => {
     // A shaped press that is neither disabled nor shapes a kit control passes.
     expect(rules(`${button} ${toggle} const view = <><Button disabled disabledReason="Nothing to save">Save</Button><IconButton label="Next" /><Toggle pressed={false} onPressedChange={() => {}}>One</Toggle></>;`)).toEqual([]);
     expect(rules('const view = <Button variant="default" className="mt-2">Save</Button>;')).toEqual([]);
+  });
+  test('the raw constructs the kit covers are refused on a page', () => {
+    // One component per job starts at the point of use: a page that draws its own heading, paragraph, list, link, code,
+    // quote, figure or region is a second component for a job the kit already covers (madarch-64o5.130).
+    for (const tag of ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'a', 'pre', 'code',
+      'strong', 'em', 'b', 'i', 'small', 'blockquote', 'figure', 'figcaption', 'article', 'section', 'header', 'footer',
+      'nav', 'aside', 'time', 'address', 'hr', 'q', 'cite', 'abbr', 'kbd', 'samp', 'var', 'mark', 'sub', 'sup']) {
+      expect(rules(`const node = <${tag}>Text</${tag}>;`)).toContain('raw-ui-element');
+    }
+    // The kit's own files are where those constructs are composed, so they are not held to the rule.
+    expect(uiViolations('wiki/app/src/components/ui/kit-preview.tsx', 'const view = <h2>Title</h2>;')).toEqual([]);
+  });
+  test('a kit name offered by two files is refused as two components for one job', () => {
+    const first = 'wiki/app/src/components/ui/alpha.tsx';
+    const second = 'wiki/app/src/components/ui/beta.tsx';
+    const found = kitDuplicateExports(new Map([
+      [second, 'export function Thing() { return null; }\nexport function Other() { return null; }'],
+      [first, 'export function Thing() { return null; }'],
+    ]));
+    expect(found).toEqual([{ rule: 'kit-duplicate-export', file: second, subject: 'Thing', line: 1 }]);
+    expect(kitDuplicateExports(new Map([[first, 'export function Thing() { return null; }'], [second, 'export function Other() { return null; }']]))).toEqual([]);
   });
   test('baseline refuses new, stale and duplicate debt and round-trips deterministically', () => {
     const found = uiViolations(file, 'const view = <button />');

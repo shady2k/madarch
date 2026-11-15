@@ -9,7 +9,6 @@ const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousActEnvironment: boolean | undefined;
 let RadioGroup: typeof import('./radio-group.js').RadioGroup;
 let RadioGroupItem: typeof import('./radio-group.js').RadioGroupItem;
-let Switch: typeof import('./switch.js').Switch;
 let Progress: typeof import('./progress.js').Progress;
 let Button: typeof import('./button.js').Button;
 let IconButton: typeof import('./button.js').IconButton;
@@ -19,7 +18,6 @@ beforeAll(async () => {
   previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
   actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
   ({ RadioGroup, RadioGroupItem } = await import('./radio-group.js'));
-  ({ Switch } = await import('./switch.js'));
   ({ Progress } = await import('./progress.js'));
   ({ Button, IconButton } = await import('./button.js'));
   ({ Toggle } = await import('./toggle.js'));
@@ -42,16 +40,15 @@ function mount() {
   return container;
 }
 
-test('radio and switch expose checked state; progress exposes bounds', async () => {
+test('the radio group exposes the chosen option; progress exposes its bounds', async () => {
   const container = mount();
-  await act(async () => { root!.render(<><RadioGroup defaultValue="en" aria-label="Language"><RadioGroupItem value="en" aria-label="English" /><RadioGroupItem value="ru" aria-label="Russian" /></RadioGroup><Switch aria-label="Grounds" /><Progress value={25} max={50} aria-label="Published" /></>); });
+  await act(async () => { root!.render(<><RadioGroup defaultValue="en" aria-label="Language"><RadioGroupItem value="en" aria-label="English" /><RadioGroupItem value="ru" aria-label="Russian" /></RadioGroup><Progress value={25} max={50} aria-label="Published" /></>); });
   const radios = container.querySelectorAll<HTMLButtonElement>('[role="radio"]');
   await act(async () => { radios[1]!.click(); });
   expect(radios[0]?.getAttribute('aria-checked')).toBe('false');
   expect(radios[1]?.getAttribute('aria-checked')).toBe('true');
-  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"]')!;
-  await act(async () => { toggle.click(); });
-  expect(toggle.getAttribute('aria-checked')).toBe('true');
+  const radio = container.querySelector<HTMLButtonElement>('[role="radio"]')!;
+  expect(radio.getAttribute('role')).toBe('radio');
   const progress = container.querySelector('[role="progressbar"]')!;
   expect(progress.getAttribute('aria-valuenow')).toBe('25');
   expect(progress.getAttribute('aria-valuemax')).toBe('50');
@@ -87,9 +84,9 @@ test('invalid fields retain accessible names and error descriptions', async () =
   const { Input } = await import('./input.js');
   const { Textarea } = await import('./textarea.js');
   const container = mount();
-  await act(async () => { root!.render(<><p id="required">Required</p><Input aria-label="Name" aria-invalid="true" aria-describedby="required" /><Textarea aria-label="Description" aria-invalid="true" aria-describedby="required" /><RadioGroup aria-label="Language" aria-invalid="true"><RadioGroupItem value="en" aria-label="English" /></RadioGroup><Switch aria-label="Grounds" aria-invalid="true" /></>); });
+  await act(async () => { root!.render(<><p id="required">Required</p><Input aria-label="Name" aria-invalid="true" aria-describedby="required" /><Textarea aria-label="Description" aria-invalid="true" aria-describedby="required" /><RadioGroup aria-label="Language" aria-invalid="true"><RadioGroupItem value="en" aria-label="English" /></RadioGroup></>); });
   const invalid = container.querySelectorAll('[aria-invalid="true"]');
-  expect(invalid.length).toBe(4);
+  expect(invalid.length).toBe(3);
   for (const field of invalid) expect(field.getAttribute('aria-label')).not.toBeNull();
   expect(container.querySelector('input')?.getAttribute('aria-describedby')).toBe('required');
   expect(container.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('required');

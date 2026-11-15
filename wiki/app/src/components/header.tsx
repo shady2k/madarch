@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { CATALOGUE_KIND, titleIn, valueAt } from '../../../../src/page-contract/index.js';
 import { Badge } from './ui/badge.js';
 import { PageBreadcrumb, type TrailCrumb } from './ui/breadcrumb.js';
-import { InlineGroup, Metadata, PageHeader, PageHeading, PageTitle } from './ui/typography.js';
+import { InlineGroup, Metadata, PageHeader, PageTitle, Stack } from './ui/typography.js';
 import { follow } from './relations.js';
 import { entityAddress, PAGE_ADDRESSES } from '../address.js';
 import type { SectionContext } from './types.js';
@@ -38,12 +38,13 @@ export function HeaderSection({ context }: { readonly context: SectionContext })
   const path = trail === null ? '' : trail.path;
   const name = lastSegment(path);
   const title = productTitle ?? name ?? textOf(valueAt(context.data, titlePath)) ?? titleIn(context.section.title, context.language) ?? '';
-  const heading = <PageTitle data-testid="page-title">{title}</PageTitle>;
+  // The trail already names the folders and the title the file: the path is not printed a second time (madarch-64o5.83).
+  const showsPath = path !== '' && trail === null;
+  const heading = <PageTitle data-testid="page-title" path={showsPath ? path : undefined}>{title}</PageTitle>;
   return (
     <PageHeader data-testid="page-header">
       <PageBreadcrumb label={t('knowledge.breadcrumb')} items={crumbsOf(context, t('navigation.catalogue'), title, kind, trail)} />
-      {/* The trail already names the folders and the title the file: the path is not printed a second time (madarch-64o5.83). */}
-      {path === '' || trail !== null ? heading : <PageHeading path={path}>{heading}</PageHeading>}
+      {showsPath ? <Stack className="page-heading">{heading}</Stack> : heading}
       {kind === undefined || kind === CATALOGUE_KIND ? null : <InlineGroup><Badge data-testid="page-kind">{kindWord(kind, context)}</Badge></InlineGroup>}
       {provenance === undefined ? null : <Metadata>{provenance}</Metadata>}
     </PageHeader>
