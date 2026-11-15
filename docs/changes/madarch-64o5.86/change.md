@@ -65,9 +65,28 @@ confinement is impossible, and passes `unconfined` through the fill, plugin host
 NixOS fix binds `/nix/store` and `/run/current-system` whole read-only instead of every farm link, which also removes the
 credstore bind error.
 
+The clean-install walk stands for a newcomer and runs without a terminal, so it answers the preparation page's question
+through that page's own route: `scripts/clean-install-walk.ts` reads `GET /api/settings`, waits while the answer says the
+draft's catalogue is being published (about fifteen seconds after a fresh draft's server starts; measured 14 s on
+2026-11-15 on Linux arm64), presses the page's «run them without isolation» answer (`POST /api/settings` with
+`pluginsUnconfined: true`), and requires the saved answer to read true before it presses Fill. A person's «no» stands:
+the walk reports it and never presses over it, and a machine that confines plugins asks nothing, so nothing is written.
+Neither the walk, the CI workflows nor any script ever named `MADARCH_PLUGIN_SANDBOX` (`git log -S` over `scripts/` and
+`.github/` finds no history of it), and none does now: a walk without a terminal answers as a person does, never through
+a variable or a hidden flag. Windows has no plugin sandbox at all: the probe there answers "this system has no plugin
+sandbox", the preparation page asks the same question a Linux machine without delegation gets, and the same press
+answers it, so the Windows job drives the same walk. `docs/system/plugin-sandbox.md` now states the start probe, the
+machine's one answer and what the probe answers on Windows.
+
 ## Acceptance evidence
 Static: `bun run check` passed on the branch (tsc, architecture, UI, catalog, workflows, quarantine); the app's own
-`bun run check` passed.
+`bun run check` passed. After this fix, on this box, `bun run check` passed (tsc; architecture 36 violations, the
+listed debt; UI 0 violations; catalog 28 areas, 107 subgroups, 526 kinds; 4 workflows; 0 quarantined cases);
+`test/sandbox-probe.test.ts` 6 passed; `test/daemon-one-store.test.ts` 1 passed; `test/product-daemon.test.ts` 25
+passed; `test/prepared-server.test.ts` 2 passed; `test/windows-daemon-stop.test.ts` 20 passed and its
+`a hung taskkill exhausts the shared budget` case failed on this box with the same source at `cef074bb` — measured as
+pre-existing flakiness (the hung child's timeout returns about 115 ms early on some runs, leaving a second budget), not
+this change; the app's own `bun run check && bun test` passed, 123 tests, 0 failed.
 Test: `test/sandbox-probe.test.ts` 6 passed (probe without delegation, delegated scope command, settings file, no
 variable in the interface, terminal answer); the preparation and settings page cases pass; `test/plugin-host.test.ts`
 13 passed, 34 skipped; `test/daemon-one-store.test.ts` passed; `wiki/app` 123 passed, 0 failed, and its own
@@ -77,6 +96,12 @@ were taken from a served product on this machine: `/tmp/t86-prepare-1440-light.p
 `-390-dark.png`, and `/tmp/t86-settings-1440-light.png`, `-1440-dark.png`, `-390-light.png`, `-390-dark.png`. Each page's
 text and bounding boxes were read: the question names no variable, the two buttons fit the column, and the page's scroll
 width equals its viewport at both widths.
+Walk: `bun scripts/clean-install-walk.ts --binary dist/madarch-linux-arm64 --os linux --arch arm64` passed on this box
+as the ordinary `shady` account, the shape CI's `linux-supported` job runs: the log line
+`The preparation page asked why plugins cannot be isolated here ("this machine does not give madarch a cgroup where it
+can limit a plugin's memory, cpu and processes"); the walk answered it on that page, as its person does: plugins run
+without isolation` stands before `Fill completed`, and the walk ends `walk passed`. The Windows job runs the same walk;
+the probe's answer there and the page's question are the ones above.
 Mutation: not run, filed per the stage rule.
 Review: pending; this record is for the review.
 NixOS: the whole-store bind and the scope's argument shape are unit-tested; the actual NixOS walk is not verified here.
