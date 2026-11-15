@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { stopWindowsDaemon } from '../src/product/windows-daemon-stop.js';
 import { prepareStoreAcceptanceFixture } from './clean-install-fixture.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
+import { stopChildWithin } from '../src/product/child-stop.js';
 
 interface Options { binary: string; os: string; arch: string }
 function args(argv: string[]): Options {
@@ -147,7 +148,16 @@ async function serveCheck(): Promise<void> {
           // This foreground serve is the walk's child, not the daemon named in the home's state file.
           // Sweep its stores too: force-killing the npm shell alone leaves PostgreSQL holding scratch files.
           if (!stopWindowsDaemon({ pid: server.pid, home }, { pgCtl: join(postgresInstallFolder(env), 'bin', postgresProgram('pg_ctl')) })) throw new Error(`the walk's foreground serve tree did not stop (pid ${server.pid})`);
-        } else { try { process.kill(-server.pid, 'SIGTERM'); } catch { /* already stopped */ } }
+        } else {
+          // The serve and everything it started are one process group. A role that will not leave, or one whose
+          // descendant still holds the serve's output open, must not become a wait with no end: the walk names it.
+          const tree = server.pid;
+          const outcome = await stopChildWithin(
+            { pid: tree, kill: (signal) => { try { process.kill(-tree, signal as NodeJS.Signals); } catch { /* already stopped */ } }, exited: closed },
+            { what: `the walk's foreground serve tree (pid ${String(tree)})`, graceMs: 30_000, killWaitMs: 10_000 },
+          );
+          if (outcome === 'stuck') throw new Error(`the walk's foreground serve tree (pid ${String(tree)}) did not end: something of it still holds the walk's output open`);
+        }
       }
       await closed;
     })();
