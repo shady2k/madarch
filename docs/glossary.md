@@ -58,6 +58,15 @@ extended by a product whose kind inherits it (madarch-64o5.74; owner,
 2026-11-15). It is the engine's own vocabulary, not product data.
 _Avoid_: built-in type, core kind
 
+**Run** (ru: запуск):
+One fill of a product, started by a person from the wiki: a vertex of a system
+kind with its state machine (going, pausing, paused, stopping, stopped, ended),
+its units, their outcomes and its statistics — what was done and not done, the
+tools called and how often, the tokens spent. Its event stream, traces and debug
+logs stay outside the graph for a limited time (owner, 2026-11-15: «слово
+"запуск" в качестве термина подходит»).
+_Avoid_: прогон, fill run (in Russian text)
+
 **Kind** (ru: вид; `kind` in code and manifests):
 What the catalogue declares a product can hold: File, Repository, Commit,
 Task, Decision. A kind carries its definition, its fields, its relations, the
