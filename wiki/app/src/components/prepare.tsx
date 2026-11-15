@@ -25,8 +25,8 @@ import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
 import { agentUsable } from './agent-words.js';
 import {
-  chooseAgent, CommandError, isOffline, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, readReaderSettings, saveReaderIsolation, saveProductSettings, startFillSelection, useCommandRead,
-  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer,
+  chooseAgent, CommandError, isOffline, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveReaderIsolation, saveProductSettings, startFillSelection, useCommandRead,
+  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { fillEstimate } from './prepare-estimate.js';
@@ -68,7 +68,6 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('product', (signal) => readProduct(base, signal));
   const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
   const settings = useCommandRead<ProductSettingsAnswer>('product-settings', (signal) => readProductSettings(base, signal));
-  const reader = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const plan = planRead.data?.plan;
   const needsAgent = plan?.needsAgent ?? [];
   const requiresAgent = needsAgent.length > 0;
@@ -79,9 +78,11 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   // The product's default cap fills the field until the person types another (madarch-64o5.90): an empty field is the
   // default, never a refusal, and a typed cap is this run's alone.
   const defaultCap = settings.data?.tokenCap ?? null;
-  const isolation = reader.data?.pluginIsolation ?? null;
-  const unconfined = reader.data?.pluginsUnconfined ?? null;
-  const isolationBlocked = reader.data === null || (isolation !== null && !isolation.capable && unconfined !== true);
+  // This machine's plugin isolation is the frame's one read of the settings (`context.machine`): the page never asks a
+  // route of its own for it, and a saved choice asks the frame to read it again.
+  const isolation = context.machine?.pluginIsolation ?? null;
+  const unconfined = context.machine?.pluginsUnconfined ?? null;
+  const isolationBlocked = context.machine === undefined || (isolation !== null && !isolation.capable && unconfined !== true);
   const capText = cap ?? (defaultCap === null ? '' : String(defaultCap));
   const capNumber = capText.trim() === '' ? null : Number(capText);
   const capInvalid = capText.trim() !== '' && !(capNumber !== null && Number.isSafeInteger(capNumber) && capNumber > 0);
@@ -141,7 +142,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
     if (connection.offline) return;
     setIsolationSaving(true);
     setFailure(null);
-    saveReaderIsolation(base, choice).then(() => { setIsolationSaving(false); reader.reload(); }, (error: unknown) => { setIsolationSaving(false); setFailure(isOffline(error) ? null : error instanceof Error ? error.message : String(error)); });
+    saveReaderIsolation(base, choice).then(() => { setIsolationSaving(false); context.machine?.reload(); }, (error: unknown) => { setIsolationSaving(false); setFailure(isOffline(error) ? null : error instanceof Error ? error.message : String(error)); });
   };
   const run = (): void => {
     if (connection.offline || plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady || isolationBlocked) return;

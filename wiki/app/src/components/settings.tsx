@@ -280,7 +280,7 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
               <>
                 {reader.data.pluginsUnconfined === true ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-allowed">{t('settings.isolation.allowed')}</Paragraph> : null}
                 {reader.data.pluginsUnconfined === false ? <Paragraph className="m-0 text-small" data-testid="settings-isolation-denied">{t('settings.isolation.denied')}</Paragraph> : null}
-                <InlineGroup className="flex flex-wrap gap-2">
+                <InlineGroup>
                   {reader.data.pluginsUnconfined === true ? null : <Button variant="default" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(true)} data-testid="settings-isolation-allow">{t('settings.isolation.allow')}</Button>}
                   {reader.data.pluginsUnconfined === false ? null : <Button variant="outline" size="default" disabled={connection.offline || working !== null} onClick={() => saveIsolation(false)} data-testid="settings-isolation-deny">{t('settings.isolation.deny')}</Button>}
                 </InlineGroup>

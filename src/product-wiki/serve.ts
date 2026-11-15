@@ -179,7 +179,7 @@ export async function serveWiki(options: ServeOptions = {}): Promise<ServeResult
   const port = options.port ?? DEFAULT_PORT;
   const knowledgeRoot = knowledgeRootOf(dirname(folder));
   const { prepareSandboxCgroup } = await import('../plugin/sandbox-delegation.js');
-  const cgroup = prepareSandboxCgroup(process.env);
+  const cgroup = await prepareSandboxCgroup(process.env);
   if (!cgroup.ok) console.error(cgroup.message);
   const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
   const probe = await probePluginSandbox();

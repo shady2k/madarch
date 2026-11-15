@@ -255,7 +255,16 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
     root.render(createElement(TooltipProvider, null, createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined },
+      runtime: {
+        base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null,
+        open: (path: string) => { opened.push(path); }, reload: () => undefined,
+        // The frame reads this machine's plugin isolation once (`/api/settings`); a page reads it from the runtime.
+        machine: {
+          pluginIsolation: (readerSettings['pluginIsolation'] as { capable: boolean; reason: string } | undefined) ?? null,
+          pluginsUnconfined: (readerSettings['pluginsUnconfined'] as boolean | null | undefined) ?? null,
+          reload: () => undefined,
+        },
+      },
     })));
   });
   await settle();
@@ -539,20 +548,27 @@ test('the stop confirmation is disabled while the link is away', async () => {
   }
 });
 
-test('a preparation page asks once when this machine cannot isolate plugins, and remembers the answer', async () => {
+test('a preparation page shows the machine\'s isolation it was handed, and saves the answer it is given', async () => {
   readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: false, reason: 'this machine does not give madarch a cgroup to limit plugins in' } };
   const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.alpha' });
   try {
+    // The frame asks this machine once; the page never asks the settings route for itself.
+    expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'GET')).toBe(false);
     expect(page.container.querySelector('[data-testid="prepare-isolation-question"]')?.textContent).toContain('нельзя изолировать');
     expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(true);
     expect(page.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
     await act(async () => { (page.container.querySelector('[data-testid="prepare-isolation-run"]') as HTMLButtonElement).click(); });
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { pluginsUnconfined?: boolean }).pluginsUnconfined === true)).toBe(true);
-    expect(page.container.querySelector('[data-testid="prepare-isolation-question"]')).toBeNull();
-    expect(page.container.querySelector('[data-testid="prepare-isolation-unconfined"]')?.textContent).toContain('без изоляции');
-    expect(page.container.querySelector('[data-testid="prepare-isolation-link"]')).not.toBeNull();
-    expect(page.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
   } finally { await page.close(); }
+  // The frame reads the settings again and hands the page the answer: the question is gone and the choice stands.
+  readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: true, pluginIsolation: { capable: false, reason: 'this machine does not give madarch a cgroup to limit plugins in' } };
+  const after = await render([section('prepare', 'prepare', {})], { kinds: 'demo.alpha' });
+  try {
+    expect(after.container.querySelector('[data-testid="prepare-isolation-question"]')).toBeNull();
+    expect(after.container.querySelector('[data-testid="prepare-isolation-unconfined"]')?.textContent).toContain('без изоляции');
+    expect(after.container.querySelector('[data-testid="prepare-isolation-link"]')).not.toBeNull();
+    expect(after.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
+  } finally { await after.close(); }
 });
 

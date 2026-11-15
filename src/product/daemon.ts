@@ -523,7 +523,7 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   // daemon/plugins child layout there (sandbox-delegation.ts). The scope's shell writes the daemon's real pid, so the
   // state file, the command-line check and stop all name the daemon rather than systemd-run.
   const pidFile = join(home, `.madarch-daemon-pid-${token}`);
-  const delegated = canStartDelegatedScope();
+  const delegated = await canStartDelegatedScope();
   let proc: import('node:child_process').ChildProcess;
   if (delegated) {
     const scope = delegatedScopeCommand(child.command, child.args, pidFile, `madarch-daemon-${String(process.pid)}-${String(Date.now())}`);
@@ -767,7 +767,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   const { createManifestWatch } = await import('./manifest-watch.js');
   const home = homePath(options.home);
   const { prepareSandboxCgroup } = await import('../plugin/sandbox-delegation.js');
-  const cgroup = prepareSandboxCgroup(process.env);
+  const cgroup = await prepareSandboxCgroup(process.env);
   if (!cgroup.ok) console.error(cgroup.message);
   const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
   const probe = await probePluginSandbox();
