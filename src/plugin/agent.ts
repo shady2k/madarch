@@ -1,6 +1,7 @@
 /** Host-side ACP agent bridge: graph-only reads, explicit writes and validated extraction results. */
-import { constants, lstatSync, mkdirSync, openSync, closeSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
@@ -97,12 +98,18 @@ export class PluginAgentBridge {
       this.turns.add(controller);
       let connection: PluginAgentConnection | undefined;
       let sessionId: string | undefined;
+      /** The empty folder the agent runs in: made for the session, and removed with it. */
+      let workspace: string | undefined;
       const checkSession = (id: string): void => {
         if (sessionId === undefined || id !== sessionId || this.closed) throw new Error(`${WHERE}: file request names no active agent session`);
       };
       try {
+        // No workspace and no file tools (owner's decision, 2026-11-15; decision 0038): the agent runs in an empty scratch
+        // folder, writes nothing, and its one file read is a blob the graph names, answered by the host. A path that is no
+        // graph file, a write and a terminal are refused by the client.
+        workspace = mkdtempSync(join(tmpdir(), 'madarch-agent-session-'));
         connection = await this.options.connect(this.options.adapter, {
-          cwd: this.options.cwd ?? process.cwd(), env: this.options.environment,
+          cwd: workspace, env: this.options.environment,
           files: {
             readTextFile: async (params) => {
               checkSession(params.sessionId);
@@ -119,27 +126,6 @@ export class PluginAgentBridge {
               const content = await this.options.readFile({ repository: String(file.key['repository']), blob, ...(params.line == null ? {} : { from: params.line }), ...(params.limit == null ? {} : { limit: params.limit }) });
               return { content };
             },
-            writeTextFile: async (params) => {
-              checkSession(params.sessionId);
-              const name = virtualPath(params.path);
-              if (!under(name, this.part.writeRoots ?? [])) throw new Error(`${WHERE}: write denied for ${name}`);
-              const [repository, ...parts] = name.split('/');
-              const root = this.options.repositories?.[repository!];
-              if (root === undefined || parts.length === 0) throw new Error(`${WHERE}: no host write root for ${name}`);
-              // ACP writes refuse symlink components.
-              let target = root;
-              if (!lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink()) throw new Error(`${WHERE}: unsafe host root ${root}`);
-              for (const part of parts.slice(0, -1)) {
-                target = join(target, part);
-                try { mkdirSync(target); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-                if (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink()) throw new Error(`${WHERE}: unsafe write directory ${target}`);
-              }
-              target = join(target, parts.at(-1)!);
-              const fd = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
-              try { writeFileSync(fd, params.content); } finally { closeSync(fd); }
-              log.info('plugin agent file written', { unitId, path: name });
-              return {};
-            },
           },
           onRefused: (refusal) => log.warn('plugin agent tool refused', { unitId, method: refusal.method }),
           onUpdate: (update) => log.debug('plugin agent update', { unitId, kind: update.kind }),
@@ -148,7 +134,7 @@ export class PluginAgentBridge {
         if (this.paused) connection.freeze?.();
         if (this.closed) throw new Error(`${WHERE}: bridge closed during runner startup`);
         await connection.initialize();
-        const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd() });
+        const session = await connection.newSession({ cwd: workspace });
         sessionId = session.sessionId;
         const choices = choicesOf(session);
         for (const kind of ['model', 'reasoning'] as const) {
@@ -186,10 +172,14 @@ export class PluginAgentBridge {
           if (typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
           const file = byPath.get(virtualPath(`${evidence.repository}/${evidence.path}`));
           if (file === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
-          const content = await this.graph.value(file.kind, file.key, 'content');
+          // The evidence's line range is checked against the text the graph's blob names, read through the one gate
+          // (decision 0037): the graph holds no text of its own.
+          const blob = await this.graph.value(file.kind, file.key, 'blob');
+          if (this.options.readFile === undefined || typeof blob !== 'string' || blob === '') throw new Error(`${WHERE}: agent evidence names a file whose text the host cannot read`);
+          const content = await this.options.readFile({ repository: String(file.key['repository']), blob });
           const start = evidence.lineStart;
           const end = evidence.lineEnd;
-          if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
+          if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
         }
         log.info('plugin agent result validated', { unitId, vertices: result.vertices?.length ?? 0, edges: result.edges?.length ?? 0 });
         return result;
@@ -197,6 +187,7 @@ export class PluginAgentBridge {
         this.activeUnits.delete(unitId);
         this.turns.delete(controller);
         if (connection !== undefined) { this.connections.delete(connection); await connection.close(); }
+        if (workspace !== undefined) { rmSync(workspace, { recursive: true, force: true }); workspace = undefined; }
       }
     });
   }

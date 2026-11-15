@@ -203,6 +203,20 @@ export interface ExtractContext {
   readonly graph: GraphReads;
   /** Runs the manifest's agent part through the host; adapters and credentials stay with the host. */
   agent(task?: unknown): Promise<UnitResult>;
+  /**
+   * A file's text, asked of the host (owner's decision, 2026-11-15; decision 0038): an ordinary plugin holds no
+   * environment, names the repository and the blob id the graph holds, and the host routes the read to the core plugin
+   * that owns git. A plugin whose capabilities name no "repository" is refused, with its name and the access.
+   */
+  read(request: PluginReadAsk): Promise<PluginReadResult>;
+}
+
+/** One file read a plugin asks of the host: a repository's name, the blob id the graph holds, and the lines it wants. */
+export interface PluginReadAsk {
+  readonly repository: string;
+  readonly blob: string;
+  readonly from?: number;
+  readonly to?: number;
 }
 
 /** One field of a declared kind (decision 0035, item 18): its type, meaning, an example and whether it is required. */
@@ -403,6 +417,7 @@ export async function definePlugin(definition: PluginDefinition): Promise<void> 
           agent: async (task) => await askHost<UnitResult>('agent.run', { unitId: unit.unitId, ...(task === undefined ? {} : { task }) }),
           heartbeat,
           progress: (done, total, note) => send({ jsonrpc: '2.0', method: 'progress', params: { unitId: unit.unitId, done, ...(total === undefined ? {} : { total }), ...(note === undefined ? {} : { note }) } }),
+          read: async (request) => await askHost<PluginReadResult>('file.read', { ...request }),
           graph: {
             files: async (pattern) => await askHost<{ files: GraphVertex[] }>('graph.files', { pattern }).then((answer) => answer.files),
             value: async (kind, key, field) => await askHost<{ value: unknown }>('graph.value', { kind, key, field }).then((answer) => answer.value as never),

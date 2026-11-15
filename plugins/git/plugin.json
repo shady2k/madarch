@@ -1,6 +1,10 @@
 {
   "name": "git",
   "version": "1.0.0",
+  "tier": "core",
+  "capabilities": [
+    "repository"
+  ],
   "entry": "entry.ts",
   "runtime": {
     "name": "bun",
@@ -87,6 +91,6 @@
   "concurrency": 1,
   "labels": {
     "en": "Git history",
-    "ru": "История git"
+    "ru": "\u0418\u0441\u0442\u043e\u0440\u0438\u044f git"
   }
 }

@@ -56,6 +56,12 @@ export interface SandboxSpec {
   readonly limits: CgroupLimits;
   /** Variables the plugin is given; nothing of the host's environment reaches it beside these. */
   readonly environment?: Readonly<Record<string, string>>;
+  /**
+   * Whether the sandbox's root is an empty filesystem with only the binds above (owner's decision, 2026-11-15; decision
+   * 0038): an ordinary plugin holds no environment, so the host's own root is not there for it to read. A core plugin is
+   * shipped with madarch and reads its one source, so its root stays the host's, read-only.
+   */
+  readonly emptyRoot?: boolean;
   /** The platform key, this machine's unless a test names another. */
   readonly platform?: string;
   /** The cgroup madarch's own cgroup stands under: `MADARCH_PLUGIN_CGROUP`, else the process's own. */
@@ -141,6 +147,9 @@ function bindable(folder: string): boolean {
 export function bwrapArguments(spec: SandboxSpec, options: { readonly bwrap: string; readonly seccompFile: string; readonly syncFd: number; readonly seccompFd: number; readonly rootUid: number | undefined; readonly runtime?: RuntimeSandbox }): string[] {
   const runtime = options.runtime ?? runtimeSandbox(spec.runtime, spec.env ?? process.env, spec.platform === undefined ? {} : { platform: spec.platform });
   const args: string[] = ['--unshare-all', '--clearenv', '--die-with-parent', '--new-session'];
+  // An ordinary plugin gets no host file system at all: its root is a fresh tmpfs, and only the runtime, its closure and
+  // its work folder are bound into it (decision 0038). A core plugin reads its one source and keeps the host's root.
+  if (spec.emptyRoot === true) args.push('--tmpfs', '/');
   if (options.rootUid === 0) args.push('--uid', String(SANDBOX_UID), '--gid', String(SANDBOX_UID));
   args.push('--ro-bind', spec.runtime, '/runtime/bun');
   for (const folder of runtime.mounts) if (bindable(folder)) args.push('--ro-bind', folder, folder);

@@ -10,7 +10,7 @@
  */
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { PluginHost } from '../plugin/host.js';
 import { closureOf } from '../plugin/closure.js';
 import { parsePluginLock, PLUGINS_LOCK_FILE } from '../plugin/lock.js';
@@ -52,7 +52,9 @@ export function verifyBlobRead(read: BlobRead): { pluginFolder: string; reposito
   if (!existsSync(join(pluginFolder, 'plugin.json'))) throw new BlobReadRefusal(`${WHERE}:1: no plugin.json answers in ${pluginFolder}, so no blob is read through it`);
   const repositoryRoot = read.root;
   const repos = join(read.product, 'repos');
-  if (!inside(repos, repositoryRoot)) throw new BlobReadRefusal(`${WHERE}:1: the repository ${JSON.stringify(read.repository)} is not read from the product's repos/ folder: ${repositoryRoot} lies outside ${repos}`);
+  // The product's own repository is the product's folder; every connected one lies under its repos/.
+  const insideProduct = resolve(repositoryRoot) === resolve(read.product);
+  if (!insideProduct && !inside(repos, repositoryRoot)) throw new BlobReadRefusal(`${WHERE}:1: the repository ${JSON.stringify(read.repository)} is not read from the product's repos/ folder: ${repositoryRoot} lies outside ${repos}`);
   const stat = (() => { try { return statSync(repositoryRoot); } catch { return undefined; } })();
   if (stat === undefined || !stat.isDirectory()) throw new BlobReadRefusal(`${WHERE}:1: the repository folder ${repositoryRoot} is not there: connect the repository with "madarch repo add" and bootstrap it`);
   if (!existsSync(join(repositoryRoot, 'HEAD')) && !existsSync(join(repositoryRoot, '.git'))) throw new BlobReadRefusal(`${WHERE}:1: the repository folder ${repositoryRoot} is no git checkout, so git's object store cannot answer`);
@@ -72,10 +74,14 @@ export function verifyBlobRead(read: BlobRead): { pluginFolder: string; reposito
 
 /** One open reader: the plugin session that answers a repository's reads, its scratch folder, and when it last answered. */
 interface Reader {
+  /** The map's key: the plugin folder and the repository root. */
+  readonly key: string;
   readonly host: PluginHost;
   readonly session: Awaited<ReturnType<PluginHost['open']>>;
   readonly workRoot: string;
   lastUsed: number;
+  /** The idle timer that ends this reader: it does not keep the process alive, and it closes the plugin when it fires. */
+  idle?: ReturnType<typeof setTimeout>;
 }
 
 /** The readers this process holds, by plugin folder and repository: a page's tab asks several ranges of one file. */
@@ -87,6 +93,7 @@ const READER_IDLE_MS = 30_000;
 export async function closeFileTextSessions(): Promise<void> {
   for (const [key, held] of [...READERS]) {
     READERS.delete(key);
+    if (held.idle !== undefined) clearTimeout(held.idle);
     await held.session.close().catch(() => undefined);
     rmSync(held.workRoot, { recursive: true, force: true });
   }
@@ -99,6 +106,7 @@ async function readerFor(verified: { pluginFolder: string; repositoryRoot: strin
   if (held !== undefined && Date.now() - held.lastUsed < READER_IDLE_MS) { held.lastUsed = Date.now(); return held; }
   if (held !== undefined) {
     READERS.delete(key);
+    if (held.idle !== undefined) clearTimeout(held.idle);
     await held.session.close().catch(() => undefined);
     rmSync(held.workRoot, { recursive: true, force: true });
   }
@@ -113,13 +121,29 @@ async function readerFor(verified: { pluginFolder: string; repositoryRoot: strin
   });
   try {
     const session = await host.open();
-    const reader: Reader = { host, session, workRoot, lastUsed: Date.now() };
+    const reader: Reader = { key, host, session, workRoot, lastUsed: Date.now() };
     READERS.set(key, reader);
     return reader;
   } catch (error) {
     rmSync(workRoot, { recursive: true, force: true });
     throw error;
   }
+}
+
+/**
+ * Ends a reader when it has been idle for `READER_IDLE_MS`: the plugin's process is stopped and its scratch folder
+ * removed, so a fill that read a blob leaves nothing running and its process can end. The timer does not keep the
+ * process alive, and a read in the meantime re-arms it (madarch-64o5.110).
+ */
+function armIdle(reader: Reader): void {
+  if (reader.idle !== undefined) clearTimeout(reader.idle);
+  reader.idle = setTimeout(() => {
+    if (Date.now() - reader.lastUsed < READER_IDLE_MS) { armIdle(reader); return; }
+    READERS.delete(reader.key);
+    void reader.session.close().catch(() => undefined);
+    rmSync(reader.workRoot, { recursive: true, force: true });
+  }, READER_IDLE_MS + 50);
+  reader.idle.unref?.();
 }
 
 /**
@@ -133,6 +157,7 @@ export async function readBlobThroughPlugin(read: BlobRead, options: { readonly 
   const reader = await readerFor(verified, options);
   const answer = await reader.session.readBlob({ repository: sandboxRepositoryPath(verified.repositoryRoot, env), blob: read.blob, ...(read.from === undefined ? {} : { from: read.from }), ...(read.to === undefined ? {} : { to: read.to }) });
   reader.lastUsed = Date.now();
+  armIdle(reader);
   return { text: answer.text, lines: answer.lines, bytes: answer.bytes, binary: answer.binary };
 }
 

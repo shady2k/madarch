@@ -78,14 +78,15 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
       ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
       graph: {
         files: async () => [...Object.keys(FILES), 'src/absent.ts'].map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),
-        value: async (_kind, key, field) => {
-          const path = String(key['path']);
-          if (field === 'blob') return `blob-${path}`;
-          if (field !== 'content') return null;
-          // The case that asks for the unread file makes the host answer no text for it.
-          if (path === 'src/absent.ts') return broken ? null : 'export const absent = 1;\n';
-          return FILES[path] ?? null;
-        },
+        value: async (_kind, key, field) => field === 'blob' ? `blob-${String(key['path'])}` : null,
+      },
+      // The one blob read (decision 0038): the graph names the blob, and the host answers its text — or cannot answer it,
+      // which is the case one test names.
+      readBlob: async (ask) => {
+        const path = String(ask.blob).replace(/^blob-/u, '');
+        if (path === 'src/absent.ts' && broken) throw new Error(`the host holds no text for ${path}`);
+        const text = path === 'src/absent.ts' ? 'export const absent = 1;\n' : (FILES[path] ?? '');
+        return { text, lines: text.split('\n').length, bytes: text.length, binary: false };
       },
     });
     session = await host.open();
@@ -128,7 +129,7 @@ describe.skipIf(sandboxProblem !== undefined)('the imports plugin on a source th
       if (outcome.state !== 'extracted') throw new Error(JSON.stringify(outcome));
       expect(outcome.result.end.state).toBe('complete');
       expect(outcome.result.problems).toEqual([
-        { repository: 'app', path: 'src/absent.ts', line: 1, column: 1, message: 'the file content is not in the graph' },
+        { repository: 'app', path: 'src/absent.ts', line: 1, column: 1, message: 'the file holds no blob the graph names, or the host could not read its text: src/plugin/host.ts:1: the read of blob "blob-src/absent.ts" of "app" for the plugin "imports" failed: the host holds no text for src/absent.ts' },
         { repository: 'app', path: 'src/broken.ts', line: 1, column: 23, message: 'the parser refused the file: Unexpected token (1:22)' },
         { repository: 'app', path: 'src/dangling.ts', line: 1, column: 1, message: 'the relative specifier "./nope.js" resolves to no file of the repository' },
       ]);
