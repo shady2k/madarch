@@ -91,6 +91,11 @@ let agentOffers: { id: string; label: string; installed: boolean; login: string;
   { id: 'omp', label: 'omp', installed: false, login: 'unknown', loginDetail: '', where: null, version: null, install: null },
 ];
 let savedAgent: { id: string; label: string } | null = null;
+/** What `/api/product-settings` answers, and a switch to hold it open while a test presses early (madarch-64o5.90). */
+let productSettings: Record<string, unknown> = { tokenCap: 200_000 };
+let holdSettings: (() => void) | null = null;
+/** A held `/api/agent-choices` answer, so a test can switch agents while one is pending. */
+let holdChoices: (() => void) | null = null;
 
 function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -100,6 +105,9 @@ beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
   savedAgent = null;
+  productSettings = { tokenCap: 200_000 };
+  holdSettings = null;
+  holdChoices = null;
   agentOffers = [
     { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
     { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
@@ -113,9 +121,20 @@ beforeEach(async () => {
     requests.push({ path: url.pathname + url.search, method, body });
     if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
-    if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }] }, reasoning: { name: 'Reasoning', current: 'medium', values: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }] } } });
+    if (url.pathname.endsWith('/api/agent-choices')) {
+      const asked = url.searchParams.get('agent') ?? 'claude-code';
+      const offered = asked === 'codex'
+        ? { choices: { model: { name: 'Model', current: 'gpt-5-codex', values: [{ value: 'gpt-5-codex', name: 'GPT-5 Codex' }, { value: 'gpt-5-mini', name: 'GPT-5 mini' }] }, reasoning: { name: 'Reasoning', current: 'high', values: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] } } }
+        : { choices: { model: { name: 'Model', current: 'opus', values: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }] }, reasoning: { name: 'Reasoning', current: 'medium', values: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }] } } };
+      const offeredAgent = { id: asked, label: asked === 'codex' ? 'Codex' : 'Claude Code' };
+      if (holdChoices !== null) return await new Promise<Response>((resolve) => { holdChoices = () => resolve(answer(url.pathname, { agent: offeredAgent, ...offered })); });
+      return answer(url.pathname, { agent: offeredAgent, ...offered });
+    }
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
-    if (url.pathname.endsWith('/api/product-settings')) return answer(url.pathname, { tokenCap: 200_000 });
+    if (url.pathname.endsWith('/api/product-settings')) {
+      if (holdSettings !== null) return await new Promise<Response>((resolve) => { holdSettings = () => resolve(answer(url.pathname, productSettings)); });
+      return answer(url.pathname, productSettings);
+    }
     if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
     if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
     if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
@@ -268,6 +287,56 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
     expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', model: 'sonnet', reasoning: 'medium', tokenCap: 1000, pluginsOnly: false });
     expect(page.opened).toContain('/p/run?run=fill-run-2');
+  } finally {
+    await page.close();
+  }
+});
+
+test('Run waits for the product\'s saved model, so a press never sends the adapter\'s defaults', async () => {
+  savedAgent = { id: 'claude-code', label: 'Claude Code' };
+  productSettings = { tokenCap: 200_000, chosenAgent: { id: 'claude-code', label: 'Claude Code', model: 'sonnet', reasoning: 'high' } };
+  holdSettings = () => undefined;
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    // The plan and the agent's choices stand, but the settings that carry the saved pair have not answered: Run waits.
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
+    const release = holdSettings as unknown as () => void;
+    holdSettings = null;
+    await act(async () => { release(); });
+    await settle();
+    // The saved pair now stands over the agent's own, and the press sends it.
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('sonnet');
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
+    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', model: 'sonnet', reasoning: 'high', tokenCap: 200_000, pluginsOnly: false });
+  } finally {
+    await page.close();
+  }
+});
+
+test('the choices of another agent never stand in for the one just picked', async () => {
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    // Pick Codex while its choices are held: the previous agent's answer is no answer for this one, and Run waits.
+    holdChoices = () => undefined;
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-codex"] [role="radio"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(page.container.querySelector('[data-testid="prepare-model"]')).toBeNull();
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
+    const release = holdChoices as unknown as () => void;
+    holdChoices = null;
+    await act(async () => { release(); });
+    await settle();
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('gpt-5-codex');
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
+    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'codex', model: 'gpt-5-codex', reasoning: 'high', tokenCap: 200_000, pluginsOnly: false });
   } finally {
     await page.close();
   }

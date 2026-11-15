@@ -79,13 +79,22 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const capInvalid = capText.trim() !== '' && !(capNumber !== null && Number.isSafeInteger(capNumber) && capNumber > 0);
   const validCap = !capInvalid;
   const pickedOffer = agents.data?.agents.find((offer) => offer.id === agent) ?? null;
-  const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null && pickedOffer !== null && agentUsable(pickedOffer));
+  const usableAgent = pickedOffer !== null && agentUsable(pickedOffer);
+  const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null && usableAgent);
+  // A kept answer belongs to the agent it was asked of: while another agent's choices are read, the previous answer
+  // must not be read as this agent's (madarch-64o5.90).
+  const agentChoices = choices.data !== null && choices.data.agent.id === agent ? choices.data.choices : null;
   // The product's saved model stands for the agent it was chosen for; another agent starts from what it reports.
   const savedPair = settings.data?.chosenAgent != null && settings.data.chosenAgent.id === agent ? settings.data.chosenAgent : null;
-  const modelChoice = choices.data?.choices.model ?? null;
-  const reasoningChoice = choices.data?.choices.reasoning ?? null;
+  const modelChoice = agentChoices?.model ?? null;
+  const reasoningChoice = agentChoices?.reasoning ?? null;
   const modelValue = model ?? savedPair?.model ?? modelChoice?.current ?? '';
   const reasoningValue = reasoning ?? savedPair?.reasoning ?? reasoningChoice?.current ?? '';
+  // Run waits for what it sends: the product's saved pair (so a default never falls back to the adapter's own silently)
+  // and the chosen agent's choices (so a pair is never carried from another agent). Plugins-only sends neither.
+  const sendsAgent = !pluginsOnly && requiresAgent;
+  const agentReady = !sendsAgent || (agent !== null && usableAgent && agentChoices !== null);
+  const settingsReady = !sendsAgent || settings.data !== null;
 
   // A link with another selection or mode, or the back button, starts the panel from that address again.
   useEffect(() => {
@@ -119,7 +128,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
       .then(() => { setSavedDefaults('saved'); settings.reload(); }, (error: unknown) => { setSavedDefaults('failed'); setFailure(error instanceof Error ? error.message : String(error)); });
   };
   const run = (): void => {
-    if (plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable) return;
+    if (plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, {
@@ -275,7 +284,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={capText} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
               {modelChoice === null && reasoningChoice === null ? null : (
-                <Button variant="default" size="default" disabled={savedDefaults === 'saving'} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
+                <Button variant="default" size="default" disabled={savedDefaults === 'saving' || !agentReady || !settingsReady} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
               )}
             </Stack>
           ) : null}
@@ -285,7 +294,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || !validCap || !runnable} onClick={run} data-testid="prepare-run">
+            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady} onClick={run} data-testid="prepare-run">
               {t(busy ? 'prepare.starting' : 'prepare.run')}
             </Button>
             {runnable ? <Text className="text-small text-muted" data-testid="prepare-estimate">{estimate}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
