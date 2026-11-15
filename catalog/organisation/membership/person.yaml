@@ -29,7 +29,7 @@ fields:
   binding:
     agent: The name the person is known by in the product, such as the owner's name; it is the person's key.
 - name: email
-  type: text
+  type: email
   nullable: true
   binding:
     agent: The address the person commits and signs in with, from the commits and the identity they sign in by in the graph.

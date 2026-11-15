@@ -23,11 +23,14 @@ details:
 fields:
 - name: repository
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.repository:v1
   reference: code.repository
   binding:
     agent: The repository the marker stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   binding:
     agent: The path of the file the marker stands in, as the file entity holds it.
 - name: line

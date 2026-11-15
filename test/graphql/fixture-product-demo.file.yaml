@@ -18,7 +18,7 @@ fields:
   - { name: path, type: text, producers: [agent] }
   - { name: lines, type: integer, nullable: true, producers: [agent] }
   - { name: language, type: text, nullable: true, producers: [agent] }
-  - { name: primary, type: json, nullable: true, reference: demo.repository, producers: [agent] }
+  - { name: primary, type: json, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: object, properties: { kind: { const: demo.repository }, key: { type: object, properties: { name: { type: string } }, required: [name], additionalProperties: false } }, required: [kind, key], additionalProperties: false }, nullable: true, reference: demo.repository, producers: [agent] }
   # A reference declared text holds the reference as JSON text: the inverse of such a field is a plain join, and a reader
   # of it once met a database error instead (madarch-64o5.83).
   - { name: preferred, type: text, nullable: true, reference: demo.repository, producers: [agent] }

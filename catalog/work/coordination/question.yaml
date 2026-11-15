@@ -61,12 +61,18 @@ fields:
     agent: 'What kind of question it is: a missing fact, a contested value or a choice of the product.'
 - name: status
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:
     agent: Whether the question is open or settled.
 - name: asked_by
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:
@@ -78,6 +84,9 @@ fields:
     agent: When it was asked.
 - name: resolved_by
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:

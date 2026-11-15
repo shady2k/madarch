@@ -19,6 +19,9 @@ source: graph
 fields:
 - name: process
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-business-process:v1
   reference: business-process
   binding:
     agent: The business process the event stands in, by the key of that process in the graph.

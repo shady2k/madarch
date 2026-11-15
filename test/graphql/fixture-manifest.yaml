@@ -11,7 +11,7 @@ kinds:
       - { name: default_branch, type: text, nullable: true, producers: [agent] }
       - { name: archived, type: boolean, nullable: true, producers: [agent] }
       - { name: created_at, type: timestamp, nullable: true, producers: [agent] }
-      - { name: facets, type: json, nullable: true, producers: [agent] }
+      - { name: facets, type: json, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: object, additionalProperties: { type: string } }, nullable: true, producers: [agent] }
       - { name: size, type: bigint, nullable: true, producers: [agent] }
     key: [name]
   demo.file:
@@ -26,7 +26,7 @@ kinds:
       - { name: language, type: text, nullable: true, producers: [agent] }
       - { name: binary, type: boolean, nullable: true, producers: [agent] }
       - { name: last_change, type: timestamp, nullable: true, producers: [agent] }
-      - { name: facets, type: json, nullable: true, producers: [agent] }
+      - { name: facets, type: json, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: object, additionalProperties: { type: string } }, nullable: true, producers: [agent] }
     key: [repository, path]
   demo.commit:
     
@@ -71,7 +71,7 @@ edges:
       - { name: changed_at, type: timestamp, nullable: true, producers: [agent] }
       - { name: weight, type: integer, nullable: true, producers: [agent] }
       - { name: binary, type: boolean, nullable: true, producers: [agent] }
-      - { name: meta, type: json, nullable: true, producers: [agent] }
+      - { name: meta, type: json, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: object, additionalProperties: { type: string } }, nullable: true, producers: [agent] }
   - name: demo.authored
     from: [demo.author]
     to: [demo.commit]

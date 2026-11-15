@@ -26,12 +26,18 @@ fields:
     agent: The branch the work hands over, by the name the repository gives it.
 - name: from
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:
     agent: The person who hands the work over.
 - name: to
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:

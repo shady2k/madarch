@@ -19,7 +19,7 @@ fields:
   producers:
   - git
 - name: email
-  type: text
+  type: email
   producers:
   - git
 key:

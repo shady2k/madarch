@@ -28,6 +28,9 @@ fields:
     agent: The name the code or the document gives this machine, such as FillRun or Task life cycle; it is the machine's key.
 - name: subject
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-domain-entity:v1
   nullable: true
   reference: domain-entity
   binding:

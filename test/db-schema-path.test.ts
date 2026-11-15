@@ -254,7 +254,7 @@ describe.skipIf(sandboxProblem !== undefined)('a product database, filled from i
       kinds.setIn(['kinds', output, 'terms'], ['src/**/*.ts']);
     }
     // The fixture keeps no agent plugin: the field is a person's own writing, so no fill waits for one.
-    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', nullable: true, producers: ['person'] });
+    kinds.addIn(['kinds', 'code.table', 'fields'], { name: 'source', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { repository: { type: 'string' }, path: { type: 'string' }, lineStart: { type: 'integer' }, lineEnd: { type: 'integer' } }, required: ['repository', 'path'], additionalProperties: false }, nullable: true, producers: ['person'] });
     writeFolderManifest(folder, kinds.toString());
     git(code, 'init', '--quiet', '--initial-branch=main');
     git(code, 'add', '-A');

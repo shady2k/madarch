@@ -466,7 +466,7 @@ describe('the manifest makes the table and the writer fills it', () => {
 
   test('schema reconciliation refuses required additions and changed reference targets with history', async () => {
     const durable = await createTestDatabaseOwner();
-    const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'target', type: 'json', reference: 'alpha', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
+    const graph: GraphContract = { vertex: [{ name: 'record', table: generatedTableName('record', 'vertex'), fields: [{ name: 'target', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { kind: { const: 'alpha' }, key: { type: 'object' } }, required: ['kind', 'key'], additionalProperties: false }, reference: 'alpha', nullable: true }], key: [], capability: 'fixture' }], edge: [], dictionary: [] };
     try {
       await prepareStore(durable, { contract: graph });
       await durable.transaction('write', (tx) => publishGraphDrafts(tx, graph, { vertices: [{ kind: 'record', key: {}, values: { target: { kind: 'alpha', key: {} } }, producer: 'person:reader', producerVersion: '1' }], removals: [] }, 1, { author: 'person:reader' }));
@@ -742,7 +742,7 @@ describe('the manifest makes the table and the writer fills it', () => {
     } finally { await durable.close(); }
   });
 
-  test('canonical endpoint aliases keep each intermediate edge opinion and journal it once', async () => {
+  test('typed endpoints reject coercion and keep each valid edge opinion and journal it once', async () => {
     const edgeTable = generatedTableName('alias.links', 'edge');
     const graph: GraphContract = {
       vertex: [{ name: 'alias.page', table: generatedTableName('alias.page', 'vertex'), fields: [{ name: 'title', type: 'text' }], key: ['title'], capability: 'fixture' }],
@@ -755,7 +755,8 @@ describe('the manifest makes the table and the writer fills it', () => {
         vertices: ['1', 'B'].map(title => ({ kind: 'alias.page', key: { title }, values: {}, producer: 'source', producerVersion: '1' })), removals: [],
       }));
       const link = (title: string | number, text: string) => ({ kind: 'alias.links', from: { kind: 'alias.page', key: { title } }, to: { kind: 'alias.page', key: { title: 'B' } }, values: { text }, producer: 'source', producerVersion: '1' });
-      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: [link(1, 'first'), link('1', 'second')], removals: [] }));
+      await expect(durable.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: [link(1, 'invalid')], removals: [] }))).rejects.toThrow('VALUE_TYPE_MISMATCH');
+      await durable.transaction('write', tx => publishGraphDrafts(tx, graph, { vertices: [], edges: [link('1', 'first'), link('1', 'second')], removals: [] }));
       const opinions = await durable.transaction('snapshot', tx => tx.query<{ id: string; text: string | null; state: string; edge: string }>(
         `SELECT id::text AS id, text, state, edge_id::text AS edge FROM ${edgeTable} ORDER BY id`,
       ));

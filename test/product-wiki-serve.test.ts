@@ -87,8 +87,8 @@ describe('serveWiki with a product or a manifestless directory', () => {
         { name: 'path', type: 'text', producers: ['fixture'] },
         { name: 'markdown', type: 'text', producers: ['fixture'] },
         { name: 'source_text', type: 'text', producers: ['fixture'] },
-        { name: 'anchors', type: 'json', producers: ['fixture'] },
-        { name: 'links', type: 'json', producers: ['fixture'] },
+        { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
+        { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
       ],
     });
     writeFileSync(kindsFile, manifest.toString());

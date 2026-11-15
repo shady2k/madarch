@@ -18,6 +18,9 @@ source: graph
 fields:
 - name: process
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-business-process:v1
   reference: business-process
   binding:
     agent: The business process the step stands in, by the key of that process in the graph.
@@ -35,12 +38,18 @@ fields:
     agent: Where the step stands in the process, from the sequence of nodes the graph holds, lowest first.
 - name: performer
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-role:v1
   nullable: true
   reference: role
   binding:
     agent: The role that carries the step out, when a person does it.
 - name: performed_by
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.service:v1
   nullable: true
   reference: code.service
   binding:

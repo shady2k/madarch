@@ -24,7 +24,7 @@ fields:
   producers:
   - operations
 - name: port
-  type: integer
+  type: port
   producers:
   - operations
 - name: protocol

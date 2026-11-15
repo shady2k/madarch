@@ -32,6 +32,9 @@ fields:
     agent: What a person checks to accept the stage.
 - name: status
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:

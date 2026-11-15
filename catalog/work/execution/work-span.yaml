@@ -26,6 +26,9 @@ fields:
     agent: 'What the span did, in the words of the run it belongs to, such as fill:modules or review.'
 - name: who
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:
@@ -46,7 +49,7 @@ fields:
   binding:
     agent: When the span started.
 - name: duration
-  type: integer
+  type: duration-seconds
   nullable: true
   binding:
     agent: How long the span took, in seconds.

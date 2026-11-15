@@ -8,7 +8,7 @@ describe('ordinary repository declarations retain canonical storage identities',
   test('declared fields and additional opinions use one table and key', () => {
     const kind = repositoryManifest.kinds.get('code.file')!;
     const kinds = new Map(repositoryManifest.kinds);
-    kinds.set(kind.name, { ...kind, fields: [...kind.fields!, { name: 'state_machines', type: 'json', nullable: true }] });
+    kinds.set(kind.name, { ...kind, fields: [...kind.fields!, { name: 'state_machines', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } }, nullable: true }] });
     const manifest = { ...repositoryManifest, kinds };
     const contract = graphContractOf(manifest);
     const file = contract.vertex.find(vertex => vertex.name === 'code.file')!;

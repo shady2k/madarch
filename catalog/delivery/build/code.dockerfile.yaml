@@ -27,11 +27,17 @@ fields:
   - operations
 - name: stages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.dockerfile-stages:v1
   nullable: true
   producers:
   - operations
 - name: exposed_ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   producers:
   - operations

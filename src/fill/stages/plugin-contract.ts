@@ -40,7 +40,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
       const held = resolved(field);
       if (held === undefined) continue;
       if (field.binding?.kind === 'plugin') capability = capability === '' ? field.binding.plugin : capability;
-      fields.push({ name: field.name, type: held.type, ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
+      fields.push({ name: field.name, type: held.type, ...(field.valueType === undefined ? {} : { valueType: field.valueType }), ...(field.schema === undefined ? {} : { schema: field.schema }), ...(field.nullable === true ? { nullable: true } : {}), ...(held.reference === undefined ? {} : { reference: held.reference }) });
     }
     // A kind that declares no field still has a table, and it holds the label its page is named by.
     if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
@@ -48,7 +48,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     for (const name of keyFields) if (!fields.some((held) => held.name === name)) fields.push({ name, type: 'text' });
     vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
   }
-  return { vertex, edge: edgeContractsOf(manifest), dictionary: [] };
+  return { vertex, edge: edgeContractsOf(manifest), dictionary: [], valueTypes: manifest.valueTypes };
 }
 
 /**
@@ -64,8 +64,11 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
     const plugin = edge.capability === undefined ? undefined : manifest.plugins?.get(edge.capability);
     const declared = plugin?.contract?.edges.find((one) => one.kind === edge.name);
     const fields: FieldContract[] = declared !== undefined
-      ? (declared.fields ?? []).map((field) => ({ name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }) }))
-      : edge.fields.map((field) => ({ name: field.name, type: field.type, ...(field.nullable === true ? { nullable: true } : {}), ...(field.reference === undefined ? {} : { reference: field.reference }) }));
+      ? (declared.fields ?? []).map((field) => {
+        const declaration = edge.fields.find((one) => one.name === field.name);
+        return { name: field.name, type: field.type, ...(field.required ? {} : { nullable: true }), ...(declaration?.valueType === undefined ? {} : { valueType: declaration.valueType }), ...(declaration?.schema === undefined ? {} : { schema: declaration.schema }) };
+      })
+      : edge.fields.map((field) => ({ name: field.name, type: field.type, ...(field.valueType === undefined ? {} : { valueType: field.valueType }), ...(field.schema === undefined ? {} : { schema: field.schema }), ...(field.nullable === true ? { nullable: true } : {}), ...(field.reference === undefined ? {} : { reference: field.reference }) }));
     edges.push({
       // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
       // the edge exists and who made it, which is what a complete answer is compared with and removed by.

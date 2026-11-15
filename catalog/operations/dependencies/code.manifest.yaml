@@ -29,7 +29,7 @@ fields:
   producers:
   - operations
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -46,7 +46,7 @@ fields:
   producers:
   - operations
 - name: version
-  type: text
+  type: version
   nullable: true
   producers:
   - operations

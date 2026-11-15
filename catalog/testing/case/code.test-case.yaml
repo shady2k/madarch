@@ -30,6 +30,9 @@ details:
 fields:
 - name: file
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.file:v1
   reference: code.file
   binding:
     agent: The file that declares the test, by the key of that file in the graph.
@@ -56,7 +59,7 @@ fields:
   binding:
     agent: The language the test is written in.
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
     agent: The path of the file that declares the test, as the file entity holds it.

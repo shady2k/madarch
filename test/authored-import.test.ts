@@ -30,7 +30,7 @@ function fixture(): string {
       - { name: legacy_id, type: text, nullable: true, producers: [person] }
       - { name: title, type: text, producers: [person] }
       - { name: body, type: text, nullable: true, producers: [person] }
-      - { name: front, type: json, nullable: true, producers: [person] }
+      - { name: front, type: json, schema: { $schema: "https://json-schema.org/draft/2020-12/schema", type: object, properties: { id: { type: string }, kind: { const: note }, title: { type: string }, extra: { type: array, items: { type: string } } }, required: [id, kind, title], additionalProperties: false }, nullable: true, producers: [person] }
     key: []
 `);
   return folder;

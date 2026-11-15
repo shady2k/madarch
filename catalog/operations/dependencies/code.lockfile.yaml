@@ -28,7 +28,7 @@ fields:
   producers:
   - operations
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -40,12 +40,15 @@ fields:
   producers:
   - operations
 - name: lockfile_version
-  type: text
+  type: version
   nullable: true
   producers:
   - operations
 - name: packages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.lockfile-packages:v1
   nullable: true
   producers:
   - operations

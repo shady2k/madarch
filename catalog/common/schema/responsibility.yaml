@@ -20,6 +20,9 @@ source: graph
 fields:
 - name: responsible
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:
@@ -31,6 +34,9 @@ fields:
     agent: 'Who carries the work out: a person or an agent.'
 - name: executor
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:

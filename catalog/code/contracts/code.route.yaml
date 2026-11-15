@@ -29,6 +29,9 @@ details:
 fields:
 - name: service
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.service:v1
   reference: code.service
   binding:
     agent: The service that answers the route, by the key of that service in the graph.
@@ -37,7 +40,7 @@ fields:
   binding:
     agent: The HTTP method the route answers, such as GET or POST.
 - name: path
-  type: text
+  type: path
   binding:
     agent: 'The path the route answers, such as /orders/{id}.'
 - name: auth
@@ -47,17 +50,26 @@ fields:
     agent: What the route requires of its caller before it answers, as the code declares it.
 - name: handler
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.symbol:v1
   nullable: true
   reference: code.symbol
   binding:
     agent: The symbol that handles the route, by the key of that symbol in the graph.
 - name: middleware
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The steps the request passes before the handler, by their keys in the graph.
 - name: ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   binding:
     agent: The ports the route is reachable on, as the service declares them.

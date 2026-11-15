@@ -25,7 +25,7 @@ fields:
   binding:
     agent: The repository the document stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь

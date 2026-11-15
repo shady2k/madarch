@@ -20,11 +20,14 @@ source: graph
 fields:
 - name: set
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set:v1
   reference: value-set
   producers:
   - person
 - name: value
-  type: text
+  type: value-set-value
   producers:
   - person
 - name: label_en

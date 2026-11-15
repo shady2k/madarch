@@ -19,6 +19,9 @@ source: graph
 fields:
 - name: test
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.test-case:v1
   reference: code.test-case
   binding:
     agent: The test case the result belongs to, by the key of that case in the graph.
@@ -33,7 +36,7 @@ fields:
   binding:
     agent: When the test ran.
 - name: duration
-  type: integer
+  type: duration-ms
   nullable: true
   binding:
     agent: How long the test took, in milliseconds.

@@ -26,6 +26,9 @@ fields:
     agent: The name the model is known by, such as the catalogue's data; it is the model's key.
 - name: domain
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-domain:v1
   nullable: true
   reference: domain
   binding:

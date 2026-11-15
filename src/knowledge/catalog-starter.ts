@@ -71,7 +71,8 @@ export interface CatalogKindData {
 /** One typed field of a starter kind's contract. */
 export interface ContractFieldData {
   readonly name: string;
-  readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
+  readonly type: string;
+  readonly schema?: Readonly<Record<string, unknown>>;
   readonly nullable?: boolean;
   readonly labels?: Readonly<Record<string, string>>;
   readonly producers?: readonly string[];

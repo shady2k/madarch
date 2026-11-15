@@ -26,6 +26,7 @@
  * never drops data in silence.
  */
 import { createHash } from 'node:crypto';
+import type { JsonSchema, ValueTypes } from './value-types.js';
 
 /** The sort of table a generated name belongs to: a vertex's opinions, an edge's, or a dictionary. */
 export type TableSort = 'vertex' | 'edge' | 'dictionary';
@@ -48,6 +49,8 @@ export type FieldType = 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' 
 export interface FieldContract {
   readonly name: string;
   readonly type: FieldType;
+  readonly valueType?: string;
+  readonly schema?: JsonSchema;
   /** Whether the column admits null; a new column of a new table is NOT NULL unless this is true. */
   readonly nullable?: boolean;
   /**
@@ -101,6 +104,7 @@ export interface EdgeContract {
 }
 
 export interface GraphContract {
+  readonly valueTypes?: ValueTypes;
   readonly vertex: readonly VertexContract[];
   readonly edge: readonly EdgeContract[];
   readonly dictionary: readonly DictionaryContract[];

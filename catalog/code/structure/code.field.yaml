@@ -23,6 +23,9 @@ details:
 fields:
 - name: symbol
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.symbol:v1
   reference: code.symbol
   binding:
     agent: The type or the object that holds the field, by the key of that symbol in the graph.

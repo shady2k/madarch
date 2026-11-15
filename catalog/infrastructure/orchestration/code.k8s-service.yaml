@@ -31,11 +31,17 @@ fields:
   - operations
 - name: ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.k8s-service-ports:v1
   nullable: true
   producers:
   - operations
 - name: selector
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-map:v1
   nullable: true
   producers:
   - operations

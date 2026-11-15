@@ -33,6 +33,9 @@ fields:
     agent: What the review says is wrong, in its own words.
 - name: place
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.file:v1
   nullable: true
   reference: code.file
   binding:

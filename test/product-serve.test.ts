@@ -200,10 +200,10 @@ async function prepareDocuments(folder: string, home: string): Promise<void> {
   const declaration = manifest.contents as { toJSON(): Record<string, unknown> };
   manifest.setIn([], {
     ...declaration.toJSON(), source: 'graph', origin: 'person', key: ['title'], title: 'title',
-    fields: ['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', producers: ['fixture'] })).concat([
-      { name: 'anchors', type: 'json', producers: ['fixture'] },
-      { name: 'links', type: 'json', producers: ['fixture'] },
-    ]),
+    fields: [...['title', 'repository', 'path', 'markdown', 'source_text'].map((name) => ({ name, type: 'text', nullable: name === 'repository', producers: ['fixture'] })),
+      { name: 'anchors', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false }, producers: ['fixture'] },
+      { name: 'links', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { href: { type: 'string' }, text: { type: 'string' } }, required: ['href', 'text'], additionalProperties: false } }, producers: ['fixture'] },
+    ],
   });
   writeFileSync(path, manifest.toString());
   const committed = spawnSync('git', ['commit', '-am', 'Declare fixture documents'], { cwd: folder, env: { ...process.env, ...SEALED_GIT } });

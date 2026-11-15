@@ -26,11 +26,14 @@ fields:
     agent: What the drill practises, in one line; it is the drill's key.
 - name: objectives_met
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: Which objectives the drill reached, as the record states them.
 - name: duration
-  type: integer
+  type: duration-seconds
   nullable: true
   binding:
     agent: How long the drill took, in seconds.

@@ -38,6 +38,9 @@ fields:
     agent: The protocol the channel speaks, such as Kafka, AMQP or NATS.
 - name: broker
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.broker:v1
   nullable: true
   reference: code.broker
   binding:

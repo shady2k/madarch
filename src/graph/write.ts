@@ -28,12 +28,13 @@
 import { randomUUID } from 'node:crypto';
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
+import { fitsValueSchema } from './value-types.js';
 import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
 export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
 import { keyUid } from './uid.js';
 
 /** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
-const WHERE = 'src/graph/write.ts';
+const WHERE = import.meta.path;
 
 /**
  * The journal of every change (decision 0034, its amendment A5, and stage 2): each publication's unit — a plugin's turn,
@@ -298,6 +299,7 @@ function keyFieldOf(vertex: VertexContract, field: string): FieldContract {
 
 /** One key value, normalised by its contract type (the review of stage 1, finding 8): a text's 1 and "1" are one value. */
 function normaliseKeyValue(contract: GraphContract, field: FieldContract, value: unknown, where: string): unknown {
+  validateFieldValue(contract, field, value);
   if (field.reference !== undefined) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${WHERE}:1: ${where} names a ${JSON.stringify(field.reference)}, and the draft names ${JSON.stringify(value)}: a reference is {kind, key}`);
     const ref = value as EntityRefDraft;
@@ -321,9 +323,7 @@ function normaliseKeyValue(contract: GraphContract, field: FieldContract, value:
       if (!Number.isSafeInteger(value)) throw new Error(`${WHERE}:1: ${where} is a bigint, and the draft names the number ${JSON.stringify(value)}, which no longer holds its digits: name it as a decimal string`);
       return String(value);
     }
-    const text = String(value);
-    if (!/^-?\d+$/u.test(text)) throw new Error(`${WHERE}:1: ${where} is a bigint, and the draft names ${JSON.stringify(value)}: a bigint key is a decimal string`);
-    return text;
+    return String(value);
   }
   if (field.type === 'boolean') {
     if (value !== true && value !== false) throw new Error(`${WHERE}:1: ${where} is a boolean, and the draft names ${JSON.stringify(value)}`);
@@ -471,14 +471,33 @@ export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft
 }
 
 /** The field values one opinion states, held against the kind's declaration: a key field is never an opinion. */
-function valuesOf(vertex: VertexContract, draft: { readonly kind: string; readonly values?: Readonly<Record<string, unknown>> }): Map<string, unknown> {
+function valuesOf(contract: GraphContract, vertex: VertexContract, draft: { readonly kind: string; readonly values?: Readonly<Record<string, unknown>> }): Map<string, unknown> {
   const values = new Map<string, unknown>();
   for (const [field, value] of Object.entries(draft.values ?? {})) {
     if (vertex.key.includes(field)) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(draft.kind)} is keyed by ${JSON.stringify(field)}, and the key is not an opinion: its value is the vertex's`);
     if (!vertex.fields.some((one) => one.name === field)) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(draft.kind)} declares no field ${JSON.stringify(field)}: its fields are ${vertex.fields.map((one) => one.name).join(', ')}`);
+    validateFieldValue(contract, vertex.fields.find((one) => one.name === field)!, value);
     values.set(field, value);
   }
   return values;
+}
+
+/** The writer checks the same installed contracts as the manifest reader (0039 items 3–4, 29). */
+function validateFieldValue(contract: GraphContract, field: FieldContract, value: unknown): void {
+  if (value === null && field.nullable) return;
+  const primitive = field.reference !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value) ? true : field.type === 'text' ? typeof value === 'string'
+    : field.type === 'integer' ? typeof value === 'number' && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647
+    : field.type === 'bigint' ? ((typeof value === 'number' && Number.isSafeInteger(value)) || (typeof value === 'string' && value.length > 0)) && (() => { try { const number = BigInt(value as string | number); return number >= -9223372036854775808n && number <= 9223372036854775807n && (typeof value !== 'string' || number.toString() === value); } catch { return false; } })()
+    : field.type === 'boolean' ? typeof value === 'boolean'
+    : field.type === 'timestamp' ? typeof value === 'string' && Number.isFinite(Date.parse(value))
+    : (() => { try { return JSON.stringify(value) !== undefined; } catch { return false; } })();
+  const types = contract.valueTypes ?? {};
+  const declared = field.valueType === undefined ? undefined : types[field.valueType];
+  if (!primitive || (field.type === 'json' && field.schema === undefined) || (field.valueType !== undefined && declared === undefined)
+    || (declared !== undefined && field.reference === undefined && !fitsValueSchema(declared.schema, types, value))
+    || (field.schema !== undefined && !fitsValueSchema(field.schema, types, value))) {
+    throw new Error(`${WHERE}:1: VALUE_TYPE_MISMATCH field ${field.name}: expected ${field.valueType ?? field.type}${field.type === 'json' && field.schema === undefined ? ' with mandatory JSON Schema' : ''}, value ${JSON.stringify(value)}`);
+  }
 }
 
 /** A JSON value sent as its own text: this driver would otherwise write an array as a PostgreSQL array. */
@@ -610,7 +629,7 @@ async function stateOpinions(executor: SqlExecutor, entity: string, table: strin
  */
 export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly selectedFields?: readonly string[]; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
   const vertex = vertexOf(contract, draft.kind);
-  const values = valuesOf(vertex, draft);
+  const values = valuesOf(contract, vertex, draft);
   const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
   return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
 }
@@ -926,6 +945,25 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
 }
 
 export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[]; readonly withdrawal?: JournalWithdrawal } = {}): Promise<number> {
+  // Validate the complete publication before its first SQL statement.
+  for (const draft of drafts.vertices ?? []) {
+    const kind = vertexOf(contract, draft.kind);
+    canonicalKeyOf(contract, kind, draft.key, draft.kind);
+    valuesOf(contract, kind, draft);
+  }
+  for (const draft of drafts.edges ?? []) {
+    const kind = contract.edge.find((one) => one.name === draft.kind);
+    if (kind === undefined) throw new Error(`${WHERE}:1: unknown edge ${draft.kind}`);
+    for (const ref of [draft.from, draft.to]) {
+      const target = contract.vertex.find((one) => one.name === ref.kind);
+      if (ref.uid === undefined) canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key ?? {}), draft.kind);
+    }
+    for (const [name, value] of Object.entries(draft.values ?? {})) {
+      const field = kind.fields.find((one) => one.name === name);
+      if (field === undefined) throw new Error(`${WHERE}:1: unknown field ${draft.kind}.${name}`);
+      validateFieldValue(contract, field, value);
+    }
+  }
   let written = 0;
   // The entry's author is the publication's: a plugin and its version, a record pass's producer, or the agent or a person
   // for an operation; without one named, the drafts' own producers name it — a removal-only or edge-only publication
@@ -951,7 +989,7 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
     while (end < declared.length && declared[end]!.draft.kind === kind.name) end += 1;
     const fields = kind.fields.filter(field => !kind.key.includes(field.name)).map(field => field.name);
     const inputs = declared.slice(at, end).map(({ draft, nodeId, uid }) => ({
-      ownerId: nodeId, nodeUid: uid, saidBy: `${draft.producer}@${draft.producerVersion}`, values: valuesOf(kind, draft),
+      ownerId: nodeId, nodeUid: uid, saidBy: `${draft.producer}@${draft.producerVersion}`, values: valuesOf(contract, kind, draft),
       evidence: evidenceList(draft), lang: draft.lang ?? null, ...(draft.selectedFields === undefined ? {} : { selectedFields: draft.selectedFields }),
     }));
     written += (await stateOpinions(executor, kind.name, kind.table, 'node_id', inputs, fields, contextId, journal)).filter(Boolean).length;

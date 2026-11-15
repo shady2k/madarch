@@ -37,12 +37,18 @@ fields:
     agent: What is true once the epic is met.
 - name: status
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:
     agent: Where the epic stands, as the work kinds keep it.
 - name: priority
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:

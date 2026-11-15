@@ -39,11 +39,17 @@ details:
 fields:
 - name: repository
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.repository:v1
   reference: code.repository
   binding:
     agent: The repository the symbol stands in, by the key of that repository in the graph.
 - name: file
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.file:v1
   reference: code.file
   binding:
     agent: The file that declares the symbol, by the key of that file in the graph.

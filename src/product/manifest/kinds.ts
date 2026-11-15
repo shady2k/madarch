@@ -51,6 +51,7 @@ import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.j
 import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
 import { byCodePoint } from '../../model/order.js';
+import { checkValueTypes, compileValueSchema, JSON_DIALECT, type JsonSchema, type ValueTypes } from '../../graph/value-types.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/catalog.yaml';
@@ -119,6 +120,8 @@ export interface FieldDecl {
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   readonly nullable?: boolean;
+  readonly valueType?: string;
+  readonly schema?: JsonSchema;
   /** The field's reader-facing label per interface language; a page never shows the field's key in its place. */
   readonly labels?: Readonly<Record<string, string>>;
   /** An agent must ground a stated value in a file and line range. */
@@ -584,6 +587,7 @@ interface ExpectedKind {
 
 export interface KindsManifest {
   file: string;
+  valueTypes?: ValueTypes;
   /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
   roles: ReadonlyMap<string, RoleDecl>;
   purposes?: ReadonlyMap<string, PurposeDecl>;
@@ -1239,6 +1243,25 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     return nothing(file, [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }]);
   }
   const top = root as Record<string, unknown>;
+  let valueTypes = (top['value-types'] ?? {}) as ValueTypes;
+  try { checkValueTypes(valueTypes); }
+  catch (error) { findings.push({ file, line: at(['value-types']), message: String(error) }); valueTypes = {}; }
+  const fieldSchema = (body: Record<string, unknown>, path: (string | number)[]): { valueType?: string; schema?: JsonSchema } | undefined => {
+    const type = String(body['type']);
+    const declared = valueTypes[type];
+    const storage = declared?.storage ?? type;
+    if (storage === 'json' && body['schema'] === undefined) {
+      findings.push({ file, line: at(path), message: `field ${String(body['name'])}: JSON requires a Draft 2020-12 schema (0039 items 4, 29)` }); return undefined;
+    }
+    const schema = body['schema'] as JsonSchema | undefined;
+    if (schema !== undefined) {
+      try {
+        if (schema['$schema'] !== JSON_DIALECT) throw new Error('schema must declare Draft 2020-12');
+        compileValueSchema(schema, valueTypes);
+      } catch (error) { findings.push({ file, line: at([...path, 'schema']), message: String(error) }); return undefined; }
+    }
+    return { ...(declared === undefined ? {} : { valueType: type }), ...(schema === undefined ? {} : { schema }) };
+  };
   let language: string | undefined;
   let diagram: string | undefined;
   for (const key of Object.keys(top)) {
@@ -1250,7 +1273,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'purposes' && key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal' && key !== 'values') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram", "values" and "journal"` });
+    } else if (key !== 'purposes' && key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems' && key !== 'properties' && key !== 'catalog' && key !== 'mapping' && key !== 'edges' && key !== 'plugins' && key !== 'journal' && key !== 'values' && key !== 'value-types') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "edges", "plugins", "groups", "purposes", "documents", "roles", "problems", "properties", "catalog", "mapping", "language", "diagram", "values" and "journal"` });
   }
   const properties = new Map<string, PropertyDecl>();
   const rawProperties = top['properties'];
@@ -1733,7 +1756,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (typeof relation === 'string' && relation.trim() !== '' && (direction === 'out' || direction === 'in')) member = { relation, direction, ...(typeof parentKind === 'string' && parentKind.trim() !== '' ? { parentKind } : {}), ...(typeof property === 'string' && property.trim() !== '' ? { property } : {}), line: at(['kinds', name, 'member']) };
       }
     }
-    const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
+    const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json', ...Object.keys(valueTypes)]);
     const parseFields = (raw: unknown, field: string): FieldDecl[] => {
       if (raw === undefined) return [];
       if (!Array.isArray(raw)) { problem([field], `"${field}" is a list of { name, type, nullable?, producers?, reference?, binding? }`); return []; }
@@ -1747,7 +1770,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         // Nothing is authoritative and nothing is claimed: the word "role" left the manifest's field language, and a
         // manifest that still says it is refused where it says it.
         if (body['role'] !== undefined) { problem([field, index, 'role'], '"role" is gone: no field is authoritative and none is claimed — every value a producer states is an opinion'); return; }
-        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding' && key !== 'evidence' && key !== 'labels');
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding' && key !== 'evidence' && key !== 'labels' && key !== 'schema');
         if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, evidence, labels, producers, reference and binding`); return; }
         const fieldLabels = body['labels'];
         if (fieldLabels !== undefined && (fieldLabels === null || typeof fieldLabels !== 'object' || Array.isArray(fieldLabels)
@@ -1763,9 +1786,12 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         if (reference !== undefined && (typeof reference !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(reference))) { problem([field, index, 'reference'], '"reference" names a kind of the manifest'); return; }
         const binding = parseBinding(body['binding'], [field, index, 'binding']);
         if (binding === null) return;
+        const validation = fieldSchema(body, ['kinds', name, field, index]);
+        if (validation === undefined) return;
         out.push({
+          ...validation,
           name: body['name'],
-          type: body['type'] as FieldDecl['type'],
+          type: (valueTypes[String(body['type'])]?.storage ?? body['type']) as FieldDecl['type'],
           ...(body['nullable'] === true ? { nullable: true } : {}),
           ...(typeof body['evidence'] === 'boolean' ? { evidence: body['evidence'] } : {}),
           ...(fieldLabels === undefined ? {} : { labels: fieldLabels as Record<string, string> }),
@@ -2056,7 +2082,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         findings.push({ file, line: at(['edges', index, 'labels']), message: `edge "${body['name']}": the edge declares no words in "${language}": every edge kind names both ends in ${LABEL_LANGUAGES.join(' and ')}` });
         return;
       }
-      const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
+      const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json', ...Object.keys(valueTypes)]);
       const fields: FieldDecl[] = [];
       const rawFields = body['fields'];
       if (rawFields !== undefined) {
@@ -2068,13 +2094,15 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
             return;
           }
           if (field['role'] !== undefined) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'role']), message: '"role" is gone: no field is authoritative and none is claimed — every value a producer states is an opinion' }); return; }
-          const fieldExtra = Object.keys(field).filter((key) => !['name', 'type', 'nullable', 'producers', 'reference'].includes(key));
+          const fieldExtra = Object.keys(field).filter((key) => !['name', 'type', 'nullable', 'producers', 'reference', 'schema'].includes(key));
           if (fieldExtra.length > 0) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, fieldExtra[0]!]), message: `"${fieldExtra[0]}" is not a field of a field: the fields are name, type, nullable, producers and reference` }); return; }
           const fieldProducers = field['producers'];
           if (fieldProducers !== undefined && (!Array.isArray(fieldProducers) || fieldProducers.length === 0 || fieldProducers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'producers']), message: '"producers" is a list of producer names, each a lower-case identifier' }); return; }
           const fieldReference = field['reference'];
           if (fieldReference !== undefined && (typeof fieldReference !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(fieldReference))) { findings.push({ file, line: at(['edges', index, 'fields', fieldAt, 'reference']), message: '"reference" names a kind of the manifest' }); return; }
-          fields.push({ name: field['name'], type: field['type'] as FieldDecl['type'], ...(field['nullable'] === true ? { nullable: true } : {}), ...(fieldProducers === undefined ? {} : { producers: fieldProducers as string[] }), ...(fieldReference === undefined ? {} : { reference: fieldReference }), line: at(['edges', index, 'fields', fieldAt]) });
+          const validation = fieldSchema(field, ['edges', index, 'fields', fieldAt]);
+          if (validation === undefined) return;
+          fields.push({ ...validation, name: field['name'], type: (valueTypes[String(field['type'])]?.storage ?? field['type']) as FieldDecl['type'], ...(field['nullable'] === true ? { nullable: true } : {}), ...(fieldProducers === undefined ? {} : { producers: fieldProducers as string[] }), ...(fieldReference === undefined ? {} : { reference: fieldReference }), line: at(['edges', index, 'fields', fieldAt]) });
         }
       }
       const repeats = body['repeats'] === true;
@@ -2257,7 +2285,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (debug === true) journal = { debug: true };
     }
   }
-  return { file, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, ...(valueSets.size === 0 ? {} : { values: valueSets }), kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
+  return { file, valueTypes, roles, ...(rawPurposes === undefined ? {} : { purposes }), properties, ...(valueSets.size === 0 ? {} : { values: valueSets }), kinds, ...(edges.size === 0 ? {} : { edges }), ...(plugins.size === 0 ? {} : { plugins }), groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), ...(catalogSchema === undefined ? {} : { catalog: { schema: catalogSchema, kinds: catalogEntries, findings: catalogFound } }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }), ...(journal === undefined ? {} : { journal }) };
 }
 
 /**

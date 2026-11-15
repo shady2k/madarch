@@ -26,6 +26,9 @@ fields:
     agent: 'Whether the ring stands between folders, modules or services: file, module or service.'
 - name: members
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   binding:
     agent: The files or modules in the ring, by their keys in the graph, in code point order so the same ring always reads the same.
 - name: size

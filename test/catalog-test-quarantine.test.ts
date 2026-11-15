@@ -29,13 +29,13 @@ describe('test quarantine in the starter catalogue', () => {
     expect(kind['derives-from']).toEqual(['code.file']);
     expect(kind.fields).toEqual([
       { name: 'repository', type: 'text', binding: 'test-quarantine@1.repository' },
-      { name: 'path', type: 'text', binding: 'test-quarantine@1.path' },
+      { name: 'path', type: 'path', binding: 'test-quarantine@1.path' },
       { name: 'name', type: 'text', binding: 'test-quarantine@1.name' },
-      { name: 'test', type: 'json', reference: 'code.test-case', binding: 'test-quarantine@1.test' },
+      { name: 'test', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', $ref: 'urn:madarch:value-type:key-code.test-case:v1' }, reference: 'code.test-case', binding: 'test-quarantine@1.test' },
       { name: 'task', type: 'text', reference: 'task', binding: 'test-quarantine@1.task' },
       { name: 'quarantine_reason', type: 'text', binding: 'test-quarantine@1.quarantine_reason' },
       { name: 'since', type: 'text', reference: 'code.commit', binding: 'test-quarantine@1.since' },
-      { name: 'latest_result', type: 'json', nullable: true, reference: 'test-result', binding: 'test-quarantine@1.latest_result' },
+      { name: 'latest_result', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', $ref: 'urn:madarch:value-type:key-test-result:v1' }, nullable: true, reference: 'test-result', binding: 'test-quarantine@1.latest_result' },
     ]);
     expect(kind['relation-constraints']).toEqual({ out: ['quarantines', 'fixedBy'], in: [] });
     for (const relation of row.out) expect(CATALOG_RELATIONS).toHaveProperty(relation);

@@ -35,16 +35,25 @@ fields:
   - operations
 - name: ports
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:port-list:v1
   nullable: true
   producers:
   - operations
 - name: depends_on
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   producers:
   - operations
 - name: environment
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:code.compose-service-environment:v1
   nullable: true
   producers:
   - operations

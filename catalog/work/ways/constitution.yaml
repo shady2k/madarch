@@ -28,6 +28,9 @@ details:
 fields:
 - name: product
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-product:v1
   reference: product
   binding:
     agent: The product the constitution is written for, by the key of that product in the graph.
@@ -37,11 +40,17 @@ fields:
     agent: The principles, practices and conventions in force, as the constitution states them.
 - name: precedence
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: Which statement wins where two disagree, in the order the constitution gives.
 - name: status
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:

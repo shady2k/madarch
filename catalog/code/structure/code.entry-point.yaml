@@ -24,11 +24,17 @@ details:
 fields:
 - name: file
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.file:v1
   reference: code.file
   binding:
     agent: The file the entry point starts in, by the key of that file in the graph.
 - name: symbol
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.symbol:v1
   nullable: true
   reference: code.symbol
   binding:

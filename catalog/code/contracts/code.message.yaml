@@ -21,6 +21,9 @@ details:
 fields:
 - name: contract
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.contract:v1
   reference: code.contract
   binding:
     agent: The contract that declares the message, by the key of that contract in the graph.
@@ -33,12 +36,18 @@ fields:
     agent: The name the contract gives the message.
 - name: channel
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.channel:v1
   nullable: true
   reference: code.channel
   binding:
     agent: The channel the message travels on, where the contract says so.
 - name: event_types
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The event types the message may carry, as the contract names them.

@@ -33,18 +33,27 @@ fields:
     agent: When the merge happened.
 - name: merged_by
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:
     agent: The person who allowed the merge.
 - name: commit
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.commit:v1
   nullable: true
   reference: code.commit
   binding:
     agent: The commit the merge made, where it made one.
 - name: conditions
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: 'What had to hold for the merge: the checks that passed and the approvals given.'

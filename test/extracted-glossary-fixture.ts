@@ -15,9 +15,9 @@ export function useExtractedGlossary(folder: string): void {
   manifest.setIn(['fields'], [
     { name: 'name', type: 'text', binding: 'glossary@1.name' },
     { name: 'definition', type: 'text', binding: 'glossary@1.definition' },
-    { name: 'synonyms', type: 'json', nullable: true, binding: 'glossary@1.synonyms' },
-    { name: 'code', type: 'json', nullable: true, binding: 'glossary@1.code' },
-    { name: 'usages', type: 'json', binding: 'glossary@1.usages' },
+    { name: 'synonyms', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } }, nullable: true, binding: 'glossary@1.synonyms' },
+    { name: 'code', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } }, nullable: true, binding: 'glossary@1.code' },
+    { name: 'usages', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'object', properties: { repository: { type: 'string' }, path: { type: 'string' }, lineStart: { type: 'integer' }, lineEnd: { type: 'integer' }, count: { type: 'integer' } }, required: ['repository', 'path', 'lineStart', 'lineEnd', 'count'], additionalProperties: false } }, binding: 'glossary@1.usages' },
   ]);
   writeFileSync(path, manifest.toString());
 }

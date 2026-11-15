@@ -19,6 +19,9 @@ source: graph
 fields:
 - name: activity
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-activity:v1
   reference: activity
   binding:
     agent: The activity the node stands in, by the key of that activity in the graph.

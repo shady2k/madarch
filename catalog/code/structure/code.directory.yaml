@@ -26,7 +26,7 @@ fields:
   producers:
   - disk
 - name: path
-  type: text
+  type: path
   producers:
   - disk
 key:

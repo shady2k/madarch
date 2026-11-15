@@ -14,7 +14,7 @@ const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/catalog.ya
   ] }],
   ['derived', { name: 'derived', template: 'derived.liquid', source: 'graph', origin: 'agent', title: 'title', relations: [], line: 2 }],
   ['link', { name: 'link', template: 'link.liquid', source: 'graph', origin: 'person', title: 'target', relations: [], line: 3,
-    fields: [{ name: 'target', type: 'json', reference: 'note' }],
+    fields: [{ name: 'target', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { kind: { const: 'note' }, key: { type: 'object', additionalProperties: false } }, required: ['kind', 'key'], additionalProperties: false }, reference: 'note' }],
   }],
 ]) };
 const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader <reader@example.invalid>', action, 'note', args));

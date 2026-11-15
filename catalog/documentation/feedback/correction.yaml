@@ -38,12 +38,18 @@ fields:
     agent: 'The ground the correction rests on: what is true instead, and where it is seen.'
 - name: status
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:
     agent: Where the correction stands, as the work kinds keep it.
 - name: by
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:
@@ -55,6 +61,9 @@ fields:
     agent: When the correction was made.
 - name: resolved_by
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-person:v1
   nullable: true
   reference: person
   binding:

@@ -25,18 +25,24 @@ fields:
   binding:
     agent: The name the view is known by, such as the fill's types or the domain model of orders; it is the view's key.
 - name: level
-  type: text
+  type: class-diagram-level
   nullable: true
   binding:
     agent: 'Whether the view draws code types or domain entities: code or domain.'
 - name: module
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.module:v1
   nullable: true
   reference: code.module
   binding:
     agent: The module whose types the view draws, by the key of that module in the graph.
 - name: domain
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-domain:v1
   nullable: true
   reference: domain
   binding:

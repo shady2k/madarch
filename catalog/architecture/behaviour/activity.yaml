@@ -28,6 +28,9 @@ fields:
     agent: The name the behaviour is known by, such as Place an order; it is the activity's key.
 - name: subject
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.symbol:v1
   nullable: true
   reference: code.symbol
   binding:

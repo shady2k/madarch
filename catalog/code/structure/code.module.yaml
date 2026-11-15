@@ -26,6 +26,9 @@ fields:
     agent: 'The name the people who work on the code give this module, one or two words such as fill, graph or catalogue; it is the module''s key.'
 - name: folder
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.directory:v1
   reference: code.directory
   labels:
     en: Folder

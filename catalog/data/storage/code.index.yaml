@@ -30,6 +30,9 @@ fields:
   binding: db-schema@1.where
 - name: columns
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   binding: db-schema@1.columns
 key:
 - table

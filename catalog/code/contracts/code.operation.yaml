@@ -33,6 +33,9 @@ details:
 fields:
 - name: contract
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.contract:v1
   reference: code.contract
   binding:
     agent: The contract that declares the operation, by the key of that contract in the graph.
@@ -49,7 +52,7 @@ fields:
   binding:
     agent: The HTTP method the operation answers, where the contract is an HTTP one.
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
     agent: The path the operation answers, where the contract is an HTTP one.

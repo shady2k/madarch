@@ -25,11 +25,14 @@ details:
 fields:
 - name: repository
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.repository:v1
   reference: code.repository
   binding:
     agent: The repository the contract file stands in, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   labels:
     en: Path
     ru: Путь
@@ -41,12 +44,12 @@ fields:
   binding:
     agent: 'Which notation the contract is written in: OpenAPI, gRPC or AsyncAPI.'
 - name: spec_version
-  type: text
+  type: version
   nullable: true
   binding:
     agent: The version of the notation the contract declares.
 - name: version
-  type: text
+  type: version
   nullable: true
   binding:
     agent: The version of the interface the contract declares.

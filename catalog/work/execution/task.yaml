@@ -57,12 +57,18 @@ fields:
     agent: What has to change and how a reader sees that it is done, in the words of the task.
 - name: status
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:
     agent: Where the task stands, as the tracker keeps it.
 - name: priority
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:
@@ -79,6 +85,9 @@ fields:
     agent: What has to hold for the task to be done, in the words of its acceptance.
 - name: labels
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-value-set-entry:v1
   nullable: true
   reference: value-set-entry
   binding:

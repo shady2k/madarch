@@ -67,7 +67,7 @@ fields:
   - disk
   - git
 - name: path
-  type: text
+  type: path
   producers:
   - disk
   - git
@@ -108,6 +108,9 @@ fields:
   - disk
 - name: languages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   producers:
   - disk

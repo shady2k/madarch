@@ -33,7 +33,7 @@ fields:
   binding:
     agent: When the run ended.
 - name: duration
-  type: integer
+  type: duration-seconds
   nullable: true
   binding:
     agent: How long the run took, in seconds.

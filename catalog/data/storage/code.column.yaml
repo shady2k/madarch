@@ -38,6 +38,9 @@ fields:
   binding: db-schema@1.unique
 - name: check
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding: db-schema@1.check
 key:

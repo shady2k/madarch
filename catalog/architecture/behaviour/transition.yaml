@@ -19,21 +19,33 @@ source: graph
 fields:
 - name: machine
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-state-machine:v1
   reference: state-machine
   binding:
     agent: The state machine the transition belongs to, by the key of that machine in the graph.
 - name: from
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-state:v1
   reference: state
   binding:
     agent: The state the move leaves, by its key.
 - name: to
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-state:v1
   reference: state
   binding:
     agent: The state the move enters, by its key.
 - name: event
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-event:v1
   nullable: true
   reference: event
   binding:

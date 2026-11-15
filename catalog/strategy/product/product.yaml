@@ -34,6 +34,9 @@ fields:
     agent: What the product does for the people it serves, in one or two sentences.
 - name: audience
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-role:v1
   nullable: true
   reference: role
   binding:

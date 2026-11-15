@@ -19,13 +19,16 @@ fields:
   type: text
   binding: test-quarantine@1.repository
 - name: path
-  type: text
+  type: path
   binding: test-quarantine@1.path
 - name: name
   type: text
   binding: test-quarantine@1.name
 - name: test
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.test-case:v1
   reference: code.test-case
   binding: test-quarantine@1.test
 - name: task
@@ -41,6 +44,9 @@ fields:
   binding: test-quarantine@1.since
 - name: latest_result
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-test-result:v1
   nullable: true
   reference: test-result
   binding: test-quarantine@1.latest_result

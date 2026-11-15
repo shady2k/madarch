@@ -19,6 +19,9 @@ source: graph
 fields:
 - name: scenario
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-runtime-scenario:v1
   reference: runtime-scenario
   binding:
     agent: The runtime scenario the step belongs to, by the key of that scenario in the graph.
@@ -28,24 +31,36 @@ fields:
     agent: Where the step stands in the scenario, lowest first, from the chain of calls the graph holds.
 - name: from_role
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-role:v1
   nullable: true
   reference: role
   binding:
     agent: The role that sends the message, when a person starts the step.
 - name: from_service
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.service:v1
   nullable: true
   reference: code.service
   binding:
     agent: The service that sends the message, when a program starts the step.
 - name: to_role
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-role:v1
   nullable: true
   reference: role
   binding:
     agent: The role that receives the message, when a person receives it.
 - name: to_service
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.service:v1
   nullable: true
   reference: code.service
   binding:

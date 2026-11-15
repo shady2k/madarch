@@ -26,6 +26,9 @@ fields:
     agent: The name the guide is known by, such as Administrator guide or User guide; it is the guide's key.
 - name: audience
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-role:v1
   nullable: true
   reference: role
   binding:

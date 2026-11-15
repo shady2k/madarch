@@ -12,7 +12,7 @@ import { createTestDatabaseOwner } from './test-database.js';
 const table = generatedTableName('demo.page', 'vertex');
 const mentionsTable = generatedTableName('mentions', 'edge');
 const oldContract: GraphContract = {
-  vertex: [{ name: 'demo.page', table, key: ['title'], capability: 'agent', fields: [{ name: 'title', type: 'text' }, { name: 'mentions', type: 'json', nullable: true }, { name: 'legacy', type: 'json', nullable: true }] }],
+  vertex: [{ name: 'demo.page', table, key: ['title'], capability: 'agent', fields: [{ name: 'title', type: 'text' }, { name: 'mentions', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', items: { type: 'string' } }, nullable: true }, { name: 'legacy', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { note: { type: 'string' } }, required: ['note'], additionalProperties: false }, nullable: true }] }],
   edge: [], dictionary: [],
 };
 const newContract: GraphContract = {

@@ -43,7 +43,7 @@ fields:
   producers:
   - operations
 - name: path
-  type: text
+  type: path
   nullable: true
   producers:
   - operations

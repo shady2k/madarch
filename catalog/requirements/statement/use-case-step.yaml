@@ -19,6 +19,9 @@ source: graph
 fields:
 - name: use_case
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-doc.use-case:v1
   reference: doc.use-case
   binding:
     agent: The use case the step belongs to, by the key of that use case in the graph.
@@ -28,6 +31,9 @@ fields:
     agent: Where the step stands in the use case, lowest first.
 - name: actor
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-role:v1
   nullable: true
   reference: role
   binding:
@@ -38,12 +44,18 @@ fields:
     agent: What happens in the step, in one sentence.
 - name: system_action
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.operation:v1
   nullable: true
   reference: code.operation
   binding:
     agent: The operation that answers the step, where the graph links one.
 - name: extension_of
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-use-case-step:v1
   nullable: true
   reference: use-case-step
   binding:

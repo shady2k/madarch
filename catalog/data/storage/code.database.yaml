@@ -25,12 +25,15 @@ fields:
   binding: db-schema@1.repository
 - name: service
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.service:v1
   nullable: true
   reference: code.service
   binding:
     agent: 'The service that owns the database, by the key of that service in the graph.'
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
     agent: 'The path of the file that declares the database, as the file entity holds it.'

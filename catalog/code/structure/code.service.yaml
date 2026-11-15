@@ -35,12 +35,15 @@ fields:
     agent: The name the people who run the product give this service, such as madarch or billing-api; it is the service's key.
 - name: repository
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:key-code.repository:v1
   nullable: true
   reference: code.repository
   binding:
     agent: The repository whose folder holds the service, by the key of that repository in the graph.
 - name: path
-  type: text
+  type: path
   nullable: true
   binding:
     agent: The folder inside the repository where the service stands, as the folder entity holds it in the graph.
@@ -51,6 +54,9 @@ fields:
     agent: The language most of the service is written in, from its files in the graph.
 - name: frameworks
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The frameworks the service is built with, from the packages it imports in the graph.

@@ -41,7 +41,7 @@ fields:
   producers:
   - operations
 - name: port
-  type: integer
+  type: port
   nullable: true
   producers:
   - operations

@@ -30,6 +30,9 @@ fields:
     agent: 'What the engine can do with the workflow today: implemented or planned.'
 - name: stages
   type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
   nullable: true
   binding:
     agent: The stages the workflow enables, in the order the engine runs them.
