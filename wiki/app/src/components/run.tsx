@@ -18,11 +18,13 @@ import { momentWords } from './format.js';
 import { Skeleton } from './ui/skeleton.js';
 import { ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import {
-  pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
+  isOffline, pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillRunGroup,
 } from './command.js';
 import { RUNS_PAGE } from '../address.js';
 import { InlineCode } from './ui/inline-content.js';
+import { OfflineAction } from './ui/offline-action.js';
+import { useConnection } from '../connection.js';
 import type { SectionContext } from './types.js';
 
 const LIVE = ['created', 'planning', 'running', 'pausing', 'cancelling'];
@@ -93,6 +95,7 @@ function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: 
 /** One fill run. */
 export function RunSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
+  const connection = useConnection();
   const language = context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const parameter = typeof context.section.params['runVariable'] === 'string' ? context.section.params['runVariable'] : 'run';
   const bound = context.variables[parameter];
@@ -133,13 +136,13 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
   const lines = run === null ? [] : logLines(run, run.groups, labelOf, pluginName, t, language);
 
   const act = (action: 'pause' | 'stop'): void => {
-    if (run === null) return;
+    if (connection.offline || run === null) return;
     setBusy(true);
     setFailure(null);
     const work = action === 'pause' ? pauseFillRun(context.base, run.runId) : stopFillRun(context.base, run.runId);
     work.then(
       () => { setBusy(false); setConfirming(false); read.reload(); },
-      (error: unknown) => { setBusy(false); setFailure(error instanceof Error ? error.message : String(error)); },
+      (error: unknown) => { setBusy(false); setFailure(isOffline(error) ? null : error instanceof Error ? error.message : String(error)); },
     );
   };
 
@@ -175,8 +178,16 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           <Paragraph className="m-0 text-small" data-testid="fill-run-records">{t('knowledge.fillRun.records', { count: run.records })}</Paragraph>
           {run.state === 'failed' ? <Alert variant="problem" className="mt-3"><AlertDescription>{t('knowledge.fillRun.failed')}</AlertDescription></Alert> : null}
           <Stack className="mt-4 flex flex-wrap gap-2">
-            {run.state === 'running' ? <Button variant="default" size="default" disabled={busy} onClick={() => act('pause')} data-testid="run-pause">{t('knowledge.fillPage.pause')}</Button> : null}
-            {STOPPABLE.includes(run.state) ? <Button size="default" disabled={busy || run.state === 'cancelling'} onClick={() => setConfirming(true)} data-testid="run-stop">{t('knowledge.fillPage.stop')}</Button> : null}
+            {run.state === 'running' ? (
+              <OfflineAction offline={connection.offline}>
+                <Button variant="default" size="default" disabled={connection.offline || busy} onClick={() => act('pause')} data-testid="run-pause">{t('knowledge.fillPage.pause')}</Button>
+              </OfflineAction>
+            ) : null}
+            {STOPPABLE.includes(run.state) ? (
+              <OfflineAction offline={connection.offline}>
+                <Button size="default" disabled={connection.offline || busy || run.state === 'cancelling'} onClick={() => setConfirming(true)} data-testid="run-stop">{t('knowledge.fillPage.stop')}</Button>
+              </OfflineAction>
+            ) : null}
           </Stack>
           {failure === null ? null : <Paragraph role="alert" className="mt-2 text-small">{failure}</Paragraph>}
         </CardContent>
@@ -224,7 +235,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           <DialogHeader><DialogTitle>{t('knowledge.fillPage.stopTitle')}</DialogTitle></DialogHeader>
           <DialogBody><DialogDescription>{t('knowledge.fillRun.stopWords')}</DialogDescription></DialogBody>
           <DialogFooter>
-            <Button variant="default" size="default" disabled={busy} onClick={() => act('stop')} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
+            <Button variant="default" size="default" disabled={connection.offline || busy} onClick={() => act('stop')} data-testid="stop-confirm">{t('knowledge.fillPage.stopConfirm')}</Button>
             <Button size="default" disabled={busy} onClick={() => setConfirming(false)}>{t('knowledge.fillPage.stopCancel')}</Button>
           </DialogFooter>
         </DialogContent>
