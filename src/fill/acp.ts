@@ -36,6 +36,7 @@
  *   caller's clock and not by the agent's willingness to read a cancel
  *   (madarch-tzte.38).
  */
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import { delimiter, resolve } from 'node:path';
@@ -292,21 +293,23 @@ const KILL_GRACE_MS = 2_000;
  * rather than failing at the spawn.
  */
 export function resolveExecutable(command: string, pathValue = process.env.PATH ?? ''): string | undefined {
-  const runs = (path: string): boolean => {
-    try {
-      accessSync(path, fsConstants.X_OK);
-      return statSync(path).isFile();
-    } catch {
-      return false;
+  return withSpanSync('process.resolve', { 'process.command': command, 'process.search.entries': pathValue.split(delimiter).length }, () => {
+    const runs = (path: string): boolean => {
+      try {
+        accessSync(path, fsConstants.X_OK);
+        return statSync(path).isFile();
+      } catch {
+        return false;
+      }
+    };
+    if (command.includes('/')) return runs(command) ? resolve(command) : undefined;
+    for (const folder of pathValue.split(delimiter)) {
+      if (!folder) continue;
+      const candidate = resolve(folder, command);
+      if (runs(candidate)) return candidate;
     }
-  };
-  if (command.includes('/')) return runs(command) ? resolve(command) : undefined;
-  for (const folder of pathValue.split(delimiter)) {
-    if (!folder) continue;
-    const candidate = resolve(folder, command);
-    if (runs(candidate)) return candidate;
-  }
-  return undefined;
+    return undefined;
+  });
 }
 
 
@@ -420,7 +423,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   }
   // Detached puts the agent in its own process group, so closing ends the
   // helpers it started as well as itself.
-  const child: ChildProcess | undefined = options.transport === undefined ? spawn(executable, [...(spec.args ?? [])], { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: options.exactEnv ? options.env : { ...process.env, ...options.env } }) : undefined;
+  const child: ChildProcess | undefined = options.transport === undefined ? withSpanSync('process.run', { 'process.command': executable, 'process.args': [...(spec.args ?? [])], 'process.cwd': cwd }, () => spawn(executable, [...(spec.args ?? [])], { cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: options.exactEnv ? options.env : { ...process.env, ...options.env } })) : undefined;
   if (child !== undefined && (child.stdin === null || child.stdout === null)) {
     child.kill('SIGKILL');
     throw new AcpError(`src/fill/acp.ts:connectAcpAgent: the agent ${spec.id} (${executable}) started without the pipes ACP needs`);
@@ -529,7 +532,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
     options.transport?.input ?? Writable.toWeb(child!.stdin!) as unknown as WritableStream<Uint8Array>,
     options.transport?.output ?? Readable.toWeb(child!.stdout!) as unknown as ReadableStream<Uint8Array>,
   );
-  const client = app.connect(stream);
+  const client = withSpanSync('agent.connect', { 'process.command': spec.command }, () => app.connect(stream));
   void client.closed.then(() => settleClosed());
   void finished.then(() => settleClosed());
 
@@ -540,17 +543,19 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
    * minutes, and the unit's own limits end it (decision 0026).
    */
   async function request<T>(method: string, params: unknown, bound: number | null): Promise<T> {
-    const call = client.agent.request(method, params as never) as Promise<T>;
-    if (bound === null) return await call;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timed = new Promise<never>((_never, refuse) => {
-      timer = setTimeout(() => refuse(new Error(`it did not answer within ${bound} ms`)), bound);
+    return await withSpan('agent.request', { 'agent.method': method, 'process.command': spec.command }, async () => {
+      const call = client.agent.request(method, params as never) as Promise<T>;
+      if (bound === null) return await call;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timed = new Promise<never>((_never, refuse) => {
+        timer = setTimeout(() => refuse(new Error(`it did not answer within ${bound} ms`)), bound);
+      });
+      try {
+        return await Promise.race([call, timed]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
     });
-    try {
-      return await Promise.race([call, timed]);
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-    }
   }
 
   /**
@@ -592,11 +597,11 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       if (initialized !== undefined) return initialized;
       let answer: acp.InitializeResponse;
       try {
-        answer = await request<acp.InitializeResponse>(acp.methods.agent.initialize, {
+        answer = await withSpan('agent.request', { 'agent.method': acp.methods.agent.initialize, 'process.command': spec.command }, async () => await request<acp.InitializeResponse>(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: { fs: { readTextFile: options.files?.readTextFile !== undefined, writeTextFile: options.files?.writeTextFile !== undefined }, terminal: false },
           clientInfo: { name: 'madarch', title: 'madarch', version: runningVersion() },
-        }, timeoutMs);
+        }, timeoutMs));
       } catch (error) {
         throw await wrapped(error, 'initialize');
       }
@@ -640,7 +645,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       }
       let answer: acp.NewSessionResponse;
       try {
-        answer = await request<acp.NewSessionResponse>(acp.methods.agent.session.new, { cwd: sessionCwd, mcpServers }, sessionTimeoutMs);
+        answer = await withSpan('agent.request', { 'agent.method': acp.methods.agent.session.new, 'process.command': spec.command }, async () => await request<acp.NewSessionResponse>(acp.methods.agent.session.new, { cwd: sessionCwd, mcpServers }, sessionTimeoutMs));
       } catch (error) {
         throw await wrapped(error, 'session/new');
       }
@@ -666,7 +671,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
         async setConfigOption(configId, value) {
           let response: { configOptions?: unknown } | undefined;
           try {
-            response = await request<{ configOptions?: unknown } | undefined>(acp.methods.agent.session.setConfigOption, { sessionId, configId, value }, sessionTimeoutMs);
+            response = await withSpan('agent.request', { 'agent.method': acp.methods.agent.session.setConfigOption, 'process.command': spec.command }, async () => await request<{ configOptions?: unknown } | undefined>(acp.methods.agent.session.setConfigOption, { sessionId, configId, value }, sessionTimeoutMs));
           } catch (error) {
             throw await wrapped(error, 'session/set_config_option');
           }
@@ -677,7 +682,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
         },
         async setModel(modelId) {
           try {
-            await request('session/set_model', { sessionId, modelId }, sessionTimeoutMs);
+            await withSpan('agent.request', { 'agent.method': 'session/set_model', 'process.command': spec.command }, async () => await request('session/set_model', { sessionId, modelId }, sessionTimeoutMs));
           } catch (error) {
             throw await wrapped(error, 'session/set_model');
           }
@@ -711,7 +716,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
           /** The turn as the agent ends it, read the way this module reads an agent's end. */
           const answered = async (): Promise<AcpPromptResult> => {
             try {
-              const answer = await request<acp.PromptResponse>(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text }] }, null);
+              const answer = await withSpan('agent.request', { 'agent.method': acp.methods.agent.session.prompt, 'process.command': spec.command }, async () => await request<acp.PromptResponse>(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text }] }, null));
               countTurn();
               const usage = readUsage(answer.usage);
               if (usage !== undefined) { reports += 1; last = usage; }

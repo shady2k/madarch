@@ -1,4 +1,5 @@
 import { CLASHABLE_KINDS, assembleCompiledModel, assembleSourceModel, assertionsOf, type Assertion, type AssertionKind } from '../history-assertions.js';
+import { withSpan } from '../obs/trace.js';
 import type {
   AssertionChange,
   AssertionRecord,
@@ -175,9 +176,27 @@ function statement<Row extends object = Record<string, unknown>>(executor: Execu
   let parameter = 0;
   const postgresSql = sql.replace(/\?/g, () => `$${++parameter}`);
   return {
-    all: async (...params: unknown[]): Promise<Row[]> => (await executor.query<Row>(postgresSql, params)).rows,
-    get: async (...params: unknown[]): Promise<Row | null> => (await executor.query<Row>(postgresSql, params)).rows[0] ?? null,
-    run: async (...params: unknown[]): Promise<void> => { await executor.query(postgresSql, params); },
+    all: async (...params: unknown[]): Promise<Row[]> => (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = postgresSql;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await executor.query<Row>(statementSql, params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    })).rows,
+    get: async (...params: unknown[]): Promise<Row | null> => (await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = postgresSql;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await executor.query<Row>(statementSql, params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    })).rows[0] ?? null,
+    run: async (...params: unknown[]): Promise<void> => { await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = postgresSql;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await executor.query(statementSql, params);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    }); },
   };
 }
 
@@ -194,7 +213,13 @@ async function insertAssertionRows(executor: Executor, rows: readonly unknown[][
       });
       return `(${placeholders.join(', ')}, NULL)`;
     });
-    await executor.query(`INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to) VALUES ${tuples.join(', ')}`, values);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `INSERT INTO assertions (source, kind, entity_id, content, valid_from, valid_to, opened_by, closed_by, recorded_from, recorded_to) VALUES ${tuples.join(', ')}`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await executor.query(statementSql, values);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
   }
 }
 
@@ -209,15 +234,18 @@ async function closeAssertionRows(executor: Executor, recordedTo: number, rows: 
   const chunkSize = 10_000;
   for (let start = 0; start < rows.length; start += chunkSize) {
     const chunk = rows.slice(start, start + chunkSize);
-    await executor.query(
-      `UPDATE assertions SET recorded_to = $1
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const statementSql = `UPDATE assertions SET recorded_to = $1
        FROM unnest($2::text[], $3::text[], $4::text[], $5::float8[], $6::text[])
          AS v(source, kind, entity_id, valid_from, opened_by)
        WHERE assertions.source = v.source AND assertions.kind = v.kind AND assertions.entity_id = v.entity_id
          AND assertions.valid_from = v.valid_from AND assertions.opened_by = v.opened_by
-         AND assertions.recorded_to IS NULL`,
-      [recordedTo, chunk.map((row) => row[0]), chunk.map((row) => row[1]), chunk.map((row) => row[2]), chunk.map((row) => row[3]), chunk.map((row) => row[4])],
-    );
+         AND assertions.recorded_to IS NULL`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+      const answer = await executor.query(statementSql, [recordedTo, chunk.map((row) => row[0]), chunk.map((row) => row[1]), chunk.map((row) => row[2]), chunk.map((row) => row[3]), chunk.map((row) => row[4])]);
+      span.setAttribute('db.rows', answer.rows.length);
+      return answer;
+    });
   }
 }
 
@@ -637,7 +665,13 @@ export function createHistoryStore(options: HistoryStoreOptions): HistoryStore {
     // validate the old source name before either updates it.
     await opened;
     await write(outer, async (tx) => {
-      await tx.query('SELECT source FROM source_commits ORDER BY source, commit_id FOR UPDATE');
+      await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = 'SELECT source FROM source_commits ORDER BY source, commit_id FOR UPDATE';
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await tx.query(statementSql);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const { selectSources, renameRegistry, upsertRegistry, renameCommitSource, renameAssertionSource } = statements(tx);
       const held = (await selectSources.all()).map((row) => row.source).sort(byCodePoint);
       if (held.length !== 1 || held[0] !== from) {

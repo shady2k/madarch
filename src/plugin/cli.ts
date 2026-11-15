@@ -15,7 +15,7 @@ import * as os from 'node:os';
 import { join, resolve } from 'node:path';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
-import { closeTrace, openTrace, runInTrace } from '../obs/trace.js';
+import { closeTrace, openTrace, runInTrace, withSpanSync } from '../obs/trace.js';
 import { checkConformance, describeOutcome, type ConformanceReport } from './conformance.js';
 import { runUnits, type RunnerUnit, type PluginRunResult } from './host.js';
 import { PluginUnitRequest, type PluginUnitRequest as UnitRequest } from './protocol.js';
@@ -198,7 +198,10 @@ export async function pluginCommand(args: readonly string[]): Promise<number> {
     try {
       if (trace !== undefined) closeTrace(trace);
     } finally {
-      if (parsed.work === undefined && work !== undefined) rmSync(work, { recursive: true, force: true });
+      if (parsed.work === undefined && work !== undefined) {
+        const scratch = work;
+        withSpanSync('fs.remove', { 'file.path': scratch }, () => rmSync(scratch, { recursive: true, force: true }));
+      }
     }
   }
 }

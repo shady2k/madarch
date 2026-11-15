@@ -7,6 +7,7 @@
  * (a git signature, not a person) — and answers nothing for a kind the one graph
  * does not hold yet: an empty result is the truth, never an error.
  */
+import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { GIT_KINDS, GIT_TABLES } from '../fill/stages/git-contract.js';
@@ -209,7 +210,13 @@ async function edgePropertiesOf(tx: OuterTransaction, edgeIds: readonly string[]
   const properties = new Map<string, Record<string, unknown>>();
   if (edgeIds.length === 0) return properties;
   const opinions = async (table: string, columns: readonly string[]): Promise<Map<string, Record<string, unknown>[]>> => {
-    const found = await tx.query<Record<string, unknown> & { edge_id: string }>(`SELECT o."edge_id"::text AS edge_id, ${columns.map((column) => `o."${column}"`).join(', ')} FROM ${table} o WHERE o."edge_id" = ANY($1::bigint[]) AND o."state" = 'open' AND o."context_id" = 1 ORDER BY o."id"`, [`{${edgeIds.join(',')}}`]);
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT o."edge_id"::text AS edge_id, ${columns.map((column) => `o."${column}"`).join(', ')} FROM ${table} o WHERE o."edge_id" = ANY($1::bigint[]) AND o."state" = 'open' AND o."context_id" = 1 ORDER BY o."id"`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<Record<string, unknown> & { edge_id: string }>(sql, [`{${edgeIds.join(',')}}`]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const grouped = new Map<string, Record<string, unknown>[]>();
     for (const row of found.rows) {
       const rows = grouped.get(row.edge_id) ?? [];
@@ -439,7 +446,13 @@ export class GraphReader {
   private async generatedFind(tx: OuterTransaction, decl: GeneratedKindRead, tail: string): Promise<GraphEntity[]> {
     const parts = decl.key.map((column) => `n.key->>'${column.replaceAll("'", "''")}'`);
     const rendered = parts.length === 0 ? 'n.uid::text' : `concat_ws('/', ${parts.join(', ')})`;
-    const found = await tx.query<Raw>(`${generatedSelect(decl)} AND ${rendered} = $1 ORDER BY node_id`, [tail]);
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `${generatedSelect(decl)} AND ${rendered} = $1 ORDER BY node_id`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<Raw>(sql, [tail]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return await this.generatedEntities(tx, decl, found.rows);
   }
 
@@ -453,12 +466,18 @@ export class GraphReader {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => String(row['node_id']));
     const opinionColumns = ['t.node_id::text AS node', 't.id::text AS opinion_id', 't.said_by', 't.lang', 't.evidence', ...decl.columns.map((column) => `t.${quoteColumn(column)} AS ${quoteColumn(column)}`)];
-    const opinions = loadedOpinions === undefined ? await tx.query<Raw>(
-      `SELECT ${opinionColumns.join(', ')}, ${PRESENTATION_COLUMNS},
-         (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.evidence) AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1) AS evidence_scope
-       FROM ${decl.table} t JOIN node n ON n.id = t.node_id JOIN entity k ON k.id = n.entity_id WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id`,
-      [`{${ids.join(',')}}`],
-    ) : { rows: loadedOpinions };
+    const opinions = loadedOpinions === undefined ? await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT ${opinionColumns.join(', ')}, ${PRESENTATION_COLUMNS},
+             (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.evidence) AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1) AS evidence_scope
+           FROM ${decl.table} t JOIN node n ON n.id = t.node_id JOIN entity k ON k.id = n.entity_id WHERE t.node_id = ANY($1::bigint[]) AND t.state = 'open' AND t.context_id = 1 ORDER BY t.id`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<Raw>(
+          sql,
+          [`{${ids.join(',')}}`],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    }) : { rows: loadedOpinions };
     const held = new Map<string, Raw[]>();
     for (const opinion of opinions.rows) {
       const list = held.get(String(opinion['node'])) ?? [];
@@ -537,7 +556,13 @@ export class GraphReader {
     const parts = [...this.generated?.values() ?? []].map((decl) => `SELECT ${quoteLiteral(decl.kind)} AS kind, count(DISTINCT n.id)::text AS n FROM ${decl.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
     if (parts.length === 0) return [];
     return await this.run(async (tx) => {
-      const found = await tx.query<{ kind: string; n: string }>(parts.join(' UNION ALL '));
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = parts.join(' UNION ALL ');
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query<{ kind: string; n: string }>(sql);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       return found.rows.map((row) => ({ kind: row.kind, count: Number(row.n) })).sort((a, b) => byCodePoint(a.kind, b.kind));
     });
   }
@@ -592,21 +617,27 @@ export class GraphReader {
     const rendered = fields.length === 0 ? `n.uid::text` : `concat_ws('/', ${fields.join(', ')})`;
     const text = options.q === undefined || options.q.trim() === '' ? undefined : options.q.trim().toLowerCase();
     const after = options.after === undefined || options.after === '' ? null : (options.after.startsWith(`${decl.kind}:`) ? options.after.slice(decl.kind.length + 1) : options.after);
-    const page = await tx.query<Raw>(
-      `WITH matching AS MATERIALIZED (
-         SELECT DISTINCT n.id::text AS node_id, n.uid::text AS uid, n.key AS key, (${rendered}) AS cursor
-         FROM ${decl.table} t JOIN node n ON n.id = t.node_id
-         WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed
-           AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)
-       ), total AS (SELECT count(*)::text AS n FROM matching)
-       SELECT page.node_id, page.uid, page.key, total.n FROM total
-       LEFT JOIN LATERAL (
-         SELECT * FROM matching WHERE $2::text IS NULL OR cursor > $2::text
-         ORDER BY cursor LIMIT $3::bigint
-       ) page ON true
-       ORDER BY page.cursor`,
-      [text ?? null, after, String(options.limit + 1)],
-    );
+    const page = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `WITH matching AS MATERIALIZED (
+             SELECT DISTINCT n.id::text AS node_id, n.uid::text AS uid, n.key AS key, (${rendered}) AS cursor
+             FROM ${decl.table} t JOIN node n ON n.id = t.node_id
+             WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed
+               AND ($1::text IS NULL OR position($1::text in lower((${rendered}))) > 0)
+           ), total AS (SELECT count(*)::text AS n FROM matching)
+           SELECT page.node_id, page.uid, page.key, total.n FROM total
+           LEFT JOIN LATERAL (
+             SELECT * FROM matching WHERE $2::text IS NULL OR cursor > $2::text
+             ORDER BY cursor LIMIT $3::bigint
+           ) page ON true
+           ORDER BY page.cursor`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<Raw>(
+          sql,
+          [text ?? null, after, String(options.limit + 1)],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const rows = page.rows.filter((row) => row['node_id'] !== null);
     const more = rows.length > options.limit;
     const shown = more ? rows.slice(0, options.limit) : rows;
@@ -617,10 +648,12 @@ export class GraphReader {
   /** The entities of every manifest-declared kind a read names, from the tables their declarations made. */
   private async generatedOfKinds(tx: OuterTransaction, kinds: readonly GeneratedKindRead[]): Promise<GraphEntity[]> {
     const entities: GraphEntity[] = [];
-    for (const decl of kinds) {
-      const found = await tx.query<Raw>(`${generatedSelect(decl)} ORDER BY node_id`);
-      entities.push(...await this.generatedEntities(tx, decl, found.rows));
-    }
+    await withSpan('graph.entities', { 'db.system': 'postgres', 'graph.kinds': kinds.length }, async () => {
+      for (const decl of kinds) {
+        const found = await tx.query<Raw>(`${generatedSelect(decl)} ORDER BY node_id`);
+        entities.push(...await this.generatedEntities(tx, decl, found.rows));
+      }
+    });
     return entities;
   }
 
@@ -631,16 +664,22 @@ export class GraphReader {
     if (declarations.length === 0) return held;
     const opinions = declarations.map((decl) => `SELECT to_jsonb(t) AS opinion FROM ${decl.table} t
       WHERE k.name = ${quoteLiteral(decl.kind)} AND t.node_id = n.id AND t.state = 'open' AND t.context_id = 1`);
-    const found = await tx.query<Raw>(
-      `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, k.name AS kind,
-        (SELECT jsonb_agg(t.opinion || jsonb_build_object('node', n.id::text, 'opinion_id', t.opinion->>'id', 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author,
-          'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.opinion->'evidence') AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY (t.opinion->>'id')::bigint)
-         FROM (${opinions.join(' UNION ALL ')}) t) AS opinions
-       FROM node n JOIN entity k ON k.id = n.entity_id
-       CROSS JOIN LATERAL (SELECT ${PRESENTATION_COLUMNS}) metadata
-       WHERE k.name = ANY($2::text[]) AND n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`,
-      [`{${ids.join(',')}}`, declarations.map((decl) => decl.kind)],
-    );
+    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key, k.name AS kind,
+            (SELECT jsonb_agg(t.opinion || jsonb_build_object('node', n.id::text, 'opinion_id', t.opinion->>'id', 'scope', metadata.scope, 'parent_count', metadata.parent_count, 'author', metadata.author,
+              'evidence_scope', (SELECT rn.id::text FROM node rn JOIN entity rk ON rk.id = rn.entity_id WHERE rk.name = '${GIT_KINDS.repository}' AND rn.context_id = 1 AND NOT rn.removed AND rn.key->>'name' = (SELECT evidence_place.value->>'repository' FROM jsonb_array_elements(t.opinion->'evidence') AS evidence_place(value) WHERE evidence_place.value->>'repository' IS NOT NULL LIMIT 1) LIMIT 1)) ORDER BY (t.opinion->>'id')::bigint)
+             FROM (${opinions.join(' UNION ALL ')}) t) AS opinions
+           FROM node n JOIN entity k ON k.id = n.entity_id
+           CROSS JOIN LATERAL (SELECT ${PRESENTATION_COLUMNS}) metadata
+           WHERE k.name = ANY($2::text[]) AND n.id = ANY($1::bigint[]) AND n.context_id = 1 AND NOT n.removed`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await tx.query<Raw>(
+          sql,
+          [`{${ids.join(',')}}`, declarations.map((decl) => decl.kind)],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     for (const decl of declarations) {
       const rows = found.rows.filter((row) => row['kind'] === decl.kind && Array.isArray(row['opinions']));
       const opinions = rows.flatMap((row) => row['opinions'] as Raw[]);
@@ -657,11 +696,17 @@ export class GraphReader {
     if (graph === undefined) return { total: 0, rows: [] };
     const [self, far] = direction === 'out' ? ['from_node', 'to_node'] : ['to_node', 'from_node'];
     return await this.run(async (tx) => {
-      const found = await tx.query<{ id: string; other: string; discriminator: string }>(
-        `SELECT e.id::text AS id, e.${far}::text AS other, e.discriminator FROM edge e JOIN entity k ON k.id = e.entity_id
-         WHERE k.name = $1 AND e.${self} = ANY($2::bigint[]) ORDER BY e.${far}, e.id`,
-        [graph.kind, `{${entity.nodeIds.join(',')}}`],
-      );
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT e.id::text AS id, e.${far}::text AS other, e.discriminator FROM edge e JOIN entity k ON k.id = e.entity_id
+               WHERE k.name = $1 AND e.${self} = ANY($2::bigint[]) ORDER BY e.${far}, e.id`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query<{ id: string; other: string; discriminator: string }>(
+              sql,
+              [graph.kind, `{${entity.nodeIds.join(',')}}`],
+            );
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       const keys = [...new Set(found.rows.map((row) => row.other))];
       const entities = await this.entitiesOfIds(tx, keys);
       const ordered = keys.map((id) => entities.get(id)).filter((one): one is GraphEntity => one !== undefined).sort((a, b) => byCodePoint(a.key, b.key));
@@ -687,8 +732,20 @@ export class GraphReader {
       // A kind with no natural key has no key text to page by; its entities are read whole, bounded like any prefix.
       if (generated.key.length === 0) {
         return await this.run(async (tx) => {
-          const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed ORDER BY n.id LIMIT ${String(limit)}`);
-          const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
+          const page = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+            const sql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed ORDER BY n.id LIMIT ${String(limit)}`;
+            span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+            const result = await tx.query<Raw>(sql);
+            span.setAttribute('db.rows', result.rows.length);
+            return result;
+          });
+          const counted = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+            const sql = `SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`;
+            span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+            const result = await tx.query<{ n: string }>(sql);
+            span.setAttribute('db.rows', result.rows.length);
+            return result;
+          });
           const entities = await this.generatedEntities(tx, generated, page.rows);
           return { total: Number(counted.rows[0]?.n ?? '0'), rows: entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity) };
         });
@@ -703,8 +760,20 @@ export class GraphReader {
           params.push(after.slice(after.indexOf(':') + 1));
           condition += ` AND ${keyText} > $2`;
         }
-        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.uid, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
-        const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
+        const page = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+          const sql = `SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.uid, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`;
+          span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+          const result = await tx.query<Raw>(sql, params);
+          span.setAttribute('db.rows', result.rows.length);
+          return result;
+        });
+        const counted = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+          const sql = `SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${keyText} LIKE $1`;
+          span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+          const result = await tx.query<{ n: string }>(sql, [params[0]]);
+          span.setAttribute('db.rows', result.rows.length);
+          return result;
+        });
         const entities = await this.generatedEntities(tx, generated, page.rows);
         const rows = entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity);
         return { total: Number(counted.rows[0]?.n ?? '0'), rows };
@@ -731,20 +800,26 @@ export class GraphReader {
              FROM ${GIT_TABLES.file} o
             WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS class`
         : `NULL::text AS class`;
-      const found = await tx.query<{ node: string; path: string; repository: string; scope: string; class: string | null; lines: number | null; total: string }>(
-        `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->>'repository') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
-                (SELECT CASE WHEN count(DISTINCT o."lines") = 1 THEN min(o."lines") ELSE NULL END
-                   FROM ${GIT_TABLES.file} o
-                  WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
-                ${classSelect},
-                count(*) OVER ()::text AS total
-         FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
-         WHERE n.context_id = 1 AND NOT n.removed
-           AND ($1::text = '' OR left((n.key->>'path'), length($1::text)) = $1::text)
-           AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}
-         ORDER BY (n.key->>'repository'), (n.key->>'path') LIMIT $2::bigint`,
-        [prefix, String(limit)],
-      );
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->>'repository') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
+                      (SELECT CASE WHEN count(DISTINCT o."lines") = 1 THEN min(o."lines") ELSE NULL END
+                         FROM ${GIT_TABLES.file} o
+                        WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
+                      ${classSelect},
+                      count(*) OVER ()::text AS total
+               FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
+               WHERE n.context_id = 1 AND NOT n.removed
+                 AND ($1::text = '' OR left((n.key->>'path'), length($1::text)) = $1::text)
+                 AND ${EDGE_EXISTS('to_node', GIT_KINDS.contains, 'n')}
+               ORDER BY (n.key->>'repository'), (n.key->>'path') LIMIT $2::bigint`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query<{ node: string; path: string; repository: string; scope: string; class: string | null; lines: number | null; total: string }>(
+              sql,
+              [prefix, String(limit)],
+            );
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       return {
         total: Number(found.rows[0]?.total ?? '0'),
         rows: found.rows.map((row) => ({
@@ -765,11 +840,17 @@ export class GraphReader {
     const graph = graphRelationOf(relation, this.generatedEdges);
     if (graph === undefined) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
-      const found = await tx.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
-        `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator
-         FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1 WHERE e.context_id = 1 ORDER BY e.from_node, e.to_node, e.discriminator, e.id`,
-        [graph.kind],
-      );
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT e.id::text AS id, e.from_node::text AS from_node, e.to_node::text AS to_node, e.discriminator
+               FROM edge e JOIN entity k ON k.id = e.entity_id AND k.name = $1 WHERE e.context_id = 1 ORDER BY e.from_node, e.to_node, e.discriminator, e.id`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query<{ id: string; from_node: string; to_node: string; discriminator: string }>(
+              sql,
+              [graph.kind],
+            );
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       const entities = await this.entitiesOfIds(tx, [...new Set(found.rows.flatMap((row) => [row.from_node, row.to_node]))]);
       const shown = found.rows.slice(0, limit);
       const properties = await edgePropertiesOf(tx, shown.map((row) => row.id), graph.kind, this.generatedEdges?.get(graph.kind));
@@ -794,7 +875,13 @@ export class GraphReader {
   async repositories(): Promise<{ nodeId: string; path: string }[]> {
     if (this.declared !== undefined && this.declared.size === 0) return [];
     return await this.run(async (tx) => {
-      const found = await tx.query<{ node_id: string; name: string }>(`SELECT n.id::text AS node_id, (n.key->>'name') AS name FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE NOT n.removed ORDER BY name`);
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = `SELECT n.id::text AS node_id, (n.key->>'name') AS name FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = '${GIT_KINDS.repository}' WHERE NOT n.removed ORDER BY name`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await tx.query<{ node_id: string; name: string }>(sql);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       return found.rows.map((row) => ({ nodeId: row.node_id, path: row.name }));
     });
   }

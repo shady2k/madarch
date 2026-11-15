@@ -39,6 +39,7 @@
  */
 import { execFile } from 'node:child_process';
 import { byCodePoint } from '../model/order.js';
+import { withSpan } from '../obs/trace.js';
 import { ID_PATTERN } from '../model/schema.js';
 import { REPOSITORY_FORMS, repositoryPath, type RepositoryForm, type RepositoryPath } from '../fill/facts.js';
 
@@ -199,11 +200,14 @@ interface GitAnswer {
 
 /** Runs one read-only git command in the checkout; nothing here writes, so a caller cannot mutate what it reads. */
 function git(root: string, args: readonly string[], input?: string): Promise<GitAnswer> {
-  return new Promise((resolve) => {
+  return withSpan('process.git', { 'process.command': 'git', 'process.args': [...args], 'process.cwd': root }, (span) => new Promise((resolve) => {
     let inputFailure: string | undefined;
     const child = execFile('git', ['-C', root, ...args], { encoding: 'buffer', maxBuffer: 1024 * 1024 * 1024 }, (error, stdout, stderr) => {
       const out = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''), 'utf8');
       const err = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : String(stderr ?? '');
+      span.setAttribute('process.stdout.bytes', out.byteLength);
+      span.setAttribute('process.stderr.bytes', Buffer.byteLength(err));
+      if (typeof error?.code === 'number') span.setAttribute('process.exit_code', error.code);
       resolve({
         ok: error === null && inputFailure === undefined,
         stdout: out,
@@ -216,7 +220,7 @@ function git(root: string, args: readonly string[], input?: string): Promise<Git
       child.stdin?.on('error', (error: Error) => { inputFailure = error.message; });
       child.stdin?.end(input);
     }
-  });
+  }));
 }
 
 /**
@@ -468,7 +472,7 @@ export class SnapshotReader {
       if (!answered.ok) throw unreadable(why(answered));
       const end = answered.stdout.indexOf(10, offset);
       const header = end < 0 ? '' : answered.stdout.toString('utf8', offset, end);
-      const match = /^([0-9a-f]{40}) blob (\d+)$/u.exec(header);
+      const match = header.match(/^([0-9a-f]{40}) blob (\d+)$/u);
       const size = match === null ? NaN : Number(match[2]);
       if (match?.[1] !== entry.id || !Number.isSafeInteger(size)) {
         throw unreadable(`git answered an invalid batch header ${JSON.stringify(header)}`);
@@ -516,7 +520,7 @@ export class SnapshotReader {
 /** The reader's own version, as `git --version` words it: the last token it prints (`git version 2.43.0`). */
 function gitVersionOf(text: string): string {
   const line = text.trim();
-  const version = /(\S+)$/.exec(line);
+  const version = line.match(/(\S+)$/u);
   return version === null ? line : version[1]!;
 }
 

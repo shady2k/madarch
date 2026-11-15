@@ -32,7 +32,7 @@ export class AuthoredRefusal extends Error {
   readonly field: string | undefined;
   constructor(readonly status: number, message: string, readonly conflict?: { readonly field: string; readonly current: unknown; readonly author: string }) {
     super(`${import.meta.path}:1: ${message}`);
-    this.field = /^field "([^"]+)"/u.exec(message)?.[1];
+    this.field = message.match(/^field "([^"]+)"/u)?.[1];
   }
 }
 

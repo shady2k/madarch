@@ -10,6 +10,7 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
+import { withSpan, withSpanSync } from '../obs/trace.js';
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
 import { commandLanguage, rememberedLanguage, type CommandLanguage } from './command-language.js';
@@ -653,7 +654,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         }
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
-        const child = Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } });
+        const child = withSpanSync('process.run', { 'process.command': command, 'process.args': childArgs }, () => Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } }));
         // A role that will not leave — one inside a store's start, say — is killed rather than waited for: the child's
         // output is this process's own, so a descendant of it holding that open would keep a stop from ever ending.
         const stop = (): void => {
@@ -791,7 +792,7 @@ function productHomeOf(named: string | undefined): string {
     const { initLife } = await import('./lifecycle.js');
     const language = await initLanguage(parsed);
     const cwd = resolve(parsed.words[0] ?? process.cwd());
-    try { await mkdir(cwd, { recursive: true }); }
+    try { await withSpan('fs.mkdir', { 'file.path': cwd }, async () => await mkdir(cwd, { recursive: true })); }
     catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
     const template = await templateChoice(parsed, language);
     const result = initLife({ cwd, home, template, language });
@@ -878,7 +879,7 @@ async function fillStagesCommand(parsed: Parsed, home: string | undefined): Prom
   // A store's cluster stands under its data directory, and the product's store may not stand yet (the host
   // would make it; this command opens the owner itself).
   const databasePath = storeDatabasePath(storeFolder);
-  await mkdir(dirname(databasePath), { recursive: true });
+  await withSpan('fs.mkdir', { 'file.path': dirname(databasePath) }, async () => await mkdir(dirname(databasePath), { recursive: true }));
   const { readPinnedGraphContract } = await import('./preparation-contract.js');
   const workers = parsed.workers ?? 16;
   await requestStorePreparation(databasePath, await readPinnedGraphContract(folder));
@@ -1350,7 +1351,11 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
     try {
       let plan: ResetPlan;
       if (asServer !== undefined) {
-        const answer = await fetch(asServer);
+        const answer = await withSpan('net.fetch', { 'http.method': 'GET', 'http.url': asServer }, async (span) => {
+          const result = await fetch(asServer);
+          span.setAttribute('http.status', result.status);
+          return result;
+        });
         if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
         plan = await answer.json() as ResetPlan;
       } else {
@@ -1367,7 +1372,11 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
         }
       }
       if (asServer !== undefined) {
-        const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
+        const done = await withSpan('net.fetch', { 'http.method': 'POST', 'http.url': asServer }, async (span) => {
+          const result = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
+          span.setAttribute('http.status', result.status);
+          return result;
+        });
         if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
       } else {
         const done = await product!.reset(plan);

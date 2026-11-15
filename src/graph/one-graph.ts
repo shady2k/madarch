@@ -1,4 +1,5 @@
 /** Connects to a prepared graph without changing its schema. */
+import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { requireSchema } from '../adapters/store-readiness.js';
 import { graphSchemaStamp } from '../adapters/schemas/graph-definition.js';
@@ -12,10 +13,12 @@ export async function createOneGraphSchema(owner: DatabaseOwner, contract: Graph
     ...contract.edge.map((kind) => generatedTableName(kind.name, 'edge')),
     ...contract.dictionary.map((kind) => generatedTableName(kind.name, 'dictionary'))];
   const missing = await owner.transaction('snapshot', async (tx) => {
-    const found = await tx.query<{ name: string }>(
+    const found = await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength(`SELECT requested.name FROM unnest($1::text[]) AS requested(name)
+       WHERE NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = requested.name)`) }, async (span) => { const answer = await tx.query<{ name: string }>(
       `SELECT requested.name FROM unnest($1::text[]) AS requested(name)
        WHERE NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = requested.name)`, [tables]);
+         WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = requested.name)`, [tables]); span.setAttribute('db.rows', answer.rows.length); return answer; });
     return found.rows.map((row) => row.name);
   });
   if (missing.length > 0) throw new Error(`src/graph/one-graph.ts: missing prepared graph tables ${missing.join(', ')}; run madarch start for this store before connecting`);

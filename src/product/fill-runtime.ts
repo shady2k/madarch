@@ -3,6 +3,7 @@
  * Product kinds and extraction rules are deliberately supplied by the registry.
  */
 import { createHash } from 'node:crypto';
+import { withSpan } from '../obs/trace.js';
 import { readFile, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 type FillRunStatus = 'running' | 'paused' | 'stopped' | 'complete' | 'blocked';
@@ -54,7 +55,7 @@ export async function consumeFillControl(productRoot: string, runId: string, loc
   if (!locked) return withFillControlLock(productRoot, () => consumeFillControl(productRoot, runId, true));
   const file = join(fillStatePaths(productRoot).root, 'control.json');
   let request: { runId?: string; action?: string };
-  try { request = JSON.parse(await readFile(file, 'utf8')) as { runId?: string; action?: string }; }
+  try { request = JSON.parse(await withSpan('fs.read', { 'file.path': file }, async (span) => { const text = await readFile(file, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(text)); return text; })) as { runId?: string; action?: string }; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
   if (request.runId !== runId) return undefined;
   await unlink(file);

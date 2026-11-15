@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { connectionGeneration, reportOffline, reportOnline, useConnection } from '../connection.js';
 import { i18n } from '../i18n.js';
+import { withSpan } from '../trace.js';
 
 // ---- the answers the commands give -------------------------------------------------------------------------------
 
@@ -341,10 +342,14 @@ let changes = 0;
 async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, {
-      credentials: 'same-origin',
-      ...init,
-      headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
+    response = await withSpan('net.fetch', { 'http.method': init.method ?? 'GET', 'http.url': `${base}${path}` }, async (span) => {
+      const answer = await fetch(`${base}${path}`, {
+        credentials: 'same-origin',
+        ...init,
+        headers: { accept: 'application/json', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...init.headers },
+      });
+      span.setAttribute('http.status', answer.status);
+      return answer;
     });
   } catch (failure) {
     // A read the app itself abandoned (its component left) says nothing about the server.
@@ -371,7 +376,7 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
   return body as T;
 }
 
-const query = (params: Record<string, string | undefined>): string => {
+const searchString = (params: Record<string, string | undefined>): string => {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') search.set(key, value);
   return search.size === 0 ? '' : `?${search.toString()}`;
@@ -390,7 +395,7 @@ export const readAgents = (base: string, signal?: AbortSignal): Promise<AgentsAn
 
 /** The models the chosen agent reports; asking starts its adapter on this machine. `fresh` asks it again. */
 export const readAgentChoices = (base: string, agent: string, signal?: AbortSignal, fresh = false): Promise<AgentChoicesAnswer> =>
-  command<AgentChoicesAnswer>(base, `/api/agent-choices${query({ agent, ...(fresh ? { fresh: '1' } : {}) })}`, signal === undefined ? {} : { signal });
+  command<AgentChoicesAnswer>(base, `/api/agent-choices${searchString({ agent, ...(fresh ? { fresh: '1' } : {}) })}`, signal === undefined ? {} : { signal });
 
 /** Saves the agent that writes this product's pages; `install` is the yes to fetching an adapter that is not here. */
 export const chooseAgent = (base: string, agent: string | null, install = false): Promise<{ chosen: { id: string; label: string } | null }> =>
@@ -435,17 +440,17 @@ export const readFillStatus = (base: string, signal?: AbortSignal): Promise<Fill
 export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs: readonly FillRunDetail[] }> => command(base, '/api/fill-runs', signal === undefined ? {} : { signal });
 
 /** One run, by its id. */
-export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${query({ run: runId })}`, signal === undefined ? {} : { signal });
+export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${searchString({ run: runId })}`, signal === undefined ? {} : { signal });
 
 /** Starts the fill of the kinds checked: their dependencies and order are the server's. */
 export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly model?: string | null; readonly reasoning?: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
   command(base, '/api/fill-selected', { method: 'POST', body: JSON.stringify(selection) });
 
 /** A person's «Пауза». */
-export const pauseFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/pause${query({ run: runId })}`, { method: 'POST', body: '{}' });
+export const pauseFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/pause${searchString({ run: runId })}`, { method: 'POST', body: '{}' });
 
 /** A person's «Остановить», after the second press that confirms it. */
-export const stopFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/stop${query({ run: runId })}`, { method: 'POST', body: JSON.stringify({ confirm: true }) });
+export const stopFillRun = (base: string, runId: string): Promise<unknown> => command(base, `/api/stop${searchString({ run: runId })}`, { method: 'POST', body: JSON.stringify({ confirm: true }) });
 
 /** The product's one change stream, for a page that stays open while a fill runs. */
 export const eventsAddress = (base: string): string => `${base}/api/events`;

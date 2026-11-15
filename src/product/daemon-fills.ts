@@ -1,4 +1,5 @@
 /** Store and fill services held by the products-home daemon. */
+import { withSpanSync, withSpan } from '../obs/trace.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { requestStorePreparation } from './store-preparation.js';
@@ -61,7 +62,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const pending = opening.get(storeFolder);
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
-      mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
+      withSpanSync('fs.mkdir', { 'file.path': dirname(storeDatabasePath(storeFolder)) }, () => mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true }));
       await requestStorePreparation(storeDatabasePath(storeFolder));
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
       await owner.ready;
@@ -122,7 +123,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       // written beside the answer, never inside it, so the update's answer is not held behind an analyze.
       const { finishKnowledgeStore } = await import('../knowledge/fill-run.js');
       await finishKnowledgeStore(held.owner, undefined, false);
-      void held.owner.run((tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => tx.query('ANALYZE')).catch(() => undefined);
+      void held.owner.run(async (tx: { query: (text: string, params?: readonly unknown[]) => Promise<unknown> }) => await withSpan('db.query', { 'db.system': 'postgres', 'db.sql.bytes': Buffer.byteLength('ANALYZE') }, async () => await tx.query('ANALYZE'))).catch(() => undefined);
     }
     return result;
   };

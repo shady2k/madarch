@@ -12,6 +12,7 @@
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { byCodePoint } from '../model/order.js';
+import { withSpanSync } from '../obs/trace.js';
 import { closureHashOf, ClosureRefusal, type Closure, type ClosureFile } from './closure.js';
 import { RELEASE_CLOSURE_HASHES } from './release-closures.js';
 import { createHash } from 'node:crypto';
@@ -41,7 +42,10 @@ function filesUnder(folder: string): ClosureFile[] {
       }
     }
   };
-  visit(folder);
+  withSpanSync('fs.readdir', { 'file.path': folder }, (span) => {
+    visit(folder);
+    span.setAttribute('file.entries', files.length);
+  });
   return files.sort((left, right) => byCodePoint(left.path, right.path));
 }
 
@@ -65,21 +69,25 @@ function differenceBetween(expected: readonly ClosureFile[], found: readonly Clo
  * removed — is refused with the first difference named, and the copy removed.
  */
 export async function snapshotClosure(closure: Closure, parent: string, name?: string): Promise<ClosureSnapshot> {
-  mkdirSync(parent, { recursive: true });
+  withSpanSync('fs.mkdir', { 'file.path': parent }, () => mkdirSync(parent, { recursive: true }));
   const folder = mkdtempSync(join(parent, name === undefined ? 'closure-' : `${name}-`));
   try {
-    const directories = new Set<string>();
-    for (const file of closure.files) {
-      const target = join(folder, file.path);
-      const directory = dirname(target);
-      if (!directories.has(directory)) {
-        mkdirSync(directory, { recursive: true });
-        directories.add(directory);
+    // One span for the copy of the whole closure: a span for each of its files would bury the run's trace in a
+    // dependency's tree.
+    withSpanSync('snapshot.copy', { 'file.path': folder, 'snapshot.files': closure.files.length }, () => {
+      const directories = new Set<string>();
+      for (const file of closure.files) {
+        const target = join(folder, file.path);
+        const directory = dirname(target);
+        if (!directories.has(directory)) {
+          mkdirSync(directory, { recursive: true });
+          directories.add(directory);
+        }
+        if (file.content === undefined) copyFileSync(join(closure.folder, file.path), target);
+        else writeFileSync(target, file.content);
+        chmodSync(target, file.mode);
       }
-      if (file.content === undefined) copyFileSync(join(closure.folder, file.path), target);
-      else writeFileSync(target, file.content);
-      chmodSync(target, file.mode);
-    }
+    });
     const copied = filesUnder(folder);
     const difference = differenceBetween(closure.files, copied);
     if (difference !== undefined) {
@@ -91,7 +99,7 @@ export async function snapshotClosure(closure: Closure, parent: string, name?: s
     }
     return { folder, hash };
   } catch (error) {
-    rmSync(folder, { recursive: true, force: true });
+    withSpanSync('fs.remove', { 'file.path': folder }, () => rmSync(folder, { recursive: true, force: true }));
     throw error;
   }
 }

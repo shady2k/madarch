@@ -214,6 +214,23 @@ describe('gate 10: I/O runs inside a span', () => {
     ].join('\n') });
     expect(ioSpansViolations(home).map((violation) => [violation.line, violation.symbol])).toEqual([[2, 'fetch()']]);
   });
+
+  test('the synchronous form opens a span, and a node in a slot of the span call is enclosed by it', async () => {
+    const home = fixture({ 'src/b.ts': [
+      'export function unspanned(): string {',
+      "  return readFileSync('/tmp/a', 'utf8');",
+      '}',
+      'export function spanned(): string {',
+      "  return String(withSpanSync('a', {}, () => statSync('/tmp/a').isFile()));",
+      '}',
+      'export async function arrow(): Promise<unknown> {',
+      "  return await withSpan('a', {}, async () => {",
+      "    return await fetch('https://example.test');",
+      '  });',
+      '}',
+    ].join('\n') });
+    expect(ioSpansViolations(home).map((violation) => [violation.line, violation.symbol])).toEqual([[2, 'readFileSync()']]);
+  });
 });
 
 describe('gate 11: one state machine', () => {

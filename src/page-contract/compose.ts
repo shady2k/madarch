@@ -192,7 +192,7 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
         values['role'] = role;
         continue;
       }
-      const paging = /^(.+)_(first|after)$/u.exec(used);
+      const paging = used.match(/^(.+)_(first|after)$/u);
       if (paging !== null && paging[1] === section.id) {
         const pagingType = PAGING_TYPES[paging[2]!]!;
         declarations.set(used, pagingType);

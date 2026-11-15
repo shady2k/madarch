@@ -33,6 +33,7 @@
  * `fill-store/…-->…`, kept apart from the machines' `fill-unit/…`, `fill-run/…`
  * and `fill-chain/…` codes.
  */
+import { withSpan } from '../obs/trace.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor, SqlTransactionKind } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
@@ -87,10 +88,22 @@ export class PlanningFenceError extends Error {
  * and a late planner's next write refuses instead of creating a unit under it.
  */
 export async function assertPlanningFenceIn(executor: SqlExecutor, options: { readonly runId: string; readonly ownerToken: string; readonly at: number }): Promise<void> {
-  const { rows } = await executor.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+  const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'SELECT state FROM fill_run WHERE run_id = $1 FOR UPDATE';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ state: string }>(sql, [options.runId]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const run = rows[0];
   if (run === undefined || (FINAL_RUN_STATES as readonly string[]).includes(run.state)) throw new PlanningFenceError(options.runId);
-  const lease = await executor.query<{ owner_token: string; expires_at: unknown }>('SELECT owner_token, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE', [options.runId]);
+  const lease = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'SELECT owner_token, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<{ owner_token: string; expires_at: unknown }>(sql, [options.runId]);
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const held = lease.rows[0];
   if (held === undefined || held.owner_token !== options.ownerToken || millis(held.expires_at) <= options.at) throw new PlanningFenceError(options.runId);
 }
@@ -312,21 +325,39 @@ async function recordTransition(
   executor: SqlExecutor,
   entry: { subjectKind: 'chain' | 'run' | 'unit'; subjectId: string; generation: number | null; transitionId: string; from: string; to: string; event: string; fence: number | null; at: number },
 ): Promise<void> {
-  await executor.query(
-    'INSERT INTO fill_transition (subject_kind, subject_id, generation, transition_id, from_state, to_state, event, fence, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-    [entry.subjectKind, entry.subjectId, entry.generation, entry.transitionId, entry.from, entry.to, entry.event, entry.fence, entry.at],
-  );
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'INSERT INTO fill_transition (subject_kind, subject_id, generation, transition_id, from_state, to_state, event, fence, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(
+      sql,
+      [entry.subjectKind, entry.subjectId, entry.generation, entry.transitionId, entry.from, entry.to, entry.event, entry.fence, entry.at],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
 }
 
 /** Opens a product's chain at `idle`, or answers the one it already has. */
 export async function openChain(database: FillStateDatabase, options: { readonly product: string; readonly at: number }): Promise<ChainRecord> {
   const at = here();
   return run(at, database, `openChain(${options.product})`, ['fill_chain'], async (executor) => {
-    await executor.query(
-      'INSERT INTO fill_chain (product, state, context, updated_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (product) DO NOTHING',
-      [options.product, 'idle', json(newChainContext()), options.at],
-    );
-    const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [options.product]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'INSERT INTO fill_chain (product, state, context, updated_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (product) DO NOTHING';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.product, 'idle', json(newChainContext()), options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<ChainRow>(sql, [options.product]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const row = rows[0];
     if (row === undefined) raise(`table fill_chain: no chain for product ${options.product} after opening it`);
     return chainRecord(row);
@@ -337,7 +368,13 @@ export async function openChain(database: FillStateDatabase, options: { readonly
 export async function readChain(database: FillStateDatabase, product: string): Promise<ChainRecord | null> {
   const at = here();
   return run(at, database, `readChain(${product})`, ['fill_chain'], async (executor) => {
-    const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1', [product]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<ChainRow>(sql, [product]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows[0] === undefined ? null : chainRecord(rows[0]);
   }, 'snapshot');
 }
@@ -346,13 +383,25 @@ export async function readChain(database: FillStateDatabase, product: string): P
 export async function advanceChain(database: FillStateDatabase, options: { readonly product: string; readonly event: ChainEvent }): Promise<StoreStep<ChainRecord, ChainState>> {
   const at = here();
   return run(at, database, `advanceChain(${options.product}, ${options.event.type})`, ['fill_chain', 'fill_transition'], async (executor) => {
-    const { rows } = await executor.query<ChainRow>('SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1 FOR UPDATE', [options.product]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT product, state, context, updated_at FROM fill_chain WHERE product = $1 FOR UPDATE';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<ChainRow>(sql, [options.product]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const row = rows[0];
     if (row === undefined) raise(`table fill_chain: no chain for product ${options.product}`);
     const current = chainRecord(row);
     const step = chainMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
-    await executor.query('UPDATE fill_chain SET state = $2, context = $3::jsonb, updated_at = $4 WHERE product = $1', [current.product, step.state, json(step.context), options.event.at]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_chain SET state = $2, context = $3::jsonb, updated_at = $4 WHERE product = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(sql, [current.product, step.state, json(step.context), options.event.at]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     await recordTransition(executor, { subjectKind: 'chain', subjectId: current.product, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, fence: null, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
   }, 'write');
@@ -363,10 +412,16 @@ export async function createRun(database: FillStateDatabase, options: { readonly
   const at = here();
   const context = { ...newRunContext(options.owner), ...(options.selection === undefined ? {} : { selection: options.selection }) };
   return run(at, database, `createRun(${options.runId})`, ['fill_run'], async (executor) => {
-    await executor.query(
-      'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
-      [options.runId, options.product, 'created', json(context), options.at],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.runId, options.product, 'created', json(context), options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return { runId: options.runId, product: options.product, state: 'created', context, createdAt: options.at, updatedAt: options.at };
   }, 'write');
 }
@@ -383,17 +438,23 @@ export async function createRun(database: FillStateDatabase, options: { readonly
 export async function readStoreStamp(database: FillStateDatabase): Promise<string> {
   const at = here();
   return await run(at, database, 'readStoreStamp', ['fill_publication', 'fill_run', 'node', 'edge', 'entity', 'operation'], async (executor) => {
-    const { rows } = await executor.query<{ stamp: string }>(
-      `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
-              || ':' || (SELECT coalesce(max(seq)::text, '-') FROM operation)
-              || ':' || (SELECT count(*)::text FROM fill_run WHERE state = 'succeeded')
-              || ':' || (SELECT coalesce(string_agg(name || '=' || coalesce(commit_hash, ''), ',' ORDER BY name), '-')
-                           FROM (SELECT (n.key->>'name') AS name,
-                                        (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash
-                                   FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = 'repository'
-                                  WHERE n.context_id = 1 AND NOT n.removed) r) AS stamp`,
-
-    );
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT (SELECT count(*)::text || ':' || coalesce(max(published_at)::text, '-') FROM fill_publication)
+                  || ':' || (SELECT coalesce(max(seq)::text, '-') FROM operation)
+                  || ':' || (SELECT count(*)::text FROM fill_run WHERE state = 'succeeded')
+                  || ':' || (SELECT coalesce(string_agg(name || '=' || coalesce(commit_hash, ''), ',' ORDER BY name), '-')
+                               FROM (SELECT (n.key->>'name') AS name,
+                                            (SELECT (c.key->>'hash') FROM edge e JOIN entity ek ON ek.id = e.entity_id AND ek.name = 'as-is' JOIN node c ON c.id = e.to_node WHERE e.from_node = n.id AND e.context_id = 1 LIMIT 1) AS commit_hash
+                                       FROM node n JOIN entity en ON en.id = n.entity_id AND en.name = 'repository'
+                                      WHERE n.context_id = 1 AND NOT n.removed) r) AS stamp`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ stamp: string }>(
+          sql,
+    
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows[0]?.stamp ?? '0:-:-';
   }, 'snapshot');
 }
@@ -402,9 +463,15 @@ export async function readStoreStamp(database: FillStateDatabase): Promise<strin
 export async function hasSuccessfulFill(database: FillStateDatabase): Promise<boolean> {
   const at = here();
   return await run(at, database, 'hasSuccessfulFill', ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<{ filled: boolean }>(
-      "SELECT EXISTS (SELECT 1 FROM fill_run WHERE state = 'succeeded') AS filled",
-    );
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = "SELECT EXISTS (SELECT 1 FROM fill_run WHERE state = 'succeeded') AS filled";
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ filled: boolean }>(
+          sql,
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows[0]?.filled === true;
   }, 'snapshot');
 }
@@ -416,11 +483,17 @@ export async function hasSuccessfulFill(database: FillStateDatabase): Promise<bo
 export async function readLiveRun(database: FillStateDatabase): Promise<RunRecord | null> {
   const at = here();
   return await run(at, database, 'readLiveRun', ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>(
-      `SELECT run_id, product, state, context, created_at, updated_at FROM fill_run
-       WHERE state IN ('created', 'planning', 'running', 'pausing', 'cancelling')
-       ORDER BY created_at DESC, run_id DESC LIMIT 1`,
-    );
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT run_id, product, state, context, created_at, updated_at FROM fill_run
+           WHERE state IN ('created', 'planning', 'running', 'pausing', 'cancelling')
+           ORDER BY created_at DESC, run_id DESC LIMIT 1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<RunRow>(
+          sql,
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows[0] === undefined ? null : runRecord(rows[0]);
   }, 'snapshot');
 }
@@ -429,7 +502,13 @@ export async function readLiveRun(database: FillStateDatabase): Promise<RunRecor
 export async function readRun(database: FillStateDatabase, runId: string): Promise<RunRecord | null> {
   const at = here();
   return run(at, database, `readRun(${runId})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1', [runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<RunRow>(sql, [runId]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows[0] === undefined ? null : runRecord(rows[0]);
   }, 'snapshot');
 }
@@ -453,7 +532,13 @@ export interface RunLeaseRecord {
 /** The run's lease, or null when no owner has claimed it. */
 export async function readRunLease(database: FillStateDatabase, runId: string): Promise<RunLeaseRecord | null> {
   return await run(here(), database, `readRunLease(${runId})`, ['fill_run_lease'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>('SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1', [runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>(sql, [runId]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const row = rows[0];
     return row === undefined ? null : { runId: row.run_id, ownerToken: row.owner_token, ownerPid: Number(row.owner_pid), heartbeatAt: millis(row.heartbeat_at), expiresAt: millis(row.expires_at) };
   }, 'snapshot');
@@ -467,15 +552,33 @@ export async function readRunLease(database: FillStateDatabase, runId: string): 
  */
 export async function claimRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly ownerPid: number; readonly at: number; readonly ttlMs?: number }): Promise<RunLeaseRecord | null> {
   return await run(here(), database, `claimRunLease(${options.runId})`, ['fill_run_lease', 'fill_run'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>('SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE', [options.runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>(sql, [options.runId]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const current = rows[0];
     const ttl = options.ttlMs ?? RUN_LEASE_TTL_MS;
     if (current !== undefined && current.owner_token !== options.ownerToken && millis(current.expires_at) > options.at) return null;
     const expiresAt = options.at + ttl;
     if (current === undefined) {
-      await executor.query('INSERT INTO fill_run_lease (run_id, owner_token, owner_pid, heartbeat_at, expires_at) VALUES ($1, $2, $3, $4, $5)', [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
+      await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = 'INSERT INTO fill_run_lease (run_id, owner_token, owner_pid, heartbeat_at, expires_at) VALUES ($1, $2, $3, $4, $5)';
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query(sql, [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
     } else {
-      await executor.query('UPDATE fill_run_lease SET owner_token = $2, owner_pid = $3, heartbeat_at = $4, expires_at = $5 WHERE run_id = $1', [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
+      await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = 'UPDATE fill_run_lease SET owner_token = $2, owner_pid = $3, heartbeat_at = $4, expires_at = $5 WHERE run_id = $1';
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query(sql, [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
     }
     return { runId: options.runId, ownerToken: options.ownerToken, ownerPid: options.ownerPid, heartbeatAt: options.at, expiresAt };
   }, 'write');
@@ -484,7 +587,13 @@ export async function claimRunLease(database: FillStateDatabase, options: { read
 /** Renews a lease only for the token that holds it; false when another owner or no lease stands. */
 export async function renewRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly at: number; readonly ttlMs?: number }): Promise<boolean> {
   return await run(here(), database, `renewRunLease(${options.runId})`, ['fill_run_lease'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string }>('UPDATE fill_run_lease SET heartbeat_at = $3, expires_at = GREATEST(expires_at, $4) WHERE run_id = $1 AND owner_token = $2 RETURNING run_id', [options.runId, options.ownerToken, options.at, options.at + (options.ttlMs ?? RUN_LEASE_TTL_MS)]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_run_lease SET heartbeat_at = $3, expires_at = GREATEST(expires_at, $4) WHERE run_id = $1 AND owner_token = $2 RETURNING run_id';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ run_id: string }>(sql, [options.runId, options.ownerToken, options.at, options.at + (options.ttlMs ?? RUN_LEASE_TTL_MS)]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows.length > 0;
   }, 'write');
 }
@@ -492,10 +601,16 @@ export async function renewRunLease(database: FillStateDatabase, options: { read
 export async function readLatestRun(database: FillStateDatabase, product: string): Promise<RunRecord | null> {
   const at = here();
   return run(at, database, `readLatestRun(${product})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>(
-      'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC LIMIT 1',
-      [product],
-    );
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC LIMIT 1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<RunRow>(
+          sql,
+          [product],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows[0] === undefined ? null : runRecord(rows[0]);
   }, 'snapshot');
 }
@@ -504,9 +619,15 @@ export async function readLatestRun(database: FillStateDatabase, product: string
 export async function readRuns(database: FillStateDatabase, product: string): Promise<readonly RunRecord[]> {
   const at = here();
   return run(at, database, `readRuns(${product})`, ['fill_run'], async (executor) => {
-    const { rows } = await executor.query<RunRow>(
-      'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC', [product],
-    );
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<RunRow>(
+          sql, [product],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows.map(runRecord);
   }, 'snapshot');
 }
@@ -515,7 +636,13 @@ export async function readRuns(database: FillStateDatabase, product: string): Pr
 export async function advanceRun(database: FillStateDatabase, options: { readonly runId: string; readonly event: RunEvent; readonly expectedState?: RunState }): Promise<StoreStep<RunRecord, RunState>> {
   const at = here();
   return run(at, database, `advanceRun(${options.runId}, ${options.event.type})`, ['fill_run', 'fill_transition'], async (executor) => {
-    const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<RunRow>(sql, [options.runId]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const row = rows[0];
     if (row === undefined) raise(`table fill_run: no run ${options.runId}`);
     const current = runRecord(row);
@@ -524,7 +651,13 @@ export async function advanceRun(database: FillStateDatabase, options: { readonl
     }
     const step = runMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
-    await executor.query('UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1', [current.runId, step.state, json(step.context), options.event.at]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(sql, [current.runId, step.state, json(step.context), options.event.at]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     await recordTransition(executor, { subjectKind: 'run', subjectId: current.runId, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, fence: null, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
   }, 'write');
@@ -570,26 +703,44 @@ export interface UnitCreateOptions {
 export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOptions): Promise<UnitRecord> {
     if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
     const context = newUnitContext({ generation: 1, retries: options.retries });
-    const inserted = await executor.query<UnitRow>(
-      'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at',
-      [options.unitId, options.product, options.stageId, options.scopeKey, 1, options.at],
-    );
+    const inserted = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<UnitRow>(
+          sql,
+          [options.unitId, options.product, options.stageId, options.scopeKey, 1, options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     if (inserted.rows.length === 0) {
       // The identity already has a unit. Answer it as it stands: no generation opened, no journal entry.
-      const existing = await executor.query<UnitRow>(
-        'SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE product = $1 AND stage_id = $2 AND scope_key = $3 FOR UPDATE',
-        [options.product, options.stageId, options.scopeKey],
-      );
+      const existing = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const sql = 'SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE product = $1 AND stage_id = $2 AND scope_key = $3 FOR UPDATE';
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+        const result = await executor.query<UnitRow>(
+              sql,
+              [options.product, options.stageId, options.scopeKey],
+            );
+        span.setAttribute('db.rows', result.rows.length);
+        return result;
+      });
       const row = existing.rows[0];
       if (row === undefined) raise(`table fill_unit: identity (${options.product}, ${options.stageId}, ${options.scopeKey}) was refused as a duplicate, yet no row holds it`);
       const snapshot = await loadUnit(executor, row.unit_id, true);
       if (snapshot === null) raise(`table fill_unit: unit ${row.unit_id} vanished between its insert and its read`);
       return snapshot.record;
     }
-    await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
-      [options.unitId, 1, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.unitId, 1, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation: 1, transitionId: FILL_STORE_STEPS.createUnit, from: '(none)', to: 'planned', event: 'create', fence: 0, at: options.at });
     return {
       unitId: options.unitId,
@@ -612,22 +763,40 @@ interface UnitSnapshot { readonly unit: UnitRow; readonly generation: Generation
 
 /** Loads a unit, its current generation and that generation's lease; null when the unit does not exist. */
 async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): Promise<UnitSnapshot | null> {
-  const units = await executor.query<UnitRow>(
-    `SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1${lock ? ' FOR UPDATE' : ''}`,
-    [unitId],
-  );
+  const units = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1${lock ? ' FOR UPDATE' : ''}`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<UnitRow>(
+      sql,
+      [unitId],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const unit = units.rows[0];
   if (unit === undefined) return null;
-  const generations = await executor.query<GenerationRow>(
-    `SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`,
-    [unitId, millis(unit.generation)],
-  );
+  const generations = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = `SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`;
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<GenerationRow>(
+      sql,
+      [unitId, millis(unit.generation)],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const generation = generations.rows[0];
   if (generation === undefined) raise(`table fill_unit_generation: unit ${unitId} names generation ${String(unit.generation)}, which has no row`);
-  const leases = await executor.query<LeaseRow>(
-    'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-    [unitId, millis(generation.generation), millis(generation.fence)],
-  );
+  const leases = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query<LeaseRow>(
+      sql,
+      [unitId, millis(generation.generation), millis(generation.fence)],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   return { unit, generation, record: unitRecord(unit, generation, leases.rows[0]) };
 }
 
@@ -640,19 +809,37 @@ async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): P
 export async function readUnitGeneration(database: FillStateDatabase, unitId: string, generation: number): Promise<UnitRecord | null> {
   const at = here();
   return run(at, database, `readUnitGeneration(${unitId}/${generation})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
-    const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
+    const units = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<UnitRow>(sql, [unitId]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const unit = units.rows[0];
     if (unit === undefined) return null;
-    const generations = await executor.query<GenerationRow>(
-      'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
-      [unitId, generation],
-    );
+    const generations = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<GenerationRow>(
+          sql,
+          [unitId, generation],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const row = generations.rows[0];
     if (row === undefined) return null;
-    const leases = await executor.query<LeaseRow>(
-      'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [unitId, generation, millis(row.fence)],
-    );
+    const leases = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<LeaseRow>(
+          sql,
+          [unitId, generation, millis(row.fence)],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return unitRecord(unit, row, leases.rows[0]);
   }, 'snapshot');
 }
@@ -680,16 +867,22 @@ async function readRunGenerations(database: FillStateDatabase, runId: string, cu
     // the orchestrator makes this read several times a pass, so a pass spent seconds reading what it
     // already knew. A generation's lease is the one its row's fence names, and a unit's generation is
     // the one its own row names, so the join answers the same records as the per-row reads did.
-    const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
-      `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
-              g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
-              g.published_at, g.stale_at, g.updated_at,
-              l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
-         FROM fill_unit u LEFT JOIN fill_unit_generation g ON g.unit_id = u.unit_id ${currentOnly ? 'AND g.generation = u.generation' : ''}
-         LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
-        WHERE g.run_id = $1`,
-      [runId],
-    );
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
+                  g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
+                  g.published_at, g.stale_at, g.updated_at,
+                  l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
+             FROM fill_unit u LEFT JOIN fill_unit_generation g ON g.unit_id = u.unit_id ${currentOnly ? 'AND g.generation = u.generation' : ''}
+             LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
+            WHERE g.run_id = $1`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<UnitRow & GenerationRow & LeaseRow>(
+          sql,
+          [runId],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const records: UnitRecord[] = [];
     // Every row here names a generation the run holds — the join is on the run's
     // own generations — so a unit whose row names a generation the store does not
@@ -720,16 +913,22 @@ export async function readRunUnitHistory(database: FillStateDatabase, runId: str
 export async function readProductUnits(database: FillStateDatabase, options: { readonly product: string; readonly state: UnitState }): Promise<readonly UnitRecord[]> {
   const at = here();
   return run(at, database, `readProductUnits(${options.product}/${options.state})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
-    const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
-      `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
-              g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
-              g.published_at, g.stale_at, g.updated_at,
-              l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
-         FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
-         LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
-        WHERE u.product = $1 AND g.state = $2`,
-      [options.product, options.state],
-    );
+    const rows = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
+                  g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
+                  g.published_at, g.stale_at, g.updated_at,
+                  l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
+             FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+             LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
+            WHERE u.product = $1 AND g.state = $2`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<UnitRow & GenerationRow & LeaseRow>(
+          sql,
+          [options.product, options.state],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     return rows.rows.map((row) => unitRecord(row, row, row.lease_unit_id === null || row.lease_unit_id === undefined ? undefined : row))
       .sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
@@ -748,14 +947,26 @@ export async function readProductUnits(database: FillStateDatabase, options: { r
 export async function revokeUnitLease(database: FillStateDatabase, options: { readonly unitId: string; readonly generation: number; readonly fence: number; readonly at: number }): Promise<UnitLeaseRecord | null> {
   const at = here();
   return run(at, database, `revokeUnitLease(${options.unitId}/${options.generation})`, ['fill_unit_lease'], async (executor) => {
-    await executor.query(
-      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [options.unitId, options.generation, options.fence, options.at],
-    );
-    const { rows } = await executor.query<LeaseRow>(
-      'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [options.unitId, options.generation, options.fence],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.unitId, options.generation, options.fence, options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    const { rows } = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<LeaseRow>(
+          sql,
+          [options.unitId, options.generation, options.fence],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const row = rows[0];
     return row === undefined ? null : {
       attempt: millis(row.attempt),
@@ -792,17 +1003,29 @@ async function persistUnitStep(
   const previousFence = millis(generation.fence);
   const publishedAt = step.state === 'published' ? at : maybeMillis(generation.published_at);
   const staleAt = step.state === 'stale' ? at : maybeMillis(generation.stale_at);
-  await executor.query(
-    'UPDATE fill_unit_generation SET state = $3, fence = $4, context = $5::jsonb, published_at = $6, stale_at = $7, updated_at = $8 WHERE unit_id = $1 AND generation = $2',
-    [unit.unit_id, generationNumber, step.state, step.context.fence, json(step.context), publishedAt, staleAt, at],
-  );
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'UPDATE fill_unit_generation SET state = $3, fence = $4, context = $5::jsonb, published_at = $6, stale_at = $7, updated_at = $8 WHERE unit_id = $1 AND generation = $2';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(
+      sql,
+      [unit.unit_id, generationNumber, step.state, step.context.fence, json(step.context), publishedAt, staleAt, at],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   let revokedAt: number | null = maybeMillis(snapshot.record.lease?.revokedAt ?? null);
   if (step.effects.includes('revoke-lease')) {
     revokedAt = revokedAt ?? at;
-    await executor.query(
-      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [unit.unit_id, generationNumber, previousFence, revokedAt],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [unit.unit_id, generationNumber, previousFence, revokedAt],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
   }
   await recordTransition(executor, { subjectKind: 'unit', subjectId: unit.unit_id, generation: generationNumber, transitionId: step.transition, from: generation.state, to: step.state, event, fence: step.context.fence, at });
   const lease = snapshot.record.lease === null ? null : { ...snapshot.record.lease, revokedAt };
@@ -825,11 +1048,17 @@ export async function advanceUnitIn(executor: SqlExecutor, options: { readonly u
   // insert checks the generation's foreign key, and a step that locked the generation first would wait for the run an
   // event holds, and the event for the generation the step holds.
   if (event.type !== 'cancel') {
-    await executor.query(
-      `SELECT 1 FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id JOIN fill_unit u ON u.unit_id = g.unit_id AND u.generation = g.generation
-       WHERE u.unit_id = $1 FOR SHARE OF r`,
-      [options.unitId],
-    );
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT 1 FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id JOIN fill_unit u ON u.unit_id = g.unit_id AND u.generation = g.generation
+           WHERE u.unit_id = $1 FOR SHARE OF r`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.unitId],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
   }
   const snapshot = await loadUnit(executor, options.unitId, true);
   if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
@@ -854,11 +1083,17 @@ export async function advanceUnitIn(executor: SqlExecutor, options: { readonly u
   // so a step and a cancel that race answer alike whichever write lands first. The lock holds the control still for the
   // whole step: an intent that lands while a step is under way waits for it, and a step that comes after sees it.
   if (event.type !== 'cancel') {
-    const control = await executor.query<{ state: string }>(
-      `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id
-       WHERE g.unit_id = $1 AND g.generation = $2 FOR SHARE OF r`,
-      [options.unitId, snapshot.record.generation],
-    );
+    const control = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = `SELECT r.state AS state FROM fill_run r JOIN fill_unit_generation g ON g.run_id = r.run_id
+           WHERE g.unit_id = $1 AND g.generation = $2 FOR SHARE OF r`;
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query<{ state: string }>(
+          sql,
+          [options.unitId, snapshot.record.generation],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     const runState = control.rows[0]?.state;
     if (runState === 'cancelling' || runState === 'cancelled' || runState === 'failed') {
       return {
@@ -913,10 +1148,16 @@ async function leaseUnitIn(executor: SqlExecutor, options: UnitLeaseOptions): Pr
   const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
   if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
   const lease: UnitLeaseRecord = { attempt, fence, holder: options.holder, issuedAt: options.at, expiresAt: options.at + options.ttlMs, revokedAt: null };
-  await executor.query(
-    'INSERT INTO fill_unit_lease (unit_id, generation, attempt, fence, holder, issued_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)',
-    [options.unitId, snapshot.record.generation, attempt, fence, options.holder, options.at, lease.expiresAt],
-  );
+  await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+    const sql = 'INSERT INTO fill_unit_lease (unit_id, generation, attempt, fence, holder, issued_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)';
+    span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+    const result = await executor.query(
+      sql,
+      [options.unitId, snapshot.record.generation, attempt, fence, options.holder, options.at, lease.expiresAt],
+    );
+    span.setAttribute('db.rows', result.rows.length);
+    return result;
+  });
   const record = { ...(await persistUnitStep(executor, snapshot, step, options.at, event.type)), lease };
   return { ok: true, record, transition: step.transition, effects: step.effects } as const;
 }
@@ -968,11 +1209,23 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
       raise(`table fill_unit_generation, row ${current.unitId}/${current.generation}: names replacement ${generation}, which is not the next generation`);
     }
     const context = newUnitContext({ generation, retries: options.retries, fence: current.context.fence });
-    await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
-      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
-    );
-    await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_unit SET generation = $2 WHERE unit_id = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(sql, [options.unitId, generation]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.openGeneration, from: 'stale', to: 'planned', event: 'open-generation', fence: context.fence, at: options.at });
     return {
       ok: true,
@@ -1019,11 +1272,23 @@ export async function retryGeneration(database: FillStateDatabase, options: {
     }
     const generation = current.generation + 1;
     const context = newUnitContext({ generation, retries: options.retries, fence: current.context.fence });
-    await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
-      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
-    );
-    await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(
+          sql,
+          [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+        );
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
+    await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+      const sql = 'UPDATE fill_unit SET generation = $2 WHERE unit_id = $1';
+      span.setAttribute('db.sql.bytes', Buffer.byteLength(sql));
+      const result = await executor.query(sql, [options.unitId, generation]);
+      span.setAttribute('db.rows', result.rows.length);
+      return result;
+    });
     await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.retryGeneration, from: current.state, to: 'planned', event: 'retry-generation', fence: context.fence, at: options.at });
     return {
       ok: true,

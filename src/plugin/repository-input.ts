@@ -86,7 +86,7 @@ export function createRunRepositoryInputs() {
       closed = true;
       // A failed preparation can still have created part of its private directory.
       await held?.catch(() => undefined);
-      if (root !== undefined) await rm(root, { recursive: true, force: true });
+      if (root !== undefined) await withSpan('fs.remove', { 'file.path': root }, async () => await rm(root!, { recursive: true, force: true }));
     },
   };
 }

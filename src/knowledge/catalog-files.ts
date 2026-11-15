@@ -1,10 +1,12 @@
 /** Catalogue files embedded by Bun at build time, including in offline release binaries. */
 import { readdirSync, readFileSync } from 'node:fs';
+import { withSpanSync } from '../obs/trace.js';
 import { join, relative } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 
 export function catalogFiles(): Record<string, string> {
   const root = join(import.meta.dir, '../../catalog');
+  return withSpanSync('catalog.files', { 'file.path': root }, (span) => {
   const files: Record<string, string> = {};
   const visit = (folder: string): void => {
     for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
@@ -15,5 +17,7 @@ export function catalogFiles(): Record<string, string> {
     }
   };
   visit(root);
+  span.setAttribute('catalog.files', Object.keys(files).length);
   return files;
+  });
 }

@@ -1,3 +1,4 @@
+import { withSpanSync } from '../obs/trace.js';
 /**
  * The core's journal of what the writer's agent did (madarch-m38l.13).
  *
@@ -170,7 +171,7 @@ export function readJournalFile(file: string): JournalRead {
   const problems: string[] = [];
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = withSpanSync('fs.read', { 'file.path': file }, (span) => { const result = readFileSync(file, 'utf8'); span.setAttribute('file.bytes', Buffer.byteLength(result)); return result; });
   } catch (error) {
     return { records, problems: [`${file}: the journal cannot be read: ${(error as Error).message}`] };
   }
@@ -190,7 +191,7 @@ export function readJournalFile(file: string): JournalRead {
 /** The runs of a product's journal folder, oldest first; a missing folder is no runs. */
 function journalRuns(folder: string): string[] {
   try {
-    return readdirSync(folder).filter((name) => /^run-[A-Za-z0-9-]+\.jsonl$/.test(name)).map((name) => name.slice(0, -'.jsonl'.length)).sort(byCodePoint);
+    return withSpanSync('fs.readdir', { 'file.path': folder }, (span) => { const result = readdirSync(folder); span.setAttribute('file.entries', result.length); return result; }).filter((name) => /^run-[A-Za-z0-9-]+\.jsonl$/.test(name)).map((name) => name.slice(0, -'.jsonl'.length)).sort(byCodePoint);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw new Error(`src/writer/journal.ts: the journal folder ${folder} cannot be read: ${(error as Error).message}`);

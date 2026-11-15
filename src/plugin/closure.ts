@@ -140,41 +140,44 @@ function validateImports(folder: string, files: readonly { path: string; file: s
   const pending = [files.find((file) => file.path === entryPath)!];
   const scanners = new Map<string, Bun.Transpiler>();
   const visited = new Set<string>();
-  for (const entry of pending) {
-    if (visited.has(entry.file)) continue;
-    visited.add(entry.file);
-    if (!/\.(?:[cm]?[jt]sx?)$/.test(entry.path) || /\.d\.[cm]?ts$/.test(entry.path)) continue;
-    const text = readFileSync(entry.file, 'utf8').replace(/^#![^\n]*/, (line) => ' '.repeat(line.length));
-    const loader = entry.path.endsWith('tsx') ? 'tsx' : entry.path.endsWith('jsx') ? 'jsx' : /\.[cm]?ts$/.test(entry.path) ? 'ts' : 'js';
-    let scanner = scanners.get(loader);
-    if (scanner === undefined) {
-      scanner = new Bun.Transpiler({ loader });
-      scanners.set(loader, scanner);
-    }
-    let imports: ReturnType<Bun.Transpiler['scanImports']>;
-    try { imports = scanner.scanImports(text); }
-    catch (error) { throw new ClosureRefusal('plugin-import', `${entry.file}:1: cannot scan imports: ${(error as Error).message}`, entry.file); }
-    for (const imported of imports) {
-      if (builtins.has(imported.path) || imported.path === SDK_PACKAGE) continue;
-      let target: string;
-      try { target = Bun.resolveSync(imported.path, dirname(entry.file)); } catch (error) {
+  // One span for the scan of the whole closure: a span for each source read would bury what the scan found.
+  withSpanSync('plugin.closure.imports', { 'plugin.files': pending.length }, () => {
+    for (const entry of pending) {
+      if (visited.has(entry.file)) continue;
+      visited.add(entry.file);
+      if (!/\.(?:[cm]?[jt]sx?)$/.test(entry.path) || /\.d\.[cm]?ts$/.test(entry.path)) continue;
+      const text = readFileSync(entry.file, 'utf8').replace(/^#![^\n]*/, (line) => ' '.repeat(line.length));
+      const loader = entry.path.endsWith('tsx') ? 'tsx' : entry.path.endsWith('jsx') ? 'jsx' : /\.[cm]?ts$/.test(entry.path) ? 'ts' : 'js';
+      let scanner = scanners.get(loader);
+      if (scanner === undefined) {
+        scanner = new Bun.Transpiler({ loader });
+        scanners.set(loader, scanner);
+      }
+      let imports: ReturnType<Bun.Transpiler['scanImports']>;
+      try { imports = scanner.scanImports(text); }
+      catch (error) { throw new ClosureRefusal('plugin-import', `${entry.file}:1: cannot scan imports: ${(error as Error).message}`, entry.file); }
+      for (const imported of imports) {
+        if (builtins.has(imported.path) || imported.path === SDK_PACKAGE) continue;
+        let target: string;
+        try { target = Bun.resolveSync(imported.path, dirname(entry.file)); } catch (error) {
+          const line = importLine(text, imported.path);
+          throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder}: ${(error as Error).message}`, entry.file, line);
+        }
+        const resolved = held.get(resolve(target));
+        if (resolved !== undefined) {
+          pending.push(resolved);
+          continue;
+        }
         const line = importLine(text, imported.path);
-        throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder}: ${(error as Error).message}`, entry.file, line);
+        throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder} (resolved outside the closure to ${target})`, entry.file, line);
       }
-      const resolved = held.get(resolve(target));
-      if (resolved !== undefined) {
-        pending.push(resolved);
-        continue;
-      }
-      const line = importLine(text, imported.path);
-      throw new ClosureRefusal('plugin-import', `${entry.file}:${line}: import ${JSON.stringify(imported.path)} cannot resolve inside the declared dependency closure ${folder} (resolved outside the closure to ${target})`, entry.file, line);
     }
-  }
+  });
 }
 
 /** The sha256 of one file's bytes. */
-function digestOf(file: string): string {
-  return createHash('sha256').update(readFileSync(file)).digest('hex');
+function digestOf(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /**
@@ -198,7 +201,11 @@ export function readPluginManifest(folder: string): PluginManifest {
   const file = join(folder, PLUGIN_MANIFEST_FILE);
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    });
   } catch {
     throw new ClosureRefusal('plugin-manifest', `${WHERE}:1: ${file} cannot be read: a plugin folder carries its ${PLUGIN_MANIFEST_FILE} (its name, version, entry and interpreter pin) beside its code`, file);
   }
@@ -245,7 +252,11 @@ export function pluginRightsOf(closure: Closure): PluginRights {
   const file = join(closure.folder, 'contract.json');
   let value: unknown;
   try {
-    value = JSON.parse(readFileSync(file, 'utf8'));
+    value = JSON.parse(withSpanSync('fs.read', { 'file.path': file }, (span) => {
+      const held = readFileSync(file, 'utf8');
+      span.setAttribute('file.bytes', Buffer.byteLength(held));
+      return held;
+    }));
   } catch (error) {
     throw new ClosureRefusal('plugin-contract', `${file}:1: the plugin contract cannot be read (${(error as Error).message}): a plugin folder carries its contract.json, which states the rights the host grants it`, file);
   }
@@ -264,7 +275,11 @@ export function pluginRightsOf(closure: Closure): PluginRights {
  */
 export function pluginReadsOf(closure: Closure): 'unit' | 'whole-graph' {
   const file = join(closure.folder, 'contract.json');
-  const value = JSON.parse(readFileSync(file, 'utf8')) as { reads?: unknown };
+  const value = JSON.parse(withSpanSync('fs.read', { 'file.path': file }, (span) => {
+    const held = readFileSync(file, 'utf8');
+    span.setAttribute('file.bytes', Buffer.byteLength(held));
+    return held;
+  })) as { reads?: unknown };
   return value.reads === 'whole-graph' ? 'whole-graph' : 'unit';
 }
 
@@ -297,7 +312,7 @@ export function closureOf(folder: string): Closure {
   const entries = withSpanSync('plugin.closure.files', {}, () => [...walk(folder), ...dependencyFiles(folder, (error) => missing.push(error))]);
   const own = withSpanSync('plugin.closure.hash', { 'madarch.plugin.files': entries.length }, () => entries.map((entry) => {
     const stat = lstatSync(entry.file);
-    return { path: entry.path, sha256: digestOf(entry.file), bytes: stat.size, mode: stat.mode & 0o777 };
+    return { path: entry.path, sha256: digestOf(readFileSync(entry.file)), bytes: stat.size, mode: stat.mode & 0o777 };
   }));
   if (!own.some((file) => file.path === manifest.entry)) {
     throw new ClosureRefusal('plugin-entry', `${WHERE}:1: ${join(folder, manifest.entry)} is the entry ${PLUGIN_MANIFEST_FILE} names, and the plugin folder holds no such file`, join(folder, manifest.entry));
@@ -306,7 +321,7 @@ export function closureOf(folder: string): Closure {
   if (ownSdk !== undefined) {
     throw new ClosureRefusal('plugin-sdk-conflict', `${WHERE}:1: ${join(folder, ownSdk.path)} stands in the plugin's folder, and madarch hands every plugin its own SDK at that name: remove the copy, and import ${SDK_PACKAGE} from the closure madarch builds`, join(folder, ownSdk.path));
   }
-  withSpanSync('plugin.closure.imports', {}, () => validateImports(folder, entries, manifest.entry));
+  validateImports(folder, entries, manifest.entry);
   if (missing[0] !== undefined) throw missing[0];
   const files = [...own, ...sdkClosureFiles()].sort((left, right) => byCodePoint(left.path, right.path));
   return { folder, manifest, files, hash: closureHashOf(files) };
