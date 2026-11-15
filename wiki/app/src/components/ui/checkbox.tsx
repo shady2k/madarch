@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils.js';
 export const Checkbox = forwardRef<HTMLButtonElement, ComponentProps<typeof CheckboxPrimitive.Root>>(function Checkbox({ className, ...props }, ref) {
   return <CheckboxPrimitive.Root
     ref={ref}
-    className={cn('peer grid size-4 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-control)] border border-line bg-page text-ink outline-none transition-colors hover:border-ink focus-visible:ring-2 focus-visible:ring-ink disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-ink data-[state=indeterminate]:border-ink [&[data-state=checked]]:bg-[var(--surface-active)] [&[data-state=indeterminate]]:bg-[var(--surface-active)]', className)}
+    className={cn('peer grid size-4 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-control)] border border-ink/45 bg-[var(--surface-soft)] text-ink outline-none transition-colors hover:border-ink focus-visible:ring-2 focus-visible:ring-ink disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-ink data-[state=indeterminate]:border-ink [&[data-state=checked]]:bg-[var(--surface-active)] [&[data-state=indeterminate]]:bg-[var(--surface-active)]', className)}
     {...props}
   >
     <CheckboxPrimitive.Indicator className="grid place-items-center text-ink">

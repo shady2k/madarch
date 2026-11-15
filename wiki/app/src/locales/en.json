@@ -1931,6 +1931,7 @@
     "complete": "Complete",
     "indeterminate": "Indeterminate",
     "typography": "Page structure and typography",
+    "fieldLabel": "Field label",
     "charts": "Charts and hierarchies",
     "chartsNote": "Six forms of the vendored diagrammatic and the activity calendar in its two shapes. Each is drawn from the kit's tokens only: no chart carries a colour of its own.",
     "treemap": "Treemap",

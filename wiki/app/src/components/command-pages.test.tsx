@@ -267,6 +267,21 @@ function type(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+/** The word a kit Select trigger shows for its chosen value. */
+function kitSelectText(container: HTMLElement, testId: string): string {
+  return container.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? '';
+}
+
+/** Press a kit Select and choose the option whose text is the label. */
+async function chooseKitSelect(container: HTMLElement, testId: string, label: string): Promise<void> {
+  await act(async () => { (container.querySelector(`[data-testid="${testId}"]`) as HTMLElement).click(); });
+  await settle();
+  const option = [...document.querySelectorAll('[role="option"]')].find((one) => (one.textContent ?? '').trim() === label);
+  if (option === undefined) throw new Error(`the kit Select ${testId} does not offer ${label}`);
+  await act(async () => { (option as HTMLElement).click(); });
+  await settle();
+}
+
 test('the catalogue reads by default, in the catalogue\'s words, with counts, «в продукте» and the plan\'s producers', async () => {
   const page = await render([section('catalogue', 'catalogue', {})]);
   try {
@@ -355,14 +370,12 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     await settle();
     expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
     expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    expect(kitSelectText(page.container, 'prepare-model')).toContain('Opus');
     // The agent's own model and reasoning level stand beside the cap, and both follow the press (madarch-64o5.90).
-    const modelSelect = page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement;
-    const reasoningSelect = page.container.querySelector('[data-testid="prepare-reasoning"]') as HTMLSelectElement;
-    expect(modelSelect.value).toBe('opus');
-    expect(reasoningSelect.value).toBe('medium');
+    expect(kitSelectText(page.container, 'prepare-model')).toContain('Opus');
+    expect(kitSelectText(page.container, 'prepare-reasoning')).toContain('Medium');
     expect(page.container.textContent).toContain('Сохранить по умолчанию');
-    await act(async () => { modelSelect.value = 'sonnet'; modelSelect.dispatchEvent(new Event('change', { bubbles: true })); });
+    await chooseKitSelect(page.container, 'prepare-model', 'Sonnet');
     await settle();
     // «Сохранить по умолчанию» saves the agent with the pair beside it; the press itself spends nothing.
     await act(async () => { (page.container.querySelector('[data-testid="prepare-save-defaults"]') as HTMLButtonElement).click(); });
@@ -403,7 +416,7 @@ test('Run waits for the product\'s saved model, so a press never sends the adapt
     await act(async () => { release(); });
     await settle();
     // The saved pair now stands over the agent's own, and the press sends it.
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('sonnet');
+    expect(kitSelectText(page.container, 'prepare-model')).toContain('Sonnet');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
@@ -419,7 +432,7 @@ test('the choices of another agent never stand in for the one just picked', asyn
   try {
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
     await settle();
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    expect(kitSelectText(page.container, 'prepare-model')).toContain('Opus');
     // Pick Codex while its choices are held: the previous agent's answer is no answer for this one, and Run waits.
     holdChoices = () => undefined;
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-codex"] [role="radio"]') as HTMLButtonElement).click(); });
@@ -430,7 +443,7 @@ test('the choices of another agent never stand in for the one just picked', asyn
     holdChoices = null;
     await act(async () => { release(); });
     await settle();
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('gpt-5-codex');
+    expect(kitSelectText(page.container, 'prepare-model')).toContain('GPT-5 Codex');
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));

@@ -112,7 +112,7 @@ function folded(nodes: readonly ChartNode[], budget: number): ChartNode[] {
   if (sorted.length <= budget) return sorted;
   const kept = sorted.slice(0, budget - 1);
   const rest = sorted.slice(budget - 1);
-  return [...kept, { label: `+${String(rest.length)} folded`, value: rest.reduce((sum, node) => sum + (node.value ?? 0), 0) }];
+  return [...kept, { label: `+${String(rest.length)} folded`, value: rest.reduce((sum, node) => sum + (node.value ?? 0), 0), color: 'var(--surface-soft)' }];
 }
 
 export function KitPage(): ReactElement {
@@ -153,7 +153,7 @@ export function KitPage(): ReactElement {
         <KitState label={state('default')}><Input aria-label={state('name')} placeholder={state('name')} /><Textarea aria-label={state('description')} placeholder={state('description')} /></KitState>
         <KitState label={state('disabled')}><Input aria-label={state('name')} defaultValue={state('sample')} disabled /><Textarea aria-label={state('description')} defaultValue={state('sample')} disabled /></KitState>
         <KitState label={state('error')}><Input aria-label={state('name')} aria-invalid="true" aria-describedby="kit-input-error" /><Alert variant="problem" id="kit-input-error"><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
-        <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select defaultValue="one"><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem><SelectItem value="two">{state('description')}</SelectItem></SelectContent></Select></Form></KitState>
+        <KitState label={state('fieldLabel')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select defaultValue="one"><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem><SelectItem value="two">{state('description')}</SelectItem></SelectContent></Select></Form></KitState>
         <KitState label={`Select — ${state('disabled')}`}><Select defaultValue="one" disabled><SelectTrigger aria-label={state('name')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="one">{state('sample')}</SelectItem></SelectContent></Select></KitState>
       </KitSection>
 
@@ -172,9 +172,9 @@ export function KitPage(): ReactElement {
             ))}
           </RadioGroup>
         </KitState>
-        <KitState label="Switch"><Switch aria-label={state('action')} /><Switch defaultChecked aria-label={state('selected')} /><Switch disabled aria-label={state('disabled')} /></KitState>
+        <KitState label="Switch"><Stack className="flex flex-wrap items-center gap-3"><Switch aria-label={state('action')} /><Switch defaultChecked aria-label={state('selected')} /><Switch disabled aria-label={state('disabled')} /></Stack></KitState>
         <KitState label="Toggle"><Toggle aria-label={state('action')} pressed={toggled} onPressedChange={setToggled}>{state('action')}</Toggle></KitState>
-        <KitState label="Progress"><Progress value={45} aria-label={state('loading')} className="w-48" /><Progress value={null} aria-label={state('indeterminate')} className="w-48" /></KitState>
+        <KitState label="Progress"><Stack className="grid w-80 max-w-full gap-3"><Progress value={45} aria-label={state('loading')} className="h-2.5" /><Progress value={null} aria-label={state('indeterminate')} className="h-2.5" /></Stack></KitState>
       </KitSection>
 
       <KitSection title="Badge / Alert / Card / Skeleton">

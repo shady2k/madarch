@@ -27,7 +27,7 @@ import { Paragraph } from './typography.js';
 export interface ChartRow { readonly label: string; readonly value: number }
 
 /** One node of a hierarchy: its label, what it holds, and its children. */
-export interface ChartNode { readonly label: string; readonly value?: number; readonly children?: readonly ChartNode[] }
+export interface ChartNode { readonly label: string; readonly value?: number; readonly children?: readonly ChartNode[]; readonly color?: string }
 
 /** One series across the same groups. */
 export interface ChartSeries { readonly name: string; readonly data: readonly number[] }
@@ -48,11 +48,6 @@ interface Size { readonly width?: number; readonly height?: number; readonly cla
  */
 function Categorical({ children }: { readonly children: ReactElement }): ReactElement {
   return <div data-chart-palette="categorical" className="min-w-0">{children}</div>;
-}
-
-/** A figure whose marks are magnitudes: heat, a sparkline, a calendar — one ink at descending strength. */
-function Magnitude({ children }: { readonly children: ReactElement }): ReactElement {
-  return <div data-heat="" className="min-w-0">{children}</div>;
 }
 
 /** What a figure says where it has nothing to draw: the kit's own words, not an empty frame. */
@@ -111,7 +106,10 @@ export function ChartCalendar({ title, days, note = 'No activity to draw', ...si
   const { i18n } = useTranslation();
   const matrix = calendarMatrix(days, i18n.language);
   if (matrix === undefined) return <ChartEmpty title={title} note={note} />;
-  return <Magnitude><Heatmap title={title} matrix={matrix} mark="calendar" values={false} {...size} /></Magnitude>;
+  // At a phone's width every weekday name would cross its neighbour; alternate rows keep the labels legible.
+  const narrow = size.width !== undefined && size.width <= 390;
+  const rows = narrow ? matrix.rows.map((row, at) => at % 2 === 0 ? row : '') : matrix.rows;
+  return <Categorical><Heatmap title={title} matrix={{ ...matrix, rows }} mark="calendar" values={false} {...size} /></Categorical>;
 }
 
 /**
@@ -168,11 +166,12 @@ function nodeOf(node: ChartNode): ChartTreeNode {
     label: node.label,
     ...(node.value === undefined ? {} : { value: node.value }),
     ...(node.children === undefined ? {} : { children: node.children.map(nodeOf) }),
+    ...(node.color === undefined ? {} : { color: node.color }),
   };
 }
 
 /** The vendored tree shape, named here so the conversion is typed against it and not against a lookalike. */
-type ChartTreeNode = { label: string; value?: number; children?: ChartTreeNode[] };
+type ChartTreeNode = { label: string; value?: number; children?: ChartTreeNode[]; color?: string };
 
 /** Whether a hierarchy holds any value at all, at any depth. */
 function hasValues(nodes: readonly ChartNode[]): boolean {
