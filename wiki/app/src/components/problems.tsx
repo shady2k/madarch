@@ -146,7 +146,6 @@ export function ProblemsSection({ context }: { readonly context: SectionContext 
                     <Disclosure data-testid="problem-category" data-rule={category.rule}>
                       <DisclosureSummary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
                         <Text className="font-medium">{t(`loop.rule.${category.rule}`, { defaultValue: category.label?.[language] ?? category.rule })}</Text>
-                        <InlineCode className="text-small">{category.rule}</InlineCode>
                         <Badge variant={category.severity === 'blocker' || category.severity === 'critical' ? 'solid' : 'outline'} data-testid="problem-category-severity">{t(`loop.severity.${category.severity}`, { defaultValue: category.severity })}</Badge>
                         <Text className="text-small text-secondary">{t(`loop.fixer.${category.fixer}`, { defaultValue: category.fixer })}</Text>
                         <Text className="ml-auto font-medium" data-testid="problem-category-count">{rows.length}</Text>

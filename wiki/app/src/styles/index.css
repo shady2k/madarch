@@ -2320,7 +2320,28 @@ a.graph-diagram-element-label:hover {
 /* A frame the diagram is bigger than: it scrolls sideways at the diagram's natural size instead of shrinking it. */
 .dg-frame-box { position: relative; background: var(--surface-page); overflow-x: auto; }
 .dg-frame-box > * { min-width: 0; }
-.dg-likec4-view { width: 100%; height: 540px; min-height: 360px; }
+.dg-likec4-view {
+  width: 100%; height: 540px; min-height: 360px;
+  /* LikeC4's runtime reads its accent shades from these variables; the kit's neutral tokens replace its blue. */
+  --colors-likec4-accent-0: var(--surface-soft);
+  --colors-likec4-accent-1: var(--surface-soft);
+  --colors-likec4-accent-2: var(--surface-active);
+  --colors-likec4-accent-3: var(--surface-active);
+  --colors-likec4-accent-4: var(--surface-active);
+  --colors-likec4-accent-5: var(--surface-active);
+  --colors-likec4-accent-6: var(--surface-active);
+  --colors-likec4-accent-7: var(--border);
+  --colors-likec4-accent-8: var(--border);
+  --colors-likec4-accent-9: var(--text-secondary);
+  /* The element and relation palette the runtime paints the diagram with, in the kit's neutral tokens. */
+  --likec4-palette-fill: var(--surface-active);
+  --likec4-palette-stroke: var(--border);
+  --likec4-palette-hiContrast: var(--text);
+  --likec4-palette-loContrast: var(--text-secondary);
+  --likec4-palette-relation-stroke: var(--border);
+  --likec4-palette-relation-label: var(--text);
+  --likec4-palette-relation-label-bg: var(--surface-page);
+}
 @media (max-width: 700px) { .dg-likec4-view { height: 420px; } }
 .dg-full .dg-likec4-view { height: calc(100vh - 190px); min-height: 360px; }
 /* The relations block keeps a reading window at a 12 px label: a taller frame holds more of the neighbourhood. */

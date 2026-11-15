@@ -84,7 +84,7 @@ export async function readCodeSnapshot(graph: GraphReader): Promise<CodeSnapshot
     if (found.total > found.rows.length) notes.push(`the code section reads the first ${found.rows.length} of ${found.total} code.file facts: the rest are not judged`);
     return found.rows.map((row) => ({
       key: row.key, kind: 'code.file', label: row.path,
-      properties: { path: row.path, repository: row.repository, ...(row.lines === null ? {} : { lines: row.lines }) },
+      properties: { path: row.path, repository: row.repository, ...(row.class === null ? {} : { class: row.class }), ...(row.lines === null ? {} : { lines: row.lines }) },
       nodeIds: [row.node], scope: row.scope,
     }));
   };
@@ -298,13 +298,18 @@ function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: Problem
 
 // ---- large files and change hotspots ---------------------------------------------------------
 
+/** A file the product already marks as something other than a person's source: generated, a dependency, or a test. */
+function isUnreadFile(file: GraphEntity): boolean {
+  const path = text(file.properties['path']) ?? pathOfKey(file.key);
+  if (isTestPath(path)) return true;
+  const kind = text(file.properties['class']);
+  return kind === 'generated' || kind === 'dependency' || kind === 'test';
+}
+
 /** A file over the product's line threshold. */
 function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, threshold: number): ProblemDraft[] {
   return snapshot.files
-    .filter((file) => {
-      const path = text(file.properties['path']) ?? pathOfKey(file.key);
-      return !isTestPath(path) && (number(file.properties['lines']) ?? 0) >= threshold;
-    })
+    .filter((file) => !isUnreadFile(file) && (number(file.properties['lines']) ?? 0) >= threshold)
     .map((file) => {
       const lines = number(file.properties['lines'])!;
       const path = text(file.properties['path']) ?? pathOfKey(file.key);
@@ -325,7 +330,7 @@ function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverit
 /** A file that is both large and often changed: size × churn over the thresholds. */
 function hotspots(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity, thresholds: ProblemSettings['thresholds']): ProblemDraft[] {
   return snapshot.files
-    .filter((file) => !isTestPath(text(file.properties['path']) ?? pathOfKey(file.key)))
+    .filter((file) => !isUnreadFile(file))
     .map((file) => ({ file, lines: number(file.properties['lines']) ?? 0, commits: number(file.properties['commitCount']) ?? 0 }))
     .filter((entry) => entry.lines >= thresholds.hotspotLines && entry.commits >= thresholds.hotspotCommits && entry.lines * entry.commits >= thresholds.hotspotScore)
     .map(({ file, lines, commits }) => {

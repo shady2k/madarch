@@ -3,11 +3,28 @@
  * highlight — with a press on a node walking to the entity's page the server named for it. No layout happens here: the
  * positions and the model are the server's answer.
  */
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useId, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Metadata } from '../ui/typography.js';
+import { Metadata, Stack } from '../ui/typography.js';
 import type { LikeC4Answer } from '../diagram-types.js';
 import { linkOfNode } from '../diagram-links.js';
+
+/** The palette overrides the LikeC4 runtime needs; its own blue is replaced with the kit's neutral tokens. */
+export const LIKE_C4_THEME_CSS = `.likec4-shadow-root, .likec4-root {
+  --likec4-palette-fill: var(--surface-active);
+  --likec4-palette-stroke: var(--border);
+  --likec4-palette-hiContrast: var(--text);
+  --likec4-palette-loContrast: var(--text-secondary);
+  --likec4-palette-relation-stroke: var(--border);
+  --likec4-palette-relation-label: var(--text);
+  --likec4-palette-relation-label-bg: var(--surface-page);
+}
+.likec4-root [data-likec4-color] {
+  --likec4-palette-fill: var(--surface-active) !important;
+  --likec4-palette-stroke: var(--border) !important;
+  --likec4-palette-hiContrast: var(--text) !important;
+  --likec4-palette-loContrast: var(--text-secondary) !important;
+}`;
 
 /** One press on a LikeC4 node: the diagram event names the element, and the server's link map names the page. */
 function NodeClicks({ links, open }: { readonly links: Readonly<Record<string, string>>; readonly open: (path: string) => void }): ReactElement {
@@ -37,6 +54,7 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
   const { t } = useTranslation();
   const [pane, setPane] = useState<ReactElement | null>(null);
   const [failed, setFailed] = useState<string | undefined>(undefined);
+  const themeId = useId();
   const key = answer === undefined ? '' : JSON.stringify(answer.links ?? {}).length + String(answer.view === undefined);
   useEffect(() => {
     if (answer === undefined) return;
@@ -61,7 +79,21 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+  useEffect(() => {
+    const wrapper = document.getElementById(themeId);
+    const host = wrapper?.querySelector('.dg-likec4-view') as HTMLElement | null;
+    const root = host?.shadowRoot;
+    if (root === undefined || root === null) return;
+    let style = root.querySelector<HTMLStyleElement>('style[data-madarch-likec4-theme]');
+    if (style === null) {
+      style = document.createElement('style');
+      style.dataset['madarchLikec4Theme'] = 'true';
+      style.textContent = LIKE_C4_THEME_CSS;
+      root.append(style);
+    }
+  }, [pane, themeId]);
+
   if (answer === undefined) return <Metadata>{t('knowledge.loadingPicture')}</Metadata>;
   if (failed !== undefined) return <Metadata>{failed}</Metadata>;
-  return pane ?? <Metadata>{t('knowledge.loadingPicture')}</Metadata>;
+  return <Stack id={themeId} className="contents">{pane ?? <Metadata>{t('knowledge.loadingPicture')}</Metadata>}</Stack>;
 }

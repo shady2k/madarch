@@ -105,6 +105,18 @@ describe('the code section', () => {
     expect(problem.reason).toContain('size × churn = 15000');
   });
 
+  test('a generated, dependency or test file is not a large-file problem', () => {
+    const problems = evaluateCode(snapshot({
+      files: [
+        entity('code.file:src/large.ts', 'src/large.ts', { path: 'src/large.ts', lines: 900, class: 'code' }),
+        entity('code.file:dist/bundle.js', 'dist/bundle.js', { path: 'dist/bundle.js', lines: 9000, class: 'generated' }),
+        entity('code.file:vendor/lib.ts', 'vendor/lib.ts', { path: 'vendor/lib.ts', lines: 9000, class: 'dependency' }),
+        entity('code.file:test/large.test.ts', 'test/large.test.ts', { path: 'test/large.test.ts', lines: 9000, class: 'test' }),
+      ],
+    }), settings()).problems;
+    expect(found(problems, 'large-file').map((problem) => problem.file)).toEqual(['src/large.ts']);
+  });
+
   test('a dead export names the symbol and the file it is exported from', () => {
     const problem = only(evaluateCode(snapshot({
       symbols: [entity('code.symbol:src/a.ts#unused', 'unused', { deadExport: true }, span('src/a.ts', 12))],
