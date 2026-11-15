@@ -12,6 +12,7 @@ import { InlineGroup, Metadata, Paragraph, Stack } from './ui/typography.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { FileSource } from './ui/drawing.js';
 import { readFileText, type FileTextAnswer } from './command.js';
+import { grammarOf, highlightLines, plainLines, type HighlightedLine } from './file-highlight.js';
 import { at, localized } from './format.js';
 import { TextSection } from './text.js';
 import type { SectionContext } from './types.js';
@@ -32,20 +33,15 @@ function storedView(): 'rendered' | 'source' {
 
 const isMarkdown = (path: string): boolean => /\.(md|markdown|mdx)$/iu.test(path);
 
-/** The text split into lines, a trailing newline ending the last line rather than starting an empty one. */
-function linesOf(text: string): string[] {
-  const all = text.split('\n');
-  if (text.endsWith('\n')) all.pop();
-  return all;
-}
-
 export function FileTextSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t } = useTranslation();
   const repository = at(context.data, context.section.params['repositoryPath']);
   const path = at(context.data, context.section.params['pathPath']);
+  // The graph's language decides the grammar; a file the graph names no language for falls back to its path's extension.
+  const graphLanguage = at(context.data, context.section.params['languagePath']);
   const chunk = typeof context.section.params['chunk'] === 'number' ? context.section.params['chunk'] : FIRST_LINES;
   const [answer, setAnswer] = useState<FileTextAnswer | null>(null);
-  const [lines, setLines] = useState<string[]>([]);
+  const [lines, setLines] = useState<readonly HighlightedLine[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'rendered' | 'source'>(storedView);
@@ -62,15 +58,20 @@ export function FileTextSection({ context }: { readonly context: SectionContext 
     try {
       const held = await readFileText(context.base, { repository, path, from, to: from + chunk - 1 });
       setAnswer(held);
-      setLines((current) => from === 1 ? linesOf(held.text) : [...current, ...linesOf(held.text)]);
+      // The lines stand at once, plain; the highlighter's tokens replace them when it has answered.
+      const plain = plainLines(held.text);
+      setLines((current) => from === 1 ? plain : [...current, ...plain]);
       setFailure(null);
+      const language = grammarOf(typeof graphLanguage === 'string' ? graphLanguage : held.language, path);
+      const highlighted = await highlightLines(held.text, language);
+      setLines((current) => from === 1 ? highlighted : [...current, ...highlighted]);
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
       asked.current = 0;
     } finally {
       setBusy(false);
     }
-  }, [context.base, repository, path, chunk]);
+  }, [context.base, repository, path, chunk, graphLanguage]);
 
   useEffect(() => { void load(1); }, [load]);
 

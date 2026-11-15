@@ -16,7 +16,9 @@ request is a job on the store's one pg-boss queue (`file-texts`, prepared with t
 answers through the plugin and settles with the bytes as the job's result — the api reads that result back through the
 same queue, and there is no second store; `/api/source` answers a code file by the blob id the graph holds, line ranges included; the code-file template's
 «Текст» section renders Markdown with the documents' own component and a Rendered / Source switch, and every other text
-file as a line-numbered source at the page's width with soft wrap and chunked ranges; the agent's ACP file reads ask the
+file as a line-numbered source at the page's width with soft wrap, chunked ranges and syntax highlighting by the
+graph's language (shiki, the highlighter the kit's `SyntaxToken` is written for; every token colour is a kit variable,
+so the same spans read in light and dark); the agent's ACP file reads ask the
 same host read by blob id instead of a graph-held text; the disk plugin no longer publishes `content` and the catalogue
 drops the field.
 

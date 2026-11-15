@@ -379,6 +379,8 @@ export interface FileTextAnswer {
   readonly from: number;
   readonly repository: string;
   readonly path: string;
+  /** The language the graph read for the file (`typescript`, `yaml`): the source view's grammar. */
+  readonly language?: string;
 }
 
 export const readFileText = (base: string, ask: { readonly repository: string; readonly path: string; readonly from?: number; readonly to?: number }): Promise<FileTextAnswer> =>

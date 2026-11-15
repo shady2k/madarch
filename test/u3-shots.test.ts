@@ -102,6 +102,7 @@ run('a file page shows its text', () => {
         if (role !== null) { await page.click('[data-testid="role-first-continue"]'); }
         const shown = await page.waitForSelector('[data-testid="file-text-source"], [data-testid="file-text-rendered"], [data-testid="file-text-binary"], [data-testid="file-text-error"]', { timeout: 30_000 }).catch(async () => { console.info('PAGE TEXT', (await page.evaluate(() => document.body.textContent ?? '')).slice(-400)); console.info('PAGE ERRORS', errors.join(' | ').slice(0, 400)); return null; });
         if (shown === null) throw new Error('the file text section did not render');
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         const measured = await page.evaluate(() => {
           const box = document.querySelector('[data-testid="file-text-source"]') as HTMLElement | null;
           const rendered = document.querySelector('[data-testid="file-text-rendered"]') as HTMLElement | null;
@@ -112,6 +113,7 @@ run('a file page shows its text', () => {
             headings: rendered === null ? 0 : rendered.querySelectorAll('h1, h2, h3').length,
             binary: document.querySelector('[data-testid="file-text-binary"]')?.textContent ?? null,
             sectionWidth: (document.querySelector('[data-testid="file-text"]') as HTMLElement | null)?.getBoundingClientRect().width ?? null,
+            tokenColours: [...new Set([...document.querySelectorAll('.file-source-code .shiki-token')].map((el) => (el as HTMLElement).style.color))].slice(0, 8),
           };
         });
         console.info('measured', JSON.stringify(measured));

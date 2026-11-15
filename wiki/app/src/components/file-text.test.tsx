@@ -3,7 +3,7 @@
  * rendered by the Sources page's own component with a Rendered / Source switch, shows any other text as source with line
  * numbers, and says a binary file has no text. The server's read is mocked here; the plugin read is tested in the repo.
  */
-import { afterAll, beforeEach, expect, test } from 'bun:test';
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -11,6 +11,13 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 (globalThis as { EventSource?: unknown }).EventSource = undefined;
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
+// The highlighter is tested on its own (file-highlight.test.ts); here it answers tokens, so the section's drawing is what
+// the test holds.
+mock.module('./file-highlight.js', () => ({
+  grammarOf: () => 'typescript',
+  plainLines: (text: string) => text.replace(/\n$/u, '').split('\n').map((line) => [{ content: line, color: 'var(--text)' }]),
+  highlightLines: async (text: string) => text.replace(/\n$/u, '').split('\n').map((line) => [{ content: line, color: line.includes('const') ? 'var(--syntax-keyword)' : 'var(--text)' }]),
+}));
 const { FileTextSection } = await import('./file-text.js');
 const { setWikiLanguage } = await import('../i18n.js');
 
@@ -38,7 +45,7 @@ function context(path: string, repository = 'sample'): Record<string, unknown> {
 }
 
 async function settle(): Promise<void> {
-  for (let at = 0; at < 12; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+  for (let at = 0; at < 40; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
 }
 
 async function render(section: Record<string, unknown>): Promise<{ container: HTMLElement; close: () => Promise<void> }> {
@@ -78,6 +85,9 @@ test('a file that is no Markdown shows only its source, and a binary file says i
   try {
     expect(page.container.querySelector('[data-testid="file-text-view"]')).toBeNull();
     expect(page.container.querySelector('.file-source-code')?.textContent).toBe('export const answer = 42;');
+    // The source is highlighted: the tokens carry the kit's own colours (madarch-u3vw.16).
+    const colours = [...page.container.querySelectorAll('.shiki-token')].map((token) => (token as HTMLElement).style.color);
+    expect(colours).toContain('var(--syntax-keyword)');
   } finally {
     await page.close();
   }

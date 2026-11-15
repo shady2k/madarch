@@ -2315,7 +2315,7 @@ export class KnowledgeProduct {
    * 0037): the graph names the blob, the host reads it with the git plugin, and the page answers the lines asked for.
    * Nothing here reads a file: the api role never touches a product's working copy.
    */
-  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string } | undefined> {
+  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string; readonly language?: string } | undefined> {
     await this.open();
     await this.followStoreFill();
     const product = this.product();
@@ -2326,10 +2326,10 @@ export class KnowledgeProduct {
     if (kind === undefined) return undefined;
     const field = `all${typeNameOf(kind.name)}`;
     const answer = await this.graphql({
-      query: `query($repository: String!, $path: String!) { ${field}(where: { repository: { _eq: $repository }, path: { _eq: $path } }, first: 1) { edges { node { id blob } } } }`,
+      query: `query($repository: String!, $path: String!) { ${field}(where: { repository: { _eq: $repository }, path: { _eq: $path } }, first: 1) { edges { node { id blob language } } } }`,
       variables: { repository, path },
     });
-    const body = answer.body as { data?: Record<string, { edges?: { node?: { id?: unknown; blob?: unknown } }[] }>; errors?: unknown };
+    const body = answer.body as { data?: Record<string, { edges?: { node?: { id?: unknown; blob?: unknown; language?: unknown } }[] }>; errors?: unknown };
     const node = body.data?.[field]?.edges?.[0]?.node;
     if (node === undefined || typeof node.blob !== 'string' || node.blob === '') return undefined;
     // The plugin reads the repository the product connected, and only that one: the request names it, and the host

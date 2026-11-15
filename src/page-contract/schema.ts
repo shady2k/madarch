@@ -82,7 +82,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   text: { parameters: { path: { type: 'string' } }, required: ['path'] },
   /** A file's text, by (repository, blob id) through the plugin host (madarch-u3vw.16): its range and its page's chunks. */
   'file-text': {
-    parameters: { repositoryPath: { type: 'string' }, pathPath: { type: 'string' }, chunk: { type: 'number' }, emptyText: LOCALIZED_TEXT_SCHEMA },
+    parameters: { repositoryPath: { type: 'string' }, pathPath: { type: 'string' }, languagePath: { type: 'string' }, chunk: { type: 'number' }, emptyText: LOCALIZED_TEXT_SCHEMA },
     required: ['repositoryPath', 'pathPath'],
   },
   relations: {
