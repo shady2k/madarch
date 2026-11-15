@@ -34,9 +34,8 @@ import { KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManif
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
-import { askFileText, forgetFileText, readFileTextAnswer } from '../adapters/file-text-store.js';
+import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_QUEUE } from './file-texts.js';
 import { typeNameOf } from '../graphql/names.js';
-import { randomUUID } from 'node:crypto';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { runPhaseOf } from '../fill/fsm.js';
@@ -76,7 +75,7 @@ import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictR
 import { Resolver } from './resolve.js';
 import { graphProblemDismissals } from '../loop/graph.js';
 import { commitFiles, localIdentity, LoopRefusal, type Answered, type Corrected } from '../loop/answer.js';
-import { type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { type PlannedTask } from '../loop/tasks.js';
 import { type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { StoredProductFiles } from '../plugin/product-source.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
@@ -87,6 +86,10 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
+import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskSource, problemTaskUid } from '../loop/problem-task.js';
+import type { Author } from '../loop/entities.js';
+import type { ProblemLink } from '../problems/types.js';
+import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
@@ -103,7 +106,7 @@ import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgre
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readProductTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, type WriteSource } from '../graph/graph-writes.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
 
 /**
  * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
@@ -2316,7 +2319,7 @@ export class KnowledgeProduct {
    * 0037): the graph names the blob, the host reads it with the git plugin, and the page answers the lines asked for.
    * Nothing here reads a file: the api role never touches a product's working copy.
    */
-  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string } | undefined> {
+  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number; readonly fromColumn?: number; readonly blob?: string } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string; readonly language?: string; readonly complete: boolean; readonly next: { readonly line: number; readonly column: number } | null; readonly moved?: boolean } | undefined> {
     await this.open();
     await this.followStoreFill();
     const product = this.product();
@@ -2327,34 +2330,46 @@ export class KnowledgeProduct {
     if (kind === undefined) return undefined;
     const field = `all${typeNameOf(kind.name)}`;
     const answer = await this.graphql({
-      query: `query($repository: String!, $path: String!) { ${field}(where: { repository: { _eq: $repository }, path: { _eq: $path } }, first: 1) { edges { node { id blob } } } }`,
+      query: `query($repository: String!, $path: String!) { ${field}(where: { repository: { _eq: $repository }, path: { _eq: $path } }, first: 1) { edges { node { id blob language } } } }`,
       variables: { repository, path },
     });
-    const body = answer.body as { data?: Record<string, { edges?: { node?: { id?: unknown; blob?: unknown } }[] }>; errors?: unknown };
+    const body = answer.body as { data?: Record<string, { edges?: { node?: { id?: unknown; blob?: unknown; language?: unknown } }[] }>; errors?: unknown };
     const node = body.data?.[field]?.edges?.[0]?.node;
     if (node === undefined || typeof node.blob !== 'string' || node.blob === '') return undefined;
     // The plugin reads the repository the product connected, and only that one: the request names it, and the host
-    // checks it lies under the product's repos/ (src/knowledge/file-texts.ts).
-    const root = join(product.folder, 'repos', repository);
-    const owner = await this.open();
-    const id = randomUUID();
-    const from = Math.max(1, Math.trunc(options.from ?? 1));
-    await askFileText(owner, { id, product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, to: options.to === undefined ? null : Math.trunc(options.to) });
-    try {
-      const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
-      while (Date.now() < deadline) {
-        const held = await readFileTextAnswer(owner, id);
-        if (held !== null) {
-          if (held.error !== undefined) throw new WikiReadError(held.error);
-          if (held.answer === undefined) throw new WikiReadError(`${import.meta.filename}:1: the file read of ${path} answered nothing`);
-          return { ...held.answer, blob: node.blob, from, repository, path };
-        }
-        await Bun.sleep(50);
+    // checks it lies under the product's repos/ — or is the product's own repository, which is its folder
+    // (src/knowledge/file-texts.ts).
+    const named = this.repositories().find((held) => held.name === repository);
+    const root = named?.path ?? (repository === product.name ? product.folder : join(product.folder, 'repos', repository));
+    // The read is a job on the store's one queue, answered by the fill role (madarch-u3vw.16): the queue carries the
+    // request and the answer, and no store of its own is written. A reader's later ranges name the blob its first answer
+    // held; a blob that moved restarts the view at its first line and says so, so two revisions are never interleaved.
+    const moved = options.blob !== undefined && options.blob !== node.blob;
+    const from = moved ? 1 : Math.max(1, Math.trunc(options.from ?? 1));
+    const fromColumn = moved ? null : options.fromColumn === undefined ? null : Math.max(1, Math.trunc(options.fromColumn));
+    const queue = await this.fileTextQueue();
+    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, fromColumn, to: moved ? null : options.to === undefined ? null : Math.trunc(options.to) });
+    const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
+    let asked = 0;
+    while (Date.now() < deadline) {
+      const held = await fileTextAnswer(queue, id);
+      if (held !== null) {
+        if ('error' in held) throw new WikiReadError(held.error);
+        return { ...held, blob: node.blob, from, repository, path, ...(moved ? { moved: true } : {}) };
       }
-      throw new WikiReadError(`${import.meta.filename}:1: no file read answered within ${String(FILE_TEXT_DEADLINE_MS)} ms: the page reads a file through the plugin host, and no fill role is answering (madarch serve starts one)`);
-    } finally {
-      await forgetFileText(owner, id).catch(() => undefined);
+      asked += 1;
+      // A read whose worker died is recovered by the queue's own sweep: ask it now and then rather than wait the lease.
+      if (asked % 20 === 0) await queue.recover(FILE_TEXT_QUEUE).catch(() => undefined);
+      await Bun.sleep(50);
     }
+    throw new WikiReadError(`${import.meta.filename}:1: no file read answered within ${String(FILE_TEXT_DEADLINE_MS)} ms: the page reads a file through the plugin host, and no fill role is answering (madarch serve starts one)`);
+  }
+
+  /** The store's read queue: the one fill queue, declared for reads too, and closed with the product. */
+  private async fileTextQueue(): Promise<Awaited<ReturnType<typeof openFillRunQueue>>> {
+    this.fillQueue ??= await openFillRunQueue(await this.open());
+    await declareFileTextQueue(this.fillQueue);
+    return this.fillQueue;
   }
 
   async source(repo: string | null, path: string): Promise<SourceRead | undefined> {
@@ -2403,11 +2418,6 @@ export class KnowledgeProduct {
 
   async proposeTask(_question: string, _choice: TaskChoice, _asked?: 'en' | 'ru'): Promise<TaskProposal> {
     throw new LoopRefusal(410, `${join(this.folder, KINDS_FILE)}:1: create an authored entity from its kind instead. Task lifecycle commands are not available.`);
-  }
-
-  /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
-  async createTask(_input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
   }
 
   /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
@@ -2566,11 +2576,55 @@ export class KnowledgeProduct {
   }
 
   /**
-   * «Создать задачу»: a task scoped to exactly the place the problem names (madarch-m38l.14's task format).
-   * A problem that names no place a person can change says why instead of opening an empty task.
+   * «Создать задачу» (madarch-64o5.104, the owner's rule of 2026-11-13): the problem becomes a task entity through the one
+   * write path MCP and the agent use, and the write's source is the person who pressed. The task names the problem, its
+   * place and its statement; a problem that already has its task answers that task, so a second press opens it instead of
+   * writing another. A refusal is said in the language the pages are written in, and names no file of this machine.
    */
-  async createProblemTask(_id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
-    throw new LoopRefusal(410, `${resolve(this.folder, 'madarch/catalog.yaml')}:1: authored entities now live in the database. Open the kind in the catalogue and use New or Edit, or use madarch entity. Lifecycle operations are not available on this path.`);
+  async createProblemTask(id: string): Promise<{ task: ProblemLink; state: 'created' | 'existing' }> {
+    const read = await this.manifestRead(this.folder);
+    const language = problemTaskLanguage(read.present ? read.manifest.language : undefined);
+    const listing = await this.problems();
+    const problem = listing.problems.find((candidate) => candidate.id === id);
+    if (problem === undefined) throw new LoopRefusal(404, problemTaskRefusal(language, 'not-listed'));
+    if (problem.task !== undefined) return { task: problem.task, state: 'existing' };
+    let by: Author;
+    try {
+      by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    } catch {
+      throw new LoopRefusal(409, problemTaskRefusal(language, 'no-identity'));
+    }
+    const rule = listing.categories.find((category) => category.rule === problem.rule);
+    const record = problemTaskRecord(problem, { language, ...(rule?.label === undefined ? {} : { label: rule.label }) });
+    // The press is what the write rests on: the problem and the finding's own words, said by the person. The evidence
+    // carries no moment of its own, so two presses of one problem write the same thing once — the journal states when.
+    const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, words: record.statement }];
+    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one — a name of
+    // `Alice@work` is written `Alice%40work` — and the author starts with `person:`: the product then knows a person wrote
+    // in it, and its start-over is refused.
+    const source = problemTaskSource(by);
+    let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
+    try {
+      written = await this.putEntity(source, {
+        // The uid is the problem's: a second press, even one that read no task a moment ago, joins this entity instead
+        // of making another, and finds everything unchanged, so it writes nothing and answers the task that stands.
+        kind: PROBLEM_TASK_KIND,
+        id: problemTaskUid(problem),
+        values: { title: record.title, body: record.body, front: record.front },
+        evidence,
+        words: language === 'ru' ? 'Создать задачу' : 'Create a task',
+      });
+    } catch (error) {
+      // The graph's own refusal is said in the reader's language, and their reason is kept in the server's log; every other
+      // failure is a defect of this process and is not dressed up as the reader's.
+      if (!(error instanceof WriteRefusal)) throw error;
+      throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    }
+    if (written.uid === undefined) throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    // Nothing written means the task stood exactly as this press states it: another press made it, and this one found it.
+    const state = written.written === 0 ? 'existing' as const : 'created' as const;
+    if (state === 'created') this.notify();
+    return { task: { label: record.title, href: entityPageAddress(PROBLEM_TASK_KIND, written.uid), key: `task:${written.uid}` }, state };
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A file's page: the «Текст» section (madarch-u3vw.16)</title>
+<style>
+  :root { color-scheme: light dark; --page:#fff; --ink:#2e3034; --muted:#6e7178; --line:#e4e5e8; --code:#f2f3f4; }
+  @media (prefers-color-scheme: dark) { :root { --page:#292929; --ink:#e5e5e5; --muted:#a0a0a0; --line:#444; --code:#303030; } }
+  body { margin:0; padding:32px; background:var(--page); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:1920px; margin:0 auto; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:22px; margin:32px 0 8px; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .choice { border:1px solid var(--line); border-radius:6px; padding:2px 10px; }
+  .choice[aria-pressed=true] { border-color:var(--ink); }
+  .source { border:1px solid var(--line); border-radius:12px; background:var(--code); overflow:auto; max-height:360px; }
+  ol { list-style:none; margin:0; padding:0; min-width:max-content; }
+  li { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:12px; padding:0 12px; font:13px/1.5 ui-monospace, monospace; }
+  .n { color:var(--muted); text-align:right; user-select:none; }
+  .c { white-space:pre; }
+  .rendered h3 { margin:12px 0 4px; }
+  .rendered pre { background:var(--code); border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>docs/vision.md</h1>
+  <p style="color:var(--muted)">Текст · отрисованный вид, как его рисует страница «Источники»</p>
+  <div class="bar"><span class="choice" aria-pressed="true">Отрисованный</span><span class="choice">Исходный</span><span class="choice">Без переноса</span><span class="choice">Скачать целиком</span><span style="color:var(--muted)">400 из 2 140 строк</span></div>
+  <div class="rendered">
+    <h2>Vision</h2>
+    <p>The wiki keeps one page for everyone: the product's documents, its code and its model, read from one graph.</p>
+    <h3>What a reader does first</h3>
+    <p>Open the catalogue, choose what to fill, and read the pages the fill writes.</p>
+    <pre><code>madarch init my-product
+madarch serve</code></pre>
+  </div>
+  <h2>Тот же файл, исходный вид</h2>
+  <div class="source"><ol>
+    <li><span class="n">1</span><span class="c"># Vision</span></li>
+    <li><span class="n">2</span><span class="c"></span></li>
+    <li><span class="n">3</span><span class="c">The wiki keeps one page for everyone: the product's documents, its code and its model, read from one graph.</span></li>
+    <li><span class="n">4</span><span class="c"></span></li>
+    <li><span class="n">5</span><span class="c">## What a reader does first</span></li>
+    <li><span class="n">6</span><span class="c"></span></li>
+    <li><span class="n">7</span><span class="c">Open the catalogue, choose what to fill, and read the pages the fill writes.</span></li>
+  </ol></div>
+  <h2>Двоичный файл</h2>
+  <p style="color:var(--muted)">public/logo.png — двоичный файл: текста в нём нет.</p>
+</main>
+</body>
+</html>

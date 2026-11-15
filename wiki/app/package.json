@@ -26,8 +26,9 @@
     "marked": "16.4.1",
     "mermaid": "12.0.0",
     "react": "19.3.0",
-    "react-i18next": "^17.0.16",
     "react-dom": "19.3.0",
+    "react-i18next": "^17.0.16",
+    "shiki": "^4.6.0",
     "tailwindcss": "4.3.3",
     "yaml": "2.9.1"
   },

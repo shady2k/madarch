@@ -34,10 +34,10 @@ The owner chose: «Да, из git по хэшу».
   one blob's range, and the plugin answers text, line count, byte count and whether it is text at all. The git plugin
   implements it with `git cat-file blob` on the repository the sandbox bound read-only; the host keeps one reader session
   per (plugin, repository) and ends it when idle.
-- The api role serves pages and never reads git: a page's text request reaches the plugin host through the store — the
-  `file_text_request` table, created by the store's preparation — which the fill role claims and answers, the same way a
-  pressed fill reaches it. The page asks through the source route (`/api/source`), which answers a code file by its blob
-  id; the graph-only read rule keeps its routes.
+- The api role serves pages and never reads git: a page's text request is a job on the store's one pg-boss queue, in a
+  `file-texts` queue prepared with the fills, which the fill role claims and settles with the bytes as the job's result;
+  the api reads that result back through the same queue. There is one queue and no second store (the owner,
+  2026-11-15).
 - The agent's file reads call the same host read (`readBlobThroughPlugin`), so a page and an agent get one mechanism.
 - The page asks for ranges, so a large file costs one range, not a whole file; the host bounds a single read by bytes and
   answers the rest only when asked.

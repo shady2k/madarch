@@ -379,6 +379,13 @@ class PgBossQueue implements QueueService {
     };
   }
 
+  async job<Output = unknown>(queue: string, id: string): Promise<{ readonly state: 'created' | 'retry' | 'active' | 'completed' | 'cancelled' | 'failed'; readonly output?: Output } | null> {
+    const held = await this.boss.getJobById<object>(queue, id);
+    if (held === null) return null;
+    const output = (held as { output?: unknown }).output;
+    return { state: held.state, ...(output === null || output === undefined ? {} : { output: output as Output }) };
+  }
+
   async stop(): Promise<void> {
     await this.boss.stop({ graceful: false });
   }

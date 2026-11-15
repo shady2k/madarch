@@ -585,10 +585,29 @@ ${text === '' ? '(empty)' : text}` };
       return { outcome: 'refused', size: 0, cause: 'read-invalid' };
     }
     try {
-      // Its own environment reads git directly; an ordinary plugin's read is routed to the core plugin that owns it.
-      const read = await this.readBlobThroughCore({ repository: params.repository, blob: params.blob, ...(params.from === undefined ? {} : { from: params.from }), ...(params.to === undefined ? {} : { to: params.to }) });
-      this.write(successText(id, read));
-      return { outcome: 'answered', size: read.text.length };
+      // Its own environment reads git directly; an ordinary plugin's read is routed to the core plugin that owns it. The
+      // read is bounded in bytes, so a range past the bound is asked again from where it continued: the plugin's answer
+      // is the whole range it asked for, and no part of it is dropped (the owner's review of madarch-u3vw.16).
+      let text = '';
+      let lines = 0;
+      let bytes = 0;
+      let binary = false;
+      let from = params.from;
+      let fromColumn: number | undefined;
+      for (let step = 0; ; step += 1) {
+        if (step >= 1_000) throw new Error(`${WHERE}:1: the read of blob ${JSON.stringify(params.blob)} of ${JSON.stringify(params.repository)} for the plugin ${JSON.stringify(name)} did not reach its end in 1000 bounded reads`);
+        const read = await this.readBlobThroughCore({ repository: params.repository, blob: params.blob, ...(from === undefined ? {} : { from }), ...(fromColumn === undefined ? {} : { fromColumn }), ...(params.to === undefined ? {} : { to: params.to }) });
+        text += read.text;
+        lines = read.lines;
+        bytes = read.bytes;
+        binary = read.binary;
+        const next = read.next ?? null;
+        if (read.complete !== false || next === null) break;
+        from = next.line;
+        fromColumn = next.column === 1 ? undefined : next.column;
+      }
+      this.write(successText(id, { text, lines, bytes, binary }));
+      return { outcome: 'answered', size: text.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.write(failureText(id, RPC_INVALID_PARAMS, `${WHERE}:1: the read of blob ${JSON.stringify(params.blob)} of ${JSON.stringify(params.repository)} for the plugin ${JSON.stringify(name)} failed: ${message}`, { cause: 'read-failed' }));
@@ -601,7 +620,7 @@ ${text === '' ? '(empty)' : text}` };
    * one (a fill's host), else the git core plugin opened over the product's `repos/` — the same read a page and an agent
    * make (decision 0037). There is no second path to the bytes.
    */
-  private async readBlobThroughCore(ask: { readonly repository: string; readonly blob: string; readonly from?: number; readonly to?: number }): Promise<PluginReadResult> {
+  private async readBlobThroughCore(ask: { readonly repository: string; readonly blob: string; readonly from?: number; readonly fromColumn?: number; readonly to?: number }): Promise<PluginReadResult & { readonly complete?: boolean; readonly next?: { readonly line: number; readonly column: number } | null }> {
     if (this.options.readBlob !== undefined) return await this.options.readBlob(ask);
     const { readBlobThroughPlugin } = await import('../knowledge/file-texts.js');
     // A connected repository lies under the product's repos/; the product's own repository is the product's folder.
@@ -614,6 +633,7 @@ ${text === '' ? '(empty)' : text}` };
       root,
       blob: ask.blob,
       ...(ask.from === undefined ? {} : { from: ask.from }),
+      ...(ask.fromColumn === undefined ? {} : { fromColumn: ask.fromColumn }),
       ...(ask.to === undefined ? {} : { to: ask.to }),
     });
   }
@@ -773,7 +793,12 @@ ${text === '' ? '(empty)' : text}` };
           ...(request.from === undefined ? {} : { from: request.from }),
           ...(request.limit === undefined ? {} : { to: request.from === undefined ? request.limit : request.from + request.limit - 1 }),
         });
-        return read.text;
+        // A text cut at the read's byte bound says so, and where it continues: nothing an agent reads is dropped in
+        // silence (the owner's review of madarch-u3vw.16).
+        const next = read.next ?? null;
+        return read.complete === false && next !== null
+          ? `${read.text}\n[the read was cut at its byte bound; it continues at line ${String(next.line)}, column ${String(next.column)}]`
+          : read.text;
       } }, this.options.graph, declared.outputs);
     }
     this.write(successText(id, { protocol: PROTOCOL_VERSION, units: 1 }));

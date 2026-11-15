@@ -55,6 +55,19 @@ export interface ProblemDraft {
   readonly identity: string;
   /** What pressing «Создать задачу» opens a task on; absent where the page offers no task. */
   readonly scope?: ProblemScope;
+  /** The finding in the reader's own words, per language: what the task opened for it says it is. */
+  readonly words?: Readonly<Record<'en' | 'ru', string>>;
+}
+
+/** The task a problem was opened as, as the Problems page finds it: the task's own words and its page. */
+export interface ProblemTaskLink {
+  /** The stable id of the problem the task was opened from. */
+  readonly problem: string;
+  /** The task entity's stable uid. */
+  readonly uid: string;
+  readonly title: string;
+  /** The task's page, as the app answers it. */
+  readonly href: string;
 }
 
 /** The place a created task changes, in the task format's own words. */

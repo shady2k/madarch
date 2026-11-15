@@ -129,43 +129,43 @@
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
       "phase": {
-      "queued": "Queued",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped",
-      "skipped": "Skipped",
-      "waiting": "Waiting",
-      "done": "Published",
-      "cancelled": "Cancelled",
-      "skippedBecause": "Skipped because {{unit}} failed",
-      "skippedBecauseRunEnded": "Skipped because the run ended"
-    },
-    "final": {
-      "succeeded": "Every required unit published.",
-      "partial": "The run ended, but some units did not publish.",
-      "failed": "The run ended with a failure.",
-      "stopped": "The run was stopped."
-    },
-    "next": {
-      "retry": "Fix the cause, then retry the fill.",
-      "retryAction": "Retry the fill"
-    },
-    "status": {
-      "queued": "Running",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped"
-    },
-    "endedAt": "ended {{time}}",
-    "attention": "The run did not finish completely",
-    "duration": "{{seconds}} s",
-    "event": {
+        "queued": "Queued",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped",
+        "skipped": "Skipped",
+        "waiting": "Waiting",
+        "done": "Published",
+        "cancelled": "Cancelled",
+        "skippedBecause": "Skipped because {{unit}} failed",
+        "skippedBecauseRunEnded": "Skipped because the run ended"
+      },
+      "final": {
+        "succeeded": "Every required unit published.",
+        "partial": "The run ended, but some units did not publish.",
+        "failed": "The run ended with a failure.",
+        "stopped": "The run was stopped."
+      },
+      "next": {
+        "retry": "Fix the cause, then retry the fill.",
+        "retryAction": "Retry the fill"
+      },
+      "status": {
+        "queued": "Running",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "endedAt": "ended {{time}}",
+      "attention": "The run did not finish completely",
+      "duration": "{{seconds}} s",
+      "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -467,7 +467,9 @@
       "binary": "{{path}} is a binary file: it has no text.",
       "empty": "The file is empty.",
       "loading": "Reading the file…",
-      "unaddressed": "This page names no file to read."
+      "unaddressed": "This page names no file to read.",
+      "moved": "The file changed while it was open: this is the new revision, from its first line.",
+      "cut": "The read was cut at its byte bound; it continues at line {{line}}, column {{column}}."
     },
     "breadcrumb": "Breadcrumb",
     "tableSort": "Sort",
@@ -1529,6 +1531,8 @@
     "problemEntity": "Entity:",
     "problemEvidence": "Evidence:",
     "problemCreateTask": "Create a task",
+    "problemHasTask": "Has task:",
+    "problemOpenTask": "Open the task",
     "problemNotAProblem": "Not a problem",
     "problemDismissPrompt": "Why is this not a problem? The reason is kept as a file in the product repository.",
     "problemDismissConfirm": "Save the reason",

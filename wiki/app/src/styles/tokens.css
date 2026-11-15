@@ -79,6 +79,14 @@
   --selection: rgba(48, 49, 54, 0.18);
   /* the shell's overlay shadow (the mockup's shadow, per the lane review) */
   --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.18);
+
+  /* A file's source, by token (madarch-u3vw.16): six kinds, each a kit token the highlighter's spans name. */
+  --syntax-comment: #5f636b;
+  --syntax-string: #1d6b4f;
+  --syntax-keyword: #7a3f9d;
+  --syntax-number: #9a4a00;
+  --syntax-function: #24578f;
+  --syntax-type: #7a4a00;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -117,6 +125,12 @@
     --link-underline: #888888;
     --selection: rgba(229, 229, 229, 0.2);
     --nav-shadow: 12px 0 32px rgba(0, 0, 0, 0.38), -1px 0 0 rgba(255, 255, 255, 0.04);
+    --syntax-comment: #a8adb5;
+    --syntax-string: #7fd4a8;
+    --syntax-keyword: #d0a6f5;
+    --syntax-number: #f0b066;
+    --syntax-function: #8fc7ff;
+    --syntax-type: #f2c98a;
   }
 }
 

@@ -13,7 +13,7 @@ import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan } from '../obs/trace.js';
 import { readFillEnd, readRunControl, writeFillEnd } from '../fill/orchestrator-store.js';
-import { closeFileTextSessions, serveFileTexts } from './file-texts.js';
+import { closeFileTextSessions, declareFileTextQueue, serveFileTexts } from './file-texts.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
@@ -164,6 +164,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             state.databaseFolders.add(join(storeFolder, 'graph'));
             await owner.ready;
             held = { storeFolder, owner, queue: await openFillRunQueue(owner) };
+            await declareFileTextQueue(held.queue);
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
           } catch (error) {
@@ -173,7 +174,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
         }
         // A file's text waits on this process, not on a fill (madarch-u3vw.16): the pages' requests are answered between
         // fills, through the same plugin read the agent's file reads use.
-        await serveFileTexts(held.owner).catch((error: unknown) => {
+        await serveFileTexts(held.queue).catch((error: unknown) => {
           log(`madarch fill: the store ${storeFolder} could not answer a file read: ${error instanceof Error ? error.message : String(error)}`);
         });
         const job = await claimFillRun(held.queue).catch((error: unknown) => {

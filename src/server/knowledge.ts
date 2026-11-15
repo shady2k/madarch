@@ -75,7 +75,6 @@ export interface KnowledgePart {
   startFresh: (request: Request) => Promise<Handled>;
   journal: (request: Request) => Promise<Handled>;
   proposeTask: (request: Request) => Promise<Handled>;
-  createTask: (request: Request) => Promise<Handled>;
   closeTask: (request: Request) => Promise<Handled>;
   runTask: (request: Request) => Promise<Handled>;
 }
@@ -321,12 +320,18 @@ function fillRefusalCode(message: string): string | undefined {
       if (repo !== null && repo !== '') {
         const askedFrom = query.get('from');
         const askedTo = query.get('to');
+        const askedColumn = query.get('fromColumn');
+        const askedBlob = query.get('blob');
         const from = askedFrom === null ? 1 : Number(askedFrom);
         const to = askedTo === null ? undefined : Number(askedTo);
-        for (const [field, value] of [['from', from], ['to', to]] as const) {
+        const fromColumn = askedColumn === null ? undefined : Number(askedColumn);
+        for (const [field, value] of [['from', from], ['to', to], ['fromColumn', fromColumn]] as const) {
           if (value !== undefined && (!Number.isInteger(value) || value < 1)) return refused(400, { field, message: `"${field}" is a line number, a whole number from 1` });
         }
-        const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }) });
+        // A reader's later ranges name the blob its first answer held (the owner's review of madarch-u3vw.16): a blob id
+        // is 40 or 64 hexadecimal digits, and one that no longer stands answers the current revision, marked `moved`.
+        if (askedBlob !== null && !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(askedBlob)) return refused(400, { field: 'blob', message: '"blob" is the git blob id the first answer named: 40 or 64 hexadecimal digits' });
+        const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }), ...(fromColumn === undefined ? {} : { fromColumn }), ...(askedBlob === null ? {} : { blob: askedBlob }) });
         if (held !== undefined) return { response: json(200, { repo, language: languageOf(path), ...held }) };
       }
       const read = await product.source(repo === null || repo === '' ? null : repo, path);
@@ -716,16 +721,6 @@ function fillRefusalCode(message: string): string | undefined {
       } catch (error) {
         throw error;
       }
-    }),
-    createTask: guarded('create a task', async (request) => {
-      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
-      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
-      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const value = body as { question?: unknown; title?: unknown; grounds?: unknown; scope?: unknown } | null;
-      if (typeof value?.question !== 'string' || typeof value.title !== 'string' || !Array.isArray(value.grounds) || !Array.isArray(value.scope)) return refused(400, { message: 'question, title, grounds and scope are required to confirm a task' });
-      if (value.grounds.some((ground) => typeof ground !== 'string' || ground.trim() === '')) return refused(400, { field: 'grounds', message: '"grounds" is a list of non-empty graph keys' });
-      const result = await product.createTask({ question: value.question, title: value.title, grounds: value.grounds as string[], scope: value.scope as import('../loop/tasks.js').TaskScope[] });
-      return { response: json(201, result) };
     }),
     closeTask: guarded('close a task by hand', async (request) => {
       const crossSite = foreign(request);

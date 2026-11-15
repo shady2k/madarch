@@ -191,6 +191,14 @@ export interface Problem {
   readonly source?: string;
   readonly by: { readonly name: string; readonly email: string; readonly verified: string } | null;
   readonly at: string | null;
+  /** The task a person already opened from this problem: the page links to it instead of offering a second. */
+  readonly task?: ProblemLink;
+}
+
+/** One press of «Создать задачу»: the task the problem has, and whether this press made it or found it. */
+export interface ProblemTaskAnswer {
+  readonly task: ProblemLink;
+  readonly state: 'created' | 'existing';
 }
 
 export interface ProblemCategory {
@@ -379,10 +387,30 @@ export interface FileTextAnswer {
   readonly from: number;
   readonly repository: string;
   readonly path: string;
+  /** The language the graph read for the file (`typescript`, `yaml`): the source view's grammar. */
+  readonly language?: string;
+  /** True when the answer reaches the end of the blob; false when the byte bound cut it. */
+  readonly complete: boolean;
+  /** Where a cut answer continues: the line, and the column inside it; null when the blob is complete. */
+  readonly next: { readonly line: number; readonly column: number } | null;
+  /** True when the blob the graph holds moved since the view's first answer: the view restarts at its first line. */
+  readonly moved?: boolean;
 }
 
-export const readFileText = (base: string, ask: { readonly repository: string; readonly path: string; readonly from?: number; readonly to?: number }): Promise<FileTextAnswer> =>
-  command<FileTextAnswer>(base, `/api/source${query({ repo: ask.repository, path: ask.path, ...(ask.from === undefined ? {} : { from: String(ask.from) }), ...(ask.to === undefined ? {} : { to: String(ask.to) }) })}`);
+export const readFileText = (base: string, ask: {
+  readonly repository: string; readonly path: string; readonly from?: number; readonly to?: number;
+  /** The column inside `from` a cut line continues at; absent, the line's first character. */
+  readonly fromColumn?: number;
+  /** The blob the view is pinned to: a request after the first names it, and an answer from another says `moved`. */
+  readonly blob?: string;
+}): Promise<FileTextAnswer> =>
+  command<FileTextAnswer>(base, `/api/source${query({
+    repo: ask.repository, path: ask.path,
+    ...(ask.from === undefined ? {} : { from: String(ask.from) }),
+    ...(ask.to === undefined ? {} : { to: String(ask.to) }),
+    ...(ask.fromColumn === undefined ? {} : { fromColumn: String(ask.fromColumn) }),
+    ...(ask.blob === undefined ? {} : { blob: ask.blob }),
+  })}`);
 
 /** The plan of one press of these kinds (`POST /api/fill-plan`): producers, agent fields and abnormal errors. */
 export function readFillPlan(base: string, selected: readonly string[], signal?: AbortSignal, pluginsOnly = false): Promise<FillPlanAnswer> {
@@ -429,8 +457,8 @@ export const readProblemsCount = (base: string, signal?: AbortSignal): Promise<P
 /** Records that a problem is not one, in the product's repository. */
 export const dismissProblem = (base: string, id: string, reason: string): Promise<unknown> => command(base, '/api/problem-dismiss', { method: 'POST', body: JSON.stringify({ id, reason }) });
 
-/** Opens the task a problem names. */
-export const makeProblemTask = (base: string, id: string): Promise<unknown> => command(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
+/** Presses «Создать задачу»: the task the problem has, made now or found from an earlier press. */
+export const makeProblemTask = (base: string, id: string): Promise<ProblemTaskAnswer> => command<ProblemTaskAnswer>(base, '/api/problem-task', { method: 'POST', body: JSON.stringify({ id }) });
 
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
