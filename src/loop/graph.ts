@@ -5,6 +5,7 @@ import type { Author, Correction, Question } from './entities.js';
 import type { ProblemDismissal } from './problem-files.js';
 import { problemId, type ProblemTaskLink } from '../problems/types.js';
 import { entityPageAddress } from '../knowledge/addresses.js';
+import { problemIdentityOf } from './problem-task.js';
 
 export type LoopGraph = Pick<GraphReader, 'list'>;
 
@@ -92,8 +93,10 @@ export async function graphProblemTasks(graph: LoopGraph): Promise<Map<string, P
     const front = entity.properties['front'];
     if (front === null || typeof front !== 'object' || Array.isArray(front)) continue;
     const held = front as Record<string, unknown>;
-    const rule = held['rule'], identity = held['identity'];
-    if (typeof rule !== 'string' || rule === '' || typeof identity !== 'string' || identity === '' || entity.uid === undefined) continue;
+    const rule = held['rule'], parts = held['identity'];
+    if (typeof rule !== 'string' || rule === '' || !Array.isArray(parts) || parts.length === 0 || parts.some((part) => typeof part !== 'string') || entity.uid === undefined) continue;
+    const identity = problemIdentityOf(parts as string[]);
+    if (identity === '') continue;
     const problem = problemId(rule, identity);
     const title = typeof entity.properties['title'] === 'string' && entity.properties['title'] !== '' ? entity.properties['title'] : problem;
     found.set(problem, { problem, uid: entity.uid, title, href: entityPageAddress(entity.kind, entity.uid) });

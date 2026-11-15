@@ -65,6 +65,12 @@ export const problemTaskRefusal = (language: 'en' | 'ru', refusal: ProblemTaskRe
 /** The rule's own name in the reader's language, when the product's manifest declares one. */
 export type RuleName = Readonly<Partial<Record<'en' | 'ru', string>>>;
 
+/** A problem's identity as the parts a record stores: its own parts, since a stored text holds no NUL. */
+export const problemIdentityParts = (identity: string): readonly string[] => identity.split('\u0000');
+
+/** The identity of the problem a record names, joined back from its parts. */
+export const problemIdentityOf = (parts: readonly string[]): string => parts.join('\u0000');
+
 /** The place of a problem as a reader says it: its file and line, or the place the finding named. */
 function placeOf(problem: Problem): string {
   if (problem.file === '') return problem.place.label;
@@ -94,11 +100,12 @@ export function problemTaskRecord(problem: Problem, options: { readonly language
     : [`Rule: ${name}`, `Place: ${place}`, `What is wrong: ${statement}`].join('\n');
   return {
     title, body, statement,
-    // The problem's stable id, as its rule and identity rather than as one string: the separator of a stable id is not a
-    // character a person's graph stores (a stored text holds no NUL), and this is how the dismissal kind names its problem.
+    // The problem's stable id, as its rule and identity rather than as one string, and the identity as its parts: a
+    // stored text holds no NUL, and a rule's identity is its parts joined by one (an SQL input's is the sink and the
+    // builder), so the parts are what a record keeps and the reader joins them back (madarch-64o5.104).
     front: {
       rule: problem.rule,
-      identity: problem.identity,
+      identity: problemIdentityParts(problem.identity),
       file: problem.file,
       line: problem.line,
       statement,

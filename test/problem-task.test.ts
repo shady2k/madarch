@@ -2,12 +2,14 @@
  * «Создать задачу» on the Problems page (madarch-64o5.104, the owner's rule of 2026-11-13): the problem becomes a task
  * entity of the starter catalogue's task kind through the one write path MCP and the agent use, and the write's source is
  * the person who pressed. The task names its problem, its place and its statement; the page links to it, and a second
- * press answers that task instead of writing another — one task per problem, even when two presses run at once.
+ * press answers that task instead of writing another — one task per problem, even when two presses run at once, and a
+ * problem whose identity holds a separator the store cannot carry still gets its task.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { parse, stringify } from 'yaml';
 import { createDraft } from '../src/product/draft.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -27,16 +29,37 @@ let home = '';
 let closePreparationOwner: (() => Promise<void>) | undefined;
 let largeFile: Problem;
 let otherLargeFile: Problem;
+let sqlInput: Problem;
 
 /** One conversation the fixture's writes rest on: a write names its evidence, whoever makes it. */
 const evidence = [{ type: 'conversation', id: 'fixture', words: 'A file of 731 lines stands in the fixture graph.' }];
 /** Where the fixture's SQL facts stand: an opinion names the file line it was read at. */
+const place = { type: 'file', path: 'src/checkout.ts', commit: 'deadbeef', lineStart: 12 };
+
+/** The product's own catalogue, extended the way a product may: the flow the SQL rule reads, and a field per kind. */
+function extendCatalogue(product: string): void {
+  const manifestFile = join(product, 'madarch', 'catalog.yaml');
+  const manifest = parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
+  manifest['edges'] = [...(manifest['edges'] as unknown[]), { name: 'code.flows-into', from: ['code.input', 'code.sql-build'], to: ['code.sql-build', 'code.sql-sink'], capability: 'analysis' }];
+  writeFileSync(manifestFile, stringify(manifest));
+  for (const kind of ['code.input', 'code.sql-build', 'code.sql-sink']) {
+    const file = join(product, 'madarch', 'kinds', 'code', 'analysis', `${kind}.yaml`);
+    const declaration = parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    declaration['fields'] = [
+      { name: 'name', type: 'text', producers: ['analysis'] },
+      { name: 'source_text', type: 'text', nullable: true, producers: ['analysis'] },
+    ];
+    declaration['key'] = ['name'];
+    writeFileSync(file, stringify(declaration));
+  }
+}
 
 beforeAll(async () => {
   home = join(root, 'products');
   const draft = createDraft({ home, name: 'problem-task', gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   folder = draft.folder;
+  extendCatalogue(folder);
   closePreparationOwner = await retainTestStorePreparationOwner();
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home), env });
   try {
@@ -56,11 +79,23 @@ beforeAll(async () => {
         kind: 'code.contains', from: { kind: 'code.repository', key: { name: 'product' } }, to: { kind: 'code.file', key: { repository: 'product', path } }, evidence,
       });
     }
+    // An input reaching a builder reaching a sink: the finding whose identity names two of them.
+    const write = async (kind: string, name: string) => await product.putEntity({ producer: 'fixture', version: '1' }, {
+      kind, key: { name }, values: { source_text: `${name} text` }, evidence: [place],
+    });
+    const input = await write('code.input', 'search text');
+    const build = await write('code.sql-build', 'checkout query');
+    const sink = await write('code.sql-sink', 'checkout execute');
+    for (const [from, to] of [[input, build], [build, sink]] as const) {
+      await product.putEdge({ producer: 'fixture', version: '1' }, { kind: 'code.flows-into', from: { kind: from.kind, id: from.uid }, to: { kind: to.kind, id: to.uid }, evidence: [place] });
+    }
     const listing = await product.problems();
     const large = listing.problems.filter((candidate) => candidate.rule === 'large-file');
-    if (large.length !== 2) throw new Error(`the fixture's problems did not stand: ${JSON.stringify(listing.problems.map((one) => [one.rule, one.file]))}`);
+    const sql = listing.problems.find((candidate) => candidate.rule === 'security.sql-input');
+    if (large.length !== 2 || sql === undefined) throw new Error(`the fixture's problems did not stand: ${JSON.stringify(listing.problems.map((one) => [one.rule, one.file]))}`);
     largeFile = large.find((candidate) => candidate.file === 'src/big.ts')!;
     otherLargeFile = large.find((candidate) => candidate.file === 'src/huge.ts')!;
+    sqlInput = sql;
   } finally {
     await product.close();
   }
@@ -98,7 +133,7 @@ test('a problem becomes one task with the person as its source and the page link
     expect(opinions.rows[0]!.said_by.split('@')[0]).toBe('person:Fixture');
     expect(opinions.rows[0]!.title).toBe('Fix: Large file — src/big.ts:1');
     expect(opinions.rows[0]!.front).toEqual({
-      rule: 'large-file', identity: 'code.file:product/src/big.ts', file: 'src/big.ts', line: 1,
+      rule: 'large-file', identity: ['code.file:product/src/big.ts'], file: 'src/big.ts', line: 1,
       statement: '731 lines, over the 600-line threshold.', scope: { type: 'file', path: 'src/big.ts' },
     });
     const journal = await owner.run((tx) => tx.query<{ author: string; words: string }>("SELECT author, words FROM operation WHERE words = 'Create a task' ORDER BY seq DESC LIMIT 1"));
@@ -141,6 +176,29 @@ test('two presses of one problem at once write one task and one journal entry', 
   }
 }, 180_000);
 
+test('a problem whose identity holds the store\'s separator still gets its task, naming the identity back', async () => {
+  const product = open();
+  let owner: Awaited<ReturnType<typeof storeOf>> | undefined;
+  try {
+    owner = await storeOf();
+    // The identity names the sink and the builder, joined by the separator a stored text cannot hold.
+    expect(sqlInput.identity).toContain('\u0000');
+    expect(sqlInput.identity.split('\u0000')).toHaveLength(2);
+    const made = await product.createProblemTask(sqlInput.id);
+    expect(made.state).toBe('created');
+    const rows = await owner.run((tx) => tx.query<{ front: Record<string, unknown> }>(`SELECT front FROM "${generatedTableName('task', 'vertex')}" WHERE state = 'open' AND front->>'rule' = 'security.sql-input'`));
+    expect(rows.rows).toHaveLength(1);
+    expect(JSON.stringify(rows.rows[0]!.front)).not.toContain('\u0000');
+    const parts = rows.rows[0]!.front['identity'] as string[];
+    expect(parts).toHaveLength(2);
+    expect(parts.join('\u0000')).toBe(sqlInput.identity);
+    expect((await product.problems()).problems.find((candidate) => candidate.id === sqlInput.id)?.task?.href).toBe(made.task.href);
+  } finally {
+    await owner?.close();
+    await product.close();
+  }
+}, 120_000);
+
 test('a problem the page no longer lists is refused in the reader\'s words, naming no path of this machine', async () => {
   const product = open();
   try {
@@ -169,7 +227,7 @@ test('the task says what has to change in the product\'s own language', () => {
   expect(ru.title).toBe('Исправить: Большой файл — src/big.ts:1');
   expect(ru.body).toBe('Правило: Большой файл\nМесто: src/big.ts:1\nЧто не так: 731 строка при пороге 600.');
   expect(ru.front['statement']).toBe('731 строка при пороге 600.');
-  expect(ru.front['identity']).toBe('code.file:product/src/big.ts');
+  expect(ru.front['identity']).toEqual(['code.file:product/src/big.ts']);
   const en = problemTaskRecord(problem, { language: 'en', label: { en: 'Large file' } });
   expect(en.title).toBe('Fix: Large file — src/big.ts:1');
   expect(en.body).toBe('Rule: Large file\nPlace: src/big.ts:1\nWhat is wrong: 731 lines, over the 600-line threshold.');
