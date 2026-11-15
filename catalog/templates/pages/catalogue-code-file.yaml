@@ -135,7 +135,7 @@ sections:
             id
             kind
             label
-            ... on CodeFile {
+            ... on KindCodeFile {
               path
               language
               class

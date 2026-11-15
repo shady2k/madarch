@@ -106,40 +106,6 @@ type Cochange {
   count: Int!
 }
 
-type DemoAuthor implements Entity {
-  id: ID!
-  kind: String!
-  label: String!
-  template: String!
-  contested: [String!]!
-  backlinks(first: Int, after: String): BacklinkConnection!
-  outgoing(first: Int, after: String): OutgoingConnection!
-  name: String
-  nameOpinions: [Opinion!]!
-  nameOpinionsCount: Int!
-  email: String
-  emailOpinions: [Opinion!]!
-  emailOpinionsCount: Int!
-  commits: Int
-  commitsOpinions: [Opinion!]!
-  commitsOpinionsCount: Int!
-  demoAuthored(first: Int, after: String): DemoAuthoredConnection!
-  mentions(first: Int, after: String): MentionsConnection!
-  mentionsOf(first: Int, after: String): MentionsConnection!
-}
-
-type DemoAuthorConnection {
-  edges: [DemoAuthorEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type DemoAuthorEdge {
-  cursor: String!
-  node: DemoAuthor!
-}
-
 type DemoAuthoredConnection {
   edges: [DemoAuthoredConnectionEdge!]!
   pageInfo: PageInfo!
@@ -157,44 +123,6 @@ type DemoAuthoredEdge {
   discriminator: String!
   opinions: [Opinion!]!
   node: Entity!
-}
-
-type DemoCommit implements Entity {
-  id: ID!
-  kind: String!
-  label: String!
-  template: String!
-  contested: [String!]!
-  backlinks(first: Int, after: String): BacklinkConnection!
-  outgoing(first: Int, after: String): OutgoingConnection!
-  hash: String
-  hashOpinions: [Opinion!]!
-  hashOpinionsCount: Int!
-  subject: String
-  subjectOpinions: [Opinion!]!
-  subjectOpinionsCount: Int!
-  committedAt: DateTime
-  committedAtOpinions: [Opinion!]!
-  committedAtOpinionsCount: Int!
-  changedLines: BigInt
-  changedLinesOpinions: [Opinion!]!
-  changedLinesOpinionsCount: Int!
-  demoAuthoredOf(first: Int, after: String): DemoAuthoredConnection!
-  demoTouched(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
-  mentions(first: Int, after: String): MentionsConnection!
-  mentionsOf(first: Int, after: String): MentionsConnection!
-}
-
-type DemoCommitConnection {
-  edges: [DemoCommitEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type DemoCommitEdge {
-  cursor: String!
-  node: DemoCommit!
 }
 
 type DemoContainsConnection {
@@ -217,103 +145,6 @@ type DemoContainsEdge {
   positionOpinions: [Opinion!]!
   positionOpinionsCount: Int!
   node: Entity!
-}
-
-type DemoFile implements Entity {
-  id: ID!
-  kind: String!
-  label: String!
-  template: String!
-  contested: [String!]!
-  backlinks(first: Int, after: String): BacklinkConnection!
-  outgoing(first: Int, after: String): OutgoingConnection!
-  repository: DemoRepository
-  repositoryOpinions: [Opinion!]!
-  repositoryOpinionsCount: Int!
-  path: String
-  pathOpinions: [Opinion!]!
-  pathOpinionsCount: Int!
-  lines: Int
-  linesOpinions: [Opinion!]!
-  linesOpinionsCount: Int!
-  bytes: BigInt
-  bytesOpinions: [Opinion!]!
-  bytesOpinionsCount: Int!
-  language: String
-  languageOpinions: [Opinion!]!
-  languageOpinionsCount: Int!
-  binary: Boolean
-  binaryOpinions: [Opinion!]!
-  binaryOpinionsCount: Int!
-  lastChange: DateTime
-  lastChangeOpinions: [Opinion!]!
-  lastChangeOpinionsCount: Int!
-  facets: JSON
-  facetsOpinions: [Opinion!]!
-  facetsOpinionsCount: Int!
-  demoContainsOf(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
-  demoTouchedOf(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
-  mentions(first: Int, after: String): MentionsConnection!
-  mentionsOf(first: Int, after: String): MentionsConnection!
-}
-
-type DemoFileConnection {
-  edges: [DemoFileEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type DemoFileEdge {
-  cursor: String!
-  node: DemoFile!
-}
-
-type DemoRepository implements Entity {
-  id: ID!
-  kind: String!
-  label: String!
-  template: String!
-  contested: [String!]!
-  backlinks(first: Int, after: String): BacklinkConnection!
-  outgoing(first: Int, after: String): OutgoingConnection!
-  name: String
-  nameOpinions: [Opinion!]!
-  nameOpinionsCount: Int!
-  url: String
-  urlOpinions: [Opinion!]!
-  urlOpinionsCount: Int!
-  defaultBranch: String
-  defaultBranchOpinions: [Opinion!]!
-  defaultBranchOpinionsCount: Int!
-  archived: Boolean
-  archivedOpinions: [Opinion!]!
-  archivedOpinionsCount: Int!
-  createdAt: DateTime
-  createdAtOpinions: [Opinion!]!
-  createdAtOpinionsCount: Int!
-  facets: JSON
-  facetsOpinions: [Opinion!]!
-  facetsOpinionsCount: Int!
-  size: BigInt
-  sizeOpinions: [Opinion!]!
-  sizeOpinionsCount: Int!
-  demoContains(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
-  mentions(first: Int, after: String): MentionsConnection!
-  mentionsOf(first: Int, after: String): MentionsConnection!
-  repositoryOfDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String): DemoFileConnection!
-}
-
-type DemoRepositoryConnection {
-  edges: [DemoRepositoryEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type DemoRepositoryEdge {
-  cursor: String!
-  node: DemoRepository!
 }
 
 type DemoTouchedConnection {
@@ -396,6 +227,175 @@ type Evidence {
 type Group {
   key: JSON
   count: Int!
+}
+
+type KindDemoAuthor implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  email: String
+  emailOpinions: [Opinion!]!
+  emailOpinionsCount: Int!
+  commits: Int
+  commitsOpinions: [Opinion!]!
+  commitsOpinionsCount: Int!
+  demoAuthored(first: Int, after: String): DemoAuthoredConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindDemoAuthorConnection {
+  edges: [KindDemoAuthorEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindDemoAuthorEdge {
+  cursor: String!
+  node: KindDemoAuthor!
+}
+
+type KindDemoCommit implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  hash: String
+  hashOpinions: [Opinion!]!
+  hashOpinionsCount: Int!
+  subject: String
+  subjectOpinions: [Opinion!]!
+  subjectOpinionsCount: Int!
+  committedAt: DateTime
+  committedAtOpinions: [Opinion!]!
+  committedAtOpinionsCount: Int!
+  changedLines: BigInt
+  changedLinesOpinions: [Opinion!]!
+  changedLinesOpinionsCount: Int!
+  demoAuthoredOf(first: Int, after: String): DemoAuthoredConnection!
+  demoTouched(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindDemoCommitConnection {
+  edges: [KindDemoCommitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindDemoCommitEdge {
+  cursor: String!
+  node: KindDemoCommit!
+}
+
+type KindDemoFile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  repository: KindDemoRepository
+  repositoryOpinions: [Opinion!]!
+  repositoryOpinionsCount: Int!
+  path: String
+  pathOpinions: [Opinion!]!
+  pathOpinionsCount: Int!
+  lines: Int
+  linesOpinions: [Opinion!]!
+  linesOpinionsCount: Int!
+  bytes: BigInt
+  bytesOpinions: [Opinion!]!
+  bytesOpinionsCount: Int!
+  language: String
+  languageOpinions: [Opinion!]!
+  languageOpinionsCount: Int!
+  binary: Boolean
+  binaryOpinions: [Opinion!]!
+  binaryOpinionsCount: Int!
+  lastChange: DateTime
+  lastChangeOpinions: [Opinion!]!
+  lastChangeOpinionsCount: Int!
+  facets: JSON
+  facetsOpinions: [Opinion!]!
+  facetsOpinionsCount: Int!
+  demoContainsOf(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  demoTouchedOf(where: DemoTouchedEdgeWhere, orderBy: [DemoTouchedEdgeOrder!], first: Int, after: String): DemoTouchedConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+}
+
+type KindDemoFileConnection {
+  edges: [KindDemoFileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindDemoFileEdge {
+  cursor: String!
+  node: KindDemoFile!
+}
+
+type KindDemoRepository implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  url: String
+  urlOpinions: [Opinion!]!
+  urlOpinionsCount: Int!
+  defaultBranch: String
+  defaultBranchOpinions: [Opinion!]!
+  defaultBranchOpinionsCount: Int!
+  archived: Boolean
+  archivedOpinions: [Opinion!]!
+  archivedOpinionsCount: Int!
+  createdAt: DateTime
+  createdAtOpinions: [Opinion!]!
+  createdAtOpinionsCount: Int!
+  facets: JSON
+  facetsOpinions: [Opinion!]!
+  facetsOpinionsCount: Int!
+  size: BigInt
+  sizeOpinions: [Opinion!]!
+  sizeOpinionsCount: Int!
+  demoContains(where: DemoContainsEdgeWhere, orderBy: [DemoContainsEdgeOrder!], first: Int, after: String): DemoContainsConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  repositoryOfDemoFile(where: KindDemoFileWhere, orderBy: [KindDemoFileOrder!], first: Int, after: String): KindDemoFileConnection!
+}
+
+type KindDemoRepositoryConnection {
+  edges: [KindDemoRepositoryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindDemoRepositoryEdge {
+  cursor: String!
+  node: KindDemoRepository!
 }
 
 type MentionsConnection {
@@ -524,14 +524,14 @@ type TemplateFinding {
 
 type Query {
   entity(id: ID!, lang: String): Entity
-  allDemoAuthor(where: DemoAuthorWhere, orderBy: [DemoAuthorOrder!], first: Int, after: String, lang: String): DemoAuthorConnection!
-  allDemoAuthorAggregate(where: DemoAuthorWhere, lang: String): Aggregate!
-  allDemoCommit(where: DemoCommitWhere, orderBy: [DemoCommitOrder!], first: Int, after: String, lang: String): DemoCommitConnection!
-  allDemoCommitAggregate(where: DemoCommitWhere, lang: String): Aggregate!
-  allDemoFile(where: DemoFileWhere, orderBy: [DemoFileOrder!], first: Int, after: String, lang: String): DemoFileConnection!
-  allDemoFileAggregate(where: DemoFileWhere, lang: String): Aggregate!
-  allDemoRepository(where: DemoRepositoryWhere, orderBy: [DemoRepositoryOrder!], first: Int, after: String, lang: String): DemoRepositoryConnection!
-  allDemoRepositoryAggregate(where: DemoRepositoryWhere, lang: String): Aggregate!
+  allDemoAuthor(where: KindDemoAuthorWhere, orderBy: [KindDemoAuthorOrder!], first: Int, after: String, lang: String): KindDemoAuthorConnection!
+  allDemoAuthorAggregate(where: KindDemoAuthorWhere, lang: String): Aggregate!
+  allDemoCommit(where: KindDemoCommitWhere, orderBy: [KindDemoCommitOrder!], first: Int, after: String, lang: String): KindDemoCommitConnection!
+  allDemoCommitAggregate(where: KindDemoCommitWhere, lang: String): Aggregate!
+  allDemoFile(where: KindDemoFileWhere, orderBy: [KindDemoFileOrder!], first: Int, after: String, lang: String): KindDemoFileConnection!
+  allDemoFileAggregate(where: KindDemoFileWhere, lang: String): Aggregate!
+  allDemoRepository(where: KindDemoRepositoryWhere, orderBy: [KindDemoRepositoryOrder!], first: Int, after: String, lang: String): KindDemoRepositoryConnection!
+  allDemoRepositoryAggregate(where: KindDemoRepositoryWhere, lang: String): Aggregate!
   catalogueEntity(name: String!, lang: String): CatalogueEntity
   allCatalogueEntity(where: CatalogueEntityWhere, orderBy: [CatalogueEntityOrder!], first: Int, after: String, lang: String): CatalogueEntityConnection!
   home(lang: String): Entity
@@ -651,123 +651,6 @@ input CatalogueEntityWhere {
   taken: CatalogueEntityTakenFilter
 }
 
-input DemoAuthorCommitsFilter {
-  _eq: Int
-  _neq: Int
-  _in: [Int!]
-  _nin: [Int!]
-  _lt: Int
-  _lte: Int
-  _gt: Int
-  _gte: Int
-  _is_null: Boolean
-}
-
-input DemoAuthorEmailFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoAuthorNameFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoAuthorOrder {
-  field: DemoAuthorOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input DemoAuthorWhere {
-  name: DemoAuthorNameFilter
-  email: DemoAuthorEmailFilter
-  commits: DemoAuthorCommitsFilter
-}
-
-input DemoCommitChangedLinesFilter {
-  _eq: BigInt
-  _neq: BigInt
-  _in: [BigInt!]
-  _nin: [BigInt!]
-  _lt: BigInt
-  _lte: BigInt
-  _gt: BigInt
-  _gte: BigInt
-  _is_null: Boolean
-}
-
-input DemoCommitCommittedAtFilter {
-  _eq: DateTime
-  _neq: DateTime
-  _in: [DateTime!]
-  _nin: [DateTime!]
-  _lt: DateTime
-  _lte: DateTime
-  _gt: DateTime
-  _gte: DateTime
-  _is_null: Boolean
-}
-
-input DemoCommitHashFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoCommitOrder {
-  field: DemoCommitOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input DemoCommitSubjectFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoCommitWhere {
-  hash: DemoCommitHashFilter
-  subject: DemoCommitSubjectFilter
-  committedAt: DemoCommitCommittedAtFilter
-  changedLines: DemoCommitChangedLinesFilter
-}
-
 input DemoContainsEdgeOrder {
   field: DemoContainsEdgeOrderField!
   direction: OrderDirection
@@ -788,192 +671,6 @@ input DemoContainsEdgePositionFilter {
 
 input DemoContainsEdgeWhere {
   position: DemoContainsEdgePositionFilter
-}
-
-input DemoFileBinaryFilter {
-  _eq: Boolean
-  _neq: Boolean
-  _is_null: Boolean
-}
-
-input DemoFileBytesFilter {
-  _eq: BigInt
-  _neq: BigInt
-  _in: [BigInt!]
-  _nin: [BigInt!]
-  _lt: BigInt
-  _lte: BigInt
-  _gt: BigInt
-  _gte: BigInt
-  _is_null: Boolean
-}
-
-input DemoFileFacetsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input DemoFileLanguageFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoFileLastChangeFilter {
-  _eq: DateTime
-  _neq: DateTime
-  _in: [DateTime!]
-  _nin: [DateTime!]
-  _lt: DateTime
-  _lte: DateTime
-  _gt: DateTime
-  _gte: DateTime
-  _is_null: Boolean
-}
-
-input DemoFileLinesFilter {
-  _eq: Int
-  _neq: Int
-  _in: [Int!]
-  _nin: [Int!]
-  _lt: Int
-  _lte: Int
-  _gt: Int
-  _gte: Int
-  _is_null: Boolean
-}
-
-input DemoFileOrder {
-  field: DemoFileOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input DemoFilePathFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoFileWhere {
-  path: DemoFilePathFilter
-  lines: DemoFileLinesFilter
-  bytes: DemoFileBytesFilter
-  language: DemoFileLanguageFilter
-  binary: DemoFileBinaryFilter
-  lastChange: DemoFileLastChangeFilter
-  facets: DemoFileFacetsFilter
-}
-
-input DemoRepositoryArchivedFilter {
-  _eq: Boolean
-  _neq: Boolean
-  _is_null: Boolean
-}
-
-input DemoRepositoryCreatedAtFilter {
-  _eq: DateTime
-  _neq: DateTime
-  _in: [DateTime!]
-  _nin: [DateTime!]
-  _lt: DateTime
-  _lte: DateTime
-  _gt: DateTime
-  _gte: DateTime
-  _is_null: Boolean
-}
-
-input DemoRepositoryDefaultBranchFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoRepositoryFacetsFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
-input DemoRepositoryNameFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoRepositoryOrder {
-  field: DemoRepositoryOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input DemoRepositorySizeFilter {
-  _eq: BigInt
-  _neq: BigInt
-  _in: [BigInt!]
-  _nin: [BigInt!]
-  _lt: BigInt
-  _lte: BigInt
-  _gt: BigInt
-  _gte: BigInt
-  _is_null: Boolean
-}
-
-input DemoRepositoryUrlFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input DemoRepositoryWhere {
-  name: DemoRepositoryNameFilter
-  url: DemoRepositoryUrlFilter
-  defaultBranch: DemoRepositoryDefaultBranchFilter
-  archived: DemoRepositoryArchivedFilter
-  createdAt: DemoRepositoryCreatedAtFilter
-  facets: DemoRepositoryFacetsFilter
-  size: DemoRepositorySizeFilter
 }
 
 input DemoTouchedEdgeAddedFilter {
@@ -1066,6 +763,309 @@ input DemoTouchedEdgeWhere {
   meta: DemoTouchedEdgeMetaFilter
 }
 
+input KindDemoAuthorCommitsFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindDemoAuthorEmailFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoAuthorNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoAuthorOrder {
+  field: KindDemoAuthorOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindDemoAuthorWhere {
+  name: KindDemoAuthorNameFilter
+  email: KindDemoAuthorEmailFilter
+  commits: KindDemoAuthorCommitsFilter
+}
+
+input KindDemoCommitChangedLinesFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindDemoCommitCommittedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindDemoCommitHashFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoCommitOrder {
+  field: KindDemoCommitOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindDemoCommitSubjectFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoCommitWhere {
+  hash: KindDemoCommitHashFilter
+  subject: KindDemoCommitSubjectFilter
+  committedAt: KindDemoCommitCommittedAtFilter
+  changedLines: KindDemoCommitChangedLinesFilter
+}
+
+input KindDemoFileBinaryFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindDemoFileBytesFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindDemoFileFacetsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindDemoFileLanguageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoFileLastChangeFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindDemoFileLinesFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindDemoFileOrder {
+  field: KindDemoFileOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindDemoFilePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoFileWhere {
+  path: KindDemoFilePathFilter
+  lines: KindDemoFileLinesFilter
+  bytes: KindDemoFileBytesFilter
+  language: KindDemoFileLanguageFilter
+  binary: KindDemoFileBinaryFilter
+  lastChange: KindDemoFileLastChangeFilter
+  facets: KindDemoFileFacetsFilter
+}
+
+input KindDemoRepositoryArchivedFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryCreatedAtFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryDefaultBranchFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryFacetsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryOrder {
+  field: KindDemoRepositoryOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindDemoRepositorySizeFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryUrlFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDemoRepositoryWhere {
+  name: KindDemoRepositoryNameFilter
+  url: KindDemoRepositoryUrlFilter
+  defaultBranch: KindDemoRepositoryDefaultBranchFilter
+  archived: KindDemoRepositoryArchivedFilter
+  createdAt: KindDemoRepositoryCreatedAtFilter
+  facets: KindDemoRepositoryFacetsFilter
+  size: KindDemoRepositorySizeFilter
+}
+
 input RelatedOrder {
   field: String!
   direction: OrderDirection
@@ -1082,41 +1082,8 @@ enum CatalogueEntityOrderField {
   taken
 }
 
-enum DemoAuthorOrderField {
-  name
-  email
-  commits
-}
-
-enum DemoCommitOrderField {
-  hash
-  subject
-  committedAt
-  changedLines
-}
-
 enum DemoContainsEdgeOrderField {
   position
-}
-
-enum DemoFileOrderField {
-  path
-  lines
-  bytes
-  language
-  binary
-  lastChange
-  facets
-}
-
-enum DemoRepositoryOrderField {
-  name
-  url
-  defaultBranch
-  archived
-  createdAt
-  facets
-  size
 }
 
 enum DemoTouchedEdgeOrderField {
@@ -1127,6 +1094,39 @@ enum DemoTouchedEdgeOrderField {
   weight
   binary
   meta
+}
+
+enum KindDemoAuthorOrderField {
+  name
+  email
+  commits
+}
+
+enum KindDemoCommitOrderField {
+  hash
+  subject
+  committedAt
+  changedLines
+}
+
+enum KindDemoFileOrderField {
+  path
+  lines
+  bytes
+  language
+  binary
+  lastChange
+  facets
+}
+
+enum KindDemoRepositoryOrderField {
+  name
+  url
+  defaultBranch
+  archived
+  createdAt
+  facets
+  size
 }
 
 enum NullsOrder {

@@ -13,6 +13,8 @@ import {
   type Bootstrap, type TemplateFile,
 } from '../src/page-contract/index.js';
 import { validateNode } from '../src/page-contract/validate.js';
+import { kindTypeNameOf } from '../src/graphql/names.js';
+import { starterSchema } from '../scripts/graphql-starter.js';
 import { parseDocument } from 'yaml';
 
 const ROOT = join(import.meta.dir, '..');
@@ -44,10 +46,9 @@ function entityTypes(): string[] {
     .sort();
 }
 
-/** The kind name a type name decodes back to for the composer: the composer only needs one of its own kinds' names. */
-function kindOf(typeName: string): string {
-  return typeName;
-}
+/** The starter catalogue's kinds, and the type each one opens on (src/graphql/names.ts). */
+const starter = starterSchema();
+const kindTypes = starter.kinds.map((kind) => kindTypeNameOf(kind));
 
 /** One address's operation, and the errors the real schema finds in it. */
 function composed(address: Parameters<typeof composePage>[1]): { operation: string; errors: readonly string[] } {
@@ -81,16 +82,18 @@ describe('the starter templates', () => {
   });
 
   test('the entity page composes against every type the schema opens it on', () => {
+    // Every kind of the catalogue is a type the entity page opens on, and the schema opens it on no other.
+    expect(entityTypes().filter((one) => one !== 'CatalogueEntity')).toEqual([...kindTypes].sort());
     const failures: string[] = [];
-    for (const type of entityTypes()) {
-      const page = composed({ kind: kindOf(type), id: '00000000-0000-0000-0000-000000000002' });
-      if (page.errors.length > 0) failures.push(`${type}: ${page.errors.join('; ')}`);
+    for (const kind of starter.kinds) {
+      const page = composed({ kind, id: '00000000-0000-0000-0000-000000000002' });
+      if (page.errors.length > 0) failures.push(`${kind}: ${page.errors.join('; ')}`);
     }
     expect(failures).toEqual([]);
   });
 
   test('the text page composes on a type that holds a body', () => {
-    const product = schema.getType('Product') as GraphQLObjectType | undefined;
+    const product = schema.getType('KindProduct') as GraphQLObjectType | undefined;
     expect(product?.getFields()['body']).toBeDefined();
     expect(composed({ template: 'text', kind: 'product', id: '00000000-0000-0000-0000-000000000003' }).errors).toEqual([]);
   });

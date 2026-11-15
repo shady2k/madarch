@@ -1,0 +1,42 @@
+id: practice.page-template
+purpose: structure
+audience: [developer, designer, product]
+definition: A template is the drawing of one view of the product — the parts the view holds, in their order, and what each part shows.
+sources:
+- https://github.com/shady2k/madarch/blob/main/docs/decisions/0036-one-page-mechanism-over-graphql.md
+acquisition:
+- document
+# A template is an entity of the product's graph, as every kind with a role is: it can be read and listed like any other.
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  producers:
+  - manifest
+- name: body
+  type: text
+  producers:
+  - manifest
+# The kind's own declaration: its entities are the product's page templates, read from templates/ at start and
+# republished when the product repository changes (the owner's decision of 2026-11-15). A template is its name and its
+# text; the file it was read from is the one its name opens, `templates/<name>.yaml`.
+page-template:
+  name: name
+  body: body
+key:
+- name
+origin: person
+labels:
+  en:
+    one: Page template
+    many: Page templates
+  ru:
+    one: Шаблон страницы
+    many: Шаблоны страниц
+description:
+  en: A template names the parts one view of the product holds and the order they come in, and it says what each part shows. Every part of a view is drawn through the template it belongs to, so a change to the template changes every view that holds it.
+  ru: 'Шаблон называет части одного представления продукта и порядок, в котором они идут, и говорит, что показывает каждая часть. Каждая часть представления рисуется через свой шаблон, поэтому правка шаблона меняет все представления, которые его держат.'

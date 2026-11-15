@@ -374,6 +374,11 @@ export interface KindDecl {
    * This kind holds the product's value sets, and the roles below name its fields: `name`, `label-en`, `label-ru`,
    * and optionally `description` and `order`. The engine finds the kind by this declaration, never by its name.
    */
+  /**
+   * This kind holds the product's page templates (the owner's decision of 2026-11-15): the `name` role names the
+   * template's name and the `body` role its text; `path`, when declared, names the file it was read from.
+   */
+  readonly pageTemplate?: Readonly<Record<string, string>>;
   readonly referenceSet?: Readonly<Record<string, string>>;
   /**
    * This kind holds the entries of the product's value sets, with roles `set`, `value`, `label-en`, `label-ru`, and
@@ -642,7 +647,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 export const KIND_FIELDS: readonly string[] = [
   'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes', 'exclude',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes', 'exclude', 'page-template',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ];
@@ -1836,7 +1841,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     });
     const key = decl['key'];
     if (key !== undefined && (!Array.isArray(key) || (key.length === 0 && origin !== 'person') || key.some((entry) => typeof entry !== 'string' || !fields.some((field) => field.name === entry)))) problem(['key'], '"key" is a list of the field names the kind\'s natural key holds');
-    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
+    const valueSetRoles = (field: 'reference-set' | 'reference-set-entry' | 'page-template', required: readonly string[]): Readonly<Record<string, string>> | undefined => {
       const raw = decl[field];
       if (raw === undefined) return undefined;
       if (!isRecord(raw)) { problem([field], `"${field}" maps a role to the kind's field that holds it`); return undefined; }
@@ -1853,6 +1858,12 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (new Set(Object.values(roles)).size !== Object.values(roles).length) problem([field], `"${field}" gives one role per field`);
       return findings.length === before ? roles : undefined;
     };
+    /**
+     * The kind whose entities are the product's page templates (decision 0036, section 6; the owner's decision of
+     * 2026-11-15): its `name` and `body` roles name the template's name and its text, and `path` names the file it came
+     * from when the kind declares it. The engine finds the kind by this declaration, never by its name.
+     */
+    const pageTemplate = valueSetRoles('page-template', ['name', 'body']);
     const valueSet = valueSetRoles('reference-set', ['name', 'label-en', 'label-ru']);
     const valueSetEntry = valueSetRoles('reference-set-entry', ['set', 'value', 'label-en', 'label-ru']);
     if (valueSet !== undefined && Array.isArray(key) && !key.includes(valueSet['name']!)) problem(['reference-set'], '"reference-set" names a "name" role that is one of the kind\'s key fields');
@@ -1956,6 +1967,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(card === true ? { card: true as const } : {}),
       ...(isHistoryShape(history) ? { history } : {}),
       ...(findingsKind === true ? { findings: true } : {}),
+      ...(pageTemplate === undefined ? {} : { pageTemplate }),
       ...(valueSet === undefined ? {} : { referenceSet: valueSet }),
       ...(valueSetEntry === undefined ? {} : { referenceSetEntry: valueSetEntry }),
       ...(declaredViews.length === 0 ? {} : { views: declaredViews }),
@@ -2250,6 +2262,16 @@ export function setKindsLanguage(productFolder: string, language: string): strin
 }
 
 /** The first single-file Markdown kind is home; graph-backed products use the declared `product` kind. */
+/**
+ * The kind whose entities are the product's page templates, found by its own `page-template:` declaration (the owner's
+ * decision of 2026-11-15): the engine holds no kind name of its own, and a product that declares none draws no page
+ * template of its own.
+ */
+export function pageTemplateKind(manifest: KindsManifest): KindDecl | undefined {
+  for (const decl of [...manifest.kinds.values()].sort((left, right) => byCodePoint(left.name, right.name))) if (decl.pageTemplate !== undefined) return decl;
+  return undefined;
+}
+
 export function homeKind(manifest: KindsManifest): KindDecl | undefined {
   for (const decl of manifest.kinds.values()) if (decl.source === 'markdown' && decl.file !== undefined) return decl;
   const product = manifest.kinds.get('product');

@@ -152,7 +152,7 @@ describe('a product that is only a tracker', () => {
         expect({ table: present, present: names.includes(present) }).toEqual({ table: present, present: true });
       }
 
-      const read = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: `{ entity(id: ${JSON.stringify(made.idea.uid)}) { ... on Idea { title } } }` }) });
+      const read = await fetch(`${server.url}/products/tracker/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: `{ entity(id: ${JSON.stringify(made.idea.uid)}) { ... on KindIdea { title } } }` }) });
       expect(await read.json()).toMatchObject({ data: { entity: { title: 'One idea' } } });
     } finally {
       await owner?.close();

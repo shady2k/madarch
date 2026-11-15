@@ -8,7 +8,7 @@ import { MANIFEST_CONTRACT, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE } from '
 import { evidenceList, publishGraphDrafts } from '../graph/write.js';
 import { byCodePoint } from '../model/order.js';
 import { headCommitOf } from '../product/fill-updates.js';
-import { KINDS_FILE, readKindsFrom, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
+import { KINDS_FILE, pageTemplateKind, readKindsFrom, type Finding, type KindsFileSource, type KindsManifest } from '../product/manifest/kinds.js';
 import { workingTreeFiles } from '../plugin/product-files.js';
 import { readWorkflowsFrom, WORKFLOWS_FILE } from '../product/manifest/workflows.js';
 import { pluginDeclarationFindings } from '../plugin/manifest-source.js';
@@ -19,6 +19,8 @@ import { SchemaRefusal } from '../graphql/names.js';
 import { writeProductEntity } from './start-entity.js';
 import { productEntityOf } from '../product/manifest.js';
 import { homeKind } from '../product/manifest/kinds.js';
+import { templateFiles } from './product-templates.js';
+import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
 
 export interface ValidatedManifests {
   readonly folder: string;
@@ -27,6 +29,8 @@ export interface ValidatedManifests {
   readonly edges: readonly EdgeDraft[];
   /** The starter value sets, written as their own entities beside the catalogue's declarations. */
   readonly starterValues: readonly VertexDraft[];
+  /** The product's page templates, read from `templates/` at start and published as entities of the kind its manifest declares. */
+  readonly templates: readonly { readonly name: string; readonly body: string; readonly path: string }[];
   readonly templatePaths: readonly string[];
 }
 export type ManifestValidation = { readonly ok: true; readonly value: ValidatedManifests | undefined } | { readonly ok: false; readonly findings: readonly Finding[]; readonly templatePaths: readonly string[] };
@@ -67,9 +71,10 @@ export function validateProductManifests(productFolder: string, files: KindsFile
   // Workflows are checked even when no kinds file was written.
   for (const finding of workflow.findings) if (!findings.some((one) => one.file === finding.file && one.line === finding.line && one.message === finding.message)) findings.push(finding);
   for (const finding of pluginDeclarationFindings(files, folder, read.present ? read.manifest : undefined)) if (!findings.some((one) => one.message === finding.message)) findings.push(finding);
-  // Templates are the product's `templates/` files, served as the bootstrap's PageTemplate list (section 6), not
-  // declarations this publication interprets: the Liquid compiler and its `template` kind are deleted with the page layer.
-  const templatePaths: string[] = [];
+  // The product's page templates (decision 0036, section 6; the owner's decision of 2026-11-15): read from the checkout at
+  // start, published as entities of the kind the manifest declares for them, and read from the graph from then on.
+  const templates = templateFiles(folder);
+  const templatePaths: string[] = templates.map((file) => file.path);
   for (const finding of findings) finding.file = isAbsolute(finding.file) ? finding.file : join(folder, finding.file);
   findings.sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.message, right.message));
   if (findings.length > 0) return { ok: false, findings, templatePaths };
@@ -172,7 +177,7 @@ export function validateProductManifests(productFolder: string, files: KindsFile
       }
     }
   }
-  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templatePaths } };
+  return { ok: true, value: { folder, manifest, vertices, edges: combinedEdges, starterValues, templates, templatePaths } };
 }
 
 import { deriveStageGraphOver } from '../fill/registry.js';
@@ -245,6 +250,39 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
     if (valueKinds.size > 0 && [...valueKinds].every((kind) => valueContract.vertex.some((vertex) => vertex.name === kind))) {
       written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+    }
+    // The product's page templates are entities of the kind its manifest declares for them (the owner's decision of
+    // 2026-11-15): published at start, re-published when the product repository changes, and closed when one leaves.
+    // The product's own kind wins; a product whose manifest names none publishes its templates as the catalogue's kind.
+    const templateKind = pageTemplateKind(validated.manifest);
+    const catalogue = cataloguePageTemplate();
+    const kindName = templateKind?.name ?? catalogue.name;
+    const nameRole = templateKind?.pageTemplate?.['name'] ?? catalogue.nameField;
+    const bodyRole = templateKind?.pageTemplate?.['body'] ?? catalogue.bodyField;
+    const pathRole = templateKind?.pageTemplate?.['path'] ?? catalogue.pathField;
+    {
+      const head = headCommitOf(validated.folder);
+      const at = (path: string): { repository: string; path: string; lineStart: number; lineEnd: number; commit?: string }[] =>
+        [{ repository: validated.folder, path, lineStart: 1, lineEnd: 1, ...(head === undefined ? {} : { commit: head.commit }) }];
+      const drafts: VertexDraft[] = validated.templates.map((template) => ({
+        kind: kindName,
+        key: { [nameRole]: template.name },
+        values: { [bodyRole]: template.body, ...(pathRole === undefined ? {} : { [pathRole]: template.path }) },
+        evidence: at(template.path), producer: 'manifest', producerVersion: '1',
+      }));
+      const wanted = new Set(drafts.map((draft) => String(draft.key[nameRole] ?? '')));
+      const standing = await tx.query<{ key: Record<string, string> }>(
+        `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = $1 AND NOT n.removed`, [kindName],
+      );
+      const removals: VertexRemovalDraft[] = standing.rows.filter((row) => !wanted.has(String(row.key[nameRole] ?? ''))).map((row) => {
+        const key = Object.fromEntries(Object.entries(row.key).filter(([field, value]) => (templateKind?.key ?? [nameRole]).includes(field) && typeof value === 'string'));
+        return { kind: kindName, key, producer: 'manifest' };
+      });
+      // A contract that names no template kind still writes them: the catalogue's declaration is the one every product has.
+      const contract = valueContract.vertex.some((vertex) => vertex.name === kindName)
+        ? valueContract
+        : { ...valueContract, vertex: [...valueContract.vertex, catalogue.vertex] };
+      written += await publishGraphDrafts(tx, contract, { vertices: drafts, edges: [], removals }, 1, { author: 'manifest' });
     }
     return written;
   });

@@ -10,6 +10,10 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { readTemplate, type TemplateFile } from '../page-contract/template.js';
+import { generatedTableName } from './contract.js';
+import { pageTemplateKind, type KindsManifest } from '../product/manifest/kinds.js';
+import { cataloguePageTemplate } from '../knowledge/page-template-kind.js';
+import type { SqlExecutor } from '../sql-driver.js';
 import { byCodePoint } from '../model/order.js';
 import type { TemplateFinding } from '../page-contract/validate.js';
 
@@ -35,8 +39,8 @@ export interface ProductTemplates {
   readonly findings: readonly TemplateFinding[];
 }
 
-/** Every file under the product's `templates/`, its template name and its text. */
-function templateFiles(folder: string): { name: string; body: string; path: string }[] {
+/** Every file under the product's `templates/`, its template name, its text and its product-relative path. */
+export function templateFiles(folder: string): { name: string; body: string; path: string }[] {
   const root = join(folder, 'templates');
   const out: { name: string; body: string; path: string }[] = [];
   const visit = (directory: string): void => {
@@ -59,41 +63,66 @@ function templateFiles(folder: string): { name: string; body: string; path: stri
   return out.sort((left, right) => byCodePoint(left.name, right.name));
 }
 
-/** The product's templates and the pages they open, read from its folder. */
-export function readProductTemplates(folder: string): ProductTemplates {
-  const files = templateFiles(folder);
-  const findings: TemplateFinding[] = [];
+/**
+ * The pages one set of template files opens: the bootstrap's template list and the kinds, entities and catalogue entries
+ * they are bound to. The files come from the graph (their bodies were published at start), never from the folder: the
+ * reader of a page holds no checkout.
+ */
+export function templatesOf(files: readonly TemplateFile[], bodies: ReadonlyMap<string, string>, findings: readonly TemplateFinding[] = []): ProductTemplates {
   const records = new Map<string, string>();
   const own = new Map<string, string>();
   const catalogueOf = new Map<string, string>();
   const names = new Set<string>();
   for (const file of files) {
     names.add(file.name);
-    const read = readTemplate(file.body, { name: file.name, file: file.path });
-    findings.push(...read.findings);
-    if (read.template === undefined) continue;
-    for (const kind of read.template.records) records.set(kind, read.template.name);
-    for (const id of read.template.entities) own.set(id, read.template.name);
-    for (const kind of read.template.catalogue) catalogueOf.set(kind, read.template.name);
+    for (const kind of file.records) records.set(kind, file.name);
+    for (const id of file.entities) own.set(id, file.name);
+    for (const kind of file.catalogue) catalogueOf.set(kind, file.name);
   }
   return {
-    templates: files.map((file) => ({ name: file.name, body: file.body })),
+    templates: files.map((file) => ({ name: file.name, body: bodies.get(file.name) ?? '' })),
     catalogue: names.has(CATALOGUE_TEMPLATE_NAME) ? CATALOGUE_TEMPLATE_NAME : FALLBACK_TEMPLATE,
     records,
     own,
     catalogueOf,
-    findings,
+    findings: [...findings],
   };
 }
 
-/** The template files of a product, read whole, for the start check (its findings carry file and line). */
-export function readTemplateFiles(folder: string): { files: TemplateFile[]; findings: TemplateFinding[] } {
-  const findings: TemplateFinding[] = [];
+/**
+ * The product's page templates as the graph holds them (the owner's decision of 2026-11-15; decision 0036, section 6): the
+ * kind its manifest declares with a `page-template:` role holds one entity per template, with its body as a field of that
+ * kind. Read inside the page's own snapshot, so a page sees one revision of its templates, and never from a folder.
+ */
+export async function readPublishedTemplates(executor: SqlExecutor, manifest: KindsManifest): Promise<{ templates: ProductTemplates; files: readonly TemplateFile[]; findings: readonly TemplateFinding[] }> {
+  // The product's own kind wins; a product whose manifest names none publishes its templates as the catalogue's kind.
+  const kind = pageTemplateKind(manifest);
+  const declared = kind?.pageTemplate;
+  const fallback = cataloguePageTemplate();
+  const kindName = kind?.name ?? fallback.name;
+  const nameRole = declared?.['name'] ?? fallback.nameField;
+  const bodyRole = declared?.['body'] ?? fallback.bodyField;
+  const pathRole = declared?.['path'] ?? fallback.pathField;
+  const column = (field: string): string => `"${field.replaceAll('"', '""')}"`;
+  // A template is one page drawing another: its rows are the kind's, and the body is a declared text field.
+  const found = await executor.query<{ name: string | null; body: string | null; path: string | null }>(
+    `SELECT n.key->>$1 AS name, o.${column(bodyRole)} AS body, ${pathRole === undefined ? 'NULL' : `o.${column(pathRole)}`} AS path
+       FROM ${generatedTableName(kindName, 'vertex')} o JOIN node n ON n.id = o.node_id
+      WHERE o.state = 'open' AND o.context_id = 1 AND n.context_id = 1 AND NOT n.removed
+      ORDER BY n.key->>$1`, [nameRole]);
   const files: TemplateFile[] = [];
-  for (const file of templateFiles(folder)) {
-    const read = readTemplate(file.body, { name: file.name, file: file.path });
+  const bodies = new Map<string, string>();
+  const findings: TemplateFinding[] = [];
+  for (const row of found.rows) {
+    if (typeof row.name !== 'string' || row.name === '' || typeof row.body !== 'string') continue;
+    // The file a template's name opens, product-relative as `templateFiles` names it: the findings' file names are read
+    // against the product folder once, and the graph holds no second path.
+    const file = row.path ?? `templates/${row.name}.yaml`;
+    const read = readTemplate(row.body, { name: row.name, file });
     findings.push(...read.findings);
+    bodies.set(row.name, row.body);
     if (read.template !== undefined) files.push(read.template);
   }
-  return { files, findings };
+  return { templates: templatesOf(files, bodies, findings), files, findings };
 }
+

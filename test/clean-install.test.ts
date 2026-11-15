@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { checkProductTemplates } from '../src/graph/template-check.js';
+import { readFolderTemplates } from './page-templates-fixture.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { prepareStoreAcceptanceFixture } from '../scripts/clean-install-fixture.js';
 import { spawnSync } from 'node:child_process';
@@ -20,13 +21,15 @@ describe('clean install platform contracts', () => {
     const product = join(scratch, 'store-fixture');
     mkdirSync(product);
     seedStarterSet(product, 'everything');
-    expect(checkProductTemplates(product)).toEqual([]);
+    const folderTemplates = readFolderTemplates(product);
+    expect(checkProductTemplates(folderTemplates.files, folderTemplates.bodies, folderTemplates.findings)).toEqual([]);
     prepareStoreAcceptanceFixture(product);
     const read = readKinds(product);
     expect(read.present).toBe(true);
     if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: no fixture manifest`);
     expect(read.manifest.findings).toEqual([]);
-    const findings = checkProductTemplates(product);
+    const rewritten = readFolderTemplates(product);
+    const findings = checkProductTemplates(rewritten.files, rewritten.bodies, rewritten.findings, read.manifest);
     for (const field of ['repository', 'path', 'language']) {
       expect(findings.some((finding) => finding.file === 'templates/code-file.yaml' && finding.message.includes(field))).toBe(true);
     }

@@ -15,6 +15,7 @@ import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/databas
 import { generatedTableName } from '../src/graph/contract.js';
 import { GIT_KINDS, GIT_TABLES } from '../src/fill/stages/git-contract.js';
 import { manifestContractOf } from '../src/fill/stages/plugin-contract.js';
+import { cataloguePageTemplate } from '../src/knowledge/page-template-kind.js';
 
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { testStoreServer, createTestDatabaseOwner } from './test-database.js';
@@ -191,7 +192,8 @@ test('ordinary file opinions preserve batched inserts, changes and scoped remova
 
 describe('the manifest makes the table and the writer fills it', () => {
   test('the kind has a column for every field it states and none for its key', async () => {
-    expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term']);
+    // The manifest's kinds, and the page-template kind every product's store holds (2026-11-15).
+    expect(contract.vertex.map((kind) => kind.name)).toEqual(['doc.term', cataloguePageTemplate().name]);
     // The key is the vertex's; the fields are the columns of the opinion table, claimed ones included.
     expect(contract.vertex[0]?.fields.map((field) => field.name)).toEqual(['name', 'definition', 'strict']);
     expect(contract.vertex[0]?.key).toEqual(['name']);

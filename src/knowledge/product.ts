@@ -104,7 +104,7 @@ import type { MessageBody } from '../graph/graphql-execute.js';
 import { readWorker, type ReadDescriptor } from '../render/read-worker.js';
 import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgres-cluster.js';
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
-import { readProductTemplates } from '../graph/product-templates.js';
+import { readPublishedTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
 import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
 
@@ -202,7 +202,7 @@ interface PausedRun {
 }
 
 /** What the source view answers for one file: its text at the commit read, or why the graph holds none of that version. */
-export type SourceRead = { readonly text: string; readonly commit: string | null } | { readonly absent: string };
+export type SourceRead = { readonly text: string; readonly commit: string | null };
 
 export class KnowledgeProduct {
   /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
@@ -557,9 +557,10 @@ export class KnowledgeProduct {
       const manifest = await readPublishedManifest(tx);
       if (manifest === undefined) throw new WikiReadError(`${join(this.options.productFolder, KINDS_FILE)}:1: the graph holds no published manifest: open the product once so its catalogue is published`);
       const published = publishedManifestOf(manifest);
-      const templates = readProductTemplates(this.options.productFolder);
-      const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
-      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates);
+      // The templates are the graph's entities, read in this page's own snapshot (the owner's decision of 2026-11-15).
+      const templates = await readPublishedTemplates(tx, manifest);
+      const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates.templates);
+      const context = new ReadContext(tx, manifest, published, this.options.productFolder, lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings);
       return await context.diagramNeighbourhood(id, depth, lang, first);
     });
   }
@@ -1470,17 +1471,20 @@ export class KnowledgeProduct {
         cached: true,
       };
     }
-    // The evidence is read from the text a fill published, the same opinion the source view answers (section 8). The
-    // read is one for the whole run: the promise is kept, so concurrent asks share it rather than each reading the store.
-    let opinions: ReturnType<KnowledgeProduct['sourceOpinions']> | undefined;
+    // The evidence is the file's text by its blob, read the way the source view reads it (decision 0037): a working copy
+    // is never read. A file the graph holds no blob for is no evidence, and the verdict says so.
     const product = this.product();
+    const repository = 'message' in product ? '' : productRepositoryId(product);
+    const commit = 'message' in product ? '' : headCommitOf(product.folder)?.commit ?? '';
+    // One read a file: the promises are kept for the whole run, so concurrent asks share a read rather than each asking
+    // the host for the same blob.
+    const reads = new Map<string, Promise<GraphEvidenceContent | undefined>>();
     const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
       signal.throwIfAborted();
       if ('message' in product) throw new WikiReadError(product.message);
-      opinions ??= this.sourceOpinions();
-      const held = (await opinions).get(path);
-      if (held === undefined) return undefined;
-      return { text: held.text, repository: held.repository ?? productRepositoryId(product), commit: held.commit };
+      const held = reads.get(path) ?? this.fileText(repository, path).then((text) => text === undefined ? undefined : { text: text.text, repository, commit });
+      reads.set(path, held);
+      return await held;
     };
     const result = await runGraphVerdicts({
       snapshot,
@@ -2313,10 +2317,6 @@ export class KnowledgeProduct {
   }
 
   /**
-   * A file of a repository as the graph was filled from it, for the source view (decision 0036, section 8): the text of
-   * the `source_text` opinion a fill published, never a second read of the checkout.
-   */
-  /**
    * One file's text, by (repository, blob id) from git's object store through the plugin host (madarch-u3vw.16, decision
    * 0037): the graph names the blob, the host reads it with the git plugin, and the page answers the lines asked for.
    * Nothing here reads a file: the api role never touches a product's working copy.
@@ -2374,41 +2374,16 @@ export class KnowledgeProduct {
     return this.fillQueue;
   }
 
+  /**
+   * A file of a repository, for the source view (decision 0037): the graph names the file's blob, and the host reads it
+   * from git's object store through the plugin. No working copy is read here, and a file the graph holds no blob for is
+   * no file of the source view. The product's own repository is named by the product.
+   */
   async source(repo: string | null, path: string): Promise<SourceRead | undefined> {
-    // A fill another process published moves the store before this answer reads it: the follow step the old page context
-    // ran, so the commit named here and the kinds the text is read from are the store's, not this process's last look.
-    await this.open();
-    await this.followStoreFill();
-    const held = (await this.sourceOpinions()).get(repo === null ? path : `repos/${repo}/${path}`);
-    if (held === undefined) return undefined;
-    return { text: held.text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };
-  }
-
-  /** Every file's text the graph holds, by the address a page's evidence names it with. */
-  private async sourceOpinions(): Promise<Map<string, { text: string; repository: string | null; commit: string }>> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    const read = await this.manifestRead(product.folder);
-    const opinions = new Map<string, { text: string; repository: string | null; commit: string }>();
-    if (!read.present) return opinions;
-    const kinds = graphKindsOf(read.manifest);
-    const owner = await this.open();
-    const reader = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
-    for (const kind of read.manifest.kinds.values()) {
-      if (!kind.fields?.some((field) => field.name === 'source_text')) continue;
-      let after: string | undefined;
-      do {
-        const page = await reader.list(kind.name, { limit: 500, ...(after === undefined ? {} : { after }) });
-        for (const entity of page.rows) {
-          const fields = entity.properties;
-          if (typeof fields['path'] !== 'string' || typeof fields['source_text'] !== 'string') continue;
-          const repository = typeof fields['repository'] === 'string' ? fields['repository'] : null;
-          opinions.set(repository === null ? fields['path'] : `repos/${repository}/${fields['path']}`, { text: fields['source_text'], repository, commit: typeof fields['commit'] === 'string' ? fields['commit'] : '' });
-        }
-        after = page.next ?? undefined;
-      } while (after !== undefined);
-    }
-    return opinions;
+    const held = await this.fileText(repo ?? product.name, path);
+    return held === undefined ? undefined : { text: held.text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };
   }
 
   // ---- the loop of questions and corrections (madarch-m38l.7) ---------------------------------

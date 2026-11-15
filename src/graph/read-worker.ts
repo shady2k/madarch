@@ -5,7 +5,7 @@ import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
 import { executeGraphql, structureRevisionOf } from '../graph/graphql-execute.js';
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
-import { readProductTemplates } from '../graph/product-templates.js';
+import { readPublishedTemplates } from '../graph/product-templates.js';
 import { diagramGraphOf, archifyDocument, likec4PictureOf, mermaidText, renderArchify } from '../render/diagram.js';
 import { DIAGRAM_DEPTH, DIAGRAM_AGGREGATE_ABOVE, DIAGRAM_MAX_BYTES, type DiagramAnswer } from '../render/diagram-render.js';
 import type { ReadWork } from '../render/read-worker.js';
@@ -20,9 +20,10 @@ async function neighbourhood(owner: DatabaseOwner, folder: string, asked: Extrac
     const manifest = await readPublishedManifest(tx);
     if (manifest === undefined) throw new Error(`${folder}/madarch/catalog.yaml:1: the graph holds no published manifest`);
     const published = publishedManifestOf(manifest);
-    const templates = readProductTemplates(folder);
-    const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates);
-    return await new ReadContext(tx, manifest, published, folder, asked.request.lang, structure, templates).diagramNeighbourhood(asked.request.entity, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.lang, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
+    // The templates are the graph's entities (the owner's decision of 2026-11-15), read in this page's own snapshot.
+    const templates = await readPublishedTemplates(tx, manifest);
+    const structure = structureRevisionOf(graphqlSchemaOf(published), templates.templates.templates);
+    return await new ReadContext(tx, manifest, published, folder, asked.request.lang, structure, templates.templates, templates.files, new Map(templates.templates.templates.map((one) => [one.name, one.body])), templates.findings).diagramNeighbourhood(asked.request.entity, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.lang, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
   });
 }
 async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: DatabaseOwner): Promise<DiagramAnswer> {

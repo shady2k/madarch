@@ -12,7 +12,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type { FieldType } from '../graph/contract.js';
-import { SCALAR_NAMES, SchemaRefusal, NameRegistry, fieldNameOf, typeNameOf } from './names.js';
+import { SCALAR_NAMES, SchemaRefusal, NameRegistry, fieldNameOf, kindTypeNameOf, typeNameOf } from './names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from './manifest.js';
 
 interface ArgumentDef {
@@ -321,7 +321,7 @@ class Builder {
 
   private buildKinds(): void {
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
-      const name = typeNameOf(kind.name);
+      const name = kindTypeNameOf(kind.name);
       this.registry.claimType(name, `the kind "${kind.name}"`);
       this.kindTypes.set(kind.name, name);
       this.type(name, [], ['Entity']);
@@ -455,7 +455,8 @@ class Builder {
       for (const field of kind.fields) {
         if (field.reference === undefined) continue;
         const target = this.referencedType(field.reference, `the field "${field.name}" of the kind "${kind.name}"`);
-        const name = `${fieldNameOf(field.name)}Of${source}`;
+        // The inverse is named by the kind's own encoding, not the type's family: `repositoryOfDemoFile`.
+        const name = `${fieldNameOf(field.name)}Of${typeNameOf(kind.name)}`;
         inverses.push({
           type: target,
           field: { name, type: `${source}Connection!`, args: connectionArgs(this.whereOf.get(source), this.orderOf.get(source)) },
@@ -475,7 +476,8 @@ class Builder {
     ];
     for (const kind of [...this.manifest.kinds].sort((left, right) => byCodePoint(typeNameOf(left.name), typeNameOf(right.name)))) {
       const type = this.kindTypes.get(kind.name)!;
-      const name = `all${type}`;
+      // The list is named by the kind's own encoding, not by the type's family: `allCodeFile` for `KindCodeFile`.
+      const name = `all${typeNameOf(kind.name)}`;
       this.registry.claimField('Query', name, `the list root of the kind "${kind.name}"`);
       fields.push({ name, type: `${type}Connection!`, args: [...connectionArgs(this.whereOf.get(type), this.orderOf.get(type)), { name: 'lang', type: 'String' }] });
       const aggregateName = `${name}Aggregate`;

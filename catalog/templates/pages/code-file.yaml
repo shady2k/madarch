@@ -87,7 +87,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate
@@ -128,7 +128,7 @@ sections:
           node {
             id
             kind
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               subject
               commitDate
               codeAuthoredOf(first: 1) {
@@ -207,7 +207,7 @@ sections:
             id
             kind
             label
-            ... on CodeCommit {
+            ... on KindCodeCommit {
               hash
               subject
               commitDate

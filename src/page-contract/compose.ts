@@ -8,7 +8,7 @@
  * The server validates template diagnostics with this module; the app composes each page with it, so
  * a page's shape has one implementation.
  */
-import { typeNameOf } from '../graphql/names.js';
+import { kindTypeNameOf } from '../graphql/names.js';
 import { byCodePoint } from '../model/order.js';
 import { sectionShownFor, readTemplate, resolveTemplate, type LocalizedText, type PageSection, type TemplateFile, type TemplateVariable } from './template.js';
 import type { TemplateFinding } from './validate.js';
@@ -163,7 +163,7 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
   if (subjectSections.length > 0 && address.id === undefined) {
     return { ...empty, findings: [...findings, { file: 'templates', line: 1, path: '', message: `the page's sections read its entity, and the address names none (${subjectSections.map((one) => one.id).join(', ')})` }] };
   }
-  const typeName = address.kind === undefined ? undefined : address.kind === CATALOGUE_KIND ? 'CatalogueEntity' : typeNameOf(address.kind);
+  const typeName = address.kind === undefined ? undefined : address.kind === CATALOGUE_KIND ? 'CatalogueEntity' : kindTypeNameOf(address.kind);
   const declarations = new Map<string, string>();
   const values: Record<string, unknown> = {};
   const parts: string[] = [];

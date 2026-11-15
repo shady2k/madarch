@@ -23,11 +23,16 @@ const bootstrap: Bootstrap = {
   roles: [],
 };
 
-/** The kinds the schema holds as entity types, read from the SDL's own names (a type name split into words). */
+/**
+ * The kinds the schema holds as entity types, read from the SDL's own names: a kind's type carries the `Kind` prefix that
+ * keeps it apart from the engine's own types (src/graphql/names.ts), and the rest of the name splits into the kind's words.
+ */
 function entityKinds(): string[] {
   return Object.values(schema.getTypeMap())
     .filter((type: GraphQLNamedType): type is GraphQLObjectType => 'getInterfaces' in type && (type as GraphQLObjectType).getInterfaces().some((one) => one.name === 'Entity'))
-    .map((type) => type.name.replace(/([a-z0-9])([A-Z])/gu, '$1.$2').toLowerCase())
+    // The engine's own `CatalogueEntity` stands on `Entity` too, and it is no kind: a kind's type carries the prefix.
+    .filter((type) => type.name.startsWith('Kind'))
+    .map((type) => type.name.slice('Kind'.length).replace(/([a-z0-9])([A-Z])/gu, '$1.$2').toLowerCase())
     .sort();
 }
 
@@ -52,7 +57,7 @@ test('every base template composes and is valid against the real schema', () => 
 });
 
 test('the text template composes on the type whose body it draws', () => {
-  const product = schema.getType('Product') as GraphQLObjectType | undefined;
+  const product = schema.getType('KindProduct') as GraphQLObjectType | undefined;
   expect(product?.getFields()['body']).toBeDefined();
   expect(errorsOf({ template: 'text', kind: 'product', id: '00000000-0000-0000-0000-000000000003' })).toEqual([]);
 });

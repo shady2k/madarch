@@ -13,5 +13,9 @@
       "fields": "*",
       "reads": []
     }
+  ],
+  "tier": "core",
+  "capabilities": [
+    "repository"
   ]
 }
