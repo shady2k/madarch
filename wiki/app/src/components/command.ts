@@ -400,7 +400,7 @@ export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs
 export const readFillRun = (base: string, runId: string, signal?: AbortSignal): Promise<{ run: FillRunDetail }> => command(base, `/api/fill-runs${query({ run: runId })}`, signal === undefined ? {} : { signal });
 
 /** Starts the fill of the kinds checked: their dependencies and order are the server's. */
-export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
+export const startFillSelection = (base: string, selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly model?: string | null; readonly reasoning?: string | null; readonly tokenCap: number | null; readonly pluginsOnly?: boolean }): Promise<{ runId: string; order: readonly string[] }> =>
   command(base, '/api/fill-selected', { method: 'POST', body: JSON.stringify(selection) });
 
 /** A person's «Пауза». */

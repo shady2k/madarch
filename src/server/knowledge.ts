@@ -156,15 +156,15 @@ export function createKnowledgePart(
  * the agent is a string or null, and the cap is a whole number of tokens, 1 or more, or null for no cap.
  */
   async function selectionBody(request: Request): Promise<
-    | { readonly selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly tokenCap: number | null; readonly pluginsOnly: boolean } }
+    | { readonly selection: { readonly selected: readonly string[]; readonly agent: string | null; readonly model: string | null; readonly reasoning: string | null; readonly tokenCap: number | null; readonly pluginsOnly: boolean } }
   | { readonly bad: Handled }
 > {
   const plain = notJson(request);
   if (plain !== undefined) return { bad: refused(415, { message: `${here()}: ${plain}` }) };
   let body: unknown;
   try { body = await request.json(); } catch (error) { return { bad: refused(400, { message: `${here()}: the request body is not JSON: ${(error as Error).message}` }) }; }
-  const asked = body as { selected?: unknown; agent?: unknown; tokenCap?: unknown; pluginsOnly?: unknown } | null;
-  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: `${here()}: the body is { selected: [kind...], agent?, tokenCap?, pluginsOnly? }` }) };
+  const asked = body as { selected?: unknown; agent?: unknown; model?: unknown; reasoning?: unknown; tokenCap?: unknown; pluginsOnly?: unknown } | null;
+  if (asked === null || typeof asked !== 'object') return { bad: refused(400, { message: `${here()}: the body is { selected: [kind...], agent?, model?, reasoning?, tokenCap?, pluginsOnly? }` }) };
   const selected = asked.selected;
   if (!Array.isArray(selected) || selected.some((kind) => typeof kind !== 'string' || kind.trim() === '')) {
     return { bad: refused(400, { field: 'selected', message: `${here()}: "selected" is the list of entity kinds the catalogue has checked, each a kind of the product's manifest` }) };
@@ -172,13 +172,19 @@ export function createKnowledgePart(
   if (asked.agent !== undefined && asked.agent !== null && typeof asked.agent !== 'string') {
     return { bad: refused(400, { field: 'agent', message: `${here()}: "agent" is the id of the agent the panel chose, or null for none` }) };
   }
+  for (const field of ['model', 'reasoning'] as const) {
+    const value = asked[field];
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      return { bad: refused(400, { field, message: `${here()}: "${field}" is a value the agent reports, or null for the agent's own` }) };
+    }
+  }
   if (asked.tokenCap !== undefined && asked.tokenCap !== null && (typeof asked.tokenCap !== 'number' || !Number.isInteger(asked.tokenCap) || asked.tokenCap < 1)) {
     return { bad: refused(400, { field: 'tokenCap', message: `${product.folder}/madarch/catalog.yaml:1: token cap must be a positive integer` }) };
   }
   if (asked.pluginsOnly !== undefined && typeof asked.pluginsOnly !== 'boolean') {
     return { bad: refused(400, { field: 'pluginsOnly', message: `${here()}: "pluginsOnly" is true to run the deterministic plugins only, leaving the agent's fields unfilled` }) };
   }
-  return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null, pluginsOnly: asked.pluginsOnly === true } };
+  return { selection: { selected: (selected as string[]).map((kind) => kind.trim()), agent: (asked.agent as string | null | undefined) ?? null, model: (asked.model as string | null | undefined) ?? null, reasoning: (asked.reasoning as string | null | undefined) ?? null, tokenCap: (asked.tokenCap as number | null | undefined) ?? null, pluginsOnly: asked.pluginsOnly === true } };
 }
 
 /** The code a fill press refusal carries, so a page can say it in the reader's language. */
@@ -363,7 +369,7 @@ function fillRefusalCode(message: string): string | undefined {
       // The press answers the plan it runs, which fields the agent fills included: a press that needs an agent and chose
       // none is refused with that plan, so the page can ask for one and name what waits for it (madarch-64o5.63).
       const plan = product.fillPlan(asked.selection.selected, asked.selection.pluginsOnly);
-      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), pluginsOnly: asked.selection.pluginsOnly, targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }), ...(asked.selection.pluginsOnly ? { pluginsOnly: true } : {}) } });
+      const started = await product.startFill({ selected: asked.selection.selected, agent: asked.selection.agent, ...(asked.selection.model === null ? {} : { model: asked.selection.model }), ...(asked.selection.reasoning === null ? {} : { reasoning: asked.selection.reasoning }), ...(asked.selection.tokenCap === null ? {} : { tokenCap: asked.selection.tokenCap }), pluginsOnly: asked.selection.pluginsOnly, targets: { kinds: targets.targets.order, requested: asked.selection.selected, ...(targets.targets.vertex === undefined ? {} : { vertex: targets.targets.vertex }), ...(asked.selection.pluginsOnly ? { pluginsOnly: true } : {}) } });
       if (!started.started) return refused(409, { message: started.message, ...(fillRefusalCode(started.message) === undefined ? {} : { code: fillRefusalCode(started.message) }) });
       return { response: json(202, { runId: started.runId, fill: started.fill, order: targets.targets.order, plan }) };
     }, true, true),

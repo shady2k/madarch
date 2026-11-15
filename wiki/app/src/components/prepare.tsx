@@ -16,12 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { ChoiceCard } from './ui/choice-card.js';
 import { Input } from './ui/input.js';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
+import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
 import { agentStateNote, agentUsable } from './agent-words.js';
 import {
-  CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, startFillSelection, useCommandRead,
+  chooseAgent, CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveProductSettings, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
@@ -50,6 +51,10 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const lastVars = useRef(`${String(context.variables['kinds'] ?? '')}\u0000${String(context.variables['pluginsOnly'] ?? '')}`);
   // The token cap as typed: `null` until the person changes the product's default, which the field offers.
   const [cap, setCap] = useState<string | null>(null);
+  // The model and reasoning level this run asks of its agent (madarch-64o5.90): `null` until the person picks one.
+  const [model, setModel] = useState<string | null>(null);
+  const [reasoning, setReasoning] = useState<string | null>(null);
+  const [savedDefaults, setSavedDefaults] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const key = requested.join(',');
@@ -75,7 +80,14 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const capNumber = capText.trim() === '' ? null : Number(capText);
   const capInvalid = capText.trim() !== '' && !(capNumber !== null && Number.isSafeInteger(capNumber) && capNumber > 0);
   const validCap = !capInvalid;
-  const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null);
+  const pickedOffer = agents.data?.agents.find((offer) => offer.id === agent) ?? null;
+  const choices = useCommandRead<AgentChoicesAnswer>(`prepare-choices:${agent ?? ''}`, (signal) => readAgentChoices(base, agent as string, signal), !pluginsOnly && requiresAgent && agent !== null && pickedOffer !== null && agentUsable(pickedOffer));
+  // The product's saved model stands for the agent it was chosen for; another agent starts from what it reports.
+  const savedPair = settings.data?.chosenAgent != null && settings.data.chosenAgent.id === agent ? settings.data.chosenAgent : null;
+  const modelChoice = choices.data?.choices.model ?? null;
+  const reasoningChoice = choices.data?.choices.reasoning ?? null;
+  const modelValue = model ?? savedPair?.model ?? modelChoice?.current ?? '';
+  const reasoningValue = reasoning ?? savedPair?.reasoning ?? reasoningChoice?.current ?? '';
 
   // A link with another selection or mode, or the back button, starts the panel from that address again.
   useEffect(() => {
@@ -93,7 +105,20 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   };
   const choose = (next: string): void => {
     setPicked(next);
+    // Another agent reports its own models, so a pair picked for one agent is not carried to another.
+    setModel(null);
+    setReasoning(null);
+    setSavedDefaults('idle');
     sync(next === PLUGINS_ONLY);
+  };
+  // «Сохранить по умолчанию»: the picked agent becomes the product's, with the model and reasoning level beside it.
+  const saveDefaults = (): void => {
+    if (agent === null) return;
+    setSavedDefaults('saving');
+    setFailure(null);
+    const remember = settings.data?.chosenAgent?.id === agent ? Promise.resolve() : chooseAgent(base, agent, true);
+    remember.then(() => saveProductSettings(base, { model: modelValue === '' ? null : modelValue, reasoning: reasoningValue === '' ? null : reasoningValue }))
+      .then(() => { setSavedDefaults('saved'); settings.reload(); }, (error: unknown) => { setSavedDefaults('failed'); setFailure(error instanceof Error ? error.message : String(error)); });
   };
   const run = (): void => {
     if (plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable) return;
@@ -102,6 +127,8 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
     startFillSelection(base, {
       selected: plan.requestedKinds.length > 0 ? plan.requestedKinds : requested,
       agent: pluginsOnly || !requiresAgent ? null : agent,
+      model: pluginsOnly || !requiresAgent || modelValue === '' ? null : modelValue,
+      reasoning: pluginsOnly || !requiresAgent || reasoningValue === '' ? null : reasoningValue,
       tokenCap: pluginsOnly || !requiresAgent ? null : capNumber,
       pluginsOnly,
     }).then(
@@ -215,12 +242,24 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           ) : null}
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
+              {modelChoice === null ? null : (
+                <FieldLabel className="grid gap-1 text-small">{t('prepare.modelChoice')}
+                  <Select data-testid="prepare-model" value={modelValue} onChange={(event) => { setModel(event.target.value); setSavedDefaults('idle'); }} options={modelChoice.values.map((entry) => ({ value: entry.value, label: entry.name }))} />
+                </FieldLabel>
+              )}
+              {reasoningChoice === null ? null : (
+                <FieldLabel className="grid gap-1 text-small">{t('prepare.reasoningChoice')}
+                  <Select data-testid="prepare-reasoning" value={reasoningValue} onChange={(event) => { setReasoning(event.target.value); setSavedDefaults('idle'); }} options={reasoningChoice.values.map((entry) => ({ value: entry.value, label: entry.name }))} />
+                </FieldLabel>
+              )}
               <FieldLabel className="grid gap-1 text-small">{t('prepare.cap')}
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={capText} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
               </FieldLabel>
+              {modelChoice === null && reasoningChoice === null ? null : (
+                <Button variant="default" size="default" disabled={savedDefaults === 'saving'} onClick={saveDefaults} data-testid="prepare-save-defaults">{t(savedDefaults === 'saved' ? 'prepare.savedDefaults' : 'prepare.saveDefaults')}</Button>
+              )}
             </Stack>
           ) : null}
-          {!pluginsOnly && requiresAgent && choices.data?.choices.model?.current !== null && choices.data?.choices.model?.current !== undefined ? <Paragraph className="mt-2 text-small text-muted">{t('prepare.model', { model: choices.data.choices.model.current })}</Paragraph> : null}
           {!pluginsOnly && requiresAgent ? <Paragraph className="mt-2 text-small text-muted" data-testid="prepare-cap-note">{t('prepare.capNote')}</Paragraph> : null}
           {!pluginsOnly && requiresAgent && capNumber === null && defaultCap !== null ? <Paragraph className="mt-1 text-small text-muted" data-testid="prepare-cap-default">{t('prepare.capDefault', { cap: new Intl.NumberFormat(language).format(defaultCap) })}</Paragraph> : null}
           {capInvalid ? <Paragraph role="alert" className="mt-2 text-small" data-testid="prepare-invalid-cap">{t('prepare.invalidCap')}</Paragraph> : null}

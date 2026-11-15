@@ -148,6 +148,16 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
     expect(pressed.body.error.message).toContain('prime-runtime');
   });
 
+  test('the agent choices route asks the agent the press picked, saved or not', async () => {
+    const settings = await call('/api/product-settings');
+    expect(settings.body.chosenAgent).toBeNull();
+    // Nothing is saved, yet the named agent is the one asked: the route never answers «no agent is chosen» for a name.
+    const named = await call('/api/agent-choices?agent=prime-agent');
+    expect(named.status).toBe(409);
+    expect(named.body.error.message).not.toContain('no agent is chosen');
+    expect(named.body.error.message).toContain('prime');
+  });
+
   test('the default token cap is a product setting, saved and refused by name', async () => {
     const saved = await call('/api/product-settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenCap: 250_000 }) });
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);

@@ -111,7 +111,7 @@ beforeEach(async () => {
     requests.push({ path: url.pathname + url.search, method, body });
     if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
-    if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
+    if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }] }, reasoning: { name: 'Reasoning', current: 'medium', values: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }] } } });
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
     if (url.pathname.endsWith('/api/product-settings')) return answer(url.pathname, { tokenCap: 200_000 });
     if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
@@ -228,7 +228,20 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     await settle();
     expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
     expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
-    expect(page.container.textContent).toContain('Модель: opus');
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    // The agent's own model and reasoning level stand beside the cap, and both follow the press (madarch-64o5.90).
+    const modelSelect = page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement;
+    const reasoningSelect = page.container.querySelector('[data-testid="prepare-reasoning"]') as HTMLSelectElement;
+    expect(modelSelect.value).toBe('opus');
+    expect(reasoningSelect.value).toBe('medium');
+    expect(page.container.textContent).toContain('Сохранить по умолчанию');
+    await act(async () => { modelSelect.value = 'sonnet'; modelSelect.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle();
+    // «Сохранить по умолчанию» saves the agent with the pair beside it; the press itself spends nothing.
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-save-defaults"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/agent') && one.method === 'POST' && (one.body as { agent?: string }).agent === 'claude-code')).toBe(true);
+    expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { model?: string }).model === 'sonnet' && (one.body as { reasoning?: string }).reasoning === 'medium')).toBe(true);
     // The cap offers the product's default (madarch-64o5.90), and an empty field runs under it rather than blocking.
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     expect(cap.value).toBe('200000');
@@ -240,7 +253,7 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
-    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', tokenCap: 1000, pluginsOnly: false });
+    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', model: 'sonnet', reasoning: 'medium', tokenCap: 1000, pluginsOnly: false });
     expect(page.opened).toContain('/p/run?run=fill-run-2');
   } finally {
     await page.close();
