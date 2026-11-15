@@ -129,43 +129,43 @@
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
       "phase": {
-      "queued": "Queued",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped",
-      "skipped": "Skipped",
-      "waiting": "Waiting",
-      "done": "Published",
-      "cancelled": "Cancelled",
-      "skippedBecause": "Skipped because {{unit}} failed",
-      "skippedBecauseRunEnded": "Skipped because the run ended"
-    },
-    "final": {
-      "succeeded": "Every required unit published.",
-      "partial": "The run ended, but some units did not publish.",
-      "failed": "The run ended with a failure.",
-      "stopped": "The run was stopped."
-    },
-    "next": {
-      "retry": "Fix the cause, then retry the fill.",
-      "retryAction": "Retry the fill"
-    },
-    "status": {
-      "queued": "Running",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped"
-    },
-    "endedAt": "ended {{time}}",
-    "attention": "The run did not finish completely",
-    "duration": "{{seconds}} s",
-    "event": {
+        "queued": "Queued",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped",
+        "skipped": "Skipped",
+        "waiting": "Waiting",
+        "done": "Published",
+        "cancelled": "Cancelled",
+        "skippedBecause": "Skipped because {{unit}} failed",
+        "skippedBecauseRunEnded": "Skipped because the run ended"
+      },
+      "final": {
+        "succeeded": "Every required unit published.",
+        "partial": "The run ended, but some units did not publish.",
+        "failed": "The run ended with a failure.",
+        "stopped": "The run was stopped."
+      },
+      "next": {
+        "retry": "Fix the cause, then retry the fill.",
+        "retryAction": "Retry the fill"
+      },
+      "status": {
+        "queued": "Running",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "endedAt": "ended {{time}}",
+      "attention": "The run did not finish completely",
+      "duration": "{{seconds}} s",
+      "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -1965,5 +1965,41 @@
     "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
     "notKnown": "Problems: not known right now",
     "fillUnknown": "The last fill is not known right now"
+  },
+  "files": {
+    "total": "{{files}} files · {{lines}} lines · {{languages}} languages",
+    "area": "Area",
+    "lines": "Lines",
+    "bytes": "Bytes",
+    "colour": "Colour",
+    "language": "Language",
+    "heat": "Heat",
+    "age": "Last change",
+    "authors": "Authors",
+    "windowLabel": "Window",
+    "window": {
+      "30d": "30 days",
+      "90d": "90 days",
+      "1y": "365 days",
+      "all": "All history"
+    },
+    "repository": "Repository",
+    "allRepositories": "All repositories",
+    "allFiles": "All files",
+    "everyFile": "Every file",
+    "path": "Path",
+    "pathPlaceholder": "Filter by path",
+    "allLanguages": "All languages",
+    "other": "Other",
+    "from": "From",
+    "to": "To",
+    "previous": "Previous",
+    "next": "Next",
+    "range": "{{from}}–{{to}} of {{total}}",
+    "noFiles": "No file matches these filters.",
+    "filesShort": "files",
+    "legend": "Legend",
+    "mapTitle": "Files by area",
+    "days": "days"
   }
 }

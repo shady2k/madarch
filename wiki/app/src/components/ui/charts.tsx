@@ -27,7 +27,7 @@ import { Paragraph } from './typography.js';
 export interface ChartRow { readonly label: string; readonly value: number }
 
 /** One node of a hierarchy: its label, what it holds, and its children. */
-export interface ChartNode { readonly label: string; readonly value?: number; readonly children?: readonly ChartNode[]; readonly color?: string }
+export interface ChartNode { readonly label: string; readonly value?: number; readonly children?: readonly ChartNode[]; readonly note?: string; readonly id?: string; readonly color?: string }
 
 /** One series across the same groups. */
 export interface ChartSeries { readonly name: string; readonly data: readonly number[] }
@@ -58,10 +58,43 @@ function ChartEmpty({ title, note }: { readonly title: string; readonly note: st
   </div>;
 }
 
+/** One entry of a figure's legend: its word and the kit token it takes. */
+export interface ChartLegendItem { readonly label: string; readonly color?: string }
+
+/** The legend of a figure: categorical swatches, or a continuous ramp between two kit tokens. */
+export function ChartLegend({ caption, items, ramp, testId = 'chart-legend' }: {
+  readonly caption?: string;
+  readonly items?: readonly ChartLegendItem[];
+  readonly ramp?: { readonly from: string; readonly to: string; readonly low: string; readonly high: string };
+  readonly testId?: string;
+}): ReactElement {
+  return (
+    <div className="dg-legend" data-testid={testId}>
+      <ul className="dg-legend-list">
+        {caption === undefined ? null : <li className="dg-legend-caption">{caption}</li>}
+        {(items ?? []).map((item) => (
+          <li key={item.label}>
+            {item.color === undefined ? null : <span className="dg-swatch" style={{ background: item.color }} aria-hidden="true" />}
+            {item.label}
+          </li>
+        ))}
+        {ramp === undefined ? null : (
+          <li className="dg-legend-ramp">
+            <span>{ramp.low}</span>
+            <span className="dg-ramp-wide" style={{ background: `linear-gradient(to right, ${ramp.from}, ${ramp.to})` }} aria-hidden="true" />
+            <span>{ramp.high}</span>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
 /** A tree drawn as areas: each child's area is its value's share of its parent's. */
-export function ChartTreemap({ title, nodes, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly note?: string }): ReactElement {
+export function ChartTreemap({ title, nodes, note = 'No values to draw', onNodeClick, ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly note?: string; readonly onNodeClick?: (node: ChartNode) => void }): ReactElement {
   if (!hasValues(nodes)) return <ChartEmpty title={title} note={note} />;
-  return <Categorical><Treemap title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Categorical>;
+  return <Categorical><Treemap title={title} root={{ label: title, children: nodes.map(nodeOf) }} onNodeClick={onNodeClick === undefined ? undefined : (node) => onNodeClick(node as ChartNode)} {...size} /></Categorical>;
+
 }
 
 /** The same tree as rings: the root's children the first ring, their children the next. */
@@ -166,12 +199,14 @@ function nodeOf(node: ChartNode): ChartTreeNode {
     label: node.label,
     ...(node.value === undefined ? {} : { value: node.value }),
     ...(node.children === undefined ? {} : { children: node.children.map(nodeOf) }),
+    ...(node.note === undefined ? {} : { note: node.note }),
+    ...(node.id === undefined ? {} : { id: node.id }),
     ...(node.color === undefined ? {} : { color: node.color }),
   };
 }
 
 /** The vendored tree shape, named here so the conversion is typed against it and not against a lookalike. */
-type ChartTreeNode = { label: string; value?: number; children?: ChartTreeNode[]; color?: string };
+type ChartTreeNode = { label: string; value?: number; children?: ChartTreeNode[]; note?: string; id?: string; color?: string };
 
 /** Whether a hierarchy holds any value at all, at any depth. */
 function hasValues(nodes: readonly ChartNode[]): boolean {

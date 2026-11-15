@@ -38,6 +38,15 @@ sections:
     on: root
     title: { en: What the graph holds, ru: Что держит граф }
     params: {}
+  - id: filesMap
+    component: files-page
+    on: root
+    after: overview
+    title: { en: The code map, ru: Карта кода }
+    query: |
+      filesPage
+    params:
+      compact: true
 
   - id: byLanguage
     component: bars

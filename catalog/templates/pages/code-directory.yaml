@@ -1,0 +1,31 @@
+# A folder of a code repository (decision 0036, section 6): its own facts stay on the entity page, and the code map
+# reads the files under it through the graph's `filesPage` read. The template names no kind in the app: the folder's
+# address is the read's scope, and every figure and control is the Files section's.
+template: code-directory
+extends: entity
+records: [code.directory]
+variables:
+  id: { type: ID!, required: true }
+sections:
+  - id: header
+    replace: true
+    component: header
+    title: { en: Folder, ru: Папка }
+    query: |
+      id
+      kind
+      label
+      template
+      repository
+      path
+    params:
+      titlePath: label
+      kindPath: kind
+      trail: { repository: repository, path: path }
+  - id: files
+    component: files-page
+    on: root
+    after: header
+    title: { en: In this folder, ru: В этой папке }
+    query: |
+      filesPage(id: $id)

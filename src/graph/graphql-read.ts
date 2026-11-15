@@ -21,6 +21,8 @@ import type { GraphQLFieldResolver } from 'graphql';
 import type { OuterTransaction } from '../adapters/database-owner.js';
 import { generatedTableName, type FieldType } from '../graph/contract.js';
 import { byCodePoint } from '../model/order.js';
+import { GIT_KINDS } from '../fill/stages/git-contract.js';
+import { readFilesPage } from './files-page.js';
 import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { fieldNameOf, typeNameOf } from '../graphql/names.js';
 import type { PublishedEdge, PublishedField, PublishedKind, PublishedManifest } from '../graphql/manifest.js';
@@ -1163,6 +1165,7 @@ export class ReadContext {
     if (field === 'cochange') return this.cochange(args, lang);
     if (field === 'contributors') return this.contributors(args, lang);
     if (field === 'related') return this.related(args, lang);
+    if (field === 'filesPage') return this.filesPage(args);
     if (field === 'catalogueEntity') {
       const value = (await this.catalogueData()).byName.get(typeof args['name'] === 'string' ? args['name'] : '');
       return value === undefined ? null : this.catalogueEntityValue(value, lang);
@@ -1212,6 +1215,38 @@ export class ReadContext {
       pageInfo: { endCursor: page.length === 0 ? null : cursorOf(page.length - 1, page[page.length - 1]!), hasNextPage: values.length > first },
       totalCount: total,
     };
+  }
+
+  /** The Files page's files and their history rhythm, read from the graph's own file and touched facts. */
+  private async filesPage(args: Record<string, unknown>): Promise<unknown> {
+    const fileFields = this.fieldsByType.get('CodeFile');
+    if (fileFields === undefined || !this.vertexTable.has(GIT_KINDS.file)) return { files: [] };
+    const commitFields = this.fieldsByType.get('CodeCommit');
+    const authorFields = this.fieldsByType.get('CodeAuthor');
+    const scope = await this.filesPageScope(typeof args['id'] === 'string' ? args['id'] : undefined);
+    return await readFilesPage(this.tx, {
+      hasLines: fileFields.has('lines'),
+      hasBytes: fileFields.has('bytes'),
+      hasLanguage: fileFields.has('language'),
+      hasTouched: this.edgeTable.has(GIT_KINDS.touched),
+      hasCommitDate: commitFields?.has('commitDate') === true,
+      hasAuthors: this.vertexTable.has(GIT_KINDS.signature) && this.edgeTable.has(GIT_KINDS.authored) && authorFields?.has('name') === true && authorFields.has('email'),
+    }, scope);
+  }
+
+  /** What an entity's page scopes the map to: a repository's files or one folder's subtree; any other page reads all. */
+  private async filesPageScope(id: string | undefined): Promise<{ repository?: string; path?: string }> {
+    if (id === undefined) return {};
+    const found = await this.tx.query<Record<string, unknown>>(
+      `SELECT en.name AS kind, n.key AS key FROM node n JOIN entity en ON en.id = n.entity_id WHERE n.uid = $1::uuid AND n.context_id = 1`,
+      [id],
+    );
+    const row = found.rows[0];
+    if (row === undefined) return {};
+    const key = (row['key'] ?? {}) as Record<string, unknown>;
+    if (row['kind'] === GIT_KINDS.directory && typeof key['repository'] === 'string') return { repository: key['repository'], path: typeof key['path'] === 'string' ? key['path'] : '' };
+    if (row['kind'] === GIT_KINDS.repository && typeof key['name'] === 'string') return { repository: key['name'] };
+    return {};
   }
 
   private async home(lang: string | undefined): Promise<unknown> {

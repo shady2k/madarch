@@ -22,7 +22,7 @@ export const COMPONENT_NAMES = [
   'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
-  'product-overview', 'repositories',
+  'product-overview', 'repositories', 'files-page',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
@@ -171,6 +171,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   'first-run': { parameters: {}, required: [] },
   'product-overview': { parameters: {}, required: [] },
   repositories: { parameters: {}, required: [] },
+  'files-page': { parameters: { compact: { type: 'boolean' } }, required: [] },
   'fill-kind': { parameters: { kindPath: { type: 'string' } }, required: ['kindPath'] },
   run: { parameters: { runVariable: { type: 'string' } }, required: ['runVariable'] },
   'problem-actions': { parameters: { path: { type: 'string' } }, required: ['path'] },

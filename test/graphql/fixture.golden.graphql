@@ -543,6 +543,7 @@ type Query {
   contributors(id: ID!, through: String!, edge: String!, first: Int, lang: String): [Cochange!]!
   searchGroups(text: String!, kinds: [String!], perKind: Int = 5, lang: String): [SearchGroup!]!
   related(id: ID!, edge: String!, inverse: Boolean = false, orderBy: [RelatedOrder!], first: Int, after: String, lang: String): EntityConnection!
+  filesPage(id: ID): JSON!
 }
 
 input CatalogueEntityDefinitionFilter {

@@ -28,6 +28,7 @@ import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
 import { ProductOverviewSection } from './components/overview.js';
 import { RepositoriesSection } from './components/repositories.js';
+import { FilesPageSection } from './components/files-page.js';
 import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
@@ -121,5 +122,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'sources': return <SourcesSection context={context} />;
     case 'product-overview': return <ProductOverviewSection context={context} />;
     case 'repositories': return <RepositoriesSection context={context} />;
+    case 'files-page': return <FilesPageSection context={context} />;
   }
 }

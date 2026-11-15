@@ -493,6 +493,7 @@ class Builder {
     this.registry.claimField('Query', 'contributors', 'the entities one more relation beyond an entity');
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
     this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
+    this.registry.claimField('Query', 'filesPage', 'the Files page read');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
@@ -503,6 +504,7 @@ class Builder {
       { name: 'templateFindings', type: '[TemplateFinding!]!' },
       { name: 'cochange', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
       { name: 'contributors', type: '[Cochange!]!', args: [{ name: 'id', type: 'ID!' }, { name: 'through', type: 'String!' }, { name: 'edge', type: 'String!' }, { name: 'first', type: 'Int' }, { name: 'lang', type: 'String' }] },
+      { name: 'filesPage', type: 'JSON!', args: [{ name: 'id', type: 'ID' }] },
       { name: 'searchGroups', type: '[SearchGroup!]!', args: [
         { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
         { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },

@@ -7,13 +7,14 @@ import { nodeValue, squarify } from "../../core/layout";
 import { cat } from "../../core/theme";
 import { ChartSvg, frame } from "../svg";
 
-export type TreemapProps = BaseProps & { root: TreeNode; depth?: number };
+export type TreemapProps = BaseProps & { root: TreeNode; depth?: number; onNodeClick?: (node: TreeNode) => void };
 
 export const Treemap = forwardRef<SVGSVGElement, TreemapProps>(
   (
     {
       root,
       depth = 2,
+      onNodeClick,
       format = formatCompact,
       title,
       width,
@@ -68,7 +69,16 @@ export const Treemap = forwardRef<SVGSVGElement, TreemapProps>(
                 const valueFits =
                   labelFits && tile.h > pad * 2 + T.onSeries.px * 2 + 4;
                 return (
-                  <g key={`${node.label}-${k}`}>
+                  <g
+                    key={`${node.label}-${k}`}
+                    data-node-id={node.id ?? node.label}
+                    data-testid="treemap-node"
+                    style={onNodeClick === undefined ? undefined : { cursor: 'pointer' }}
+                    role={onNodeClick === undefined ? undefined : 'button'}
+                    tabIndex={onNodeClick === undefined ? undefined : 0}
+                    onClick={onNodeClick === undefined ? undefined : () => onNodeClick(node)}
+                    onKeyDown={onNodeClick === undefined ? undefined : (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onNodeClick(node); } }}
+                  >
                     <rect
                       x={tile.x}
                       y={tile.y}
@@ -97,7 +107,7 @@ export const Treemap = forwardRef<SVGSVGElement, TreemapProps>(
                         {...T.onSeries.attrs}
                       >
                         {truncate(
-                          format(nodeValue(node)),
+                          node.note ?? format(nodeValue(node)),
                           T.onSeries.px,
                           tile.w - pad * 2,
                         )}
