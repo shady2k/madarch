@@ -192,6 +192,36 @@ function removeDraftFolder(folder: string): string | undefined {
   }
 }
 
+
+/**
+ * Whether git can name an author inside a folder, asked the way git itself asks: `git var GIT_AUTHOR_IDENT` reads the
+ * same configuration, the same environment and the same defaults a commit does. The folder is the product's own
+ * repository, so a conditional identity the products home matches — `includeIf "gitdir:<home>/"` — is the one the
+ * first commit will use, and a machine that can commit is never refused (madarch-64o5.84).
+ */
+function gitNamesAnAuthor(folder: string, gitEnv: GitEnv | undefined): boolean {
+  const asked = runGit(folder, ['var', 'GIT_AUTHOR_IDENT'], gitEnv !== undefined && Object.keys(gitEnv).length > 0 ? { ...gitEnv } : undefined);
+  // A git that cannot run at all is named by the step that needs it, with its own error, as it was before; every other
+  // answer git gives to "who are you" — no identity, an empty one — is this refusal.
+  const cannotRun = /ENOENT|not recognized|No such file or directory|spawnSync|Executable not found/u.test(asked.output);
+  return asked.ok || cannotRun;
+}
+
+/** The reader's language for a command that has no product yet: `MADARCH_LANG`, else the machine's locale. */
+function commandLanguage(gitEnv: GitEnv | undefined): 'en' | 'ru' {
+  const chosen = (gitEnv?.['MADARCH_LANG'] ?? process.env['MADARCH_LANG'] ?? process.env['LC_ALL'] ?? process.env['LC_MESSAGES'] ?? process.env['LANG'] ?? '').toLowerCase();
+  return chosen.startsWith('ru') ? 'ru' : 'en';
+}
+
+/** What init says when git has no author identity: the fact, and the two commands that set one. */
+function noIdentityMessage(gitEnv: GitEnv | undefined): string {
+  const commands = 'git config --global user.name "Ваше имя"\ngit config --global user.email "you@example.com"';
+  const english = 'git config --global user.name "Your Name"\ngit config --global user.email "you@example.com"';
+  return commandLanguage(gitEnv) === 'ru'
+    ? `madarch init не может создать продукт: git не знает, кто автор, а первый коммит продукта — ваш. Задайте имя и почту и повторите:\n  ${commands.replace('Ваше имя', 'Ваше имя')}`
+    : `madarch init cannot make a product yet: git has no author identity, and the product's first commit is yours. Set a name and an email, then run it again:\n  ${english}`;
+}
+
 /**
  * Creates a draft product repository under the products home the caller
  * names. Nothing is refused half-done: the home is judged before any product
@@ -268,6 +298,14 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);
+    // The first commit is the person's, so git must name an author here, inside the product's own repository, before
+    // that commit is attempted: git's own refusal names neither the two commands nor the work it would leave behind. The
+    // folder this init made is the only thing removed — nothing the person had stands in the products home.
+    if (!gitNamesAnAuthor(folder, options.gitEnv)) {
+      const message = noIdentityMessage(options.gitEnv);
+      const cleanup = removeDraftFolder(folder);
+      return { outcome: 'refused', message: cleanup === undefined ? message : `${message}; ${cleanup}` };
+    }
     // Only generated files occupy this reserved folder. Force includes starter files hidden by global ignores;
     // letting git walk it avoids expanding bundled dependency paths beyond Windows' command-line limit.
     const add = runGit(folder, ['add', '--force', '-A'], options.gitEnv);
