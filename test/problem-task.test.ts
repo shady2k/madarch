@@ -6,10 +6,10 @@
  * problem whose identity holds a separator the store cannot carry still gets its task.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parse, stringify } from 'yaml';
+import { stringify } from 'yaml';
 import { createDraft } from '../src/product/draft.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
@@ -19,6 +19,7 @@ import { generatedTableName } from '../src/graph/contract.js';
 import { LoopRefusal } from '../src/loop/answer.js';
 import { problemTaskRecord, problemTaskUid } from '../src/loop/problem-task.js';
 import type { Problem } from '../src/loop/views.js';
+import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
 
@@ -36,22 +37,68 @@ const evidence = [{ type: 'conversation', id: 'fixture', words: 'A file of 731 l
 /** Where the fixture's SQL facts stand: an opinion names the file line it was read at. */
 const place = { type: 'file', path: 'src/checkout.ts', commit: 'deadbeef', lineStart: 12 };
 
-/** The product's own catalogue, extended the way a product may: the flow the SQL rule reads, and a field per kind. */
-function extendCatalogue(product: string): void {
-  const manifestFile = join(product, 'madarch', 'catalog.yaml');
-  const manifest = parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-  manifest['edges'] = [...(manifest['edges'] as unknown[]), { name: 'code.flows-into', from: ['code.input', 'code.sql-build'], to: ['code.sql-build', 'code.sql-sink'], capability: 'analysis' }];
-  writeFileSync(manifestFile, stringify(manifest));
-  for (const kind of ['code.input', 'code.sql-build', 'code.sql-sink']) {
-    const file = join(product, 'madarch', 'kinds', 'code', 'analysis', `${kind}.yaml`);
-    const declaration = parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-    declaration['fields'] = [
-      { name: 'name', type: 'text', producers: ['analysis'] },
-      { name: 'source_text', type: 'text', nullable: true, producers: ['analysis'] },
-    ];
-    declaration['key'] = ['name'];
-    writeFileSync(file, stringify(declaration));
-  }
+/** One fixture kind: a graph-kind declaration with the fields it is written through. */
+const kind = (fields: readonly Record<string, unknown>[], key?: readonly string[]): Record<string, unknown> => ({
+  source: 'graph', ...(key === undefined ? {} : { key }), fields,
+});
+
+/**
+ * The product's own catalogue, as a fixture: the six kinds these cases write and the two rules they read, instead of the
+ * starter set's 526 kinds. The store's schema is the manifest's, so a small manifest is a store opened in seconds.
+ */
+function fixtureCatalogue(product: string): void {
+  const text = stringify({
+    problems: {
+      thresholds: { largeFileLines: 600, hotspotLines: 200, hotspotCommits: 10, hotspotScore: 10000 },
+      rules: {
+        'large-file': { predicate: 'large-file', kind: 'large-file', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', label: { en: 'Large file', ru: 'Большой файл' } },
+        'security.sql-input': { predicate: 'sql-input', kind: 'sql-input', sonar: 'vulnerability', severity: 'blocker', section: 'code', action: 'task', label: { en: 'Untrusted input reaches SQL', ru: 'Внешние данные попадают в SQL' } },
+      },
+    },
+    edges: [
+      { name: 'code.contains', from: ['code.repository'], to: ['code.file'], capability: 'disk' },
+      { name: 'code.flows-into', from: ['code.input', 'code.sql-build'], to: ['code.sql-build', 'code.sql-sink'], capability: 'analysis' },
+    ],
+    kinds: {
+      task: kind([
+        { name: 'title', type: 'text', producers: ['person'] },
+        { name: 'body', type: 'text', nullable: true, producers: ['person'] },
+        { name: 'front', type: 'json', nullable: true, producers: ['person'] },
+      ]),
+      'code.repository': kind([
+        { name: 'name', type: 'text', producers: ['disk'] },
+        { name: 'url', type: 'text', nullable: true, producers: ['disk'] },
+      ], ['name']),
+      // A file is declared with the columns the engine's records layer reads (its opinions, its bytes and its form), so
+      // the fixture is a product whose file kind is the starter one's shape, without the rest of the catalogue.
+      'code.file': kind([
+        { name: 'repository', type: 'text', producers: ['disk'] },
+        { name: 'path', type: 'text', producers: ['disk'] },
+        { name: 'mode', type: 'text', nullable: true, producers: ['disk'] },
+        { name: 'blob', type: 'text', nullable: true, producers: ['disk'] },
+        { name: 'bytes', type: 'bigint', nullable: true, producers: ['disk'] },
+        { name: 'form', type: 'text', nullable: true, producers: ['disk'] },
+        { name: 'lines', type: 'bigint', nullable: true, producers: ['disk'] },
+        { name: 'content', type: 'text', nullable: true, producers: ['disk'] },
+        { name: 'language', type: 'text', nullable: true, producers: ['disk'] },
+        { name: 'languages', type: 'json', nullable: true, producers: ['disk'] },
+        { name: 'class', type: 'text', nullable: true, producers: ['disk'] },
+      ], ['repository', 'path']),
+      'code.input': kind([
+        { name: 'name', type: 'text', producers: ['analysis'] },
+        { name: 'source_text', type: 'text', nullable: true, producers: ['analysis'] },
+      ], ['name']),
+      'code.sql-build': kind([
+        { name: 'name', type: 'text', producers: ['analysis'] },
+        { name: 'source_text', type: 'text', nullable: true, producers: ['analysis'] },
+      ], ['name']),
+      'code.sql-sink': kind([
+        { name: 'name', type: 'text', producers: ['analysis'] },
+        { name: 'source_text', type: 'text', nullable: true, producers: ['analysis'] },
+      ], ['name']),
+    },
+  });
+  writeFolderManifest(product, text);
 }
 
 beforeAll(async () => {
@@ -59,7 +106,7 @@ beforeAll(async () => {
   const draft = createDraft({ home, name: 'problem-task', gitEnv: env });
   if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
   folder = draft.folder;
-  extendCatalogue(folder);
+  fixtureCatalogue(folder);
   closePreparationOwner = await retainTestStorePreparationOwner();
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home), env });
   try {
@@ -99,7 +146,7 @@ beforeAll(async () => {
   } finally {
     await product.close();
   }
-}, 420_000);
+}, 180_000);
 
 afterAll(async () => {
   try { await closePreparationOwner?.(); } finally { rmSync(root, { recursive: true, force: true }); }
@@ -152,7 +199,7 @@ test('a problem becomes one task with the person as its source and the page link
     await owner?.close();
     await product.close();
   }
-}, 120_000);
+}, 30_000);
 
 test('two presses of one problem at once write one task and one journal entry', async () => {
   const product = open();
@@ -174,7 +221,7 @@ test('two presses of one problem at once write one task and one journal entry', 
     await owner?.close();
     await product.close();
   }
-}, 180_000);
+}, 30_000);
 
 test('a problem whose identity holds the store\'s separator still gets its task, naming the identity back', async () => {
   const product = open();
@@ -197,7 +244,7 @@ test('a problem whose identity holds the store\'s separator still gets its task,
     await owner?.close();
     await product.close();
   }
-}, 120_000);
+}, 30_000);
 
 test('a problem the page no longer lists is refused in the reader\'s words, naming no path of this machine', async () => {
   const product = open();
@@ -210,7 +257,7 @@ test('a problem the page no longer lists is refused in the reader\'s words, nami
   } finally {
     await product.close();
   }
-}, 60_000);
+}, 30_000);
 
 test('the task says what has to change in the product\'s own language', () => {
   const problem = {
