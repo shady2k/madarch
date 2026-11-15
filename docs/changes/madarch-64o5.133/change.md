@@ -15,7 +15,7 @@ old page and no old module returns, and no table, data file or text pointer is a
 
 ## Rationale
 The owner's words for the task: «дом и каталог как до PR #299». A filled product's home
-showed six fact cards with their grounds, and its catalogue showed how many kinds and
+showed seven fact cards with their grounds, and its catalogue showed how many kinds and
 records it holds, the fill state of every kind and a contents list that follows the page.
 On the template layer the home kept two charts of code files and the catalogue kept its
 rows, its filters and its selection mode; the rest was gone. The items and their fates
@@ -55,7 +55,7 @@ Kind: screen
 Place: a filled product's home at `/`, its catalogue at `/p/catalogue`, and the home of a product created with no kinds manifest
 Mockup: docs/changes/madarch-64o5.133/home-1440-light.png
 
-1. Open the home of a product the disk and git plugins have filled: six fact cards stand under «Что держит граф» — the number of files, the files by language, by folder, by repository, their age and the largest and most changed files — each drawn as a number or a chart, each with «Основания» under it (the kind, the measure, the field, the records counted and the records no shown row accounts for) and a title that opens the kind's catalogue page. A reader whose role is everything reads all six; a reader who chose analyst reads none of them and still sees what the graph holds of every kind.
+1. Open the home of a product the disk and git plugins have filled: seven fact cards stand under «Что держит граф» — the number of files, the files by language, by folder, by repository, their age and the largest and most changed files — each drawn as a number or a chart, each with «Основания» under it (the kind, the measure, the field, the records counted and the records no shown row accounts for) and a title that opens the kind's catalogue page. A reader whose role is everything reads all seven; a reader who chose analyst reads none of them and still sees what the graph holds of every kind.
 2. Open the catalogue: the header states «63 вида, 772 записи», each area and subgroup states its own share, every kind wears its state («Заполнено», «Не заполнено», «Ошибка»), and «На этой странице» follows the areas at the right of the page and turns into a button at a phone's width; a press on an entry scrolls to its area.
 3. Read the home while a fill runs: «Идёт заполнение · N из M» stands with the last thing the run did, in the words of its run page. When the newest run failed, a problem card stands until «Скрыть» is pressed, with «Повторить заполнение». A graph that holds only part of a repository's history offers «Заполнить» to read the rest.
 4. Create a product with `madarch init --template none` and open it: the page names the product, says the product was created, that the graph is empty, names `madarch/catalog.yaml` and links «Как написать манифесты продукта».
@@ -67,7 +67,7 @@ None.
 | Item | Where it lived before #299 | Now |
 |---|---|---|
 | 32 A missing manifest is named, with the guide | `pages.tsx:417`, `PrefillHome`; the guide address in `src/product/cli.ts` | **done**: the frame draws `components/missing-manifest.tsx` when `/api/status` says `no-manifest`, because such a product has no graph and no template can compose. The guide address is one constant (`src/product/guides.ts`), printed by the command line and served in `/api/status` |
-| 33 Role-filtered fact cards: a number or a chart, a ground, a link | `facts.tsx:1-40` and the manifest's per-kind `facts:` | **done** on the template layer: a new `fact` component draws one aggregate as a card, a ground disclosure and a link to the kind's catalogue page; `home.yaml` declares the six facts `catalog/code/structure/code.file.yaml` declares, each with `roles: { show: [developer, architect] }` from that kind's audience. Left from the old ground: the list of every entity key the fact counted (a second listing of the kind) and `computedAt` (an aggregate carries no time, and a browser clock would claim one the graph never stated) |
+| 33 Role-filtered fact cards: a number or a chart, a ground, a link | `facts.tsx:1-40` and the manifest's per-kind `facts:` | **done** on the template layer: a new `fact` component draws one aggregate as a card, a ground disclosure and a link to the kind's catalogue page; `home.yaml` declares the six facts `catalog/code/structure/code.file.yaml` declares and the files by repository the home already charted, each with `roles: { show: [developer, architect] }` from that kind's audience. Left from the old ground: the list of every entity key the fact counted (a second listing of the kind) and `computedAt` (an aggregate carries no time, and a browser clock would claim one the graph never stated) |
 | 34 The fill card: running counts and last item, a failure's place, continue, a failed run kept until dismissed | `pages.tsx:305-383`, `writer.tsx` | **partly done**, in `comp/overview.tsx`: a running fill states `Идёт заполнение · N из M` and the last thing it did, a failed run keeps its retry until dismissed (session storage, per run id), and an incomplete history offers the fill that reads the rest. **Left**: the failure's file, line and path — the run's records carry the place only inside the engine's sentence, and the run page is written for a person with no machine path; showing it would mean parsing that sentence or adding a field to the run store |
 | 38 A state badge per kind | `pages.tsx:611-613` | **done**: `catalogue.tsx` shows «Не заполнено» / «Заполнено» / «Ошибка» from the graph's count and the newest run that reached the kind (`/api/fill-runs`, the workflow state the command routes keep) |
 | 39 The header totals and a total per group | `pages.tsx:624,637` | **done**: «N видов, M записей» in the header, and the same line on every area and subgroup |
@@ -108,7 +108,8 @@ a facts table inside the kit's own `overflow-x-auto` wrapper, which scrolls by i
 home's fact cards read `Files 584 · Grounds Kind Files, Measure A count of the records,
 Entities counted 584`, `By language YAML 524, TypeScript 25, …`, `Files by repository shop
 584 · Records in no shown row 0`; the catalogue reads `63 kinds, 772 records` with
-`Never filled` on the kinds the fill never reached and its 39 contents entries.
+`Filled` on the kinds the fill reached and `Never filled` on the ones it did not, and its 39 contents
+entries; the no-manifest home reads its card whole and overflows nothing (0 px) at 1440 and 390.
 Walk: the screens come from a product made by `createDraft`, filled by the disk and git
 plugins through `POST /api/fill` until the run ended `done`, served with the built app.
 Mutation: not run, filed per the stage rule.
