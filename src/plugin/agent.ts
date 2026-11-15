@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
 import { byCodePoint } from '../model/order.js';
+import { englishOnly } from './english-task.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
@@ -153,7 +154,9 @@ export class PluginAgentBridge {
           if (choice.configId === null) await session.setModel(wanted);
           else await session.setConfigOption(choice.configId, wanted);
         }
-        const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(task ?? null)}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(this.outputs)}`;
+        // The agent reads one language (madarch-64o5.107): the task and the contract it is given are resolved to their
+        // English text, and the contract the answer is validated against stays the declared one.
+        const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(englishOnly(task ?? null))}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(englishOnly(this.outputs))}`;
         const meter = this.options.meter;
         meter?.beginSession();
         const turn = meter === undefined ? undefined : await meter.runTurn(session, prompt, { model: session.model, signal: controller.signal });

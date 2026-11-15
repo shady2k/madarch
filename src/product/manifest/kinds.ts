@@ -862,6 +862,17 @@ export function readKinds(productFolder: string): KindsRead {
 }
 
 /**
+ * The one text an agent is given for a field's meaning (madarch-64o5.107): the description a field's agent binding states,
+ * else the kind's English description, else the field's own name. The reader's other languages stay the people's: the
+ * agent is sent one text once.
+ */
+export function agentMeaningOf(kind: { readonly descriptions?: Readonly<Record<string, string>> }, field: { readonly name: string; readonly binding?: unknown }): string {
+  const binding = field.binding as { readonly kind?: unknown; readonly description?: unknown } | undefined;
+  if (binding?.kind === 'agent' && typeof binding.description === 'string') return binding.description;
+  return kind.descriptions?.['en'] ?? field.name;
+}
+
+/**
  * Reads the metadata and folder declarations from a source of the product repository's files: the
  * fill's working tree, or the graph's stored text for a reader of the wiki. Nothing is read from a checkout here.
  */
@@ -2079,7 +2090,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   for (const catalogueAgent of [...plugins.values()].filter((plugin) => plugin.contract?.agent?.catalogue === true)) {
     const candidates = [...kinds.values()].sort((left, right) => byCodePoint(left.name, right.name));
     const vertices: PluginOutputKind[] = candidates.map((kind) => ({ kind: kind.name, key: kind.key ?? [], fields: (kind.fields ?? []).map((field) => ({
-      name: field.name, type: field.type, meaning: field.binding?.kind === 'agent' ? field.binding.description : Object.values(kind.descriptions ?? {}).join(' ') || field.name,
+      name: field.name, type: field.type, meaning: agentMeaningOf(kind, field),
       example: null, required: (kind.key ?? []).includes(field.name) || field.nullable !== true, evidence: field.evidence ?? true, ...(field.reference === undefined ? {} : { reference: field.reference }),
     })) }));
     const agentEdges: PluginOutputEdge[] = [...edges.values()].filter((edge) => edge.from.length === 1 && edge.to.length === 1).map((edge) => ({ kind: edge.name, from: edge.from[0]!, to: edge.to[0]!, fields: edge.fields.map((field) => ({ name: field.name, type: field.type, meaning: field.name, example: null, required: field.nullable !== true, evidence: field.evidence ?? true })) }));
