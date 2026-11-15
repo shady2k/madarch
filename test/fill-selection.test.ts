@@ -135,17 +135,18 @@ describe.skipIf(sandboxProblem !== undefined)('the fill page request', () => {
   });
 
   test('a press that chooses an agent and no token cap runs under the product\'s default cap', async () => {
-    // The product holds a default cap (madarch-64o5.90), so a press that names none is not refused for the cap: it
-    // reaches the agent and stops only where the agent itself cannot run (prime-agent is a program of its own).
+    // The product holds a default cap (madarch-64o5.90), so a press that names none is not refused for the cap: it goes
+    // on to resolve the agent and stops only there. The agent is one no machine installs, so the answer is the engine's
+    // own words and never this box's (a real agent's message names whatever its adapter says here).
     const settings = await call('/api/product-settings');
     expect(settings.status).toBe(200);
     expect(settings.body.tokenCap).toBe(200_000);
-    const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: 'prime-agent', tokenCap: null }) });
+    const pressed = await call('/api/fill-selected', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ selected: ['doc.term'], agent: 'no-such-agent', tokenCap: null }) });
     expect(pressed.status).toBe(409);
     expect(pressed.body.error.code).not.toBe('fill/token-cap');
     expect(JSON.stringify(pressed.body)).not.toContain('--token-cap');
-    // The press reached the agent itself; the cap was no part of its refusal.
-    expect(pressed.body.error.message).toContain('prime-runtime');
+    // The press reached the agent: the refusal is the unknown id, and the cap was no part of it.
+    expect(pressed.body.error.message).toContain('unknown agent');
   });
 
   test('the agent choices route asks the agent the press picked, saved or not', async () => {
