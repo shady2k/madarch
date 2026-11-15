@@ -84,7 +84,7 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
-import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskUid } from '../loop/problem-task.js';
+import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskSource, problemTaskUid } from '../loop/problem-task.js';
 import type { Author } from '../loop/entities.js';
 import type { ProblemLink } from '../problems/types.js';
 import { entityPageAddress } from './addresses.js';
@@ -2536,9 +2536,10 @@ export class KnowledgeProduct {
     // The press is what the write rests on: the problem and the finding's own words, said by the person. The evidence
     // carries no moment of its own, so two presses of one problem write the same thing once — the journal states when.
     const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, words: record.statement }];
-    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one, and the
-    // author starts with `person:` — the product then knows a person wrote in it, and its start-over is refused.
-    const source = { producer: `person:${by.name}`, version: by.email.replaceAll('@', '%40') };
+    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one — a name of
+    // `Alice@work` is written `Alice%40work` — and the author starts with `person:`: the product then knows a person wrote
+    // in it, and its start-over is refused.
+    const source = problemTaskSource(by);
     let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
     try {
       written = await this.putEntity(source, {

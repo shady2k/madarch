@@ -17,7 +17,7 @@ import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/p
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { LoopRefusal } from '../src/loop/answer.js';
-import { problemTaskRecord, problemTaskUid } from '../src/loop/problem-task.js';
+import { problemTaskRecord, problemTaskSource, problemTaskUid } from '../src/loop/problem-task.js';
 import type { Problem } from '../src/loop/views.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { gitEnv } from './git-env.js';
@@ -30,6 +30,7 @@ let home = '';
 let closePreparationOwner: (() => Promise<void>) | undefined;
 let largeFile: Problem;
 let otherLargeFile: Problem;
+let thirdLargeFile: Problem;
 let sqlInput: Problem;
 
 /** One conversation the fixture's writes rest on: a write names its evidence, whoever makes it. */
@@ -118,10 +119,10 @@ beforeAll(async () => {
     await product.putEntity({ producer: 'fixture', version: '1' }, {
       kind: 'code.file', key: { repository: 'product', path: 'src/big.ts' }, values: { lines: 731 }, evidence,
     });
-    await product.putEntity({ producer: 'fixture', version: '1' }, {
-      kind: 'code.file', key: { repository: 'product', path: 'src/huge.ts' }, values: { lines: 700 }, evidence,
-    });
-    for (const path of ['src/big.ts', 'src/huge.ts']) {
+    for (const [path, lines] of [['src/huge.ts', 700], ['src/third.ts', 640]] as const) {
+      await product.putEntity({ producer: 'fixture', version: '1' }, { kind: 'code.file', key: { repository: 'product', path }, values: { lines }, evidence });
+    }
+    for (const path of ['src/big.ts', 'src/huge.ts', 'src/third.ts']) {
       await product.putEdge({ producer: 'fixture', version: '1' }, {
         kind: 'code.contains', from: { kind: 'code.repository', key: { name: 'product' } }, to: { kind: 'code.file', key: { repository: 'product', path } }, evidence,
       });
@@ -139,9 +140,10 @@ beforeAll(async () => {
     const listing = await product.problems();
     const large = listing.problems.filter((candidate) => candidate.rule === 'large-file');
     const sql = listing.problems.find((candidate) => candidate.rule === 'security.sql-input');
-    if (large.length !== 2 || sql === undefined) throw new Error(`the fixture's problems did not stand: ${JSON.stringify(listing.problems.map((one) => [one.rule, one.file]))}`);
+    if (large.length !== 3 || sql === undefined) throw new Error(`the fixture's problems did not stand: ${JSON.stringify(listing.problems.map((one) => [one.rule, one.file]))}`);
     largeFile = large.find((candidate) => candidate.file === 'src/big.ts')!;
     otherLargeFile = large.find((candidate) => candidate.file === 'src/huge.ts')!;
+    thirdLargeFile = large.find((candidate) => candidate.file === 'src/third.ts')!;
     sqlInput = sql;
   } finally {
     await product.close();
@@ -240,6 +242,32 @@ test('a problem whose identity holds the store\'s separator still gets its task,
     expect(parts).toHaveLength(2);
     expect(parts.join('\u0000')).toBe(sqlInput.identity);
     expect((await product.problems()).problems.find((candidate) => candidate.id === sqlInput.id)?.task?.href).toBe(made.task.href);
+  } finally {
+    await owner?.close();
+    await product.close();
+  }
+}, 30_000);
+
+test('a person whose name holds @ is written with it escaped, so two presses of one problem write once', async () => {
+  // The graph joins a write's producer and its version with '@': the name's own '@' is escaped, and read back the same way.
+  const source = problemTaskSource({ name: 'Alice@work', email: 'fixture@example.test' });
+  expect(source).toEqual({ producer: 'person:Alice%40work', version: 'fixture%40example.test' });
+  const personOf = (part: string): string => part.replaceAll('%40', '@');
+  expect(personOf('person:Alice%40work')).toBe('person:Alice@work');
+  const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home), env: gitEnv({ ...SAMPLE_IDENTITY, GIT_AUTHOR_NAME: 'Alice@work' }) });
+  let owner: Awaited<ReturnType<typeof storeOf>> | undefined;
+  try {
+    owner = await storeOf();
+    const before = await owner.run((tx) => tx.query<{ n: string }>("SELECT count(*)::text AS n FROM operation WHERE words = 'Create a task'"));
+    const answers = await Promise.all([product.createProblemTask(thirdLargeFile.id), product.createProblemTask(thirdLargeFile.id)]);
+    expect(new Set(answers.map((answer) => answer.task.href)).size).toBe(1);
+    const rows = await owner.run((tx) => tx.query<{ said_by: string }>(`SELECT said_by FROM "${generatedTableName('task', 'vertex')}" WHERE state = 'open' AND front->>'file' = 'src/third.ts'`));
+    expect(rows.rows).toHaveLength(1);
+    // One '@' joins producer and version: the name's own is escaped, and the producer reads back to `person:Alice@work`.
+    expect(rows.rows[0]!.said_by).toBe('person:Alice%40work@fixture%40example.test');
+    expect(personOf(rows.rows[0]!.said_by.split('@')[0]!)).toBe('person:Alice@work');
+    const after = await owner.run((tx) => tx.query<{ n: string }>("SELECT count(*)::text AS n FROM operation WHERE words = 'Create a task'"));
+    expect(Number(after.rows[0]!.n) - Number(before.rows[0]!.n)).toBe(1);
   } finally {
     await owner?.close();
     await product.close();
