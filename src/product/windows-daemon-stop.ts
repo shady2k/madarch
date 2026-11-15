@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { postgresInstallFolder, postgresProgram } from '../adapters/postgres-builds.js';
-import { preparationInProgress } from '../adapters/postgres-preparation-record.js';
+import { commandLineArguments, preparationInProgress, runsOnDataDir } from '../adapters/postgres-preparation-record.js';
 import { knowledgeRootOf } from './store.js';
 
 export interface WindowsProcess { pid: number; parent: number; name: string; }
@@ -179,7 +179,8 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
     // folder, since a pid without a start time may be another process's — and success is claimed only when none remains.
     if (preparationInProgress(store.folder)) {
       const listing = reads.preparationProcesses ?? windowsProcesses;
-      const holders = (): { pid: number; name: string }[] | undefined => listing()?.filter((row) => /(?:^|[\\/])(?:initdb|postgres)\.exe$/i.test(row.name) && row.commandLine.toLowerCase().includes(store.folder.toLowerCase())).map((row) => ({ pid: row.pid, name: row.name }));
+      // By the argument, never by a substring: a server of `pgdata-other` is another store's.
+      const holders = (): { pid: number; name: string }[] | undefined => listing()?.filter((row) => runsOnDataDir(row.name, commandLineArguments(row.commandLine, 'win32'), store.folder, 'win32')).map((row) => ({ pid: row.pid, name: row.name }));
       const found = holders();
       if (found === undefined) {
         console.error(`Windows stop: the store ${store.folder} is still being prepared and the process list could not be read, so it is left as it stands and this stop fails`);

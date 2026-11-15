@@ -6,7 +6,7 @@
  * `madarch.preparing` is written before an initdb is spawned and names it once it has a pid; `madarch.prepared` is
  * written once that initdb ends. A folder that holds files and neither record is no preparation of ours.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** Our record of a preparation under way, beside the data directory. */
@@ -27,4 +27,65 @@ export function preparedRecordPath(dataDir: string): string { return join(dirnam
 /** Whether a preparation madarch started is under way in this data directory: its record is there and no prepared one is. */
 export function preparationInProgress(dataDir: string): boolean {
   return existsSync(preparingRecordPath(dataDir)) && !existsSync(preparedRecordPath(dataDir));
+}
+
+/**
+ * The arguments of a command line as the program receives them: `CommandLineToArgvW`'s rules on Windows — a run of
+ * backslashes before a quote is halved and the quote is literal when the run is odd, otherwise it opens or closes
+ * quoting — and plain whitespace splitting elsewhere. A program's own command line is `argv` on POSIX, and this is how
+ * the same question is asked of the text Windows keeps.
+ */
+export function commandLineArguments(commandLine: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== 'win32') return commandLine.split(' ').filter((part) => part !== '');
+  const args: string[] = [];
+  let current = '';
+  let quoted = false;
+  let started = false;
+  for (let index = 0; index < commandLine.length; index++) {
+    const character = commandLine[index]!;
+    if (character === '\\') {
+      let run = 0;
+      while (commandLine[index] === '\\') { run++; index++; }
+      const next = commandLine[index];
+      if (next === '"') {
+        current += '\\'.repeat(Math.floor(run / 2));
+        if (run % 2 === 1) { current += '"'; index++; } else { quoted = !quoted; index++; }
+      } else { current += '\\'.repeat(run); index--; }
+      started = true;
+      continue;
+    }
+    if (character === '"') { quoted = !quoted; started = true; continue; }
+    if (!quoted && (character === ' ' || character === '\t')) {
+      if (started) { args.push(current); current = ''; started = false; }
+      continue;
+    }
+    current += character;
+    started = true;
+  }
+  if (started) args.push(current);
+  return args;
+}
+
+/** A path as this platform compares two of them: Windows folds case and separators, POSIX reads the real path. */
+export function comparablePath(path: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32') return path.replace(/\//g, '\\').toLowerCase();
+  try { return realpathSync(path); } catch { return path; }
+}
+
+/**
+ * Whether this program is initdb or PostgreSQL running on exactly this data directory: an argument that is `-D <path>`,
+ * `-D<path>` or `--pgdata=<path>` and whose path is that folder — never a folder whose name merely begins with it
+ * (`C:\\store\\pgdata-other` is another store's server).
+ */
+export function runsOnDataDir(program: string, argv: readonly string[], dataDir: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (!/(?:^|[\\/])(?:initdb|postgres)(?:\.exe)?$/i.test(program)) return false;
+  const wanted = comparablePath(dataDir, platform);
+  const named = (value: string | undefined): boolean => value !== undefined && comparablePath(value, platform) === wanted;
+  for (let index = 1; index < argv.length; index++) {
+    const argument = argv[index]!;
+    if (argument === '-D' || argument === '--pgdata') { if (named(argv[index + 1])) return true; continue; }
+    if (argument.startsWith('-D') && argument.length > 2) { if (named(argument.slice(2))) return true; continue; }
+    if (argument.startsWith('--pgdata=')) { if (named(argument.slice('--pgdata='.length))) return true; }
+  }
+  return false;
 }

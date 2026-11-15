@@ -3,7 +3,8 @@
  * machine may have handed out again.
  */
 import { expect, test } from 'bun:test';
-import { endInitdbTree } from '../src/adapters/postgres-cluster.js';
+import { endInitdbTree, timeoutEndsInitdb } from '../src/adapters/postgres-cluster.js';
+import { commandLineArguments, runsOnDataDir } from '../src/adapters/postgres-preparation-record.js';
 
 test('an exited initdb\'s pid is never signalled, though what names the folder is ended', () => {
   const dataDir = 'C:\\store\\pgdata';
@@ -25,4 +26,37 @@ test('a live initdb is ended with its tree, and a POSIX one by its group only', 
   const groups: number[] = [];
   endInitdbTree(800, '/store/pgdata', false, { platform: 'linux', killGroup: (group) => groups.push(group) });
   expect(groups).toEqual([800]);
+});
+
+test('a folder is matched by the -D argument, never as a prefix of another folder', () => {
+  const dataDir = 'C:\\store\\pgdata';
+  const argv = (commandLine: string): string[] => commandLineArguments(commandLine, 'win32');
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe -D ${dataDir} -p 5432`), dataDir, 'win32')).toBe(true);
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe -D ${dataDir}-other -p 5432`), dataDir, 'win32')).toBe(false);
+  expect(runsOnDataDir('initdb.exe', argv(`C:\\tools\\initdb.exe -D${dataDir} --auth=trust`), dataDir, 'win32')).toBe(true);
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe --pgdata=${dataDir}`), dataDir, 'win32')).toBe(true);
+  // Quoted paths with spaces, and the folders they only begin with.
+  const spaced = 'C:\\store with spaces\\pgdata';
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe -D "${spaced}" -p 5432`), spaced, 'win32')).toBe(true);
+  expect(runsOnDataDir('postgres.exe', argv(`C:\\tools\\postgres.exe -D "${spaced} other" -p 5432`), spaced, 'win32')).toBe(false);
+  // Windows folds case and separators; another program's -D is not ours.
+  expect(runsOnDataDir('POSTGRES.EXE', argv('C:\\tools\\postgres.exe -D c:/STORE/PGDATA'), dataDir, 'win32')).toBe(true);
+  expect(runsOnDataDir('notepad.exe', argv(`C:\\Windows\\notepad.exe -D ${dataDir}`), dataDir, 'win32')).toBe(false);
+});
+
+test('a timeout after initdb exited signals no pid, only what names the folder', () => {
+  const dataDir = '/store/pgdata';
+  const killed: { pid: number; tree: boolean }[] = [];
+  const groups: number[] = [];
+  const listing = [{ pid: 4242, name: 'postgres.exe', commandLine: `C:\\tools\\postgres.exe --boot -D ${dataDir}` }];
+  timeoutEndsInitdb(4242, dataDir, true, { platform: 'win32', processes: () => listing, kill: (pid, tree) => killed.push({ pid, tree }) });
+  // The id belongs to nobody: only the program naming the folder is ended.
+  expect(killed).toEqual([{ pid: 4242, tree: false }]);
+  killed.length = 0;
+  timeoutEndsInitdb(700, dataDir, true, { platform: 'win32', processes: () => [], kill: (pid, tree) => killed.push({ pid, tree }) });
+  expect(killed).toEqual([]);
+  timeoutEndsInitdb(800, dataDir, true, { platform: 'linux', killGroup: (group) => groups.push(group) });
+  expect(groups).toEqual([800]);
+  timeoutEndsInitdb(900, dataDir, false, { platform: 'win32', processes: () => [], kill: (pid, tree) => killed.push({ pid, tree }) });
+  expect(killed).toEqual([{ pid: 900, tree: true }]);
 });

@@ -55,9 +55,10 @@ import { ensurePostgresInstalled, refuseRoot } from './postgres-install.js';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { postgresProgram, postgresInstallFolder } from './postgres-builds.js';
+import { commandLineArguments } from './postgres-preparation-record.js';
 import { setPriority } from 'node:os';
 import { runningVersion } from '../product/version.js';
-import { preparedRecordPath, preparingRecordPath, type PreparingRecord } from './postgres-preparation-record.js';
+import { preparedRecordPath, preparingRecordPath, runsOnDataDir, type PreparingRecord } from './postgres-preparation-record.js';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
 export const CLUSTER_PORT = 5_432;
@@ -521,7 +522,9 @@ function preparationHolders(dataDir: string): { pid: number; name: string }[] | 
     try {
       const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
       const all = Array.isArray(value) ? value : [value];
-      return all.filter((row) => /^(?:initdb|postgres|cmd)\.exe$/i.test(row.Name ?? '') && (row.CommandLine ?? '').toLowerCase().includes(dataDir.toLowerCase())).map((row) => ({ pid: row.ProcessId, name: row.Name }));
+      return all.filter((row) => /^(?:initdb|postgres|cmd)\.exe$/i.test(row.Name ?? '') && ((row.Name ?? '').toLowerCase().startsWith('cmd')
+        ? (row.CommandLine ?? '').toLowerCase().includes(dataDir.toLowerCase())
+        : runsOnDataDir(row.Name ?? '', commandLineArguments(row.CommandLine ?? '', 'win32'), dataDir, 'win32'))).map((row) => ({ pid: row.ProcessId, name: row.Name }));
     } catch { return undefined; }
   }
   const holders: { pid: number; name: string }[] = [];
@@ -529,9 +532,10 @@ function preparationHolders(dataDir: string): { pid: number; name: string }[] | 
     for (const id of readdirSync('/proc')) {
       if (!/^\d+$/.test(id)) continue;
       try {
-        const cmd = readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').join(' ');
-        if (!/(?:^|\/)(?:initdb|postgres)(?: |$)/.test(cmd) || !cmd.includes(dataDir)) continue;
-        holders.push({ pid: Number(id), name: cmd.split(' ')[0]!.split('/').pop() ?? '' });
+        const argv = readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').filter((part) => part !== '');
+        const program = argv[0] ?? '';
+        if (!runsOnDataDir(program, argv, dataDir, process.platform)) continue;
+        holders.push({ pid: Number(id), name: program.split('/').pop() ?? '' });
       } catch { /* gone */ }
     }
   } catch { return undefined; }
@@ -604,7 +608,7 @@ export function endInitdbTree(pid: number | undefined, dataDir: string, live: bo
     // After it exits its id may belong to whatever the machine started next: no pid is signalled then. What it left is
     // found by identity instead — a program whose command line names this data folder.
     for (const holder of (reads.processes ?? windowsProcesses)() ?? []) {
-      if (!/(?:^|[\\/])(?:initdb|postgres)\.exe$/i.test(holder.name) || !holder.commandLine.toLowerCase().includes(dataDir.toLowerCase())) continue;
+      if (!runsOnDataDir(holder.name, commandLineArguments(holder.commandLine, 'win32'), dataDir, 'win32')) continue;
       kill(holder.pid, false);
     }
     return;
@@ -613,6 +617,14 @@ export function endInitdbTree(pid: number | undefined, dataDir: string, live: bo
   // group leader is never signalled by it.
   const killGroup = reads.killGroup ?? ((group: number) => { try { process.kill(-group, 'SIGKILL'); } catch { /* no such group */ } });
   killGroup(pid);
+}
+
+/**
+ * What a timeout may end: initdb with its tree while it lives, and after its exit nothing by pid — only what names the
+ * data folder, by identity. A timer that fires after the exit must never signal the id.
+ */
+export function timeoutEndsInitdb(pid: number | undefined, dataDir: string, exited: boolean, reads: Parameters<typeof endInitdbTree>[3] = {}): void {
+  endInitdbTree(pid, dataDir, !exited, reads);
 }
 
 /** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
@@ -660,6 +672,7 @@ async function runInitdb(program: string, args: readonly string[], dataDir: stri
   child.stderr.on('data', (part: string) => { stderr += part; });
   const outcome = await new Promise<{ code: number | null; timedOut: boolean }>((answer) => {
     let settled = false;
+    let exited = false;
     let output: ReturnType<typeof setTimeout> | undefined;
     const finish = (value: { code: number | null; timedOut: boolean }): void => {
       if (settled) return;
@@ -670,13 +683,18 @@ async function runInitdb(program: string, args: readonly string[], dataDir: stri
     };
     // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
     // start that waited for the pipes would hang on an initdb that has already ended.
+    // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
+    // start that waited for the pipes would hang on an initdb that has already ended. Its exit also disarms the timeout:
+    // after it, its pid is nobody's to signal, and a timer that fired in the pipe wait would kill a reused id.
     child.once('exit', (code) => {
+      exited = true;
+      clearTimeout(timer);
       output = setTimeout(() => finish({ code, timedOut: false }), INITDB_OUTPUT_WAIT_MS);
       child.once('close', () => finish({ code, timedOut: false }));
     });
     child.once('error', () => finish({ code: null, timedOut: false }));
     const timer = setTimeout(() => {
-      endInitdbTree(child.pid, dataDir, true);
+      timeoutEndsInitdb(child.pid, dataDir, exited);
       finish({ code: null, timedOut: true });
     }, timeoutMs);
   });
