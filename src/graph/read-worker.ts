@@ -40,7 +40,7 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
     answer = { status: 200, body: { format: 'mermaid', entity: graph.entity, depth: graph.depth, folded: graph.folded, truncated: graph.truncated, source: mermaidText(graph) } };
   } else {
     const liked = await likec4PictureOf(graph);
-    if (asked.request.format === 'likec4') answer = { status: 200, body: { format: 'likec4', entity: graph.entity, depth: graph.depth, folded: graph.folded, truncated: graph.truncated, workspace: liked.workspace, view: liked.view, links: liked.links, root: liked.root } };
+    if (asked.request.format === 'likec4') answer = { status: 200, body: { format: 'likec4', entity: graph.entity, depth: graph.depth, folded: graph.folded, truncated: graph.truncated, workspace: liked.workspace, view: liked.view, links: liked.links, titles: liked.titles, root: liked.root } };
     else answer = { status: 200, html: await renderArchify(archifyDocument(graph, liked), graph, { timeoutMs: asked.deadlineMs ?? 30_000, started: (pid, folder) => self.postMessage({ kind: 'renderer', pid, folder }), stopped: () => self.postMessage({ kind: 'renderer' }) }) };
   }
   const bytes = Buffer.byteLength('html' in answer ? answer.html : JSON.stringify('body' in answer ? answer.body : answer));

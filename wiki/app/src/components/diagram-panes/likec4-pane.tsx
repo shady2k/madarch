@@ -119,6 +119,10 @@ export function LikeC4Pane({ answer, open }: { readonly answer: LikeC4Answer | u
       focus.style.setProperty('--likec4-palette-stroke', 'var(--text)');
       focus.style.setProperty('--likec4-palette-hiContrast', 'var(--text)');
     }
+    // A node whose shown name is its last segment carries the whole path as its hover text (madarch-64o5.96).
+    for (const [id, title] of Object.entries(answer?.titles ?? {})) {
+      root.querySelector<HTMLElement>(`[data-id="${id}"]`)?.setAttribute('title', title);
+    }
   }, [pane, themeId, answer]);
 
   if (answer === undefined) return <Metadata>{t('knowledge.loadingPicture')}</Metadata>;

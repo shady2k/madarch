@@ -11,6 +11,7 @@ import { Metadata } from '../ui/typography.js';
 import { DiagramScaled, DiagramZoomBar, DiagramZoomBox } from '../ui/drawing.js';
 import type { MermaidAnswer } from '../diagram-types.js';
 import { readDiagramTheme, type DiagramTheme } from '../diagram-theme.js';
+import { fitScale, pans, zoomStep, type Size } from '../diagram-zoom.js';
 
 /** Mermaid's theme variables, from the kit's palette: the renderer has no access to the tokens itself. */
 export function mermaidThemeVariables(theme: DiagramTheme): Record<string, string> {
@@ -55,9 +56,12 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
   const { t } = useTranslation();
   const holder = useRef<HTMLDivElement | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [size, setSize] = useState<Size | null>(null);
+  const [box, setBox] = useState<Size>({ width: 0, height: 0 });
   const [zoom, setZoom] = useState<number | null>(null);
   const [fit, setFit] = useState(1);
+  // Mermaid hands back the handlers that attach its tooltips; without them a shortened label keeps no whole path.
+  const bind = useRef<((element: Element) => void) | undefined>(undefined);
   const [failed, setFailed] = useState<string | undefined>(undefined);
   const scheme = useScheme();
   const source = answer?.source ?? '';
@@ -70,6 +74,7 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
         mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base', themeVariables: mermaidThemeVariables(readDiagramTheme()), flowchart: { curve: 'linear', useMaxWidth: false, htmlLabels: false } });
         const drawn = await mermaid.render(`diagram-${String(Math.random()).slice(2)}`, source);
         if (!alive) return;
+        bind.current = drawn.bindFunctions === undefined ? undefined : (element: Element) => drawn.bindFunctions?.(element);
         setSvg(drawn.svg);
         setFailed(undefined);
       } catch (error) {
@@ -95,21 +100,31 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
   }, [svg, open]);
   // The natural size of the drawn picture, and the fit that shows it whole: a diagram fits its box by default.
   useLayoutEffect(() => {
-    const box = holder.current;
-    if (box === null || svg === null) return;
-    const drawn = box.querySelector('svg');
+    const frame = holder.current;
+    if (frame === null || svg === null) return;
+    // Mermaid's own tooltip and hover handlers go on the frame the picture was drawn into (madarch-64o5.96).
+    bind.current?.(frame);
+    const drawn = frame.querySelector('svg');
     const width = Number(drawn?.getAttribute('width') ?? 0);
     const height = Number(drawn?.getAttribute('height') ?? 0);
     if (width <= 0 || height <= 0) return;
-    setSize({ width, height });
-    const measure = (): void => setFit(Math.min(1, (box.clientWidth - 2) / width));
+    const picture = { width, height };
+    setSize(picture);
+    // The box's height is its cap (the frame scrolls past 72vh): a fit that reads only the width left a tall picture
+    // standing out of its frame.
+    const measure = (): void => {
+      const held = { width: frame.clientWidth, height: frame.clientHeight };
+      setBox(held);
+      setFit(fitScale(picture, held));
+    };
     measure();
     const watcher = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    watcher?.observe(box);
+    watcher?.observe(frame);
     return () => watcher?.disconnect();
   }, [svg]);
   const scale = zoom ?? fit;
-  const step = useCallback((factor: number): void => setZoom(Math.min(4, Math.max(0.2, Math.round(scale * factor * 100) / 100))), [scale]);
+  const canPan = size !== null && pans(size, scale, box);
+  const step = useCallback((factor: number): void => setZoom(zoomStep(scale, factor)), [scale]);
   // Drag inside the box pans it, as a reader expects of a picture larger than its frame.
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   if (answer === undefined) return <Metadata>{t('knowledge.loadingPicture')}</Metadata>;
@@ -124,10 +139,10 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
       </DiagramZoomBar>
       <DiagramZoomBox
         ref={holder}
-        pannable={scale > 1}
+        pannable={canPan}
         className="dg-mermaid"
         data-testid="mermaid-pane"
-        onPointerDown={(event) => { if (scale <= 1) return; const box = event.currentTarget; drag.current = { x: event.clientX, y: event.clientY, left: box.scrollLeft, top: box.scrollTop }; }}
+        onPointerDown={(event) => { if (!canPan) return; const held = event.currentTarget; drag.current = { x: event.clientX, y: event.clientY, left: held.scrollLeft, top: held.scrollTop }; }}
         onPointerMove={(event) => { const held = drag.current; if (held === null) return; event.currentTarget.scrollLeft = held.left - (event.clientX - held.x); event.currentTarget.scrollTop = held.top - (event.clientY - held.y); }}
         onPointerUp={() => { drag.current = null; }}
         onPointerLeave={() => { drag.current = null; }}

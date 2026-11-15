@@ -8,6 +8,8 @@ export interface LikeC4Answer {
   readonly workspace: string;
   readonly view: unknown;
   readonly links: Readonly<Record<string, string>>;
+  /** The whole label of each node whose shown name is its last segment, by element id: the hover text (madarch-64o5.96). */
+  readonly titles: Readonly<Record<string, string>>;
   /** The page's own entity, by its LikeC4 element id: it stands out from its neighbours (madarch-64o5.96). */
   readonly root: string;
 }

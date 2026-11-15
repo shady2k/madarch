@@ -180,6 +180,8 @@ export interface LikeC4Picture {
   readonly view: unknown;
   /** Each node's page, by the LikeC4 element id the view carries: a press on it opens that entity. */
   readonly links: Readonly<Record<string, string>>;
+  /** The whole label of each node whose shown name is its last segment, by element id: the hover text (madarch-64o5.96). */
+  readonly titles: Readonly<Record<string, string>>;
   /** The page's own entity, by its LikeC4 element id: it stands out from its neighbours (madarch-64o5.96). */
   readonly root: string;
 }
@@ -194,8 +196,12 @@ export async function likec4PictureOf(graph: DiagramGraph): Promise<LikeC4Pictur
     const occurrences = likec4Occurrences(graph);
     const ids = new Map(occurrences.nodes.map((node, at) => [node.id, likec4Id(at)]));
     const links: Record<string, string> = {};
-    for (const node of occurrences.nodes) if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
-    return { format: 'likec4', workspace, view: model.$data, links, root: ids.get(graph.entity.id) ?? '' };
+    const titles: Record<string, string> = {};
+    for (const node of occurrences.nodes) {
+      if (node.href !== undefined) links[ids.get(node.id)!] = node.href;
+      if (node.title !== undefined) titles[ids.get(node.id)!] = node.title;
+    }
+    return { format: 'likec4', workspace, view: model.$data, links, titles, root: ids.get(graph.entity.id) ?? '' };
   } finally {
     await likec4[Symbol.asyncDispose]?.();
   }
@@ -247,7 +253,8 @@ export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Reco
       id,
       type: archifyType(at),
       label: node.title === undefined || node.title === '' ? node.id : node.title,
-      sublabel: own?.kind ?? '',
+      // The whole path stands under a shortened name, so two files of one name read apart (madarch-64o5.96).
+      sublabel: own?.title ?? own?.kind ?? '',
 
       pos: [Math.round(node.x ?? 0), Math.round(node.y ?? 0)],
       size: [Math.round(node.width ?? 160), Math.round(node.height ?? 60)],
