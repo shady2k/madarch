@@ -9,6 +9,27 @@ import { prepareStoreAcceptanceFixture } from './clean-install-fixture.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 import { stopChildWithin } from '../src/product/child-stop.js';
 
+// The very first statement: a walk that never gets further says so, and CI shows this line or none at all.
+process.stderr.write('walk: start\n');
+
+/**
+ * Ends a child this script started, within a bound — its own copy, so a walk loads nothing of madarch's runtime: a
+ * module graph of the product (a PostgreSQL client, a library call) has no place in a script that only drives commands.
+ */
+async function stopChildWithin(child: { readonly pid: number | undefined; kill(signal?: NodeJS.Signals | number): unknown; readonly exited: Promise<unknown> }, options: { readonly what: string; readonly graceMs?: number; readonly killWaitMs?: number }): Promise<'ended' | 'killed' | 'stuck'> {
+  const graceMs = options.graceMs ?? 30_000;
+  const killWaitMs = options.killWaitMs ?? 10_000;
+  const within = async (work: Promise<unknown>, ms: number): Promise<boolean> =>
+    await Promise.race([work.then(() => true, () => true), new Promise<boolean>((answer) => { const timer = setTimeout(() => answer(false), ms); (timer as unknown as { unref?: () => void }).unref?.(); })]);
+  try { child.kill('SIGTERM'); } catch { /* gone between the check and the signal */ }
+  if (await within(child.exited, graceMs)) return 'ended';
+  process.stderr.write(`walk: ${options.what} (pid ${String(child.pid)}) did not end within ${String(graceMs)} ms of SIGTERM, so it is killed\n`);
+  try { child.kill('SIGKILL'); } catch { /* gone */ }
+  if (await within(child.exited, killWaitMs)) return 'killed';
+  process.stderr.write(`walk: ${options.what} (pid ${String(child.pid)}) did not end within ${String(killWaitMs)} ms of SIGKILL: something of it still holds the walk's output open\n`);
+  return 'stuck';
+}
+
 interface Options { binary: string; os: string; arch: string }
 function args(argv: string[]): Options {
   const result: Options = { binary: '', os: process.platform, arch: process.arch };

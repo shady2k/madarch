@@ -57,6 +57,7 @@ import { randomBytes } from 'node:crypto';
 import { postgresProgram, postgresInstallFolder } from './postgres-builds.js';
 import { setPriority } from 'node:os';
 import { runningVersion } from '../product/version.js';
+import { preparedRecordPath, preparingRecordPath, type PreparingRecord } from './postgres-preparation-record.js';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
 export const CLUSTER_PORT = 5_432;
@@ -429,6 +430,9 @@ export function clusterStartInvocation(dataDir: string, logFile: string, connect
   };
 }
 
+/** How long an open waits for an initdb a `madarch.preparing` record names: the same 90 s bound the initdb runs under. */
+const PREPARATION_WAIT_MS = 90_000;
+
 /** Starts one private server: Unix socket on Unix, authenticated loopback TCP on Windows. */
 async function startServer(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly log: (line: string) => void; readonly preparationWaitMs?: number; readonly initdbTimeoutMs?: number }): Promise<void> {
   const { dataDir, socketDir, bin } = options;
@@ -466,43 +470,22 @@ function lowerPriorityOf(dataDir: string): void {
   try { setPriority(pid, SERVER_PRIORITY); } catch { /* the platform refuses: the server keeps the priority it has */ }
 }
 
-/**
- * Our records, beside a store's data directory and never inside it: `madarch.preparing` while an initdb madarch spawned
- * may be writing the folder, and `madarch.prepared` once that initdb ended. `PG_VERSION` cannot say a cluster is whole
- * — initdb writes it 64 ms into a 3.3 s run (measured 2026-11-15, this box) — and a folder whose files are missing
- * proves nothing about who made it, so only these records let madarch remove a folder.
- */
-const PREPARING_FILE = 'madarch.preparing';
-const PREPARED_FILE = 'madarch.prepared';
-
-/** What `madarch.preparing` holds: who is making the cluster, and the initdb it spawned, once there is one. */
-interface PreparingRecord {
-  readonly version: string;
-  readonly startedAt: string;
-  readonly initdb?: { readonly pid: number; readonly startTime?: string };
-}
-
-/** How long an open waits for an initdb a record names: the same 90 s bound the initdb binary itself runs under. */
-const PREPARATION_WAIT_MS = 90_000;
-
-function preparingPath(dataDir: string): string { return join(dirname(dataDir), PREPARING_FILE); }
-function preparedPath(dataDir: string): string { return join(dirname(dataDir), PREPARED_FILE); }
-
-function writeRecord(path: string, value: object): void {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-}
-
-/** Our record of a preparation under way, or undefined when there is none that can be read. */
+/** The record of a preparation under way, read from beside the data directory; undefined when there is none readable. */
 function preparingRecord(dataDir: string): PreparingRecord | undefined {
   try {
-    const record = JSON.parse(readFileSync(preparingPath(dataDir), 'utf8')) as PreparingRecord;
+    const record = JSON.parse(readFileSync(preparingRecordPath(dataDir), 'utf8')) as PreparingRecord;
     return typeof record?.startedAt === 'string' ? record : undefined;
   } catch { return undefined; }
 }
 
+/** Writes one of our records beside the data directory, private to the account that runs the store. */
+function writeRecord(path: string, value: object): void {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
 /** Whether our record says this data directory was prepared: the only proof of ours that a cluster is whole. */
 function recordPrepared(dataDir: string): boolean {
-  return existsSync(preparedPath(dataDir));
+  return existsSync(preparedRecordPath(dataDir));
 }
 
 /** What initdb leaves when it ends: its version file, its control file and its template database. */
@@ -555,15 +538,10 @@ function preparationHolders(dataDir: string): { pid: number; name: string }[] | 
   return holders;
 }
 
-/** Whether a preparation madarch started is under way in this data directory: its record is there and no prepared one is. */
-export function preparationInProgress(dataDir: string): boolean {
-  return existsSync(preparingPath(dataDir)) && !existsSync(preparedPath(dataDir));
-}
-
 /** Keeps a whole cluster: writes the record that says so, and drops the record of a preparation it no longer needs. */
 function keepPrepared(dataDir: string): void {
-  if (!existsSync(preparedPath(dataDir))) writeRecord(preparedPath(dataDir), { version: runningVersion(), preparedAt: new Date().toISOString() });
-  rmSync(preparingPath(dataDir), { force: true });
+  if (!existsSync(preparedRecordPath(dataDir))) writeRecord(preparedRecordPath(dataDir), { version: runningVersion(), preparedAt: new Date().toISOString() });
+  rmSync(preparingRecordPath(dataDir), { force: true });
 }
 
 /**
@@ -589,12 +567,12 @@ function recordedInitdbMayLive(initdb: { readonly pid: number; readonly startTim
 async function awaitRecordedInitdb(dataDir: string, record: PreparingRecord, waitMs: number): Promise<void> {
   const initdb = record.initdb;
   if (initdb === undefined) {
-    throw new Error(`${preparingPath(dataDir)}:1: madarch recorded that it was preparing ${dataDir} and named no initdb, so the folder is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    throw new Error(`${preparingRecordPath(dataDir)}:1: madarch recorded that it was preparing ${dataDir} and named no initdb, so the folder is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
   }
   const deadline = Date.now() + waitMs;
   while (recordedInitdbMayLive(initdb) && Date.now() < deadline) await Bun.sleep(100);
   if (recordedInitdbMayLive(initdb)) {
-    throw new Error(`${preparingPath(dataDir)}:1: the initdb madarch recorded for ${dataDir} (pid ${String(initdb.pid)}) is still running after ${String(waitMs)} ms, so the folder is left as it stands and this store does not open: open the store again once it ends, or move ${dataDir} aside (src/adapters/postgres-cluster.ts)`);
+    throw new Error(`${preparingRecordPath(dataDir)}:1: the initdb madarch recorded for ${dataDir} (pid ${String(initdb.pid)}) is still running after ${String(waitMs)} ms, so the folder is left as it stands and this store does not open: open the store again once it ends, or move ${dataDir} aside (src/adapters/postgres-cluster.ts)`);
   }
 }
 
@@ -716,7 +694,7 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   } else if (!empty) {
     // Nothing of madarch's says it made this folder, so nothing of madarch may remove it, however unfinished its files
     // look: an older or damaged cluster missing `base/1` is a store's data, not preparation's left-over.
-    throw new Error(`${dataDir}:1: this folder holds files and no record of a preparation madarch started (${preparingPath(dataDir)}), so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    throw new Error(`${dataDir}:1: this folder holds files and no record of a preparation madarch started (${preparingRecordPath(dataDir)}), so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
   }
   // Only an unfinished folder of ours, an empty one, or the record of a folder already gone is removed here.
   rmSync(dataDir, { recursive: true, force: true });
@@ -735,21 +713,21 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   const startedAt = new Date().toISOString();
   // A record that outlived the folder it named says nothing about the one being made now: preparation is the record
   // from here until initdb ends, and a crash mid-way must not leave a store that reads as whole.
-  rmSync(preparedPath(dataDir), { force: true });
-  writeRecord(preparingPath(dataDir), { version, startedAt });
+  rmSync(preparedRecordPath(dataDir), { force: true });
+  writeRecord(preparingRecordPath(dataDir), { version, startedAt });
   const started = performance.now();
   try {
     await runInitdb(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C'], (pid, startTime) => {
       // The record names the initdb as soon as it has one: a madarch that a stop ends leaves a folder only a later open
       // may remove, and only once that initdb is gone.
-      writeRecord(preparingPath(dataDir), { version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });
+      writeRecord(preparingRecordPath(dataDir), { version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });
     }, initdbTimeoutMs);
-    writeRecord(preparedPath(dataDir), { version, preparedAt: new Date().toISOString() });
-    rmSync(preparingPath(dataDir), { force: true });
+    writeRecord(preparedRecordPath(dataDir), { version, preparedAt: new Date().toISOString() });
+    rmSync(preparingRecordPath(dataDir), { force: true });
   } catch (error) {
     // An initdb that wrote nothing never prepared anything: the record of that attempt is not one to keep, since a
     // later open would refuse a folder holding nothing rather than prepare it.
-    if (readdirSync(dataDir).length === 0) rmSync(preparingPath(dataDir), { force: true });
+    if (readdirSync(dataDir).length === 0) rmSync(preparingRecordPath(dataDir), { force: true });
     throw error;
   } finally {
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.initdb ${(performance.now() - started).toFixed(1)} ms`);

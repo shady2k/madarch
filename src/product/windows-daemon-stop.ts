@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { postgresInstallFolder, postgresProgram } from '../adapters/postgres-builds.js';
-import { preparationInProgress } from '../adapters/postgres-cluster.js';
+import { preparationInProgress } from '../adapters/postgres-preparation-record.js';
 import { knowledgeRootOf } from './store.js';
 
 export interface WindowsProcess { pid: number; parent: number; name: string; }
