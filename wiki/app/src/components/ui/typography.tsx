@@ -61,7 +61,10 @@ const stackLayouts = {
 export function Stack({ layout, className, ...props }: HTMLAttributes<HTMLDivElement> & { layout?: keyof typeof stackLayouts }) { return <div className={cn(layout && stackLayouts[layout], className)} {...props} />; }
 export function Text(props: HTMLAttributes<HTMLSpanElement>) { return <span {...props} />; }
 export function PageArticle(props: HTMLAttributes<HTMLElement>) { return <article {...props} />; }
-export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) { return <dl className={cn(columns && 'm-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small', className)} {...props} />; }
+export function DefinitionList({ columns = false, className, ...props }: HTMLAttributes<HTMLDListElement> & { columns?: boolean }) {
+  // Two columns where the width is there, one below: a long term or a path never widens a phone's page.
+  return <dl className={cn(columns && 'm-0 grid grid-cols-1 gap-x-4 gap-y-1 text-small md:grid-cols-[max-content_minmax(0,1fr)]', className)} {...props} />;
+}
 export function DefinitionTerm(props: HTMLAttributes<HTMLElement>) { return <dt {...props} />; }
 export function DefinitionValue(props: HTMLAttributes<HTMLElement>) { return <dd {...props} />; }
 export function PlainList({ className, ...props }: HTMLAttributes<HTMLUListElement>) { return <ul className={cn('ui-plain-list list-none', className)} {...props} />; }

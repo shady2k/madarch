@@ -78,7 +78,25 @@ const SETTINGS = {
   agentNames: { 'claude-code': 'Claude Code' },
   bounds: { turns: 12, minutes: 20, toolCalls: 40, writeAttempts: 3, maxDomains: 8, editorialRequestsPerPage: 2 },
   tokenCap: 200_000,
+  // What the two dangerous actions would remove and keep (madarch-64o5.136, section 16).
+  danger: {
+    rewrite: { agentPages: ['docs/product.md'], keptPages: ['docs/handbook.md'] },
+    fresh: { store: ['graph'], agentPages: ['docs/product.md'], keptPages: ['docs/handbook.md'], unansweredQuestions: ['Q-1'], keptAnswers: ['A-1'] },
+  },
   busy: false,
+};
+
+/** What `/api/graph-verdicts` answers: the saved report and one page of the rows a person still has to look at. */
+const VERDICTS = {
+  file: '/tmp/portal/store/graph-verdicts.json', budgets: { itemsPerRun: 500, modelCallsPerRun: 5 }, cached: true,
+  report: {
+    generatedAt: '2026-11-15T10:00:00.000Z', validatorVersion: '1.2.3',
+    totals: { items: 40, valid: 30, invalid: 4, unreviewed: 6 },
+    reasons: [{ reason: 'no rule decided', count: 6 }],
+    byKind: [{ role: 'node', kind: 'doc.term', valid: 3, invalid: 1, unreviewed: 2 }],
+  },
+  total: 10, offset: 0, limit: 100,
+  rows: [{ id: 'n1', role: 'node', kind: 'doc.term', label: 'Queue', verdict: 'unreviewed', reason: 'no rule decided' }],
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
@@ -100,6 +118,8 @@ beforeEach(async () => {
     if (url.pathname.endsWith('/api/problem-task')) return answer({ state: 'created', task: { label: 'Исправить: Экспорт без использования — src/old.ts:4', href: '/e/task/uid-task-2', key: 'task:uid-task-2' } });
     if (url.pathname.endsWith('/api/sources')) return answer(SOURCES);
     if (url.pathname.endsWith('/api/product-settings')) return answer(SETTINGS);
+    if (url.pathname.endsWith('/api/graph-verdicts')) return answer(VERDICTS);
+    if (url.pathname.endsWith('/api/rewrite-pages') || url.pathname.endsWith('/api/start-fresh')) return answer({ plan: SETTINGS.danger.fresh, fill: {} });
     if (url.pathname.endsWith('/api/agents')) return answer({ agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: null, install: null }], chosen: null });
     if (url.pathname.endsWith('/api/settings')) return answer({ role: 'all', asked: true, roles: ['architect', 'all'] });
     if (url.pathname.endsWith('/api/agent-choices')) return answer({ agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: null, reasoning: null } });
@@ -238,6 +258,52 @@ test('the settings page offers the agent, the roles, the language and the reader
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { role?: string }).role === 'architect')).toBe(true);
     expect(page.roles).toContain('architect');
+  } finally {
+    await page.close();
+  }
+});
+
+
+test('the settings page shows the graph verdicts, the bounds, where the product lives and the two dangerous actions', async () => {
+  const page = await render('settings-form', { group: 'all' });
+  try {
+    const text = page.container.textContent ?? '';
+    // Graph verdicts (madarch-64o5.136, section 16): the saved report, its rows and the two budgets.
+    expect(page.container.querySelector('[data-testid="settings-verdicts-total"]')?.textContent).toBe('40');
+    expect(page.container.querySelector('[data-testid="settings-verdicts-invalid"]')?.textContent).toBe('4');
+    expect(page.container.querySelectorAll('[data-testid="settings-verdicts-row"]')).toHaveLength(1);
+    expect(page.container.querySelector('[data-testid="settings-verdicts-kinds"]')?.textContent).toContain('doc.term');
+    await act(async () => { type(page.container.querySelector('[data-testid="settings-verdict-items-per-run"]') as HTMLInputElement, '250'); });
+    await act(async () => { (page.container.querySelector('[data-testid="settings-verdicts-save"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/graph-verdicts') && one.method === 'POST' && (one.body as { itemsPerRun?: number }).itemsPerRun === 250)).toBe(true);
+    await act(async () => { (page.container.querySelector('[data-testid="settings-verdicts-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.includes('/api/graph-verdicts?force=1'))).toBe(true);
+
+    // Bounds: what the agent may spend, and the one bound a person sets.
+    expect(page.container.querySelector('[data-testid="bound-turns"]')?.textContent).toBe('12');
+    expect(page.container.querySelector('[data-testid="bound-editorial"]')?.textContent).toBe('2');
+    await act(async () => { type(page.container.querySelector('[data-testid="bound-editorial-input"]') as HTMLInputElement, '3'); });
+    await act(async () => { (page.container.querySelector('[data-testid="bound-editorial-save"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { editorialRequestsPerPage?: number }).editorialRequestsPerPage === 3)).toBe(true);
+
+    // Places: the checkout and the store on this machine, and that nothing here pushes.
+    expect(page.container.querySelector('[data-testid="places-folder"]')?.textContent).toBe('/tmp/portal');
+    expect(page.container.querySelector('[data-testid="places-store"]')?.textContent).toBe('/tmp/portal/store');
+    expect(page.container.querySelector('[data-testid="places-push"]')?.textContent).toContain('push');
+
+    // Dangerous actions: no agent, so rewriting says why; starting over asks first and confirms the plan it showed.
+    expect(text).toContain('Начать с нуля');
+    expect(page.container.querySelector('[data-testid="danger-rewrite-needs-agent"]')).not.toBeNull();
+    await act(async () => { (page.container.querySelector('[data-testid="danger-fresh-open"]') as HTMLButtonElement).click(); });
+    expect(page.container.querySelector('[data-testid="danger-dialog"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="danger-questions"]')?.textContent).toContain('1');
+    await act(async () => { (page.container.querySelector('[data-testid="danger-confirm"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/start-fresh') && one.method === 'POST' && (one.body as { preview?: { store?: string[] } }).preview?.store?.[0] === 'graph')).toBe(true);
+    expect(page.opened).toContain('/');
   } finally {
     await page.close();
   }

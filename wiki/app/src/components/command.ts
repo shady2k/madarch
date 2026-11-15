@@ -143,10 +143,81 @@ export interface ProductSettingsAnswer {
   };
   /** The cap a fill runs under when the person names none (madarch-64o5.90). */
   readonly tokenCap: number;
-  readonly danger?: unknown;
+  /** What the two dangerous actions would remove and keep: the plan the page shows before a press. */
+  readonly danger?: { readonly rewrite: DangerPlanAnswer; readonly fresh: ResetPlanAnswer };
   readonly dangerError?: string;
   readonly busy: boolean;
   readonly own?: boolean;
+}
+
+/** One row of the graph verdict report a person still has to look at (madarch-mwhd.1). */
+export interface GraphVerdictRow {
+  readonly id: string;
+  readonly role: 'node' | 'edge';
+  readonly kind: string;
+  readonly label: string;
+  readonly verdict: string;
+  readonly reason: string;
+}
+
+/** The saved report's coverage, per verdict and per kind. */
+export interface GraphVerdictReport {
+  readonly generatedAt: string;
+  readonly validatorVersion: string;
+  readonly totals: { readonly items: number; readonly valid: number; readonly invalid: number; readonly unreviewed: number };
+  readonly reasons: readonly { readonly reason: string; readonly count: number }[];
+  readonly byKind: readonly { readonly role: string; readonly kind: string; readonly valid: number; readonly invalid: number; readonly unreviewed: number }[];
+}
+
+/** `GET /api/graph-verdicts`: the budgets, the saved report and one page of its non-valid rows. */
+export interface GraphVerdictsAnswer {
+  readonly file: string;
+  readonly budgets: { readonly itemsPerRun: number; readonly modelCallsPerRun: number };
+  readonly cached: boolean;
+  readonly report?: GraphVerdictReport;
+  readonly total: number;
+  readonly offset: number;
+  readonly limit: number;
+  readonly rows: readonly GraphVerdictRow[];
+}
+
+/** The budgets the saved report is read under: no judge starts. */
+export const peekGraphVerdicts = (base: string, signal?: AbortSignal): Promise<GraphVerdictsAnswer> =>
+  command(base, '/api/graph-verdicts?peek=1', signal === undefined ? {} : { signal });
+
+/** One page of the rows a person still has to look at. */
+export const readGraphVerdictRows = (base: string, options: { readonly offset: number; readonly limit: number }, signal?: AbortSignal): Promise<GraphVerdictsAnswer> =>
+  command(base, `/api/graph-verdicts?verdict=non-valid&limit=${String(options.limit)}&offset=${String(options.offset)}`, signal === undefined ? {} : { signal });
+
+/** Runs one verdict pass and answers its first page. */
+export const runGraphVerdicts = (base: string, options: { readonly offset: number; readonly limit: number }): Promise<GraphVerdictsAnswer> =>
+  command(base, `/api/graph-verdicts?force=1&verdict=non-valid&limit=${String(options.limit)}&offset=${String(options.offset)}`, { method: 'GET' });
+
+/** Saves what one verdict run may judge. */
+export const saveGraphVerdictBudgets = (base: string, itemsPerRun: number, modelCallsPerRun: number): Promise<{ budgets: { itemsPerRun: number; modelCallsPerRun: number } }> =>
+  command(base, '/api/graph-verdicts', { method: 'POST', body: JSON.stringify({ itemsPerRun, modelCallsPerRun }) });
+
+/** `POST /api/rewrite-pages`: removes the pages the agent wrote and starts a fill that writes them again. */
+export const rewritePages = (base: string): Promise<{ plan: ResetPlanAnswer; fill: unknown }> =>
+  command(base, '/api/rewrite-pages', { method: 'POST', body: '{}' });
+
+/** `POST /api/start-fresh`: removes the pages and the graph, with the plan the person confirmed. */
+export const startFresh = (base: string, preview: ResetPlanAnswer): Promise<unknown> =>
+  command(base, '/api/start-fresh', { method: 'POST', body: JSON.stringify({ preview }) });
+
+/** What one of the two dangerous actions removes and keeps, as the settings answer states it. */
+export interface DangerPlanAnswer {
+  readonly agentPages: readonly string[];
+  readonly keptPages: readonly string[];
+}
+
+/** The reset plan the server confirms before it starts a product over. */
+export interface ResetPlanAnswer {
+  readonly store: readonly string[];
+  readonly agentPages: readonly string[];
+  readonly keptPages: readonly string[];
+  readonly unansweredQuestions: readonly string[];
+  readonly keptAnswers: readonly string[];
 }
 
 /** `GET /api/settings`: the reader's own role on this machine. */
