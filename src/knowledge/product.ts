@@ -15,6 +15,7 @@ import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
 import { readRunAgentExchanges } from '../fill/agent-exchange.js';
+import { LOG_LEVELS, LOG_SOURCES, logRuns, readLogs, type LogPage, type LogQuery } from './logs.js';
 import { cancelRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
@@ -2192,6 +2193,16 @@ export class KnowledgeProduct {
       const exchanges = runId === undefined ? [] : readRunAgentExchanges(join(this.storeFolder(), 'traces'), run!.runId).units;
       return { ...detail, agentExchanges: exchanges };
     }));
+  }
+
+  /**
+   * One page of every log madarch keeps for this product (madarch-64o5.88): the server's records under the knowledge
+   * root, this product's fills, plugins, agent units and store, and the spans of its runs. The read opens no database
+   * and reads no product file: it is the machine's evidence, filtered and paged.
+   */
+  logs(query: LogQuery): LogPage & { readonly runs: readonly string[]; readonly sources: readonly string[]; readonly levels: readonly string[] } {
+    const store = this.storeFolder();
+    return { ...readLogs({ store, knowledgeRoot: this.options.storeRoot }, query), runs: logRuns(store), sources: [...LOG_SOURCES], levels: [...LOG_LEVELS] };
   }
 
   /** A scoped control never targets mutable latest-run fields. */

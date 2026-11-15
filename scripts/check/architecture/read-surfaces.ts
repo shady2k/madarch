@@ -51,6 +51,10 @@ export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { method: '*', path: '/api/fill-plan' },
   { method: '*', path: '/api/fill-selected' },
   { method: '*', path: '/api/fill-runs' },
+  // Every log madarch keeps, one page at a time (madarch-64o5.88): the server's records, the fills', each plugin's
+  // standard error, the agent units' exchanges, the store's PostgreSQL log and a run's spans — the machine's evidence,
+  // not graph data.
+  { method: '*', path: '/api/logs' },
   { method: '*', path: '/api/problems' },
   { method: '*', path: '/api/sources' },
   { method: '*', path: '/api/pause' },
