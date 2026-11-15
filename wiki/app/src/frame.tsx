@@ -33,7 +33,7 @@ import { Sheet, SheetTrigger } from './components/ui/sheet.js';
 import { RunIndicator, type LiveRun } from './components/run-indicator.js';
 import { FillEntry } from './components/fill-entry.js';
 import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
-import { CATALOGUE_KIND, EVERYTHING_ROLE } from '../../../src/page-contract/index.js';
+import { CATALOGUE_KIND, EVERY_ROLE } from '../../../src/page-contract/index.js';
 import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage, type OpenPage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind, NavigationPurpose } from './client.js';
 
@@ -105,7 +105,7 @@ export function groupTree(navigation: Navigation, leads: readonly string[] = [])
  */
 export function purposeTree(navigation: Navigation, role: string): PurposeNode[] {
   const visible = navigation.kinds.filter((kind) => kind.count > 0 && kind.nav !== 'loop'
-    && (role === EVERYTHING_ROLE || kind.audience === null || kind.audience.includes(role)));
+    && (role === EVERY_ROLE || kind.audience === null || kind.audience.includes(role)));
   return navigation.purposes
     .map((purpose) => ({ purpose, kinds: visible.filter((kind) => kind.purpose === purpose.id) }))
     .filter((node) => node.kinds.length > 0);
@@ -264,8 +264,8 @@ function RoleMenu({ role, roles, onRole }: { readonly role: string; readonly rol
         <DropdownMenuLabel>{t('knowledge.roles.menu')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup value={role} onValueChange={onRole}>
-          <DropdownMenuRadioItem value={EVERYTHING_ROLE} data-testid="role-everything">{name(EVERYTHING_ROLE)}</DropdownMenuRadioItem>
-          {roles.filter((one) => one !== EVERYTHING_ROLE).map((one) => <DropdownMenuRadioItem key={one} value={one}>{name(one)}</DropdownMenuRadioItem>)}
+          <DropdownMenuRadioItem value={EVERY_ROLE} data-testid="role-everything">{name(EVERY_ROLE)}</DropdownMenuRadioItem>
+          {roles.filter((one) => one !== EVERY_ROLE).map((one) => <DropdownMenuRadioItem key={one} value={one}>{name(one)}</DropdownMenuRadioItem>)}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

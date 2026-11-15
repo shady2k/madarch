@@ -160,11 +160,11 @@ export async function postQuery<T>(base: string, query: string, variables: Recor
 }
 
 /** The bootstrap and the navigation, or the message the page shows when they could not be read. */
-export async function readBootstrap(base: string, lang: string): Promise<{ bootstrap?: Bootstrap; navigation?: Navigation; message?: string; offline?: boolean; publication?: PublicationState }> {
+export async function readBootstrap(base: string, lang: string): Promise<{ bootstrap?: Bootstrap; navigation?: Navigation; message?: string; codes?: readonly string[]; offline?: boolean; publication?: PublicationState }> {
   const answer = await postQuery<{ bootstrap?: Bootstrap; navigation?: Navigation }>(base, BOOTSTRAP_QUERY, { lang });
   if (answer.offline === true) return { offline: true };
   if (answer.publication !== undefined) return { publication: answer.publication };
-  if (answer.errors.length > 0) return { message: answer.errors.map((error) => error.message).join('; ') };
+  if (answer.errors.length > 0) return { message: answer.errors.map((error) => error.message).join('; '), codes: codesOf(answer.errors) };
   if (answer.data?.bootstrap === undefined || answer.data.navigation === undefined) return { message: 'the graph answered no bootstrap' };
   return { bootstrap: answer.data.bootstrap, navigation: answer.data.navigation };
 }

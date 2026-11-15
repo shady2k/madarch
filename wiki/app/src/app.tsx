@@ -8,11 +8,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { EVERYTHING_ROLE, CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
+import { EVERY_ROLE, CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation, type PublicationState } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
+import { MissingManifest } from './components/missing-manifest.js';
 import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { pageTitleOf } from './components/header.js';
@@ -54,9 +55,9 @@ function templateTask(template: string | undefined, t: TFunction): string | null
 
 function storedRole(): string {
   try {
-    return window.localStorage.getItem(ROLE_KEY) ?? EVERYTHING_ROLE;
+    return window.localStorage.getItem(ROLE_KEY) ?? EVERY_ROLE;
   } catch {
-    return EVERYTHING_ROLE;
+    return EVERY_ROLE;
   }
 }
 
@@ -107,6 +108,8 @@ export function App(): ReactElement {
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const navigationRequest = useRef(0);
   const [failure, setFailure] = useState<string | null>(null);
+  // The graph answered NO_MANIFEST: a product whose kinds manifest a fill has still to write (madarch-64o5.133).
+  const [noManifest, setNoManifest] = useState(false);
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
   const alive = useRef(true);
@@ -194,9 +197,11 @@ export function App(): ReactElement {
     setPublication(null);
     bootstrapVersion.current += 1;
     if (read.bootstrap === undefined) {
+      setNoManifest((read.codes ?? []).includes('NO_MANIFEST'));
       setFailure(read.message ?? 'the bootstrap could not be read');
       return undefined;
     }
+    setNoManifest(false);
     setBootstrap(read.bootstrap);
     setNavigation(read.navigation ?? null);
     setLastDataAt(Date.now());
@@ -411,6 +416,15 @@ export function App(): ReactElement {
     />
   );
   const [menuOpen, setMenuOpen] = useState(false);
+  // A product that has no kinds manifest has no graph to ask: the frame names the file and the guide that writes one,
+  // instead of the failure the empty catalogue would raise (madarch-64o5.133).
+  if (bootstrap === null && !connection.offline && noManifest) {
+    return (
+      <ShellError>
+        <MissingManifest product={identity.data?.name ?? null} status={null} />
+      </ShellError>
+    );
+  }
   // The graph could not be read at all, the server cannot be reached, or the catalogue is being published: the frame
   // says so instead of a page.
   if (bootstrap === null && (failure !== null || connection.offline || publication !== null)) {

@@ -16,15 +16,46 @@ await i18n.changeLanguage('en');
 afterAll(() => { GlobalRegistrator.unregister(); });
 
 const realFetch = globalThis.fetch;
-const context = { section: { id: 'overview', component: 'product-overview', params: {} }, data: undefined, language: 'en', base: '/products/shop', busy: false, variables: {}, open: () => undefined, reload: () => undefined, renderSection: () => null, product: 'shop', navigation: null, pageName: null } as never;
+const NAVIGATION = {
+  product: 'shop',
+  groups: [],
+  kinds: [{ kind: 'demo.file', one: 'File', many: 'Files', definition: null, taken: true, group: null, nav: null, count: 3, entryId: 'e1' }],
+  purposes: [],
+};
+const opened: string[] = [];
+const context = { section: { id: 'overview', component: 'product-overview', params: {} }, data: undefined, language: 'en', base: '/products/shop', busy: false, variables: {}, open: (path: string) => { opened.push(path); }, reload: () => undefined, renderSection: () => null, product: 'shop', navigation: NAVIGATION, pageName: null } as never;
 
-async function render(): Promise<{ text: string; close: () => Promise<void> }> {
+/** One fill run as `/api/fill-runs` answers it, with the pieces the home reads. */
+function runOf(over: Record<string, unknown>): Record<string, unknown> {
+  return {
+    runId: 'fill-1', state: 'running', phase: 'running', final: false, startedAt: '2026-11-15T02:09:29.000Z', finishedAt: null,
+    elapsedMs: 60_000, units: [{}, {}], publishedUnits: 1, selected: ['demo.file'], order: ['demo.file'],
+    groups: [{ kind: 'demo.file', group: 'code', plugin: 'disk', done: 2, total: 5, state: 'running', phase: 'running' }],
+    events: [{ seq: 1, at: '2026-11-15T02:10:00.000Z', stage: '', unitId: 'disk:demo.file', type: 'unit-published', summary: 'disk:demo.file published 3 facts' }],
+    records: 3, vertex: null, updatedAt: '2026-11-15T02:10:29.000Z', remainingMs: null, agentUsage: null,
+    ...over,
+  };
+}
+
+/** The three command answers the overview reads, over the answers a test names. */
+function answers(runs: readonly Record<string, unknown>[], status: Record<string, unknown>): void {
+  (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('/api/problems')) return new Response(JSON.stringify({ open: 1, closed: 0, dismissed: 0, sections: {} }), { status: 200 });
+    if (url.includes('/api/fill-runs')) return new Response(JSON.stringify({ runs }), { status: 200 });
+    if (url.includes('/api/status')) return new Response(JSON.stringify(status), { status: 200 });
+    if (url.includes('/api/fill-plan')) return new Response(JSON.stringify({ plan: { plugins: [{ name: 'disk', labels: { en: 'Disk', ru: 'Диск' } }], selectedKinds: [], requestedKinds: [], added: [], order: [], units: [], kinds: [], needsAgent: [], errors: [], skipped: [], pluginsOnly: true } }), { status: 200 });
+    return new Response(JSON.stringify({}), { status: 200 });
+  }) as unknown as typeof fetch;
+}
+
+async function render(): Promise<{ host: HTMLElement; text: string; close: () => Promise<void> }> {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => { root.render(createElement(ProductOverviewSection, { context })); });
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-  return { text: (host.textContent ?? '').replace(/\s+/g, ' '), close: async () => { await act(async () => { root.unmount(); }); host.remove(); } };
+  return { host, text: (host.textContent ?? '').replace(/\s+/g, ' '), close: async () => { await act(async () => { root.unmount(); }); host.remove(); } };
 }
 
 beforeAll(() => {
@@ -87,3 +118,19 @@ test('two readers of the same answer make one request and share one change strea
     (globalThis as { EventSource?: unknown }).EventSource = undefined;
   }
 });
+
+
+test('a failed run stays with its retry until the reader dismisses it', async () => {
+  answers([runOf({ runId: 'fill-failed', state: 'failed', phase: 'failed', final: true, finishedAt: '2026-11-15T02:11:00.000Z', groups: [{ kind: 'demo.file', group: 'code', plugin: 'disk', done: 0, total: 2, state: 'failed', phase: 'failed' }], events: [] })], { fill: { state: 'idle' }, filled: true });
+  const page = await render();
+  try {
+    const alert = page.host.querySelector('[data-testid="overview-fill-failed"]');
+    expect(alert?.textContent).toContain('The run failed.');
+    expect(alert?.textContent).toContain('Retry the fill');
+    await act(async () => { (page.host.querySelector('[data-testid="overview-fill-retry"]') as HTMLButtonElement).click(); });
+    expect(opened).toContain('/p/catalogue?select=1');
+    await act(async () => { (page.host.querySelector('[data-testid="overview-fill-dismiss"]') as HTMLButtonElement).click(); });
+    expect(page.host.querySelector('[data-testid="overview-fill-failed"]')).toBeNull();
+  } finally { await page.close(); }
+});
+

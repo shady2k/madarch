@@ -138,6 +138,12 @@ describe('the starter templates', () => {
     const analyst = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'analyst' });
     expect(engineer.sections.map((one) => one.id)).toContain('header');
     expect(analyst.sections.map((one) => one.id)).not.toContain('header');
+    // The reader who reads as everything is every role at once, as `/api/settings` names that reader (madarch-64o5.133).
+    const everything = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007', role: 'everything' });
+    expect(everything.sections.map((one) => one.id)).toContain('header');
+    // A page composed with no role opens as that reader, never as a role no product declares.
+    const unnamed = composePage(held, { kind: 'code.file', id: '00000000-0000-0000-0000-000000000007' });
+    expect(unnamed.sections.map((one) => one.id)).toContain('header');
   });
 
   test('a template an address names is composed, and one it cannot bind is refused', () => {

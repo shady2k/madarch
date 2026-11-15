@@ -330,6 +330,41 @@ test('the catalogue reads by default, in the catalogue\'s words, with counts, «
   }
 });
 
+test('the catalogue states the kinds and records it shows, the share of each area, and the fill state of every kind', async () => {
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    // Three kinds and five records stand here, and each area states its own share of both (madarch-64o5.133).
+    expect(page.container.querySelector('[data-testid="catalogue-total"]')?.textContent).toBe('3 вида, 5 записей');
+    const totals = [...page.container.querySelectorAll('[data-testid="catalogue-group-total"]')].map((one) => one.textContent);
+    expect(totals).toEqual(['1 вид, 2 записи', '2 вида, 3 записи']);
+    // A kind's badge is the graph's own count and the run's own verdict: two records is filled, none is never filled.
+    const state = (kind: string): { value: string | null; text: string } => {
+      const badge = page.container.querySelector(`[data-kind="${kind}"] [data-testid="catalogue-state"]`);
+      return { value: badge?.getAttribute('data-state') ?? null, text: badge?.textContent ?? '' };
+    };
+    expect(state('demo.alpha')).toEqual({ value: 'filled', text: 'Заполнено' });
+    expect(state('demo.beta')).toEqual({ value: 'never', text: 'Не заполнено' });
+    expect(state('demo.gamma')).toEqual({ value: 'filled', text: 'Заполнено' });
+  } finally {
+    await page.close();
+  }
+});
+
+
+test('the catalogue carries a contents list that follows its areas and subgroups', async () => {
+  const page = await render([section('catalogue', 'catalogue', {})]);
+  try {
+    const contents = page.container.querySelector('[data-testid="catalogue-contents"]');
+    const links = [...(contents?.querySelectorAll('a') ?? [])];
+    expect(links.map((one) => one.getAttribute('href'))).toEqual(['#catalogue-section-demo.code', '#catalogue-section-demo.docs']);
+    // Every destination the contents names stands on the page, so a press reaches it (an id may hold a dot: the
+    // contents scroll to it by id, as the kit's own contents do).
+    for (const link of links) expect(page.container.querySelector(`[id="${(link.getAttribute('href') ?? '#none').slice(1)}"]`)).not.toBeNull();
+  } finally {
+    await page.close();
+  }
+});
+
 test('selection mode keeps its kinds through a filter, marks the plan\'s prerequisite and leads to preparation', async () => {
   const page = await render([section('catalogue', 'catalogue', {})], { select: '1' });
   try {

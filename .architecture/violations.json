@@ -5781,21 +5781,6 @@
   },
   {
     "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "className on <InlineGroup>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "className on <Paragraph>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "className on <Stack>"
-  },
-  {
-    "rule": "ui-kit-only",
     "file": "wiki/app/src/components/prepare.tsx",
     "symbol": "className on <Alert>"
   },

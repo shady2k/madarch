@@ -23,11 +23,18 @@
     "ground": "Grounds",
     "kind": "Kind",
     "measure": "Measure",
+    "measures": {
+      "count": "A count of the records",
+      "groupBy": "Grouped by one field",
+      "histogram": "Ages in buckets",
+      "topN": "The first records by one field"
+    },
     "field": "Field",
     "buckets": "Buckets",
     "limit": "Limit",
     "total": "Entities counted",
     "missing": "Missing values",
+    "unaccounted": "Records in no shown row",
     "computedAt": "Computed at"
   },
   "authored": {
@@ -1756,10 +1763,6 @@
     "fillAgent": "The agent",
     "showSelected": "Show selected",
     "showAll": "Show all",
-    "shown_one": "{{count}} kind shown",
-    "shown_few": "{{count}} kinds shown",
-    "shown_many": "{{count}} kinds shown",
-    "shown_other": "{{count}} kinds shown",
     "noMatch": "No kind matches.",
     "selectGroup": "Choose {{count}}",
     "selectedCount_one": "{{count}} kind chosen",
@@ -1784,6 +1787,10 @@
     "stepOne": "Check the set of kinds the wiki should hold.",
     "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
     "stepThree": "Start the fill and follow its run.",
+    "created": "The product was created",
+    "noManifest": "The graph is empty. The product has no kinds manifest yet, so a fill has nothing to read.",
+    "manifestFile": "Its manifest is {{file}}.",
+    "manifestGuide": "How to write a product's manifests",
     "manual": "Choose in the catalogue"
   },
   "prepare": {
@@ -2020,7 +2027,7 @@
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
     "approvalTitle": "Owner approval required",
-    "approval": "Reuse this set first. A new component may enter the kit only after the owner approves it. Catalogue controls Checkbox and Select are being added separately.",
+    "approval": "Reuse this set first. A new component may enter the kit only after the owner approves it. Catalogue controls The catalogue controls are being added separately.",
     "default": "Default",
     "ghost": "Ghost",
     "disabled": "Disabled",
@@ -2046,6 +2053,7 @@
     "complete": "Complete",
     "indeterminate": "Indeterminate",
     "typography": "Page structure and typography",
+    "timeline": "Timeline",
     "choiceMenuTitle": "ChoiceMenu / DateTimeField",
     "logsTitle": "Log viewer",
     "logsLive": "Live",

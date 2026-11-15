@@ -234,10 +234,10 @@ export function KitPage(): ReactElement {
           <TableHeader><TableRow><TableHead>{state('name')}</TableHead><TableHead>{state('description')}</TableHead></TableRow></TableHeader>
           <TableBody><TableRow><TableCell>{state('sample')}</TableCell><TableCell>{state('content')}</TableCell></TableRow></TableBody>
         </Table>
-        <KitState label={`FactChart — ${state('bar')}`}><FactChart display="bar" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
-        <KitState label={`FactChart — ${state('treemap')}`}><FactChart display="treemap" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
-        <KitState label={`FactChart — ${state('timeline')}`}><FactChart display="timeline" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
-        <KitState label={`FactChart — ${state('empty')}`}><FactChart display="bar" rows={[]} labelTitle={state('name')} valueTitle={state('description')} /></KitState>
+        <KitState label={`FactChart — ${state('bar')}`}><FactChart display="bar" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
+        <KitState label={`FactChart — ${state('treemap')}`}><FactChart display="treemap" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
+        <KitState label={`FactChart — ${state('timeline')}`}><FactChart display="timeline" rows={FACT_ROWS} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
+        <KitState label={`FactChart — ${state('empty')}`}><FactChart display="bar" rows={[]} labelTitle={state('name')} valueTitle={state('description')} note={state('noData')} /></KitState>
       </KitSection>
 
       <KitSection title="FilterBar">
