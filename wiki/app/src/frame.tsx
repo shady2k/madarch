@@ -77,7 +77,7 @@ export function groupTree(navigation: Navigation): GroupNode[] {
 }
 
 /** The product's name and the sections of the frame, under which the kinds the graph holds are listed. */
-export function FrameNavigation({ navigation, base, path, open, tasks, problemsOpen = null, productName = null }: {
+export function FrameNavigation({ navigation, base, path, open, tasks, problemsOpen = null, productName = null, changed }: {
   readonly navigation: Navigation | null;
   readonly base: string;
   /** The address in front, without the base and the query. */
@@ -88,6 +88,8 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
   readonly problemsOpen?: number | null;
   /** The product's own name from `/api/product`, when the graph holds no product label yet. */
   readonly productName?: string | null;
+  /** Kinds a unit publication just changed: their rows wear a short highlight. */
+  readonly changed?: ReadonlySet<string>;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -104,7 +106,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
   const kindLink = (kind: NavigationKind, depth: 1 | 2): ReactElement => {
     const address = kindAddress(kind);
     return (
-      <NavigationLink icon={FileTextIcon} key={kind.kind} active={here(address)} depth={depth} data-testid="nav-kind" {...link(address)}>
+      <NavigationLink icon={FileTextIcon} key={kind.kind} active={here(address)} depth={depth} data-testid="nav-kind" data-changed={changed?.has(kind.kind) ? 'true' : undefined} {...link(address)}>
         <NavigationLabel>{kind.many}</NavigationLabel>
         <NavigationCount data-testid="nav-count">{kind.count}</NavigationCount>
       </NavigationLink>

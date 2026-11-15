@@ -4,6 +4,7 @@
  * by the frame's one navigation query — the home page shows the product, not the catalogue.
  */
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Paragraph, Text, TextLink } from './ui/typography.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { CATALOGUE_KIND } from '../../../../src/page-contract/index.js';
@@ -16,13 +17,18 @@ import type { SectionContext } from './types.js';
 
 /** One row of the kinds list: its word, what it counts and the catalogue entry its page stands on. */
 interface KindRow {
+  readonly kind?: unknown;
   readonly many?: unknown;
   readonly count?: unknown;
   readonly entryId?: unknown;
 }
 
 export function KindsSection({ context }: { readonly context: SectionContext }): ReactElement {
-  const rows = edgesOf(at(context.data, context.section.params['path'] ?? 'kinds'))
+  const { t } = useTranslation();
+  // A kinds section with no query is the frame's navigation (the home's counts): the frame keeps it current while a
+  // fill publishes. A section with a query reads the graph's answer under its own alias.
+  const fromNavigation = (context.section.query ?? '').trim() === '';
+  const rows = (fromNavigation ? (context.navigation?.kinds ?? []) : edgesOf(at(context.data, context.section.params['path'] ?? 'kinds')))
     .map((row) => row as KindRow)
     .filter((row) => typeof row.many === 'string' && Number(row.count) > 0)
     .sort((left, right) => Number(right.count) - Number(left.count) || String(left.many).localeCompare(String(right.many), context.language));
@@ -30,13 +36,13 @@ export function KindsSection({ context }: { readonly context: SectionContext }):
   return (
     <Table data-testid="kinds">
       <TableHeader>
-        <TableRow><TableHead>{''}</TableHead><TableHead>{''}</TableHead></TableRow>
+        <TableRow><TableHead>{t('kinds.name')}</TableHead><TableHead>{t('kinds.count')}</TableHead></TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((row, at) => {
           const address = typeof row.entryId === 'string' ? entityAddress(CATALOGUE_KIND, row.entryId) : undefined;
           return (
-            <TableRow key={`${String(row.many)}-${String(at)}`}>
+            <TableRow key={`${String(row.many)}-${String(at)}`} data-changed={context.changedKinds?.has(String(row.kind)) ? 'true' : undefined}>
               <TableCell>
                 {address === undefined
                   ? <Text>{String(row.many)}</Text>

@@ -24,12 +24,16 @@ export function Paragraph({ className, ...props }: HTMLAttributes<HTMLParagraphE
 export function BulletList({ className, ...props }: HTMLAttributes<HTMLUListElement>) {
   return <ul className={cn('list-disc pl-6', className)} {...props} />;
 }
+/** A numbered list: the steps of an instruction, in the order the reader follows them. */
+export function OrderedList({ className, ...props }: HTMLAttributes<HTMLOListElement>) {
+  return <ol className={cn('list-decimal pl-6', className)} {...props} />;
+}
 export function ListItem(props: HTMLAttributes<HTMLLIElement>) { return <li {...props} />; }
 export function Metadata({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
   return <span className={cn('text-small text-muted', className)} {...props} />;
 }
-export function InlineGroup({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('mb-2 flex flex-wrap items-center gap-2', className)} {...props} />;
+export function InlineGroup({ className, align = 'center', ...props }: HTMLAttributes<HTMLDivElement> & { readonly align?: 'center' | 'baseline' }) {
+  return <div className={cn('mb-2 flex flex-wrap gap-2', align === 'baseline' ? 'items-baseline' : 'items-center', className)} {...props} />;
 }
 export const CodeFrame = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CodeFrame({ className, ...props }, ref) {
   return <div ref={ref} className={cn('source-view overflow-hidden rounded-[var(--radius-card)] border border-line', className)} {...props} />;

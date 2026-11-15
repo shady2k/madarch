@@ -12,13 +12,13 @@ import { ChoiceCard, ChoiceDescription } from './ui/choice-card.js';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog.js';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
 import { Paragraph } from './ui/typography.js';
-import { readReaderSettings, saveReaderRole, useCommandRead, type ReaderSettingsAnswer } from './command.js';
+import { isOffline, readReaderSettings, saveReaderRole, useCommandRead, type ReaderSettingsAnswer } from './command.js';
 
-const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
+const message = (failure: unknown): string | null => isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
 
 export function RoleFirstVisit({ base, onChosen }: { readonly base: string; readonly onChosen: (role: string) => void }): ReactElement | null {
   const { t } = useTranslation();
-  const read = useCommandRead<ReaderSettingsAnswer>('reader-settings-first', (signal) => readReaderSettings(base, signal));
+  const read = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [selected, setSelected] = useState('everything');
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);

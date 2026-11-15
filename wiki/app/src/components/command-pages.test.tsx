@@ -13,7 +13,9 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('../page.js');
+const { TooltipProvider } = await import('./ui/tooltip.js');
 const { setWikiLanguage } = await import('../i18n.js');
+const { reportOffline, reportOnline } = await import('../connection.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -62,17 +64,17 @@ function planFor(selected: readonly string[], pluginsOnly = false) {
 }
 
 const RUN = {
-  runId: 'fill-run-1', state: 'running', startedAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString(), finishedAt: null,
+  runId: 'fill-run-1', state: 'running', phase: 'running', final: false, startedAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString(), finishedAt: null,
   elapsedMs: 5000, remainingMs: 2500, selected: ['demo.alpha'], order: ['demo.alpha'], vertex: null,
   groups: [
-    { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 2, total: 3, state: 'running' },
+    { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 2, total: 3, state: 'running', phase: 'running' },
     // A producer with no planned unit: a plugins-only run's agent row, which the page must not draw.
-    { kind: 'demo.gamma', group: 'docs', plugin: 'agent-fill', done: 0, total: 0, state: 'planned' },
+    { kind: 'demo.gamma', group: 'docs', plugin: 'agent-fill', done: 0, total: 0, state: 'planned', phase: 'waiting' },
   ],
   units: [
-    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', generation: 1, attempts: 1 },
-    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', generation: 1, attempts: 1 },
-    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'running', generation: 1, attempts: 1 },
+    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'running', phase: 'running', generation: 1, attempts: 1 },
   ],
   events: [
     { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 2 stages: disk:demo.alpha' },
@@ -84,6 +86,7 @@ const RUN = {
 
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
+let runAnswer: unknown = RUN;
 /** The agents `/api/agents` offers and the one this product saved; both installed and signed in unless a test says otherwise. */
 let agentOffers: { id: string; label: string; installed: boolean; login: string; loginDetail: string; where: string | null; version: string | null; install: null }[] = [
   { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
@@ -101,9 +104,93 @@ function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
+test('a successful run reads unmistakably finished at the top, with its end time', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 3, total: 3, state: 'published', phase: 'done' }],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    ],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-status-badge"]')?.textContent).toBe('Завершён');
+    expect(page.container.querySelector('[data-testid="fill-run-final"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="fill-run-ended"]')?.textContent).toContain('с');
+    expect(page.container.querySelector('[data-testid="fill-run-ended"]')?.textContent).not.toContain('Завершён');
+    expect(page.container.querySelector('[data-testid="fill-run-time"]')?.textContent).not.toContain('Осталось');
+    expect(page.container.querySelector('[data-testid="fill-run-retry"]')).toBeNull();
+    expect(page.container.textContent).not.toContain('done');
+  } finally { await page.close(); }
+});
+
+test('a run that published nothing is failed, never partial', async () => {
+  runAnswer = {
+    ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(), remainingMs: null, publishedUnits: 0,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 0, total: 2, state: 'failed', phase: 'failed' }],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'failed', phase: 'failed', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'skipped', phase: 'skipped', skippedBecause: 'unit disk:demo.alpha failed', generation: 1, attempts: 1 },
+    ],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-status-badge"]')?.textContent).toBe('Не удалось');
+    expect(page.container.querySelector('[data-testid="fill-run-final"]')?.getAttribute('data-phase')).toBe('failed');
+    expect(page.container.textContent).not.toContain('Частично');
+  } finally { await page.close(); }
+});
+
+test('unit counts use the locale plural rules for one, few, many and twenty-one', async () => {
+  const cases: readonly [number, string, string][] = [
+    [1, 'из 1 единицы', 'of 1 unit'],
+    [2, 'из 2 единиц', 'of 2 units'],
+    [5, 'из 5 единиц', 'of 5 units'],
+    [21, 'из 21 единицы', 'of 21 units'],
+  ];
+  for (const language of ['ru', 'en'] as const) {
+    await setWikiLanguage(language);
+    for (const [total, russian, english] of cases) {
+      runAnswer = {
+        ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: total,
+        units: Array.from({ length: total }, (_, at) => ({ unitId: `disk:demo.alpha`, stage: 'disk:demo.alpha', scope: `file:${String(at)}`, status: 'published', phase: 'done', generation: 1, attempts: 1 })),
+        groups: [],
+      };
+      const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+      try {
+        const text = page.container.textContent ?? '';
+        expect(text).toContain(language === 'ru' ? russian : english);
+      } finally { await page.close(); }
+    }
+  }
+});
+
+test('a finished partial run shows its final state, not a remaining time, and names its skipped units', async () => {
+  runAnswer = {
+    ...RUN, state: 'completed_partial', phase: 'partial', final: true, finishedAt: new Date().toISOString(), remainingMs: null,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 3, state: 'failed', phase: 'failed' }],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'failed', phase: 'failed', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'skipped', phase: 'skipped', skippedBecause: 'unit disk:demo.alpha failed', generation: 1, attempts: 1 },
+    ],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-final"]')?.getAttribute('data-phase')).toBe('partial');
+    expect(page.container.querySelector('[data-testid="fill-run-final-title"]')?.textContent).toContain('не полностью');
+    expect(page.container.querySelector('[data-testid="fill-run-time"]')?.textContent).not.toContain('Осталось');
+    expect(page.container.querySelector('[data-testid="fill-run-units"]')?.textContent).toContain('не выполнилась единица');
+    expect(page.container.querySelector('[data-testid="fill-run-retry"]')).not.toBeNull();
+  } finally { await page.close(); }
+});
+
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
+  runAnswer = RUN;
   savedAgent = null;
   productSettings = { tokenCap: 200_000 };
   holdSettings = null;
@@ -135,8 +222,8 @@ beforeEach(async () => {
       if (holdSettings !== null) return await new Promise<Response>((resolve) => { holdSettings = () => resolve(answer(url.pathname, productSettings)); });
       return answer(url.pathname, productSettings);
     }
-    if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
-    if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
+    if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: runAnswer });
+    if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [runAnswer] });
     if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
       ? answer(url.pathname, { runId: 'fill-run-2', order: ['demo.gamma'] })
       : new Response(JSON.stringify(fillSelectionFailure.body), { status: fillSelectionFailure.status, headers: { 'content-type': 'application/json' } });
@@ -155,11 +242,11 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
   const root = createRoot(container);
   const opened: string[] = [];
   await act(async () => {
-    root.render(createElement(PageView, {
+    root.render(createElement(TooltipProvider, null, createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
       runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined },
-    }));
+    })));
   });
   await settle();
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -397,8 +484,6 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     const text = page.container.textContent ?? '';
     expect(text).toContain('Код · Файлы · disk');
     expect(text).not.toContain('Сценарии');
-    expect(page.container.querySelector('[data-testid="fill-run-cause"]')?.textContent).toContain('контроллеры cpu, memory и pids');
-    expect(page.container.querySelector('[data-testid="fill-run-cause"]')?.textContent).toContain('MADARCH_PLUGIN_SANDBOX=off');
     expect(text).toContain('Опубликовано 2 из 3 единиц');
     expect(text).not.toContain('demo.alpha');
     // The log is the words of the run's events, never its trace: no machine path and no forty-character id.
@@ -425,3 +510,21 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
   }
 });
 
+test('the stop confirmation is disabled while the link is away', async () => {
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    await act(async () => { (page.container.querySelector('[data-testid="run-stop"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect((document.querySelector('[data-testid="stop-confirm"]') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { reportOffline(); await Promise.resolve(); });
+    await settle();
+    expect((document.querySelector('[data-testid="stop-confirm"]') as HTMLButtonElement).disabled).toBe(true);
+    const before = requests.filter((one) => one.path.endsWith('/api/stop')).length;
+    await act(async () => { (document.querySelector('[data-testid="stop-confirm"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.filter((one) => one.path.endsWith('/api/stop'))).toHaveLength(before);
+  } finally {
+    await page.close();
+    reportOnline();
+  }
+});

@@ -53,7 +53,7 @@ import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { GraphReadRefusal, answerMembership, recordedReadText } from './read-record.js';
 import { SnapshotError } from '../plugin/repository-snapshot.js';
-import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
+import { FINAL_RUN_STATES, isFinalRunState, isFinalUnitState, runPhaseOf, type UnitAdvanceEvent, type UnitChildOutcome, type UnitFailedChildPolicy, type UnitRetryCause, type UnitState } from './fsm.js';
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import { UnitBoundStop } from './unit-bound.js';
 import {
@@ -99,13 +99,16 @@ import {
   advanceRun,
   advanceUnit,
   advanceUnitIn,
+  claimRunLease,
   createRun,
   createUnit,
   createUnitIn,
   leaseUnit,
   openChain,
+  PlanningFenceError,
   readChain,
   readRun,
+  readRunLease,
   readRunUnits,
   readUnit,
   readUnitGeneration,
@@ -113,6 +116,8 @@ import {
   replaceStaleGeneration,
   retryGeneration,
   RETRYABLE_UNIT_STATES,
+  renewRunLease,
+  RUN_HEARTBEAT_MS,
   revokeUnitLease,
   type ChainRecord,
   type RunRecord,
@@ -318,6 +323,8 @@ export interface FillOrchestrator {
    * removes it when the attempt ends.
    */
   readonly authority: Map<string, AbortController>;
+  /** The production heartbeat of the run this orchestrator drives. */
+  readonly heartbeat: { timer: ReturnType<typeof setInterval> | undefined; runId: string | null; ownerToken: string | null };
 }
 
 /** Builds the orchestrator, resolving every seam and the limits. */
@@ -348,6 +355,7 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
+    heartbeat: { timer: undefined, runId: null, ownerToken: null },
   };
 }
 
@@ -700,6 +708,9 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   if (run.state !== 'created' && run.state !== 'planning' && run.state !== 'running') {
     return { outcome: 'refused', run, code: 'fill-orchestrator/run-not-plannable', reason: `fill-orchestrator: run "${run.runId}" is ${run.state}; only a created, planning or running run is planned` };
   }
+  if (!(await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at }))) {
+    return { outcome: 'refused', run, code: 'fill-orchestrator/run-not-owned', reason: `fill-orchestrator: run "${run.runId}" is not held by its owner's live lease; another process may have recovered it` };
+  }
   const read = deriveStageGraph(orchestrator.registry, await orchestrator.configuration());
   if (!read.ok) {
     // A graph that does not read at all is refused where it stands; a graph that reads but starves a
@@ -720,7 +731,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   const configurationDigest = read.ok
     ? snapshotStageConfigurations(read.graph.stages)
     : canonicalJsonDigest({ starved: read.starvation.map((path) => path.path).sort(byCodePoint) });
-  const recorded = await recordRunConfiguration(database, { runId: run.runId, digest: configurationDigest, snapshot, at });
+  const recorded = await recordRunConfiguration(database, { runId: run.runId, digest: configurationDigest, snapshot, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock() });
   if (recorded.digest !== configurationDigest) {
     return {
       outcome: 'refused',
@@ -761,7 +772,13 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   // publications of its earlier attempts at a resumed one.
   const publishedByNow = await readRunPublicationCount(database, run.runId);
   for (const [stagePosition, stageId] of graph.order.entries()) {
-    const stage = await planStageUnits(orchestrator, { run, graph, stageId, stagePosition, at });
+    let stage: StagePlanOutcome & { readonly refusal?: PlanRefusal };
+    try {
+      stage = await planStageUnits(orchestrator, { run, graph, stageId, stagePosition, at });
+    } catch (error) {
+      if (error instanceof PlanningFenceError) return { outcome: 'refused', run, code: error.code, reason: error.message };
+      throw error;
+    }
     if (stage.refusal !== undefined) return { outcome: 'refused', run, code: stage.refusal.code, reason: stage.refusal.reason };
     units.push(...stage.units);
     reused.push(...stage.reused);
@@ -770,7 +787,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
     // a stage that planned no unit may be planned again once the run has published
     // past its attempt what a producer of its inputs makes, and never twice
     // without one.
-    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at });
+    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock() });
     await emit(orchestrator, {
       runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-planned',
       summary: `stage ${stageId} planned ${stage.units.length} ${stage.units.length === 1 ? 'unit' : 'units'}${stage.reused.length > 0 ? ` and inherited ${stage.reused.length}` : ''}`,
@@ -834,6 +851,10 @@ async function planStageUnitsSpanned(
   const reused: string[] = [];
   const stage = stageOf(orchestrator, stageId);
   const plan: StagePlan = await stage.plan(await orchestrator.graph({ stageId, stageUnitId: '', unitId: '', scope: '', generation: 0 }));
+  // Planning is fenced by the run's lease: a recovery that took an expired lease cannot be
+  // followed by this planner recording a unit under the run it ended.
+  const stillOwned = await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at });
+  if (!stillOwned) return { stageId, units, reused, foundNothing: plan.coverage === 'nothing-found', refusal: { code: 'fill-orchestrator/run-not-owned', reason: `fill-orchestrator: run "${run.runId}" is no longer held by its owner's lease; no unit of stage "${stageId}" was planned` } };
   const foundNothing = plan.coverage === 'nothing-found';
   if (foundNothing) {
     // Decision 0027's distinction, made durable: a producer that found nothing is reported, so nobody
@@ -841,13 +862,16 @@ async function planStageUnitsSpanned(
     await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-found-nothing', summary: `stage ${stageId} read its producer's inputs and found nothing to plan in them` });
   }
   for (const [planPosition, scope] of plan.units.entries()) {
+    if (!(await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at }))) {
+      return { stageId, units, reused, foundNothing, refusal: { code: 'fill-orchestrator/run-not-owned', reason: `fill-orchestrator: run "${run.runId}" is no longer held by its owner's lease; no further unit of stage "${stageId}" was planned` } };
+    }
     const unitId = unitIdFor(stageId, scope.id);
     const ref: UnitRef = { stageId, stageUnitId: scope.id, unitId, scope: scope.scope, generation: 1 };
     const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stage) });
     const before = await readUnit(database, unitId);
     const answer = await createUnit(database, {
       unitId, product: orchestrator.product, runId: run.runId, stageId,
-      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
+      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at, ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
     });
     if (answer.runId !== run.runId) {
         // The identity already has a generation another run owns. Decision 0027's reuse is exact, and decision
@@ -878,7 +902,7 @@ async function planStageUnitsSpanned(
           }
           await recordUnitPlan(database, {
             unitId, generation: replaced.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: replaced.record.generation, stagePosition, planPosition, state: replaced.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: replaced.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${replaced.record.generation}, replacing the stale generation ${answer.generation} this unit stood on` });
@@ -896,7 +920,7 @@ async function planStageUnitsSpanned(
           }
           await recordUnitPlan(database, {
             unitId, generation: retried.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: retried.record.generation, stagePosition, planPosition, state: retried.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: retried.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${retried.record.generation}, retrying the ${answer.state} generation ${answer.generation} run "${answer.runId}" left` });
@@ -912,7 +936,7 @@ async function planStageUnitsSpanned(
       }
       await recordUnitPlan(database, {
         unitId, generation: answer.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
+        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage), ownerToken: ownerTokenOf(run), ownerAt: orchestrator.clock(),
       });
       const created = before === null;
       units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: answer.generation, stagePosition, planPosition, state: answer.state, created });
@@ -2235,6 +2259,70 @@ export interface RefusedRunStart {
   readonly reason: string;
 }
 
+/** How long a live run with no lease at all may stand unchanged before the next start treats its process as gone. */
+export const RUN_ORPHAN_AFTER_MS = 5 * 60_000;
+
+/** The token a run's owner renews its lease under: its process token, or one scoped to the run. */
+function ownerTokenOf(run: RunRecord): string {
+  return run.context.owner?.token ?? `run:${run.runId}`;
+}
+
+function ownerPidOf(run: RunRecord): number {
+  return run.context.owner?.pid ?? process.pid;
+}
+
+/** Starts the production lease heartbeat for one run, using the orchestrator's own clock. */
+function beginHeartbeat(orchestrator: FillOrchestrator, run: RunRecord): void {
+  stopHeartbeat(orchestrator);
+  const ownerToken = ownerTokenOf(run);
+  orchestrator.heartbeat.runId = run.runId;
+  orchestrator.heartbeat.ownerToken = ownerToken;
+  const timer = setInterval(() => {
+    void renewRunLease(orchestrator.database, { runId: run.runId, ownerToken, at: orchestrator.clock() }).catch(() => undefined);
+  }, RUN_HEARTBEAT_MS);
+  timer.unref?.();
+  orchestrator.heartbeat.timer = timer;
+}
+
+/** Stops the heartbeat when no run of this orchestrator is live. */
+export function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestrator['heartbeat'] }): void {
+  const heartbeat = orchestrator.heartbeat;
+  if (heartbeat === undefined) return;
+  if (heartbeat.timer !== undefined) clearInterval(heartbeat.timer);
+  heartbeat.timer = undefined;
+  heartbeat.runId = null;
+  heartbeat.ownerToken = null;
+}
+
+/**
+ * Ends a run whose owner's lease lapsed: the recovery claims the expired lease
+ * under the same row lock a planning step uses, so a live planner renewing it
+ * wins and this writes nothing. A lease with time left is the owner's proof that
+ * it is alive on every platform; elapsed state age is only the fallback for a
+ * run that predates the lease and has no identity to read.
+ */
+export async function recoverOrphanedRun(
+  orchestrator: FillOrchestrator,
+  options: { readonly runId: string; readonly at: number; readonly afterMs?: number },
+): Promise<RunRecord | null> {
+  const run = await readRun(orchestrator.database, options.runId);
+  if (run === null || isFinalRunState(run.state)) return run;
+  if (!['created', 'planning', 'running', 'pausing', 'cancelling'].includes(run.state)) return run;
+  const lease = await readRunLease(orchestrator.database, run.runId);
+  if (lease !== null && lease.expiresAt > options.at) return null;
+  if (lease === null && options.at - run.updatedAt < (options.afterMs ?? RUN_ORPHAN_AFTER_MS)) return null;
+  const claimed = await claimRunLease(orchestrator.database, {
+    runId: run.runId, ownerToken: `recovery:${String(process.pid)}`, ownerPid: process.pid, at: options.at,
+  });
+  if (claimed === null) return null;
+  await skipOutstandingUnits(orchestrator, run, 'the process that ran it ended');
+  const failed = await advanceRun(orchestrator.database, { runId: run.runId, event: { type: 'fail', at: options.at, cause: 'process-ended', detail: 'the process that ran it ended' } });
+  if (!failed.ok) return run;
+  await emit(orchestrator, { runId: run.runId, at: options.at, stage: '', unitId: '', generation: null, kind: 'run-failed', summary: 'the run failed: the process that ran it ended' });
+  await settleChain(orchestrator, run.runId, await runEvidence(orchestrator, run.runId));
+  return failed.record;
+}
+
 /**
  * Opens the product's chain of runs and creates one run in it. A chain that
  * never ran starts this run; a quiescent one wakes for it; a chain already
@@ -2243,9 +2331,18 @@ export interface RefusedRunStart {
 export async function startRun(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<StartedRun | RefusedRunStart> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
+  // A run the next start finds live but unchanged past the orphan window is ended before admission: a
+  // process that died leaves no run standing `running` for ever.
+  const known = await readChain(database, orchestrator.product);
+  if (known?.context.activeRunId !== null && known?.context.activeRunId !== undefined && known.context.activeRunId !== options.runId) {
+    await recoverOrphanedRun(orchestrator, { runId: known.context.activeRunId, at });
+  }
   const chain = await openChain(database, { product: orchestrator.product, at });
   const existing = await readRun(database, options.runId);
   const run = existing ?? await createRun(database, { runId: options.runId, product: orchestrator.product, at });
+  const lease = await claimRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), ownerPid: ownerPidOf(run), at });
+  if (lease === null) return { ok: false, code: 'fill-orchestrator/run-held', reason: `fill-orchestrator: run "${run.runId}" is held by another live process; its lease has not expired` };
+  beginHeartbeat(orchestrator, run);
   if (chain.state === 'active' && chain.context.activeRunId !== run.runId) {
     // A chain whose run ended is free: a run that is terminal cannot finish or be cancelled any further,
     // so the next run wakes it rather than being refused by a chain nothing can release.
@@ -2303,7 +2400,7 @@ export async function runEvidence(orchestrator: RunControlContext, runId: string
   // cancelled or stale. A run that planned nothing because every unit it would plan already stands
   // published has lost nothing, and a stage whose plan found nothing is reported as such separately —
   // the registry's own distinction between "no producer" and "producer found nothing".
-  const lost = units.filter((unit) => ['blocked', 'failed', 'cancelled', 'stale'].includes(unit.state));
+  const lost = units.filter((unit) => ['blocked', 'failed', 'cancelled', 'stale', 'skipped'].includes(unit.state));
   const outcomes = await readProducerOutcomes(orchestrator.database, { runId });
   return { runnable, inFlight, waiting, coverageMet: lost.length === 0 && outcomes.every((one) => producerSucceeded(one.outcome)), pendingPublications };
 }
@@ -2324,26 +2421,60 @@ export interface RunSettleOutcome {
  * outstanding. Nothing is settled while work stands, which is the whole point of
  * the guards behind them.
  */
+/**
+ * A run that ended leaves no generation waiting. Every unit the run did not
+ * finish becomes skipped, with the failed unit it waited on in its reason; the
+ * publication of every unit that did finish stays done.
+ */
+async function skipOutstandingUnits(orchestrator: RunControlContext, run: RunRecord, reason: string): Promise<readonly string[]> {
+  const database = orchestrator.database;
+  const units = await readRunUnits(database, run.runId);
+  const failed = units.filter((unit) => unit.state === 'failed').map((unit) => unit.unitId);
+  const cause = failed.length > 0 ? `unit ${failed[0]} failed` : reason;
+  const skipped: string[] = [];
+  for (const unit of units) {
+    if (isFinalUnitState(unit.state)) continue;
+    const step = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'skip', at: orchestrator.clock(), cause } });
+    if (!step.ok) continue;
+    skipped.push(unit.unitId);
+    await emit(orchestrator, {
+      runId: run.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation,
+      kind: 'unit-skipped', summary: `${unit.unitId} is skipped: ${cause}`,
+    });
+  }
+  return skipped;
+}
+
 async function settleRun(orchestrator: RunControlContext, options: { readonly runId: string }): Promise<RunSettleOutcome> {
   const database = orchestrator.database;
   const at = orchestrator.clock();
   const run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
+  if (isFinalRunState(run.state)) {
+    stopHeartbeat(orchestrator);
+    await skipOutstandingUnits(orchestrator, run, `the run ended ${runPhaseOf(run.state)}`);
+    return { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) };
+  }
   const evidence = await runEvidence(orchestrator, run.runId);
   const nothingOutstanding = evidence.runnable === 0 && evidence.inFlight === 0 && evidence.waiting === 0 && evidence.pendingPublications === 0;
   if (run.state === 'running') {
     if (!nothingOutstanding) return { run, outcome: 'waiting', evidence };
+    await skipOutstandingUnits(orchestrator, run, evidence.coverageMet ? 'the run succeeded' : 'the run ended partially');
+    const published = (await readRunUnits(database, run.runId)).filter((unit) => unit.state === 'published').length;
+    const noPublished = !evidence.coverageMet && published === 0;
     const step = evidence.coverageMet
       ? await advanceRun(database, { runId: run.runId, event: { type: 'complete', at, evidence } })
-      : await advanceRun(database, { runId: run.runId, event: { type: 'complete-partial', at, evidence } });
+      : noPublished
+        ? await advanceRun(database, { runId: run.runId, event: { type: 'fail', at, cause: 'no-units-published', detail: 'the run published no unit' } })
+        : await advanceRun(database, { runId: run.runId, event: { type: 'complete-partial', at, evidence } });
     if (!step.ok) return { run, outcome: 'waiting', evidence, refusal: { code: step.refusal.code, reason: step.refusal.reason } };
     await emit(orchestrator, {
       runId: run.runId, at, stage: '', unitId: '', generation: null,
-      kind: evidence.coverageMet ? 'run-completed' : 'run-completed-partial',
-      summary: evidence.coverageMet ? 'the run succeeded with its required coverage met' : 'the run completed partially: some planned work is not covered',
+      kind: evidence.coverageMet ? 'run-completed' : noPublished ? 'run-failed' : 'run-completed-partial',
+      summary: evidence.coverageMet ? 'the run succeeded with its required coverage met' : noPublished ? 'the run failed: no unit published' : 'the run completed partially: some planned work is not covered',
     });
     await settleChain(orchestrator, run.runId, evidence);
-    return { run: step.record, outcome: evidence.coverageMet ? 'succeeded' : 'completed-partial', evidence };
+    return { run: step.record, outcome: evidence.coverageMet ? 'succeeded' : noPublished ? 'failed' : 'completed-partial', evidence };
   }
   if (run.state === 'pausing') {
     if (evidence.inFlight + evidence.waiting > 0) return { run, outcome: 'waiting', evidence };
@@ -2375,7 +2506,7 @@ async function settleChain(orchestrator: RunControlContext, _runId: string, evid
 }
 
 /** Durable cancellation and settlement need no registry, source, queue or executor. */
-export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'>;
+export type RunControlContext = Pick<FillOrchestrator, 'database' | 'product' | 'clock' | 'authority' | 'sink'> & { readonly heartbeat?: FillOrchestrator['heartbeat'] };
 
 /** What one cancellation did. */
 export interface CancelOutcome {
@@ -2455,6 +2586,7 @@ async function blockRun(orchestrator: FillOrchestrator, options: { readonly runI
   const run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   const evidence = await runEvidence(orchestrator, run.runId);
+  await skipOutstandingUnits(orchestrator, run, `the run is blocked: ${options.reason}`);
   const step = await advanceRun(database, { runId: run.runId, event: { type: 'block', at, starvationPath: options.reason } });
   if (!step.ok) return { run, outcome: 'unchanged', evidence, refusal: { code: step.refusal.code, reason: step.refusal.reason } };
   await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-blocked', summary: `the run is blocked: ${options.reason}` });
@@ -2705,7 +2837,11 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   const elapsed = (): number => performance.now() - startedAt;
   let run = await readRun(database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
+  if (!(await renewRunLease(database, { runId: run.runId, ownerToken: ownerTokenOf(run), at: orchestrator.clock() }))) {
+    return { run, admitted: 0, swept: 0, stale: 0, settlement: { run, outcome: 'unchanged', evidence: await runEvidence(orchestrator, run.runId) }, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
+  }
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
+    stopHeartbeat(orchestrator);
     const settlement = await settleRun(orchestrator, { runId: run.runId });
     tick('settle');
     return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [], units: 0, ms: elapsed(), phases: { ...phases } };
@@ -2812,13 +2948,13 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
 }
 
 /** The states a run ended in: nothing further happens to it. */
-export const TERMINAL_RUN_STATES = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'] as const;
+export const TERMINAL_RUN_STATES = FINAL_RUN_STATES;
 
 /**
  * The run states a unit of which a later run may take up again: the run ended and nothing of it is in flight. A
  * `paused` run is not one of them — it is resumed as it was, so its units stay its own.
  */
-const ENDED_RUN_STATES: readonly string[] = ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'];
+const ENDED_RUN_STATES: readonly string[] = FINAL_RUN_STATES;
 
 /** What one driven run ended as. */
 export interface DriveOutcome {

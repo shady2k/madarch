@@ -34,7 +34,7 @@ import type { FillRun } from '../product/fill-runtime.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { FACT_RANK_FIELDS } from './facts.js';
-import { advanceUnitIn } from './state-store.js';
+import { advanceUnitIn, assertPlanningFenceIn } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 import { requireSchema } from '../adapters/store-readiness.js';
 import { retainedProducerOutcomes } from './producer-outcomes.js';
@@ -863,10 +863,11 @@ interface RunConfigurationRow extends Record<string, unknown> { run_id: string; 
  */
 export async function recordRunConfiguration(
   database: OrchestratorDatabase,
-  options: { readonly runId: string; readonly digest: string; readonly snapshot: RunSnapshot; readonly at: number },
+  options: { readonly runId: string; readonly digest: string; readonly snapshot: RunSnapshot; readonly at: number; readonly ownerToken?: string; readonly ownerAt?: number },
 ): Promise<RunConfigurationRecord> {
   const at = here();
   return run(at, database, `recordRunConfiguration(${options.runId})`, ['fill_run_configuration'], async (executor) => {
+    if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
     await executor.query(
       'INSERT INTO fill_run_configuration (run_id, digest, snapshot, recorded_at) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (run_id) DO NOTHING',
       [options.runId, options.digest, json(options.snapshot), options.at],
@@ -917,10 +918,11 @@ export interface RunStageRecord {
  */
 export async function recordRunStagePlanned(
   database: OrchestratorDatabase,
-  options: { readonly runId: string; readonly stageId: string; readonly units: number; readonly publications: number; readonly at: number },
+  options: { readonly runId: string; readonly stageId: string; readonly units: number; readonly publications: number; readonly at: number; readonly ownerToken?: string; readonly ownerAt?: number },
 ): Promise<RunStageRecord> {
   const at = here();
   return run(at, database, `recordRunStagePlanned(${options.runId}/${options.stageId})`, ['fill_run_stage'], async (executor) => {
+    if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
     await executor.query(
       `INSERT INTO fill_run_stage (run_id, stage_id, planned_at, units, publications) VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (run_id, stage_id) DO UPDATE SET planned_at = EXCLUDED.planned_at, units = EXCLUDED.units, publications = EXCLUDED.publications`,
@@ -1054,9 +1056,13 @@ export interface UnitPlanOptions {
   readonly at: number;
   /** The versions the unit's cache key holds at this planning (`stageCacheVersions`), recorded with the plan. */
   readonly cacheVersions?: Readonly<Record<string, string>>;
+  /** The planning owner's lease token; a planning write refuses when it is no longer in force. */
+  readonly ownerToken?: string;
+  readonly ownerAt?: number;
 }
 
 export async function recordUnitPlanIn(executor: SqlExecutor, options: UnitPlanOptions): Promise<UnitPlanRecord> {
+  if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
   await executor.query(
     `INSERT INTO fill_unit_plan (unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
@@ -1127,7 +1133,7 @@ const PROGRESS_KINDS = [
   'stage-found-nothing', 'stage-planned', 'kind-abstained',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
-  'unit-stale', 'unit-inherited', 'unit-cancelled', 'unit-requeued', 'unit-refused', 'run-waiting',
+  'unit-stale', 'unit-inherited', 'unit-cancelled', 'unit-skipped', 'unit-requeued', 'unit-refused', 'run-waiting',
 ] as const;
 export type ProgressKind = (typeof PROGRESS_KINDS)[number];
 

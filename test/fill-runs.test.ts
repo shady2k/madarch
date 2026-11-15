@@ -49,7 +49,7 @@ test('named run keeps generations after replacement and derives real facts, grou
     await tx.query("INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at) VALUES ('terms-unit', 1, 'fixture', 7, 1500)");
   });
   const detail = await readFillRunDetail(owner, 'history', { now: 2000 });
-  expect(detail).toMatchObject({ records: 7, publishedUnits: 1, elapsedMs: 1000, remainingMs: 1000, groups: [{ kind: 'doc.term', group: 'docs', plugin: 'terms', done: 1, total: 1, state: 'published' }] });
+  expect(detail).toMatchObject({ records: 7, publishedUnits: 1, elapsedMs: 1000, remainingMs: 1000, phase: 'running', final: false, groups: [{ kind: 'doc.term', group: 'docs', plugin: 'terms', done: 1, total: 1, state: 'published', phase: 'done' }] });
   // A subsequent generation owns the unit's current pointer. History still reads this run's generation.
   await owner.transaction('write', async (tx) => {
     await tx.query("INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at) SELECT unit_id, 2, 'newer', 'planned', inputs_digest, fence, context, NULL, NULL, 3000 FROM fill_unit_generation WHERE unit_id = 'terms-unit' AND generation = 1");
@@ -64,14 +64,14 @@ test('a stale historical scoped control cannot pause or stop a newer run', async
   await createRun(owner, { runId: 'old-finished', product: 'shop', at: 5000 });
   await advanceRun(owner, { runId: 'old-finished', event: { type: 'fail', at: 5001, cause: 'initialization-failed', detail: 'fixture' } });
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
-  Object.assign(product, { open: async () => owner, product: () => ({ name: 'shop' }) });
+  Object.assign(product, { listeners: new Set(), revision: 0, open: async () => owner, product: () => ({ name: 'shop' }) });
   for (const action of ['pause', 'stop'] as const) {
     expect(await product.controlFillRun('old-finished', action)).toMatchObject({ ok: false, status: 409, message: expect.stringMatching(/product\.ts:\d+:/) });
   }
   const rows = await owner.transaction('snapshot', async (tx) => tx.query("SELECT run_id FROM fill_control"));
   expect(rows.rows).toEqual([]);
   const foreignProduct = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
-  Object.assign(foreignProduct, { open: async () => owner, product: () => ({ name: 'not-shop' }) });
+  Object.assign(foreignProduct, { listeners: new Set(), revision: 0, open: async () => owner, product: () => ({ name: 'not-shop' }) });
   expect(await foreignProduct.controlFillRun('history', 'stop')).toMatchObject({ ok: false, status: 404 });
 });
 
@@ -98,14 +98,14 @@ test('paused Stop after worker exit uses canonical cancellation without loading 
   await advanceRun(owner, { runId: 'paused-run', event: { type: 'drain', at: 7005, evidence: { runnable: 1, inFlight: 0, waiting: 0, pendingPublications: 0, coverageMet: true } } });
   expect((await readRun(owner, 'paused-run'))?.state).toBe('paused');
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
-  Object.assign(product, { open: async () => owner, product: () => ({ name: 'shop' }) });
+  Object.assign(product, { listeners: new Set(), revision: 0, open: async () => owner, product: () => ({ name: 'shop' }) });
   expect(await product.controlFillRun('paused-run', 'stop')).toMatchObject({ ok: true, runId: 'paused-run' });
   expect((await readRun(owner, 'paused-run'))?.state).toBe('cancelled');
   expect((await readRunUnits(owner, 'paused-run'))[0]?.state).toBe('cancelled');
   const detail = await readFillRunDetail(owner, 'paused-run', { now: Date.now() });
   expect(detail?.events.map((event) => event.type)).toContain('run-cancelled');
   expect(detail?.remainingMs).toBeNull();
-  expect(detail?.groups[0]?.state).toBe('cancelled');
+  expect(detail).toMatchObject({ phase: 'stopped', final: true, groups: [{ state: 'cancelled', phase: 'cancelled' }] });
 });
 
 test('initialization failure settles a precreated request and writes the end awaited by the API', async () => {
@@ -126,7 +126,7 @@ test('global status follows canonical paused then stopped state rather than stal
   await advanceRun(owner, { runId: 'status-paused', event: { type: 'pause', at: 10003 } });
   await advanceRun(owner, { runId: 'status-paused', event: { type: 'drain', at: 10004, evidence: { runnable: 0, inFlight: 0, waiting: 0, pendingPublications: 0, coverageMet: true } } });
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
-  Object.assign(product, { reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'status-paused', product: () => ({ name: 'status-shop' }), loadPins: async () => undefined, warmReader: async () => undefined, open: async () => owner });
+  Object.assign(product, { listeners: new Set(), revision: 0, reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'status-paused', product: () => ({ name: 'status-shop' }), loadPins: async () => undefined, warmReader: async () => undefined, open: async () => owner });
   await (product as any).followStoreFill();
   expect((product as any).fill).toMatchObject({ runId: 'status-paused', state: 'paused' });
   await product.controlFillRun('status-paused', 'stop');
@@ -135,7 +135,7 @@ test('global status follows canonical paused then stopped state rather than stal
   await createRun(owner, { runId: 'status-newer', product: 'status-shop', at: 11000 });
   await advanceRun(owner, { runId: 'status-newer', event: { type: 'fail', at: 11001, cause: 'initialization-failed', detail: 'newer failed between polls' } });
   await writeFillEnd(owner, { runId: 'status-newer', state: 'failed', message: 'newer failed between polls' });
-  Object.assign(product, { options: {}, notify: () => undefined, published: async () => undefined, unreadOf: () => [] });
+  Object.assign(product, { listeners: new Set(), revision: 0, options: {}, notify: () => undefined, published: async () => undefined, unreadOf: () => [] });
   await (product as any).followStoreFill();
   expect((product as any).fillRunId).toBe('status-newer');
   expect((product as any).fill).toMatchObject({ state: 'failed', message: 'newer failed between polls' });
@@ -154,7 +154,7 @@ test('held chain remains canonical global status when a later request is refused
   await createRun(owner, { runId: 'held-refused', product: 'held-shop', at: 13000 });
   await failRequestedFill(owner, 'held-refused', 'chain held');
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
-  Object.assign(product, { reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'held-refused', product: () => ({ name: 'held-shop' }), loadPins: async () => undefined, warmReader: async () => undefined });
+  Object.assign(product, { listeners: new Set(), revision: 0, reader: { owner, seq: 0 }, fill: { state: 'failed' }, fillRunId: 'held-refused', product: () => ({ name: 'held-shop' }), loadPins: async () => undefined, warmReader: async () => undefined });
   await (product as any).followStoreFill();
   expect((product as any).fill).toMatchObject({ runId: 'held-paused', state: 'paused' });
 });
@@ -166,6 +166,7 @@ test('a locally queued request does not adopt the previous chain run before its 
   await createRun(owner, { runId: 'queued-request', product: 'queued-status-shop', at: 15000 });
   const product = Object.create(KnowledgeProduct.prototype) as KnowledgeProduct;
   Object.assign(product, {
+    listeners: new Set(), revision: 0,
     reader: { owner, seq: 0 }, fill: { state: 'running', runId: 'queued-request' }, fillRunId: 'queued-request',
     running: new Promise<void>(() => {}), product: () => ({ name: 'queued-status-shop' }),
     loadPins: async () => undefined, warmReader: async () => undefined,

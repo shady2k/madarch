@@ -7,7 +7,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactElement } from 'react';
 import { cn } from '@/lib/utils.js';
 
-type ButtonVariant = 'default' | 'ghost' | 'link';
+type ButtonVariant = 'default' | 'ghost' | 'link' | 'outline';
 type ButtonSize = 'default' | 'sm' | 'content' | 'icon' | 'icon-sm';
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -19,6 +19,7 @@ const variantClasses: Record<ButtonVariant, string> = {
   default: 'bg-chrome text-ink border border-line shadow-none hover:bg-[var(--surface-hover)]',
   ghost: 'text-secondary hover:enabled:bg-[var(--surface-hover)] hover:enabled:text-ink',
   link: 'text-secondary underline underline-offset-2 hover:enabled:text-ink',
+  outline: 'border border-line bg-transparent text-ink hover:enabled:bg-[var(--surface-hover)]',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
