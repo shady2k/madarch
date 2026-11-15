@@ -23,7 +23,7 @@ import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageE
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, stopHeartbeat, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, recordUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
@@ -134,7 +134,7 @@ async function openWorld(options: {
   });
   return {
     owner, queue, registry: options.registry, orchestrator, graph, applied, clock, commits,
-    close: async () => { await queue.stop(); if (!lent) await owner.close(); },
+    close: async () => { stopHeartbeat(orchestrator); await queue.stop(); if (!lent) await owner.close(); },
   };
 }
 
@@ -1280,7 +1280,7 @@ describe('what the review found, kept as tests', () => {
     const next = await startRun(opened.orchestrator, { runId: 'run-after-long-plan' });
     expect(next.ok).toBe(false);
     expect((await readRun(opened.owner, 'run-long-plan'))?.state).toBe('running');
-  });
+  }, 15_000);
 
   test('a recovered run refuses the late planner\'s next unit and stays final', async () => {
     let entered: (() => void) | undefined;

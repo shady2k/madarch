@@ -2267,7 +2267,7 @@ function beginHeartbeat(orchestrator: FillOrchestrator, run: RunRecord): void {
 }
 
 /** Stops the heartbeat when no run of this orchestrator is live. */
-function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestrator['heartbeat'] }): void {
+export function stopHeartbeat(orchestrator: { readonly heartbeat?: FillOrchestrator['heartbeat'] }): void {
   const heartbeat = orchestrator.heartbeat;
   if (heartbeat === undefined) return;
   if (heartbeat.timer !== undefined) clearInterval(heartbeat.timer);

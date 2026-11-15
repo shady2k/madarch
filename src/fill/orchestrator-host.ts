@@ -28,6 +28,7 @@ import {
   cancelRun,
   createOrchestrator,
   driveRun,
+  stopHeartbeat,
   pauseRun,
   planRun,
   resumeRun,
@@ -347,6 +348,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
+      for (const orchestrator of orchestrators.values()) stopHeartbeat(orchestrator);
       orchestrators.clear();
       if (opening === undefined) return;
       const opened = await opening;
