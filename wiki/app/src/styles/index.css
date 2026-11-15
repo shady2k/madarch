@@ -127,6 +127,7 @@
 .shell-document {
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-block-size: 100%;
   /* The trail opens the page a token below the bar, and the title follows it a token later: the work area's own top
      gap is the kit's, not the reading rhythm's. */
@@ -139,6 +140,8 @@
 
 .shell-document > main,
 .ui-kit-page {
+  min-width: 0;
+  max-width: 100%;
   max-inline-size: var(--work-max);
   margin-inline: auto;
 }
@@ -398,6 +401,8 @@ main blockquote + * {
 /* 4.3 Inline code: the code pair on its grey ground. */
 main :not(pre) > code {
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 0.875em;
   padding: 0.1em 0.35em;
   border-radius: var(--radius-code);
