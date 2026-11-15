@@ -203,13 +203,55 @@ export function catalogueKinds(root: string): CatalogueKind[] {
   return kinds.sort((left, right) => byCodePoint(left.path, right.path));
 }
 
-/** Gate 1: no string literal of the engine names a kind or a field the starter catalogue declares. */
+/**
+ * The words the manifest format declares, read from the reader's own declaration in `src/product/manifest`: every
+ * vocabulary list it holds (`KIND_FIELDS`, the views, the forms) and every property its types declare (`descriptions`).
+ * Those words are the engine's — the reader names what it reads — and only a word the catalogue alone declares is
+ * product data.
+ */
+export function manifestFormatWords(root: string): Set<string> {
+  const words = new Set<string>();
+  const folder = resolve(root, 'src/product/manifest');
+  const walk = (directory: string): void => {
+    let entries;
+    try { entries = readdirSync(directory, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries.sort((left, right) => byCodePoint(left.name, right.name))) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+      const file = relative(root, path).split('\\').join('/');
+      const module = parseModule(file, readFileSync(path, 'utf8'), false);
+      for (const node of nodesOf(module.tree)) {
+        if (node['type'] === 'ArrayExpression') {
+          const elements = node['elements'];
+          if (!Array.isArray(elements) || elements.length === 0) continue;
+          const values = elements.map((element: unknown) => {
+            const expression = element === null || typeof element !== 'object' ? undefined : (element as Node)['expression'];
+            return expression === undefined || expression === null || typeof expression !== 'object' ? undefined : stringValue(expression as Node);
+          });
+          if (values.every((value) => typeof value === 'string')) for (const value of values) words.add(value as string);
+          continue;
+        }
+        if (node['type'] !== 'TsPropertySignature') continue;
+        const key = node['key'] as Node | undefined;
+        if (key?.['type'] === 'Identifier') words.add(String(key['value']));
+        else if (key !== undefined && typeof key['value'] === 'string') words.add(key['value']);
+      }
+    }
+  };
+  walk(folder);
+  return words;
+}
+
+/** Gate 1: no string literal of the engine names a kind or a field the starter catalogue alone declares. */
 export function productDataViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
+  const format = manifestFormatWords(root);
   const names = new Set<string>();
   for (const kind of catalogueKinds(root)) {
-    names.add(kind.name);
-    if (kind.id !== undefined) names.add(kind.id);
-    for (const field of kind.fields) names.add(field.name);
+    // A word the manifest format itself declares is the engine's vocabulary, not product data (`labels`, `definition`).
+    if (!format.has(kind.name)) names.add(kind.name);
+    if (kind.id !== undefined && !format.has(kind.id)) names.add(kind.id);
+    for (const field of kind.fields) if (!format.has(field.name)) names.add(field.name);
   }
   const found: ArchitectureViolation[] = [];
   for (const module of modules.values()) {

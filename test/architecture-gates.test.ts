@@ -53,6 +53,21 @@ describe('gate 1: the engine holds no product data', () => {
     ]);
   });
 
+  test('a word the manifest format declares is the engine\'s, and only a catalogue-only word is product data', async () => {
+    const home = fixture({
+      // The reader's own declaration: the format's vocabulary list and the property its type declares.
+      'src/product/manifest/kinds.ts': [
+        'export const KIND_FIELDS: readonly string[] = [\'definition\', \'labels\'];',
+        'export interface KindDecl { readonly descriptions?: Readonly<Record<string, string>>; }',
+        '',
+      ].join('\n'),
+      ...catalogue('demo.task', 'id: practice.demo-task\nfields:\n  - name: definition\n    type: text\n    producers: [person]\n  - name: labels\n    type: text\n    producers: [person]\n  - name: statement\n    type: text\n    producers: [person]\n'),
+      'src/a.ts': "export const format = ['definition', 'labels', 'descriptions'];\nexport const data = 'statement';\n",
+    });
+    // `definition`, `labels` and `descriptions` are the format's; `statement` only the catalogue declares, so it is data.
+    expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([['src/a.ts', 'statement']]);
+  });
+
   test('an import from catalog/ is refused: the engine reads the product\'s own files', async () => {
     const home = fixture({ 'src/a.ts': "import { x } from '../catalog/work/execution/task.yaml';\nexport const y = x;\n" });
     expect(productDataViolations(home).map((violation) => violation.symbol)).toEqual(['import ../catalog/work/execution/task.yaml']);

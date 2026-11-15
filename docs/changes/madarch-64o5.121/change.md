@@ -13,10 +13,14 @@ TypeScript syntax tree (`@swc/core`) or PostgreSQL's own parser (`libpg-query`),
 each is held against `.architecture/violations.json` — a violation the list does not hold fails at once, an entry no rule
 finds any more fails too, and a gained entry needs the owner's words in the commit (`Owner-decision:`).
 
-The gates and today's debt entries:
+The gates and today's debt entries (1 281 in all):
 
-- `no-product-data` (619): a literal of the engine that equals a kind id, kind name or field name the starter catalogue
-  declares; and an import of the engine from `catalog/`.
+- `no-product-data` (307): a literal of the engine that equals a kind id, kind name or field name the starter catalogue
+  alone declares, and an import of the engine from `catalog/`. The words the manifest format declares are the engine's:
+  the gate reads them from the reader's own declaration in `src/product/manifest` — its vocabulary lists (`KIND_FIELDS`
+  and the views, forms and languages beside it) and the properties its types declare — so `labels`, `description` and
+  `definition` are not product data while a word only the catalogue holds is. Adopting that cut 315 of the gate's 622
+  findings: they were the format's own words, and they left the list.
 - `one-table-source` (25): a `CREATE TABLE`, read by PostgreSQL's parser, outside `src/adapters/schemas/graph-definition.ts`
   and `src/adapters/schemas/graph-contract.ts` — the graph core's installation and the generator from the manifest. A
   statement built across literals is reported as a table, never passed over.
