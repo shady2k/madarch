@@ -128,6 +128,7 @@
 .shell-document {
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-block-size: 100%;
   /* The trail opens the page a token below the bar, and the title follows it a token later: the work area's own top
      gap is the kit's, not the reading rhythm's. */
@@ -140,6 +141,8 @@
 
 .shell-document > main,
 .ui-kit-page {
+  min-width: 0;
+  max-width: 100%;
   max-inline-size: var(--work-max);
   margin-inline: auto;
 }
@@ -399,6 +402,8 @@ main blockquote + * {
 /* 4.3 Inline code: the code pair on its grey ground. */
 main :not(pre) > code {
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 0.875em;
   padding: 0.1em 0.35em;
   border-radius: var(--radius-code);
@@ -2251,8 +2256,10 @@ a.graph-diagram-element-label:hover {
 /* ---- The Files page: the map, its switches, its legend and the table (madarch-j9ao.1) -------------- */
 /* The Files page's controls: one segmented choice per group, its label above the choice. */
 .dg-files-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 8px; }
-.dg-seg { display: inline-flex; flex-direction: column; gap: 4px; }
+.dg-seg { display: flex; min-width: 0; max-width: 100%; flex-direction: column; gap: 4px; }
 .dg-seg-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); }
+/* The kit's toggle group owns the choice's look: the group only wraps (madarch-64o5.82). */
+.dg-seg-options { display: flex; min-width: 0; max-width: 100%; flex-wrap: wrap; }
 .dg-legend-caption { font-weight: 600; color: var(--text-secondary); }
 @media (max-width: 700px) {
   .dg-files-controls { gap: 8px 14px; }
