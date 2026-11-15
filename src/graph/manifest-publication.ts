@@ -33,9 +33,9 @@ export type ManifestValidation = { readonly ok: true; readonly value: ValidatedM
 
 /** JSON stores maps explicitly; declarations have maps nested in catalogues and workflow stage locations. */
 function encode(value: unknown): unknown {
-  if (value instanceof Map) return { $map: [...value].map(([key, held]) => [key, encode(held)]) };
+  if (value instanceof Map) return { $map: [...value].map(([key, held]) => [key, held === undefined ? null : encode(held)]) };
   if (Array.isArray(value)) return value.map(encode);
-  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, held]) => [key, encode(held)]));
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([, held]) => held !== undefined).map(([key, held]) => [key, encode(held)]));
   return value;
 }
 function decode(value: unknown): unknown {

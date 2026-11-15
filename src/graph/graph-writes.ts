@@ -14,6 +14,7 @@ import { withManifestContract } from './manifest-contract.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { publishGraphDrafts } from './write.js';
 import { randomUUID } from 'node:crypto';
+import { fits } from './validation.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 
 /** A refused write: the tool answers its message, naming the field when one is at fault. */
@@ -90,23 +91,6 @@ export function evidenceOf(input: unknown): EvidenceEntry[] {
     }
   }
   return out;
-}
-
-/** Whether a value is what the field's declared type states. */
-function fits(field: FieldContract, value: unknown): boolean {
-  if (field.reference !== undefined) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-    const held = value as Record<string, unknown>;
-    return typeof held['kind'] === 'string' && held['kind'] === field.reference && held['key'] !== null && typeof held['key'] === 'object' && !Array.isArray(held['key']);
-  }
-  switch (field.type) {
-    case 'text': return typeof value === 'string';
-    case 'integer': return typeof value === 'number' && Number.isInteger(value);
-    case 'bigint': return (typeof value === 'number' && Number.isSafeInteger(value)) || (typeof value === 'string' && /^-?\d+$/u.test(value));
-    case 'boolean': return typeof value === 'boolean';
-    case 'timestamp': return typeof value === 'string' && ISO.test(value) && !Number.isNaN(Date.parse(value));
-    case 'json': return value !== undefined;
-  }
 }
 
 /** The word a field's type goes by in a refusal. */

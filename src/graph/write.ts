@@ -31,6 +31,7 @@ import type { SqlExecutor } from '../sql-driver.js';
 import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
 export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
 import { keyUid } from './uid.js';
+import { validateFields } from './validation.js';
 
 /** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
 const WHERE = 'src/graph/write.ts';
@@ -472,6 +473,7 @@ export function evidenceList(draft: { readonly evidence?: readonly EvidenceDraft
 
 /** The field values one opinion states, held against the kind's declaration: a key field is never an opinion. */
 function valuesOf(vertex: VertexContract, draft: { readonly kind: string; readonly values?: Readonly<Record<string, unknown>> }): Map<string, unknown> {
+  validateFields(vertex.fields.filter(field => !vertex.key.includes(field.name)), draft.values ?? {}, '/values');
   const values = new Map<string, unknown>();
   for (const [field, value] of Object.entries(draft.values ?? {})) {
     if (vertex.key.includes(field)) throw new Error(`${WHERE}:1: the kind ${JSON.stringify(draft.kind)} is keyed by ${JSON.stringify(field)}, and the key is not an opinion: its value is the vertex's`);
@@ -926,6 +928,13 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
 }
 
 export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[]; readonly withdrawal?: JournalWithdrawal } = {}): Promise<number> {
+  // Decision 0039 item 7: validate the complete answer before declaring even its first identity.
+  for (const draft of drafts.vertices) valuesOf(vertexOf(contract, draft.kind), draft);
+  for (const draft of drafts.edges ?? []) {
+    const kind = contract.edge.find(kind => kind.name === draft.kind);
+    edgeOfKind(contract, draft.kind);
+    validateFields(kind!.fields, draft.values ?? {}, '/values');
+  }
   let written = 0;
   // The entry's author is the publication's: a plugin and its version, a record pass's producer, or the agent or a person
   // for an operation; without one named, the drafts' own producers name it — a removal-only or edge-only publication
