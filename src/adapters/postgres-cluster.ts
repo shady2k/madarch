@@ -43,7 +43,7 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -538,20 +538,18 @@ function initdbWhole(dataDir: string): boolean {
   return existsSync(join(dataDir, 'PG_VERSION')) && existsSync(join(dataDir, 'global', 'pg_control')) && existsSync(join(dataDir, 'base', '1'));
 }
 
-/** The database directories initdb's bootstrap makes: template1, template0 and the postgres database. */
-const BOOTSTRAP_BASES: ReadonlySet<string> = new Set(['1', '4', '5']);
-
 /**
- * The databases a data directory holds beyond initdb's bootstrap's, by the directory each stands in: an empty list when
- * it holds only the bootstrap's own, and undefined when what it holds cannot be read. A folder with no `base` yet holds
- * no database at all. A store's database is one of these, and so is anything a person restored into the folder.
+ * Moves a folder madarch would prepare again aside, by a rename in the store's own folder: a store's files are never
+ * deleted, however little they are expected to hold — a table in `postgres`, a database in a tablespace and a cluster a
+ * person restored all live outside what a folder's own shape says. The name carries the UTC moment so two moves of one
+ * store are told apart, and the folder stands beside the store until a person checks it and removes it by hand. A
+ * rename the filesystem refuses is the caller's to refuse the start with.
  */
-function databasesBeyondBootstrap(dataDir: string): string[] | undefined {
-  try {
-    return readdirSync(join(dataDir, 'base')).filter((name) => !BOOTSTRAP_BASES.has(name) && name !== 'pgsql_tmp');
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : undefined;
-  }
+function moveAside(dataDir: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/gu, '-');
+  const target = `${dataDir}.abandoned-${stamp}`;
+  renameSync(dataDir, target);
+  return target;
 }
 
 
@@ -750,11 +748,9 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
     keepPrepared(dataDir);
     return;
   }
-  // A record beside the folder says madarch started a preparation here. It is removed together with the folder only
-  // when both the record and the folder say the preparation holds nothing of a store's: the record names an attempt
-  // madarch made (its id has the shape madarch writes), and the folder holds no database beyond initdb's bootstrap's.
-  // Anything else — a record that cannot be read, a foreign one, or a database a store wrote — is somebody's data: the
-  // start refuses naming the folder, and never erases it (madarch-64o5.81 review).
+  // A record beside the folder says madarch started a preparation here. It is read to tell an attempt of ours from
+  // somebody else's, and one that cannot be read or names no attempt of madarch's refuses the start naming the folder:
+  // madarch never erases a folder it cannot prove is its own unfinished preparation (madarch-64o5.81 review).
   const preparingPath = preparingRecordPath(dataDir);
   const preparing = preparingRecord(dataDir);
   if (preparing !== undefined || existsSync(preparingPath)) {
@@ -766,28 +762,31 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
     }
     await awaitRecordedInitdb(dataDir, preparing, waitMs);
     // Nothing names the folder now and no `madarch.prepared` record followed the attempt: the preparation was abandoned.
-    const beyond = databasesBeyondBootstrap(dataDir);
-    if (beyond === undefined) {
-      throw new Error(`${dataDir}:1: what this folder holds cannot be read, so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
-    }
-    if (beyond.length > 0) {
-      throw new Error(`${join(dataDir, 'base')}:1: this folder holds ${beyond.join(', ')}, ${beyond.length === 1 ? 'a database' : 'databases'} no bootstrap of initdb's makes, so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
-    }
-    // Only initdb's own bootstrap databases are here, as a stop or a crash left them before the store's database was
-    // made: initdb's bootstrap writes `PG_VERSION`, `global/pg_control` and `base/1` long before that, so such a folder
-    // looks whole and is not (madarch-64o5.81: the next open started one, and every connection answered "database
-    // postgres does not exist"). It is prepared again below, under the start lock this open already holds.
+    // Whatever the folder holds is moved aside below, never deleted: initdb's bootstrap writes `PG_VERSION`,
+    // `global/pg_control` and `base/1` long before the store's database exists, so such a folder looks whole and is not
+    // (madarch-64o5.81: the next open started one, and every connection answered "database postgres does not exist"),
+    // while a table in `postgres` or a database in a tablespace says nothing about the folder's shape.
   } else if (!empty && initdbWhole(dataDir)) {
     // A store prepared before these records existed: what initdb leaves when it ends is the proof, and the record follows.
     keepPrepared(dataDir);
     return;
   } else if (!empty) {
-    // Nothing of madarch's says it made this folder, so nothing of madarch may remove it, however unfinished its files
+    // Nothing of madarch's says it made this folder, so nothing of madarch may touch it, however unfinished its files
     // look: an older or damaged cluster missing `base/1` is a store's data, not preparation's left-over.
     throw new Error(`${dataDir}:1: this folder holds files and no record of a preparation madarch started (${preparingRecordPath(dataDir)}), so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
   }
-  // Only an unfinished folder of ours, an empty one, or the record of a folder already gone is removed here.
-  rmSync(dataDir, { recursive: true, force: true });
+  // A folder is never deleted here: an abandoned one is moved aside and a person removes it once they have looked.
+  if (existsSync(dataDir)) {
+    if (readdirSync(dataDir).length === 0) rmdirSync(dataDir);
+    else {
+      let target: string;
+      try { target = moveAside(dataDir); }
+      catch (error) {
+        throw new Error(`${dataDir}:1: the folder madarch would prepare again could not be moved aside, so it is left as it stands and this store does not open: move it by hand and open the store again (${error instanceof Error ? error.message : String(error)}) (src/adapters/postgres-cluster.ts)`);
+      }
+      defaultLog.warn(`madarch: the store folder ${dataDir} was not a whole store, so it is kept as ${target}: remove it by hand once you have checked it`, { madarch: 'postgres' });
+    }
+  }
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   // Progress, not a warning: a command whose output a caller reads (a script's, a test's) stays quiet.
   defaultLog.info(`madarch: creating the PostgreSQL data directory ${dataDir}`, { madarch: 'postgres' });

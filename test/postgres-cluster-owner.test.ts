@@ -9,7 +9,7 @@ import { afterAll, expect, test } from 'bun:test';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { awaitServerAnswering, clusterPaths, clusterQuery, openCluster, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
 import { postgresInstallFolder, postgresProgram } from '../src/adapters/postgres-builds.js';
 
@@ -67,6 +67,23 @@ function child(mode: string, store: string, extra?: string, marker?: string) {
 /** A preparation record of ours: the attempt id madarch writes, naming the initdb it spawned when the case has one. */
 function preparingRecordOf(initdbPid?: number): string {
   return `${JSON.stringify({ id: crypto.randomUUID(), version: 'test', startedAt: new Date().toISOString(), ...(initdbPid === undefined ? {} : { initdb: { pid: initdbPid } }) })}\n`;
+}
+
+/** The folders a preparation moved aside beside a store, by their moment. */
+function abandonedFolders(store: string): string[] {
+  const { dataDir } = clusterPaths(store);
+  return readdirSync(dirname(dataDir))
+    .filter((name) => name.startsWith(`${basename(dataDir)}.abandoned-`))
+    .sort()
+    .map((name) => join(dirname(dataDir), name));
+}
+
+/** Opens a folder a preparation moved aside, on a socket of its own, and answers one statement from it. */
+async function readAbandoned(folder: string, database: string, sql: string): Promise<unknown[]> {
+  // The socket's own folder is short: a Unix socket path is bounded, and the store's folder is already deep.
+  const socketDir = mkdtempSync(join(tmpdir(), 'madarch-abandoned-sock-'));
+  const cluster = await openCluster({ dataDir: folder, socketDir });
+  try { return await clusterQuery(cluster, database, sql); } finally { await cluster.stop(); rmSync(socketDir, { recursive: true, force: true }); }
 }
 
 /** Waits until a file exists: the child says it holds what the case needs held. */
@@ -330,24 +347,26 @@ test('a record of a live initdb outranks what a half-made folder looks like', as
   }
 }, 120_000);
 
-test('a folder carrying our unfinished preparation is prepared again, even when its files look whole', async () => {
+test('a folder carrying our unfinished preparation is moved aside whole, and the store is prepared again', async () => {
   // `madarch.prepared`, written only once initdb exits, is the one proof that a cluster is whole. A folder that carries
-  // our record of an attempt, holds no database beyond initdb's bootstrap's and was left by a stop or a crash is
-  // prepared again: initdb's bootstrap writes `PG_VERSION`, `global/pg_control` and `base/1` long before the `postgres`
-  // database exists (madarch-64o5.81).
+  // our record of an attempt and was left by a stop or a crash is never deleted: it is moved aside under a name that
+  // carries the moment, a person removes it once they have looked, and the store is prepared again (madarch-64o5.81).
   const store = storeOf('abandoned preparation');
   const { dataDir } = clusterPaths(store);
   const first = await openCluster({ ...clusterPaths(store) });
   await first.stop();
   const sentinel = join(dataDir, 'madarch.test-sentinel');
-  writeFileSync(sentinel, 'gone\n');
+  writeFileSync(sentinel, 'kept\n');
   const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
   await ended.exited;
   rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
   writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(ended.pid));
   const second = await openCluster({ ...clusterPaths(store) });
   try {
-    expect(existsSync(sentinel)).toBe(false);
+    const [kept] = abandonedFolders(store);
+    expect(kept).toBeDefined();
+    expect(readFileSync(join(kept!, 'madarch.test-sentinel'), 'utf8')).toBe('kept\n');
+    expect(existsSync(join(dataDir, 'madarch.test-sentinel'))).toBe(false);
     expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
     expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
     await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
@@ -377,30 +396,55 @@ for (const shape of ['unreadable', 'foreign'] as const) {
   }, 120_000);
 }
 
-test('a restored store\'s folder beside a stale record of ours is refused, never erased', async () => {
-  // A pgdata a person restored into a store folder can sit beside a record a stop left: no process names it, and no
-  // `madarch.prepared` follows. Its own database is what proves the folder holds something of a store's, and the start
-  // refuses naming it — only a folder with initdb's bootstrap databases alone is ever prepared again
-  // (madarch-64o5.81 review).
-  const store = storeOf('restored store');
+test('a table in postgres survives in the folder a preparation moves aside', async () => {
+  // What a folder holds is no proof of what a store is worth: a table lives in the `postgres` database itself, and a
+  // folder whose `base` holds only the bootstrap's directories is not empty. The folder is moved aside whole and its
+  // data is read there (madarch-64o5.81 review).
+  const store = storeOf('table in postgres');
   const { dataDir } = clusterPaths(store);
   const first = await openCluster({ ...clusterPaths(store) });
-  await clusterQuery(first, CLUSTER_ADMIN_DATABASE, 'CREATE DATABASE restored_store_data');
+  await clusterQuery(first, CLUSTER_ADMIN_DATABASE, 'CREATE TABLE kept_table (value int)');
+  await clusterQuery(first, CLUSTER_ADMIN_DATABASE, 'INSERT INTO kept_table VALUES (42)');
   await first.stop();
   const sentinel = join(dataDir, 'madarch.test-sentinel');
   writeFileSync(sentinel, 'kept\n');
   rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
   writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf());
-  const beyondBootstrap = readdirSync(join(dataDir, 'base')).filter((name) => !['1', '4', '5'].includes(name));
-  expect(beyondBootstrap).toHaveLength(1);
-  let refusal: Error | undefined;
-  try { await openCluster({ ...clusterPaths(store) }); } catch (error) { refusal = error as Error; }
-  expect(refusal?.message).toContain(join(dataDir, 'base'));
-  expect(refusal?.message).toContain('move');
-  // The folder still holds its own database and its files: the refusal read them and removed nothing.
-  expect(existsSync(sentinel)).toBe(true);
-  expect(existsSync(join(dataDir, 'base', beyondBootstrap[0]!))).toBe(true);
-}, 120_000);
+  const second = await openCluster({ ...clusterPaths(store) });
+  try {
+    const [kept] = abandonedFolders(store);
+    expect(kept).toBeDefined();
+    expect(existsSync(join(kept!, 'madarch.test-sentinel'))).toBe(true);
+    await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+    const rows = await readAbandoned(kept!, CLUSTER_ADMIN_DATABASE, 'SELECT value FROM kept_table');
+    expect(rows).toEqual([{ value: 42 }]);
+  } finally { await second.stop(); }
+}, 180_000);
+
+test('a database in a tablespace survives in the folder a preparation moves aside', async () => {
+  // A database may keep its files in a tablespace of its own, outside `base`: only the cluster's own catalogs say it is
+  // there. The folder is moved aside whole, and its database is read where it was kept (madarch-64o5.81 review).
+  const store = storeOf('database in a tablespace');
+  const { dataDir } = clusterPaths(store);
+  const where = join(root, 'tablespace', 'kept');
+  mkdirSync(where, { recursive: true, mode: 0o700 });
+  const first = await openCluster({ ...clusterPaths(store) });
+  await clusterQuery(first, CLUSTER_ADMIN_DATABASE, `CREATE TABLESPACE kept_space LOCATION '${where}'`);
+  await clusterQuery(first, CLUSTER_ADMIN_DATABASE, 'CREATE DATABASE kept_database TABLESPACE kept_space');
+  await clusterQuery(first, 'kept_database', 'CREATE TABLE kept_table (value int)');
+  await clusterQuery(first, 'kept_database', 'INSERT INTO kept_table VALUES (42)');
+  await first.stop();
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf());
+  const second = await openCluster({ ...clusterPaths(store) });
+  try {
+    const [kept] = abandonedFolders(store);
+    expect(kept).toBeDefined();
+    await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+    const rows = await readAbandoned(kept!, 'kept_database', 'SELECT value FROM kept_table');
+    expect(rows).toEqual([{ value: 42 }]);
+  } finally { await second.stop(); }
+}, 180_000);
 
 test('a store waiting for its server says so every few seconds and refuses with the last attempt\'s reason', async () => {
   // The wait a Windows store makes for its server is driven here with a probe that never answers: the line reaches
@@ -444,11 +488,12 @@ test('a connection the server ends after authentication is a readiness failure, 
   try { await cluster.stop(); } catch { /* the server was killed to end its connections */ }
 }, 120_000);
 
-test('an initdb killed before it made the postgres database leaves a folder the next open prepares again', async () => {
+test('an initdb killed before it made the postgres database is moved aside, and the store serves again', async () => {
   // The shape the clean-install walk met on windows-x64 at b43b57ff (madarch-64o5.81): a stop ended initdb after its
   // bootstrap checkpoint and before `make_postgres`, so the folder held `PG_VERSION`, `global/pg_control` and `base/1`
   // and no `postgres` database. The next open started that cluster and every connection answered
-  // `FATAL: database "postgres" does not exist` for the whole readiness bound.
+  // `FATAL: database "postgres" does not exist` for the whole readiness bound. Now the folder is moved aside whole
+  // (`base/5` goes with it) and a fresh store is prepared and serves.
   const store = storeOf('no postgres database');
   const { dataDir } = clusterPaths(store);
   const first = await openCluster({ ...clusterPaths(store) });
@@ -459,9 +504,12 @@ test('an initdb killed before it made the postgres database leaves a folder the 
   rmSync(join(dirname(dataDir), 'madarch.preparing'), { force: true });
   const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
   await ended.exited;
-    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(ended.pid));
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), preparingRecordOf(ended.pid));
   const second = await openCluster({ ...clusterPaths(store) });
   try {
+    const [kept] = abandonedFolders(store);
+    expect(kept).toBeDefined();
+    expect(existsSync(join(kept!, 'base', '5'))).toBe(false);
     expect(existsSync(join(dataDir, 'base', '5'))).toBe(true);
     await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
   } finally { await second.stop(); }
