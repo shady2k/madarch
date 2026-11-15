@@ -111,11 +111,19 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
     const picture = { width, height };
     setSize(picture);
     // The box's height is its cap (the frame scrolls past 72vh): a fit that reads only the width left a tall picture
-    // standing out of its frame.
+    // standing out of its frame. It is never the box's own current height, which is the fitted picture's height — reading
+    // that made every ResizeObserver pass shrink an already fitted picture.
+    const capOf = (element: HTMLElement): number => {
+      const max = getComputedStyle(element).maxHeight;
+      if (max.endsWith('px')) return Number.parseFloat(max);
+      if (max.endsWith('vh')) return Math.round(window.innerHeight * Number.parseFloat(max) / 100);
+      return element.clientHeight;
+    };
     const measure = (): void => {
-      const held = { width: frame.clientWidth, height: frame.clientHeight };
-      setBox(held);
-      setFit(fitScale(picture, held));
+      const held = { width: frame.clientWidth, height: capOf(frame) };
+      setBox((current) => current.width === held.width && current.height === held.height ? current : held);
+      const next = fitScale(picture, held);
+      setFit((current) => current === next ? current : next);
     };
     measure();
     const watcher = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
