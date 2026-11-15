@@ -58,7 +58,7 @@ function word(labels: Readonly<Record<string, string>> | null, fallback: string,
 /** The groups of the sidebar: the kinds that hold entities, under the group the product's manifest gave them. */
 export function groupTree(navigation: Navigation): GroupNode[] {
   const known = new Set(navigation.groups.map((group) => group.name));
-  const held = navigation.kinds.filter((kind) => kind.count > 0);
+  const held = navigation.kinds.filter((kind) => kind.count > 0 && kind.nav !== 'own-page' && kind.nav !== 'loop');
   const of = (name: string | null): NavigationKind[] => held.filter((kind) => (name === null ? kind.group === null || !known.has(kind.group) : kind.group === name));
   const top = navigation.groups.filter((group) => group.parent === null || !known.has(group.parent));
   const nodes: GroupNode[] = top.map((group) => {

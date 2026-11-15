@@ -67,7 +67,7 @@ const bootstrap = {
 const navigation = {
   product: 'Madarch',
   groups: [{ name: 'code', labels: { en: 'Code', ru: 'Код' }, short: null, open: false, parent: null }],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', group: 'code', count: 2, entryId: ID }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: 'code', nav: null, count: 2, entryId: ID }],
 };
 
 const requests: { query: string; variables: Record<string, unknown> }[] = [];

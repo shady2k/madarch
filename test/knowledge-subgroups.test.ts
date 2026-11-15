@@ -112,6 +112,8 @@ describe('sub-areas read from the manifest', () => {
     ]);
     const byName = new Map(CATALOG_KINDS.map((kind) => [kind.name, kind.group]));
     expect(byName.get('code.file')).toBe('code.structure');
+    expect(byName.get('code.repository')).toBe('code.structure');
+    expect(GROUPS.some((group) => group.name === 'history.repository')).toBe(false);
     expect(byName.get('code.cycle')).toBe('code.analysis');
     expect(byName.get('code.env-var')).toBe('operations.configuration');
     expect(byName.get('code.dependency')).toBe('operations.dependencies');
