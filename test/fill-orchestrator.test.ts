@@ -32,7 +32,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit } from '../src/fill/state-store.js';
+import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit, renewRunLease, RUN_LEASE_TTL_MS } from '../src/fill/state-store.js';
 import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -1245,6 +1245,17 @@ describe('what the review found, kept as tests', () => {
     expect(next.ok).toBe(true);
     expect((await readRun(opened.owner, runId))?.state).toBe('failed');
     expect((await readRunUnits(opened.owner, runId)).every((unit) => isFinalUnitState(unit.state))).toBe(true);
+  });
+
+  test('a planning stage that outlives the lease keeps it by renewing the run lease', async () => {
+    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
+    opened.clock.advance(RUN_LEASE_TTL_MS + 1);
+    const held = await readRun(opened.owner, runId);
+    expect(held).not.toBeNull();
+    expect(await renewRunLease(opened.owner, { runId, ownerToken: held!.context.owner?.token ?? `run:${runId}`, at: opened.clock.now() })).toBe(true);
+    const next = await startRun(opened.orchestrator, { runId: 'run-after-long-plan' });
+    expect(next.ok).toBe(false);
+    expect((await readRun(opened.owner, runId))?.state).toBe('running');
   });
 
   test('a live owner\'s lease keeps a second start from ending its run', async () => {
