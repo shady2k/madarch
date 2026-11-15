@@ -320,7 +320,7 @@ function errorOf(body: unknown, status: number): { message: string; code?: strin
   return { message: `the server answered ${String(status)}` };
 }
 
-/** How many changes the tab has seen — the stream's notices and its own successful presses; a read is fresh only at the count it answered under. */
+/** How many changes the tab's stream has seen; a read is fresh only at the count it answered under. */
 let changes = 0;
 
 async function command<T>(base: string, path: string, init: RequestInit = {}): Promise<T> {
@@ -593,12 +593,13 @@ function streamFor(base: string): SharedStream {
     // calm state even when the reader presses nothing, and its return is what lifts it.
     let opened = false;
     source.addEventListener('change', () => {
+      // Every connection opens by naming the revision the page has already read; only a notice after it is a change.
       if (!opened) { opened = true; return; }
       changes += 1;
       for (const listener of listeners) listener();
     });
     source.addEventListener('error', () => { reportOffline(); });
-    source.addEventListener('open', () => { reportOnline(); });
+    source.addEventListener('open', () => { opened = false; reportOnline(); });
     stream = { source, listeners };
     changeStreams.set(base, stream);
   }
