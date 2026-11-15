@@ -6,19 +6,20 @@
  */
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
+import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { Select } from './ui/select.js';
 import {
   chooseAgent, chooseModelRole, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
   useChangeStream, useCommandRead,
-  type AgentChoice, type AgentChoicesAnswer, type AgentOffer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
+  type AgentChoice, type AgentChoicesAnswer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
 } from './command.js';
+import { agentNote } from './agent-words.js';
 import type { SectionContext } from './types.js';
 
 const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
@@ -34,17 +35,6 @@ function Section({ id, title, intro, children }: { readonly id: string; readonly
       </CardContent>
     </Card>
   );
-}
-
-/** What the agent offers on this machine, in a person's words. */
-function agentNote(t: TFunction, agent: AgentOffer): string {
-  if (!agent.installed) {
-    if (agent.install?.kind === 'npm') return t('knowledge.writer.notInstalled', { package: agent.install.package, version: agent.install.version, size: agent.install.size, folder: agent.install.folder });
-    if (agent.install?.kind === 'bundled') return t('knowledge.writer.notInstalledBundled', { program: agent.install.program });
-    return t('knowledge.writer.installUnknown', { agent: agent.label });
-  }
-  if (agent.version === null) return t('knowledge.writer.installedUnknownVersion', { where: agent.where ?? '—' });
-  return t('knowledge.writer.installedAt', { where: agent.where ?? '—', version: agent.version });
 }
 
 /** One model or reasoning choice the agent reports. */
@@ -142,10 +132,12 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
   const [round, setRound] = useState(0);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The default token cap, as typed: `null` until the person edits the number the product holds.
+  const [cap, setCap] = useState<string | null>(null);
   const data = settings.data;
   const chosen = data?.chosenAgent ?? null;
   const choices = useCommandRead<AgentChoicesAnswer>(`settings-choices:${chosen?.id ?? ''}:${String(round)}`, (signal) => readAgentChoices(base, chosen!.id, signal, round > 0), chosen !== null);
-  const saveSettings = (change: { language?: string; model?: string | null; reasoning?: string | null }): void => {
+  const saveSettings = (change: { language?: string; model?: string | null; reasoning?: string | null; tokenCap?: number }): void => {
     setWorking('settings');
     setError(null);
     saveProductSettings(base, change).then(() => { setWorking(null); settings.reload(); choices.reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
@@ -165,6 +157,8 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
     setError(null);
     saveReaderRole(base, role).then(() => { setWorking(null); reader.reload(); context.onRole?.(role); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
   };
+  const capValue = Number(cap ?? data?.tokenCap ?? 0);
+  const capValid = Number.isSafeInteger(capValue) && capValue > 0;
   const namedAgents = Object.entries(data?.agentNames ?? {});
   const roleOptions = [
     ...namedAgents.map(([id, name]) => {
@@ -249,6 +243,16 @@ export function SettingsSection({ context }: { readonly context: SectionContext 
           onChange={(value) => saveSettings({ language: value })}
         />
         <Paragraph className="mb-0 mt-2 text-small text-muted">{t('settings.language.note')}</Paragraph>
+      </Section>
+
+      <Section id="fills" title={t('settings.fills.title')} intro={t('settings.fills.intro')}>
+        <Stack className="flex flex-wrap items-end gap-3">
+          <FieldLabel className="grid gap-1 text-small">{t('settings.fills.tokenCap')}
+            <Input data-testid="settings-token-cap" type="number" min={1} step={1} value={cap ?? String(data.tokenCap)} aria-invalid={!capValid} onInput={(event) => setCap(event.currentTarget.value)} />
+          </FieldLabel>
+          <Button variant="default" size="default" disabled={working !== null || !capValid || capValue === data.tokenCap} onClick={() => saveSettings({ tokenCap: capValue })} data-testid="settings-token-cap-save">{t('settings.fills.save')}</Button>
+        </Stack>
+        <Paragraph className="mb-0 mt-2 text-small text-muted" data-testid="settings-token-cap-note">{capValid ? t('settings.fills.tokenCapNote', { cap: capValue }) : t('settings.fills.tokenCapInvalid')}</Paragraph>
       </Section>
 
       <Section id="reader" title={t('settings.reader.title')} intro={t('settings.reader.intro')}>

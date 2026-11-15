@@ -68,6 +68,7 @@ const SETTINGS = {
   },
   agentNames: { 'claude-code': 'Claude Code' },
   bounds: { turns: 12, minutes: 20, toolCalls: 40, writeAttempts: 3, maxDomains: 8, editorialRequestsPerPage: 2 },
+  tokenCap: 200_000,
   busy: false,
 };
 
@@ -192,6 +193,14 @@ test('the settings page offers the agent, the roles, the language and the reader
     await act(async () => { (page.container.querySelector('[data-testid="settings-language-en"]') as HTMLButtonElement).click(); });
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { language?: string }).language === 'en')).toBe(true);
+
+    // The default token cap is a product setting (madarch-64o5.90): the field shows it and saves it.
+    const cap = page.container.querySelector('[data-testid="settings-token-cap"]') as HTMLInputElement;
+    expect(cap.value).toBe('200000');
+    await act(async () => { type(cap, '300000'); });
+    await act(async () => { (page.container.querySelector('[data-testid="settings-token-cap-save"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { tokenCap?: number }).tokenCap === 300_000)).toBe(true);
 
     await act(async () => { (page.container.querySelector('[data-testid="settings-reader-architect"]') as HTMLButtonElement).click(); });
     await settle();
