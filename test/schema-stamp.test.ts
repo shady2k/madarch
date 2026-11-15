@@ -1,7 +1,7 @@
 import { createHistoryStore } from '../src/adapters/sql-history.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFillStateSchema, readChain } from '../src/fill/state-store.js';
-import { createOrchestratorSchema, readRunControl } from '../src/fill/orchestrator-store.js';
+import { createOrchestratorSchema, readProgress } from '../src/fill/orchestrator-store.js';
 /** Explicit preparation precedes every connect-only graph role (madarch-8bdc.10). */
 import { describe, expect, test } from 'bun:test';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
@@ -91,7 +91,7 @@ describe('explicit store preparation and connect-only clients', () => {
               break;
             case 4:
               await createOrchestratorSchema(client);
-              expect(await readRunControl(client, 'fixture')).toBeNull();
+              expect(await readProgress(client, 'fixture')).toEqual([]);
               break;
             case 5:
               await createFillStateSchema(client);

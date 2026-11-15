@@ -15,7 +15,6 @@ import { runFill } from '../src/fill/run.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
-import { successfulPluginSnapshot } from '../src/graph/plugin-turns.js';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
 import { productStoreFolder, storeDatabasePath } from '../src/product/store.js';
 import { retainTestStorePreparationOwner } from './prepared-server.js';
@@ -103,8 +102,6 @@ async extract(unit, context) {
     expect(history).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'completed', produced: 1 })]));
     const cached = await run('cached'); expect(cached.ok).toBe(true);
     expect(await readProducerOutcomes(owner, { runId: 'cached' })).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'Problem', outcome: 'unchanged' })]));
-    const inherited = await successfulPluginSnapshot(owner, 'cached', 'lifecycle:Document');
-    expect(inherited).toEqual(expect.objectContaining({ runId: 'bad' }));
     // A scoped replacement and omission keep another field of this producer and another producer's opinion.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [
       { kind: 'Problem', key: { id: 'finding' }, values: { title: 'Scoped', detail: 'outside scope' }, producer: 'lifecycle', producerVersion: '1.0.0' },

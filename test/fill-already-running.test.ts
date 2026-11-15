@@ -47,8 +47,7 @@ const blocker: FillStage = {
   configSchema: Type.Object({}),
   defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
   plan: () => ({ units: [{ id: 'one', scope: 'one' }], coverage: 'planned' }),
-  execute: async () => { await blocked; return { outcome: 'draft' }; },
-  validate: () => ({ ok: true }),
+  execute: async () => { await blocked; return { outcome: 'writes' }; },
 };
 
 /** One `madarch fill` of the product, as the command answered: its exit code and both its streams. */

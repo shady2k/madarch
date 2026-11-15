@@ -448,13 +448,11 @@ async function readRepositoryFacts(tx: OuterTransaction, repository: string, dec
           SELECT 1 FROM fill_unit u
           JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation AND g.state = 'published'
           JOIN fill_publication p ON p.unit_id = g.unit_id AND p.generation = g.generation
-          JOIN fill_unit_draft d ON d.unit_id = g.unit_id AND d.generation = g.generation
-          CROSS JOIN LATERAL jsonb_array_elements(d.writes) w
           JOIN ${GIT_TABLES.repository} o ON o.node_id = n.id AND o.state = 'open' AND o.context_id = 1
-            AND split_part(o.said_by, '@', 1) = w->'value'->>'plugin'
-          WHERE u.stage_id = 'plugin-turns' AND w->>'kind' = 'producer-outcome'
-            AND w->'value'->>'kind' IN ('${GIT_KINDS.file}', '${GIT_KINDS.directory}')
-            AND w->'value'->>'outcome' IN ('completed', 'unchanged', 'empty')
+            AND split_part(o.said_by, '@', 1) = g.context->'unitOutcome'->>'plugin'
+          WHERE u.stage_id = 'plugin-turns'
+            AND g.context->'unitOutcome'->>'kind' IN ('${GIT_KINDS.file}', '${GIT_KINDS.directory}')
+            AND g.context->'unitOutcome'->>'outcome' IN ('completed', 'unchanged', 'empty')
             AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.evidence) place WHERE place->>'repository' = $1::text)
         )) AS has_tree,
        (SELECT count(*)::text FROM node f JOIN entity fe ON fe.id = f.entity_id AND fe.name = '${GIT_KINDS.file}' JOIN edge e ON e.to_node = f.id AND e.entity_id = (SELECT id FROM entity WHERE name = '${GIT_KINDS.contains}') AND e.context_id = 1 WHERE (f.key->>'repository') = $1::text) AS files,

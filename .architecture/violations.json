@@ -1962,11 +1962,6 @@
   {
     "rule": "io-spans",
     "file": "src/obs/trace.ts",
-    "symbol": "rmSync()"
-  },
-  {
-    "rule": "io-spans",
-    "file": "src/obs/trace.ts",
     "symbol": "statSync()"
   },
   {
@@ -2937,22 +2932,7 @@
   {
     "rule": "no-product-data",
     "file": "src/fill/stage.ts",
-    "symbol": "entity"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
-    "symbol": "link"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
     "symbol": "product"
-  },
-  {
-    "rule": "no-product-data",
-    "file": "src/fill/stage.ts",
-    "symbol": "question"
   },
   {
     "rule": "no-product-data",
@@ -4806,11 +4786,6 @@
   },
   {
     "rule": "no-regex",
-    "file": "src/obs/trace.ts",
-    "symbol": "/\\.jsonl$/"
-  },
-  {
-    "rule": "no-regex",
     "file": "src/page-contract/compose.ts",
     "symbol": "/\\$([A-Za-z_][A-Za-z0-9_]*)/"
   },
@@ -5422,11 +5397,6 @@
   {
     "rule": "one-table-source",
     "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_run_lease"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
     "symbol": "fill_transition"
   },
   {
@@ -5438,11 +5408,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/fill-state.ts",
     "symbol": "fill_unit_generation"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/fill-state.ts",
-    "symbol": "fill_unit_lease"
   },
   {
     "rule": "one-table-source",
@@ -5463,11 +5428,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/history.ts",
     "symbol": "source_registry"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_control"
   },
   {
     "rule": "one-table-source",
@@ -5493,16 +5453,6 @@
     "rule": "one-table-source",
     "file": "src/adapters/schemas/orchestrator.ts",
     "symbol": "fill_run_stage"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_draft"
-  },
-  {
-    "rule": "one-table-source",
-    "file": "src/adapters/schemas/orchestrator.ts",
-    "symbol": "fill_unit_draft_part"
   },
   {
     "rule": "one-table-source",

@@ -260,12 +260,13 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect((await findings()).filter((one) => one.rule !== 'unevidenced-opinion').map((one) => one.rule).sort()).toEqual(['missing-reference', 'removed-end']);
     const beforeOutcomes = await readProducerOutcomes(owner, { runId: 'alone' });
     expect(beforeOutcomes).toEqual(expect.arrayContaining([expect.objectContaining({ plugin: 'plugin-consistency', kind: 'probe.finding', outcome: 'completed' })]));
-    const snapshot = await owner.transaction('snapshot', async (tx) => await tx.query<{ writes: { kind: string; value: { producer?: string; producerVersion?: string; evidence?: unknown[] } }[] }>(
-      `SELECT d.writes FROM fill_unit_draft d JOIN fill_unit_generation g USING (unit_id, generation)
-       JOIN fill_publication p USING (unit_id, generation) WHERE g.run_id = $1`, ['alone']));
-    const statements = snapshot.rows.flatMap((row) => row.writes).filter((write) => write.kind === 'vertex');
-    expect(statements.length).toBeGreaterThan(0);
-    expect(statements.every((write) => write.value.producer === 'plugin-consistency' && typeof write.value.producerVersion === 'string')).toBe(true);
+    // What the unit wrote is in the graph, not in a stored draft (decision 0039, item 13): the findings it
+    // stated carry the producer and the version of the run that wrote them.
+    const written = await owner.transaction('snapshot', async (tx) => await tx.query<{ producer: string; producerVersion: string | null }>(
+      `SELECT split_part(o.said_by, '@', 1) AS producer, substr(o.said_by, length(split_part(o.said_by, '@', 1)) + 2) AS "producerVersion"
+         FROM ${generatedTableName('probe.finding', 'vertex')} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open'`));
+    expect(written.rows.length).toBeGreaterThan(0);
+    expect(written.rows.every((row) => row.producer === 'plugin-consistency' && (row.producerVersion ?? '') !== '')).toBe(true);
 
     // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {

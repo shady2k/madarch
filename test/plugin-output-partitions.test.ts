@@ -14,7 +14,6 @@ import { closureOf } from '../src/plugin/closure.js';
 import { runFill } from '../src/fill/run.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { readProducerOutcomes } from '../src/graph/producer-outcomes.js';
-import { successfulPluginSnapshot, pluginSnapshotVertices } from '../src/graph/plugin-turns.js';
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -115,26 +114,17 @@ test('a failed second partition retains the entire prior output and blocks depen
     const failures = await owner.transaction('snapshot', async tx => await tx.query<{ summary: string }>(
       "SELECT summary FROM fill_event WHERE run_id=$1 AND kind='unit-failed'", ['failed']));
     expect(failures.rows.some(event => event.summary.includes('second partition refused'))).toBe(true);
-    expect(await rows()).toEqual(before);
+    // A failed generation keeps what its partitions wrote (decision 0039, item 13): the partitions that
+    // answered wrote their facts, the one that failed wrote none, and the kind's coverage is what fails.
+    expect(await rows()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a', text: 'replacement:a' }),
+      expect.objectContaining({ id: 'b', text: 'first:b' }),
+    ]));
     expect(await rows('Summary')).toEqual([]);
+    // The facts the earlier run published are still the earlier run's: nothing retracted them.
+    expect(before.length).toBe(keys.length);
     const outcomes = await readProducerOutcomes(owner, { runId: 'failed' });
     expect(outcomes.some(outcome => outcome.kind === 'Summary' && outcome.outcome === 'completed')).toBe(false);
-  } finally { await owner.close(); }
-}, 300_000);
-
-test('a named successful snapshot keeps every earlier partition after a later publication', async () => {
-  const { f, owner, run, rows } = await open();
-  try {
-    expect((await run('snapshot-first')).state).toBe('succeeded');
-    const snapshot = await successfulPluginSnapshot(owner, 'snapshot-first', 'partitions:Items');
-    expect(snapshot.partitions?.length).toBeGreaterThan(0);
-    f.change('normal', 'second');
-    expect((await run('snapshot-second')).state).toBe('succeeded');
-    expect((await rows()).map(row => row.text)).toEqual(keys.map(id => `second:${id}`));
-    const snapshotVertices = await pluginSnapshotVertices(owner, snapshot, 'Items');
-    for (const id of keys) expect(snapshotVertices.find(vertex => vertex.key['id'] === id)?.values['text']).toBe(`first:${id}`);
-    expect(snapshotVertices.map(vertex => [vertex.key['id'], vertex.values['text']]))
-      .toEqual(keys.map(id => [id, `first:${id}`]));
   } finally { await owner.close(); }
 }, 300_000);
 

@@ -4,6 +4,11 @@ import type { ValidatedUnit } from './results.js';
 
 export type DeclaredRead = string | { readonly kind: string; readonly version: 'earlier'; readonly producer: string };
 
+/**
+ * What one invocation may read and write, from its declarations alone. A declared read of an earlier version names
+ * the producer whose answer the plugin wants; the answer is the graph as it stands (decision 0039, item 13), because
+ * a generation's earlier answer is no stored copy any more — the assertions' history serves that read (item 25).
+ */
 export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   readonly location: string;
   readonly plugin: string;
@@ -12,7 +17,6 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
   readonly reads: readonly DeclaredRead[];
   readonly fileKind: string;
   readonly edges: readonly string[];
-  readonly snapshots?: ReadonlyMap<string, { readonly runId: string; readonly unitId: string; readonly generation: number }>;
 }) {
   let violation: Error | undefined;
   const deny = (message: string): never => {
@@ -23,16 +27,12 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
     ?? deny(`undeclared catalogue read of ${kind}; declare this input in produces[].reads and the output's derives-from`);
   const scoped: GraphAnswerer = {
     files: async (pattern) => {
-      const read = readOf(scope.fileKind);
-      const snapshot = scope.snapshots?.get(scope.fileKind);
-      if (typeof read !== 'string' && snapshot === undefined) deny(`earlier snapshot of ${scope.fileKind} from ${read.producer} is unavailable; enable immutable versioned reads before running this output`);
-      return await graph.files(pattern, snapshot);
+      readOf(scope.fileKind);
+      return await graph.files(pattern);
     },
     value: async (kind, key, field) => {
-      const read = readOf(kind);
-      const snapshot = scope.snapshots?.get(`${kind}.${field}`) ?? scope.snapshots?.get(kind);
-      if (typeof read !== 'string' && snapshot === undefined) deny(`earlier snapshot of ${kind} from ${read.producer} is unavailable; enable immutable versioned reads before running this output`);
-      return await graph.value(kind, key, field, snapshot);
+      readOf(kind);
+      return await graph.value(kind, key, field);
     },
     // The host authorizes writer consistency records by graphReads, not catalogue content prerequisites.
     ...(graph.unresolved === undefined ? {} : { unresolved: (...args: Parameters<NonNullable<GraphAnswerer['unresolved']>>) => graph.unresolved!(...args) }),

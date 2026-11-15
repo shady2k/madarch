@@ -387,6 +387,7 @@ export const FILE_AND_PROCESS_ALLOWED: readonly { readonly file: string; readonl
   { file: 'src/identity/identity.ts', why: 'who the user is, asked of git' },
   { file: 'src/render/read-worker.ts', why: 'the renderer in a process of its own' },
   { file: 'src/obs/trace.ts', why: 'the trace writer' },
+  { file: 'src/obs/retention.ts', why: 'the raw telemetry retention sweep' },
   { file: 'src/skills/install.ts', why: 'the skill set installed on disk' },
 ];
 
@@ -525,8 +526,8 @@ export const IO_CALLEES: readonly string[] = [
   'execFile', 'execFileSync', 'spawn', 'spawnSync', 'exec', 'connect', 'listen', 'query', 'request',
 ];
 
-/** The functions that open a span; `withSpan` first, then the trace API's own children. */
-const SPAN_CALLEES = new Set(['withSpan', 'startSpan', 'startActiveSpan']);
+/** The functions that open a span; `withSpan` first, then its synchronous form and the trace API's own children. */
+const SPAN_CALLEES = new Set(['withSpan', 'withSpanSync', 'startSpan', 'startActiveSpan']);
 
 function calleeName(node: Node): string | undefined {
   const callee = node['callee'] as Node | undefined;

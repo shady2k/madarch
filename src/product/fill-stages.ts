@@ -224,7 +224,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     },
     source: (): SnapshotSource => snapshots,
     // A plugin's answer publishes as the graph's claims inside the publication's own transaction (decision 0035, item 6).
-    facts: { apply: async ({ executor, writes }) => await publishGraphWrites(executor, contract, writes) },
+    facts: { apply: async ({ executor, unit, digest, writes }) => await publishGraphWrites(executor, contract, writes, { runId: unit.runId, unitId: unit.unitId, generation: unit.generation, digest }) },
     inputs: (ref) => inputsOf(registry, pins(), ref),
   };
   return { product, registry, wiring, kinds, unread: () => unread };

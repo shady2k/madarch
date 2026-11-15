@@ -20,7 +20,7 @@ with the mechanism tables alone.
 |---|---:|---|
 | The graph's mechanism (`public`, the engine's DDL) | 6 | every publication |
 | Tables generated from the product's contracts | 15 here | the git capability's contract, through the one writer |
-| The fill's own tables (decision 0027) | 17 | the run, its stages and units |
+| The fill's own tables (decision 0027) | 12 | the run, its stages and units |
 | The agent's spend (`agent_usage`, its schema) | 1 | every metered model call of a plugin's agent part |
 | The job queue (`pgboss`) | 14 | the fill's queue |
 | Store metadata (`madarch_meta`) | 1 | the store's open |
@@ -79,7 +79,7 @@ no table of its own. The store has no table named `repository`, `file`, `commit`
 
 ## The fill's own tables (decision 0027)
 
-The run, its stages and units, their leases, drafts and publications, the event log and the
+The run, its stages and units, their publications, the event log and the
 publication's end. Every run-scoped row names its run, and every unit row its unit and generation,
 by a foreign key; the constraints are deferred and cascade with their parent. They are the fill's
 working record, not product data: what a page states of a repository is read from the graph.
@@ -92,16 +92,13 @@ working record, not product data: what a page states of a repository is read fro
 | `fill_chain` | 1 | the order the run's stages stand in |
 | `fill_unit` | 2 | one unit of one stage |
 | `fill_unit_generation` | 2 | a unit's current generation, and the one that was superseded |
-| `fill_unit_lease` | 2 | the lease that holds a unit's generation |
+
 | `fill_unit_plan` | 2 | the units a stage planned |
 | `fill_unit_read` | 0 | what a unit read, so a rerun's membership is known |
-| `fill_unit_draft` | 2 | a unit's draft of the rows it publishes |
-| `fill_unit_draft_part` | 0 | a large draft's parts |
 | `fill_unit_split` | 0 | a unit the run split |
 | `fill_publication` | 2 | one publication: the snapshot a reader opens and when it stood |
 | `fill_event` | 21 | the run's progress events, in order |
 | `fill_transition` | 19 | a unit's state changes |
-| `fill_control` | 0 | a person's pause or stop of a run another process owns |
 | `fill_end` | 0 | the answer a finished run states to the process that pressed it |
 
 ## The agent's spend (`agent_usage`)
@@ -123,7 +120,13 @@ never in the graph's: the graph's revision does not move for it, and the kind's 
 The fill's queue is pg-boss's own schema: `queue`, `job`, `job_common`, `job_dependency`,
 `schedule`, `subscription`, `version`, `warning`, `instance`, `bam`, `queue_stats` and its
 per-day partitions, and `madarch_enqueue_stamp` (the enqueue high-water mark the fill keeps so a
-second press does not enqueue the same unit twice). Nothing of the product reads it.
+second press does not enqueue the same unit twice). Nothing of the product reads it. Since
+decision 0039 (items 12 and 13) a unit's claim, its expiry and its retries are the queue's own:
+the fill keeps no `fill_run_lease`, `fill_unit_lease`, `fill_control`, `fill_unit_draft` or
+`fill_unit_draft_part` table, and a generation's attempt and what its producer answered are its
+`fill_unit_generation` row's context. The raw spans, logs and the agent journal stand under
+`<store>/traces` and `<store>/journal`, bounded by the machine's `settings.json`
+(`traceRetentionDays`, three days by default, `traceRetentionBytes` and `traceRuns`).
 
 ## Store metadata (`madarch_meta`)
 

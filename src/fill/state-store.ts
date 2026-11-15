@@ -3,16 +3,13 @@
  * slice of the process's database owner this module needs.
  *
  * Three row sets — `fill_chain`, `fill_run`, `fill_unit` with its
- * `fill_unit_generation` and `fill_unit_lease` — and one journal,
- * `fill_transition`, which records every step taken, including the creation of a
- * unit and the opening of a replacement generation. A generation's fencing token
- * lives in its `fence` column and is the authority: it is loaded into the
- * machine's context, every step names the generation and the token it acts
- * under, and the machine's `generation-current` and `fence-current` guards refuse
- * a step naming an older one. The token grows across the unit's generations, so a
- * replacement generation never reuses the token its predecessor issued. The
- * `context` column carries the rest of a generation's context as JSON, and a
- * write sets both in one statement.
+ * `fill_unit_generation` — and one journal, `fill_transition`, which records every
+ * step taken, including the creation of a unit and the opening of a replacement
+ * generation. A generation holds no lease and no fencing token (decision 0039,
+ * item 12): its attempts are the queue's, and the `attempt` its context records is
+ * the attempt the queue last handed it out as, which the machine's
+ * `generation-current` and `attempt-advances` guards judge. The `context` column
+ * carries the generation's context as JSON.
  *
  * The database owner is madarch-tzte.19.1's: one owner per process, borrowed
  * here through `FillStateDatabase`, which is the owner's own `transaction` and
@@ -61,7 +58,6 @@ import type {
   UnitAdvanceEvent,
   UnitContext,
   UnitEvent,
-  UnitLeaseEvent,
   UnitState,
 } from './fsm.js';
 
@@ -74,33 +70,28 @@ import type {
  */
 export type FillStateDatabase = Pick<DatabaseOwner, 'transaction'>;
 
-/** A planning write refused because the run has ended or its lease belongs to another process. */
-export class PlanningFenceError extends Error {
-  readonly code = 'fill-orchestrator/run-not-owned';
-  constructor(readonly runId: string) { super(`fill-orchestrator: run "${runId}" is no longer held by this process's lease`); }
+/** A write refused because the run it serves has ended. */
+export class RunEndedError extends Error {
+  readonly code = 'fill-orchestrator/run-ended';
+  constructor(readonly runId: string) { super(`fill-orchestrator: run "${runId}" has ended, so nothing is written under it`); }
 }
 
 /**
  * Checks, inside the caller's transaction and under the run row's lock, that the
- * run is still non-final and this process's lease is the one in force. Every
- * planning write calls this: a recovery that took the lease writes the ending,
- * and a late planner's next write refuses instead of creating a unit under it.
+ * run has not ended. Every planning write calls this: a recovery that ended the
+ * run writes its ending, and a late planner's next write refuses instead of
+ * creating a unit under it. The run's row is its own lock here — one process runs
+ * a run, because the run's job in the store's queue is claimed once (decision
+ * 0039, item 12) — so the state is the whole fence a planning write needs.
  */
-export async function assertPlanningFenceIn(executor: SqlExecutor, options: { readonly runId: string; readonly ownerToken: string; readonly at: number }): Promise<void> {
+export async function assertRunWritableIn(executor: SqlExecutor, options: { readonly runId: string }): Promise<void> {
   const { rows } = await executor.query<{ state: string }>('SELECT state FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
   const run = rows[0];
-  if (run === undefined || (FINAL_RUN_STATES as readonly string[]).includes(run.state)) throw new PlanningFenceError(options.runId);
-  const lease = await executor.query<{ owner_token: string; expires_at: unknown }>('SELECT owner_token, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE', [options.runId]);
-  const held = lease.rows[0];
-  if (held === undefined || held.owner_token !== options.ownerToken || millis(held.expires_at) <= options.at) throw new PlanningFenceError(options.runId);
+  if (run === undefined || (FINAL_RUN_STATES as readonly string[]).includes(run.state)) throw new RunEndedError(options.runId);
 }
 
 /** The tables this store owns, named in operation failures. */
-export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_run_lease', 'fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'] as const;
-
-/** The run owner's heartbeat and the point at which another start may take its run. */
-export const RUN_HEARTBEAT_MS = 5_000;
-export const RUN_LEASE_TTL_MS = 30_000;
+export const FILL_STATE_TABLES = ['fill_chain', 'fill_run', 'fill_unit', 'fill_unit_generation', 'fill_transition'] as const;
 
 /** The store's own step ids: no machine declares them, and their prefix keeps them apart from the tables'. */
 export const FILL_STORE_STEPS = {
@@ -121,16 +112,6 @@ export async function createFillStateSchema(database: FillStateDatabase): Promis
   await requireSchema(database, 'fill-state');
 }
 
-/** One row of `fill_unit_lease`: the lease an attempt took, and the token it acts under. */
-export interface UnitLeaseRecord {
-  readonly attempt: number;
-  readonly fence: number;
-  readonly holder: string;
-  readonly issuedAt: number;
-  readonly expiresAt: number;
-  readonly revokedAt: number | null;
-}
-
 /** A product's chain of runs as it is persisted. */
 export interface ChainRecord {
   readonly product: string;
@@ -149,7 +130,7 @@ export interface RunRecord {
   readonly updatedAt: number;
 }
 
-/** One unit's current generation as it is persisted, with the lease it holds, if any. */
+/** One unit's current generation as it is persisted. */
 export interface UnitRecord {
   readonly unitId: string;
   readonly product: string;
@@ -165,8 +146,6 @@ export interface UnitRecord {
   readonly publishedAt: number | null;
   readonly staleAt: number | null;
   readonly updatedAt: number;
-  /** The lease the generation holds — the one carrying its current fencing token — or null when it holds none. */
-  readonly lease: UnitLeaseRecord | null;
 }
 
 
@@ -211,8 +190,7 @@ async function run<R>(
 interface ChainRow extends Record<string, unknown> { product: string; state: string; context: unknown; updated_at: unknown }
 interface RunRow extends Record<string, unknown> { run_id: string; product: string; state: string; context: unknown; created_at: unknown; updated_at: unknown }
 interface UnitRow extends Record<string, unknown> { unit_id: string; product: string; stage_id: string; scope_key: string; generation: unknown; created_at: unknown }
-interface GenerationRow extends Record<string, unknown> { unit_id: string; generation: unknown; run_id: string; state: string; inputs_digest: string; fence: unknown; context: unknown; published_at: unknown; stale_at: unknown; updated_at: unknown }
-interface LeaseRow extends Record<string, unknown> { attempt: unknown; fence: unknown; holder: string; issued_at: unknown; expires_at: unknown; revoked_at: unknown }
+interface GenerationRow extends Record<string, unknown> { unit_id: string; generation: unknown; run_id: string; state: string; inputs_digest: string; context: unknown; published_at: unknown; stale_at: unknown; updated_at: unknown }
 
 function requireState<State extends string>(states: readonly State[], value: string, table: string, key: string): State {
   if (!(states as readonly string[]).includes(value)) raise(`table ${table}, row ${key}: state "${value}" is not one of ${states.join(', ')}`);
@@ -240,24 +218,21 @@ function requireRunContext(value: unknown, runId: string): RunContext {
   return { planningEpoch: stored.planningEpoch, planningClosed: stored.planningClosed, ...(stored.owner === undefined ? {} : { owner: stored.owner as import('./fsm.js').RunOwner | null }), ...(stored.selection === undefined ? {} : { selection: stored.selection }) };
 }
 
-function requireUnitContext(value: unknown, key: string, generation: number, fence: number): UnitContext {
+function requireUnitContext(value: unknown, key: string, generation: number): UnitContext {
   const stored = parseJson<Partial<UnitContext>>(value);
   if (stored === null || typeof stored !== 'object') raise(`table fill_unit_generation, row ${key}: the context is not an object`);
   if (!isInteger(stored.attempt) || stored.attempt < 0) raise(`table fill_unit_generation, row ${key}: attempt is not a whole number of attempts`);
-  if (!isInteger(stored.retriesLeft) || stored.retriesLeft < 0) raise(`table fill_unit_generation, row ${key}: retriesLeft is not a whole number of retries`);
-  if (stored.retryAt !== null && typeof stored.retryAt !== 'number') raise(`table fill_unit_generation, row ${key}: retryAt is neither null nor epoch milliseconds`);
-  if (stored.replacedBy !== null && !isInteger(stored.replacedBy)) raise(`table fill_unit_generation, row ${key}: replacedBy is neither null nor a generation number`);
+  if (stored.retryAt !== null && stored.retryAt !== undefined && typeof stored.retryAt !== 'number') raise(`table fill_unit_generation, row ${key}: retryAt is neither null nor epoch milliseconds`);
+  if (stored.replacedBy !== null && stored.replacedBy !== undefined && !isInteger(stored.replacedBy)) raise(`table fill_unit_generation, row ${key}: replacedBy is neither null nor a generation number`);
   if (stored.skippedBecause !== undefined && stored.skippedBecause !== null && typeof stored.skippedBecause !== 'string') raise(`table fill_unit_generation, row ${key}: skippedBecause is neither null nor a string`);
-  if (!isInteger(fence) || fence < 0) raise(`table fill_unit_generation, row ${key}: fence is not a whole fencing token`);
-  // The columns are the authority for the generation and its fencing token; the JSON carries the rest.
+  // The column is the authority for the generation; the JSON carries the rest.
   return {
     generation,
-    fence,
     attempt: stored.attempt,
-    retriesLeft: stored.retriesLeft,
     retryAt: stored.retryAt ?? null,
     replacedBy: stored.replacedBy ?? null,
     skippedBecause: stored.skippedBecause ?? null,
+    unitOutcome: stored.unitOutcome ?? null,
   };
 }
 
@@ -281,7 +256,7 @@ function runRecord(row: RunRow): RunRecord {
   };
 }
 
-function unitRecord(unit: UnitRow, generation: GenerationRow, lease: LeaseRow | undefined): UnitRecord {
+function unitRecord(unit: UnitRow, generation: GenerationRow): UnitRecord {
   const generationNumber = millis(generation.generation);
   const key = `${unit.unit_id}/${generationNumber}`;
   return {
@@ -293,28 +268,20 @@ function unitRecord(unit: UnitRow, generation: GenerationRow, lease: LeaseRow | 
     generation: generationNumber,
     state: requireState(UNIT_STATES, generation.state, 'fill_unit_generation', key),
     inputsDigest: generation.inputs_digest,
-    context: requireUnitContext(generation.context, key, generationNumber, millis(generation.fence)),
+    context: requireUnitContext(generation.context, key, generationNumber),
     publishedAt: maybeMillis(generation.published_at),
     staleAt: maybeMillis(generation.stale_at),
     updatedAt: millis(generation.updated_at),
-    lease: lease === undefined ? null : {
-      attempt: millis(lease.attempt),
-      fence: millis(lease.fence),
-      holder: lease.holder,
-      issuedAt: millis(lease.issued_at),
-      expiresAt: millis(lease.expires_at),
-      revokedAt: maybeMillis(lease.revoked_at),
-    },
   };
 }
 
 async function recordTransition(
   executor: SqlExecutor,
-  entry: { subjectKind: 'chain' | 'run' | 'unit'; subjectId: string; generation: number | null; transitionId: string; from: string; to: string; event: string; fence: number | null; at: number },
+  entry: { subjectKind: 'chain' | 'run' | 'unit'; subjectId: string; generation: number | null; transitionId: string; from: string; to: string; event: string; at: number },
 ): Promise<void> {
   await executor.query(
-    'INSERT INTO fill_transition (subject_kind, subject_id, generation, transition_id, from_state, to_state, event, fence, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-    [entry.subjectKind, entry.subjectId, entry.generation, entry.transitionId, entry.from, entry.to, entry.event, entry.fence, entry.at],
+    'INSERT INTO fill_transition (subject_kind, subject_id, generation, transition_id, from_state, to_state, event, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+    [entry.subjectKind, entry.subjectId, entry.generation, entry.transitionId, entry.from, entry.to, entry.event, entry.at],
   );
 }
 
@@ -353,7 +320,7 @@ export async function advanceChain(database: FillStateDatabase, options: { reado
     const step = chainMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
     await executor.query('UPDATE fill_chain SET state = $2, context = $3::jsonb, updated_at = $4 WHERE product = $1', [current.product, step.state, json(step.context), options.event.at]);
-    await recordTransition(executor, { subjectKind: 'chain', subjectId: current.product, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, fence: null, at: options.event.at });
+    await recordTransition(executor, { subjectKind: 'chain', subjectId: current.product, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
   }, 'write');
 }
@@ -361,13 +328,36 @@ export async function advanceChain(database: FillStateDatabase, options: { reado
 /** Creates one run in `created`. */
 export async function createRun(database: FillStateDatabase, options: { readonly runId: string; readonly product: string; readonly at: number; readonly selection?: import('./fsm.js').RunSelection; readonly owner?: import('./fsm.js').RunOwner | null }): Promise<RunRecord> {
   const at = here();
-  const context = { ...newRunContext(options.owner), ...(options.selection === undefined ? {} : { selection: options.selection }) };
+  const context = { ...newRunContext(options.owner ?? null), ...(options.selection === undefined ? {} : { selection: options.selection }) };
   return run(at, database, `createRun(${options.runId})`, ['fill_run'], async (executor) => {
     await executor.query(
       'INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
       [options.runId, options.product, 'created', json(context), options.at],
     );
     return { runId: options.runId, product: options.product, state: 'created', context, createdAt: options.at, updatedAt: options.at };
+  }, 'write');
+}
+
+/**
+ * Records the process identity a run is being driven under (decision 0039, item
+ * 12): the job id and attempt that hold the run's own lock in the store's queue.
+ * A record, not a lock — the queue's claim is the lock — so that the next start
+ * can tell this process's run from one whose process ended, and recover the
+ * second.
+ */
+export async function recordRunOwner(
+  database: FillStateDatabase,
+  options: { readonly runId: string; readonly owner: import('./fsm.js').RunOwner | null; readonly at: number },
+): Promise<RunRecord> {
+  const at = here();
+  return await run(at, database, `recordRunOwner(${options.runId})`, ['fill_run'], async (executor) => {
+    const { rows } = await executor.query<RunRow>('SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE run_id = $1 FOR UPDATE', [options.runId]);
+    const row = rows[0];
+    if (row === undefined) raise(`table fill_run: no run ${options.runId}`);
+    const current = runRecord(row);
+    const context = { ...current.context, owner: options.owner };
+    await executor.query('UPDATE fill_run SET context = $2::jsonb, updated_at = $3 WHERE run_id = $1', [options.runId, json(context), options.at]);
+    return { ...current, context, updatedAt: options.at };
   }, 'write');
 }
 
@@ -441,54 +431,6 @@ export async function readRun(database: FillStateDatabase, runId: string): Promi
  * are two runs, and the answer is still one of them, never an arbitrary one of
  * two reads.
  */
-/** One run lease: the process identity that owns the run, and when that ownership lapses. */
-export interface RunLeaseRecord {
-  readonly runId: string;
-  readonly ownerToken: string;
-  readonly ownerPid: number;
-  readonly heartbeatAt: number;
-  readonly expiresAt: number;
-}
-
-/** The run's lease, or null when no owner has claimed it. */
-export async function readRunLease(database: FillStateDatabase, runId: string): Promise<RunLeaseRecord | null> {
-  return await run(here(), database, `readRunLease(${runId})`, ['fill_run_lease'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>('SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1', [runId]);
-    const row = rows[0];
-    return row === undefined ? null : { runId: row.run_id, ownerToken: row.owner_token, ownerPid: Number(row.owner_pid), heartbeatAt: millis(row.heartbeat_at), expiresAt: millis(row.expires_at) };
-  }, 'snapshot');
-}
-
-/**
- * Claims a run's lease. The same owner renews its own lease; a different owner
- * may claim only after the lease has expired. The row lock makes the claim and
- * any planning step that names the lease one fence: a live planner renewing it
- * wins, and a recovery that finds it live writes nothing.
- */
-export async function claimRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly ownerPid: number; readonly at: number; readonly ttlMs?: number }): Promise<RunLeaseRecord | null> {
-  return await run(here(), database, `claimRunLease(${options.runId})`, ['fill_run_lease', 'fill_run'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string; owner_token: string; owner_pid: unknown; heartbeat_at: unknown; expires_at: unknown }>('SELECT run_id, owner_token, owner_pid, heartbeat_at, expires_at FROM fill_run_lease WHERE run_id = $1 FOR UPDATE', [options.runId]);
-    const current = rows[0];
-    const ttl = options.ttlMs ?? RUN_LEASE_TTL_MS;
-    if (current !== undefined && current.owner_token !== options.ownerToken && millis(current.expires_at) > options.at) return null;
-    const expiresAt = options.at + ttl;
-    if (current === undefined) {
-      await executor.query('INSERT INTO fill_run_lease (run_id, owner_token, owner_pid, heartbeat_at, expires_at) VALUES ($1, $2, $3, $4, $5)', [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
-    } else {
-      await executor.query('UPDATE fill_run_lease SET owner_token = $2, owner_pid = $3, heartbeat_at = $4, expires_at = $5 WHERE run_id = $1', [options.runId, options.ownerToken, options.ownerPid, options.at, expiresAt]);
-    }
-    return { runId: options.runId, ownerToken: options.ownerToken, ownerPid: options.ownerPid, heartbeatAt: options.at, expiresAt };
-  }, 'write');
-}
-
-/** Renews a lease only for the token that holds it; false when another owner or no lease stands. */
-export async function renewRunLease(database: FillStateDatabase, options: { readonly runId: string; readonly ownerToken: string; readonly at: number; readonly ttlMs?: number }): Promise<boolean> {
-  return await run(here(), database, `renewRunLease(${options.runId})`, ['fill_run_lease'], async (executor) => {
-    const { rows } = await executor.query<{ run_id: string }>('UPDATE fill_run_lease SET heartbeat_at = $3, expires_at = GREATEST(expires_at, $4) WHERE run_id = $1 AND owner_token = $2 RETURNING run_id', [options.runId, options.ownerToken, options.at, options.at + (options.ttlMs ?? RUN_LEASE_TTL_MS)]);
-    return rows.length > 0;
-  }, 'write');
-}
-
 export async function readLatestRun(database: FillStateDatabase, product: string): Promise<RunRecord | null> {
   const at = here();
   return run(at, database, `readLatestRun(${product})`, ['fill_run'], async (executor) => {
@@ -525,7 +467,7 @@ export async function advanceRun(database: FillStateDatabase, options: { readonl
     const step = runMachine.step({ state: current.state, context: current.context }, options.event);
     if (!step.ok) return { ok: false, refusal: step.refusal, record: current } as const;
     await executor.query('UPDATE fill_run SET state = $2, context = $3::jsonb, updated_at = $4 WHERE run_id = $1', [current.runId, step.state, json(step.context), options.event.at]);
-    await recordTransition(executor, { subjectKind: 'run', subjectId: current.runId, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, fence: null, at: options.event.at });
+    await recordTransition(executor, { subjectKind: 'run', subjectId: current.runId, generation: null, transitionId: step.transition, from: current.state, to: step.state, event: options.event.type, at: options.event.at });
     return { ok: true, record: { ...current, state: step.state, context: step.context, updatedAt: options.event.at }, transition: step.transition, effects: step.effects } as const;
   }, 'write');
 }
@@ -552,12 +494,7 @@ export interface UnitCreateOptions {
   readonly stageId: string;
   readonly scopeKey: string;
   readonly inputsDigest: string;
-  readonly retries: number;
   readonly at: number;
-  /** The planning owner's lease token; a planning write refuses when it is no longer in force. */
-  readonly ownerToken?: string;
-  /** The moment the fence is judged at; the planning clock when it differs from the plan's timestamp. */
-  readonly ownerAt?: number;
 }
 
 /**
@@ -568,8 +505,8 @@ export interface UnitCreateOptions {
  * checkpoint and a sealed child set" asks for.
  */
 export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOptions): Promise<UnitRecord> {
-    if (options.ownerToken !== undefined) await assertPlanningFenceIn(executor, { runId: options.runId, ownerToken: options.ownerToken, at: options.ownerAt ?? options.at });
-    const context = newUnitContext({ generation: 1, retries: options.retries });
+    await assertRunWritableIn(executor, { runId: options.runId });
+    const context = newUnitContext({ generation: 1 });
     const inserted = await executor.query<UnitRow>(
       'INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (product, stage_id, scope_key) DO NOTHING RETURNING unit_id, product, stage_id, scope_key, generation, created_at',
       [options.unitId, options.product, options.stageId, options.scopeKey, 1, options.at],
@@ -587,10 +524,10 @@ export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOpt
       return snapshot.record;
     }
     await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
-      [options.unitId, 1, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
+      [options.unitId, 1, options.runId, 'planned', options.inputsDigest, json(context), options.at],
     );
-    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation: 1, transitionId: FILL_STORE_STEPS.createUnit, from: '(none)', to: 'planned', event: 'create', fence: 0, at: options.at });
+    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation: 1, transitionId: FILL_STORE_STEPS.createUnit, from: '(none)', to: 'planned', event: 'create', at: options.at });
     return {
       unitId: options.unitId,
       product: options.product,
@@ -604,13 +541,12 @@ export async function createUnitIn(executor: SqlExecutor, options: UnitCreateOpt
       publishedAt: null,
       staleAt: null,
       updatedAt: options.at,
-      lease: null,
     };
 }
 
 interface UnitSnapshot { readonly unit: UnitRow; readonly generation: GenerationRow; readonly record: UnitRecord }
 
-/** Loads a unit, its current generation and that generation's lease; null when the unit does not exist. */
+/** Loads a unit and its current generation; null when the unit does not exist. */
 async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): Promise<UnitSnapshot | null> {
   const units = await executor.query<UnitRow>(
     `SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1${lock ? ' FOR UPDATE' : ''}`,
@@ -619,41 +555,33 @@ async function loadUnit(executor: SqlExecutor, unitId: string, lock: boolean): P
   const unit = units.rows[0];
   if (unit === undefined) return null;
   const generations = await executor.query<GenerationRow>(
-    `SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`,
+    `SELECT unit_id, generation, run_id, state, inputs_digest, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2${lock ? ' FOR UPDATE' : ''}`,
     [unitId, millis(unit.generation)],
   );
   const generation = generations.rows[0];
   if (generation === undefined) raise(`table fill_unit_generation: unit ${unitId} names generation ${String(unit.generation)}, which has no row`);
-  const leases = await executor.query<LeaseRow>(
-    'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-    [unitId, millis(generation.generation), millis(generation.fence)],
-  );
-  return { unit, generation, record: unitRecord(unit, generation, leases.rows[0]) };
+  return { unit, generation, record: unitRecord(unit, generation) };
 }
 
 /**
- * One unit's named generation, whether or not it is the one in force, with the
- * lease it holds. A parent's join reads its sealed children this way: the split
- * sealed a generation, and a child that has since opened a replacement must not
- * be read as if it were the one the split sealed.
+ * One unit's named generation, whether or not it is the one in force. A parent's
+ * join reads its sealed children this way: the split sealed a generation, and a
+ * child that has since opened a replacement must not be read as if it were the
+ * one the split sealed.
  */
 export async function readUnitGeneration(database: FillStateDatabase, unitId: string, generation: number): Promise<UnitRecord | null> {
   const at = here();
-  return run(at, database, `readUnitGeneration(${unitId}/${generation})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
+  return run(at, database, `readUnitGeneration(${unitId}/${generation})`, ['fill_unit', 'fill_unit_generation'], async (executor) => {
     const units = await executor.query<UnitRow>('SELECT unit_id, product, stage_id, scope_key, generation, created_at FROM fill_unit WHERE unit_id = $1', [unitId]);
     const unit = units.rows[0];
     if (unit === undefined) return null;
     const generations = await executor.query<GenerationRow>(
-      'SELECT unit_id, generation, run_id, state, inputs_digest, fence, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
+      'SELECT unit_id, generation, run_id, state, inputs_digest, context, published_at, stale_at, updated_at FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2',
       [unitId, generation],
     );
     const row = generations.rows[0];
     if (row === undefined) return null;
-    const leases = await executor.query<LeaseRow>(
-      'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [unitId, generation, millis(row.fence)],
-    );
-    return unitRecord(unit, row, leases.rows[0]);
+    return unitRecord(unit, row);
   }, 'snapshot');
 }
 
@@ -674,19 +602,17 @@ export async function readRunUnits(database: FillStateDatabase, runId: string): 
 
 async function readRunGenerations(database: FillStateDatabase, runId: string, currentOnly: boolean): Promise<readonly UnitRecord[]> {
   const at = here();
-  return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
+  return run(at, database, `readRunUnits(${runId})`, ['fill_unit', 'fill_unit_generation'], async (executor) => {
     // One join and not one query per row: a run of a few thousand units read this way costs three
     // round trips per unit, which the walk of madarch-tzte.21.8 measured at 1.7–3.4 s per call — and
     // the orchestrator makes this read several times a pass, so a pass spent seconds reading what it
-    // already knew. A generation's lease is the one its row's fence names, and a unit's generation is
-    // the one its own row names, so the join answers the same records as the per-row reads did.
-    const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
+    // already knew. A unit's generation is the one its own row names, so the join answers the same
+    // records as the per-row reads did.
+    const rows = await executor.query<UnitRow & GenerationRow>(
       `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
-              g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
-              g.published_at, g.stale_at, g.updated_at,
-              l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
+              g.generation, g.run_id, g.state, g.inputs_digest, g.context,
+              g.published_at, g.stale_at, g.updated_at
          FROM fill_unit u LEFT JOIN fill_unit_generation g ON g.unit_id = u.unit_id ${currentOnly ? 'AND g.generation = u.generation' : ''}
-         LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
         WHERE g.run_id = $1`,
       [runId],
     );
@@ -694,12 +620,7 @@ async function readRunGenerations(database: FillStateDatabase, runId: string, cu
     // Every row here names a generation the run holds — the join is on the run's
     // own generations — so a unit whose row names a generation the store does not
     // hold is no unit of this run and is not answered as one.
-    for (const row of rows.rows) {
-      const lease: LeaseRow | undefined = row.lease_unit_id === null || row.lease_unit_id === undefined
-        ? undefined
-        : { ...row, attempt: row.attempt, fence: row.lease_fence, holder: row.holder, issued_at: row.issued_at, expires_at: row.expires_at, revoked_at: row.revoked_at };
-      records.push(unitRecord(row, row, lease));
-    }
+    for (const row of rows.rows) records.push(unitRecord(row, row));
     // The database's collation is not the code point order this repository's listing promises, so the
     // order is taken here, exactly as `readUnitGenerations` takes it by generation number.
     return records.sort((left, right) => byCodePoint(left.unitId, right.unitId));
@@ -719,66 +640,30 @@ export async function readRunUnitHistory(database: FillStateDatabase, runId: str
  */
 export async function readProductUnits(database: FillStateDatabase, options: { readonly product: string; readonly state: UnitState }): Promise<readonly UnitRecord[]> {
   const at = here();
-  return run(at, database, `readProductUnits(${options.product}/${options.state})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
-    const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
+  return run(at, database, `readProductUnits(${options.product}/${options.state})`, ['fill_unit', 'fill_unit_generation'], async (executor) => {
+    const rows = await executor.query<UnitRow & GenerationRow>(
       `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
-              g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
-              g.published_at, g.stale_at, g.updated_at,
-              l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
+              g.generation, g.run_id, g.state, g.inputs_digest, g.context,
+              g.published_at, g.stale_at, g.updated_at
          FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
-         LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
         WHERE u.product = $1 AND g.state = $2`,
       [options.product, options.state],
     );
-    return rows.rows.map((row) => unitRecord(row, row, row.lease_unit_id === null || row.lease_unit_id === undefined ? undefined : row))
+    return rows.rows.map((row) => unitRecord(row, row))
       .sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
 }
 
-/**
- * Revokes the lease of one fencing token on a unit generation: the storage half
- * of the machine's `suspend-parent` effect, whose words are "the orchestrator
- * releases the parent's lease while its children run". The lease row stays as
- * the record of the attempt, marked revoked at this moment, so a late worker of
- * that attempt is refused by the machine's own `fence-current` guard and by this
- * revocation alike. The fencing token is not touched: it belongs to the
- * generation, not to the attempt that held it. Answers the lease as it stands
- * afterwards, or null when the generation held no lease under that token.
- */
-export async function revokeUnitLease(database: FillStateDatabase, options: { readonly unitId: string; readonly generation: number; readonly fence: number; readonly at: number }): Promise<UnitLeaseRecord | null> {
-  const at = here();
-  return run(at, database, `revokeUnitLease(${options.unitId}/${options.generation})`, ['fill_unit_lease'], async (executor) => {
-    await executor.query(
-      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [options.unitId, options.generation, options.fence, options.at],
-    );
-    const { rows } = await executor.query<LeaseRow>(
-      'SELECT attempt, fence, holder, issued_at, expires_at, revoked_at FROM fill_unit_lease WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [options.unitId, options.generation, options.fence],
-    );
-    const row = rows[0];
-    return row === undefined ? null : {
-      attempt: millis(row.attempt),
-      fence: millis(row.fence),
-      holder: row.holder,
-      issuedAt: millis(row.issued_at),
-      expiresAt: millis(row.expires_at),
-      revokedAt: maybeMillis(row.revoked_at),
-    };
-  }, 'write');
-}
-
-/** Answers one unit's current generation with the lease it holds, or null when the unit does not exist. */
+/** Answers one unit's current generation, or null when the unit does not exist. */
 export async function readUnit(database: FillStateDatabase, unitId: string): Promise<UnitRecord | null> {
   const at = here();
-  return run(at, database, `readUnit(${unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => (await loadUnit(executor, unitId, false))?.record ?? null, 'snapshot');
+  return run(at, database, `readUnit(${unitId})`, ['fill_unit', 'fill_unit_generation'], async (executor) => (await loadUnit(executor, unitId, false))?.record ?? null, 'snapshot');
 }
 
 
 /**
- * Writes one unit step: the generation's new state, fence and context, the
- * `published_at` a publication sets, the `stale_at` an invalidation sets, the
- * `revoked_at` a revocation marks on the lease in force, and the journal entry.
+ * Writes one unit step: the generation's new state and context, the `published_at`
+ * a publication sets, the `stale_at` an invalidation sets, and the journal entry.
  */
 async function persistUnitStep(
   executor: SqlExecutor,
@@ -789,37 +674,25 @@ async function persistUnitStep(
 ): Promise<UnitRecord> {
   const { unit, generation } = snapshot;
   const generationNumber = millis(generation.generation);
-  const previousFence = millis(generation.fence);
   const publishedAt = step.state === 'published' ? at : maybeMillis(generation.published_at);
   const staleAt = step.state === 'stale' ? at : maybeMillis(generation.stale_at);
   await executor.query(
-    'UPDATE fill_unit_generation SET state = $3, fence = $4, context = $5::jsonb, published_at = $6, stale_at = $7, updated_at = $8 WHERE unit_id = $1 AND generation = $2',
-    [unit.unit_id, generationNumber, step.state, step.context.fence, json(step.context), publishedAt, staleAt, at],
+    'UPDATE fill_unit_generation SET state = $3, context = $4::jsonb, published_at = $5, stale_at = $6, updated_at = $7 WHERE unit_id = $1 AND generation = $2',
+    [unit.unit_id, generationNumber, step.state, json(step.context), publishedAt, staleAt, at],
   );
-  let revokedAt: number | null = maybeMillis(snapshot.record.lease?.revokedAt ?? null);
-  if (step.effects.includes('revoke-lease')) {
-    revokedAt = revokedAt ?? at;
-    await executor.query(
-      'UPDATE fill_unit_lease SET revoked_at = COALESCE(revoked_at, $4) WHERE unit_id = $1 AND generation = $2 AND fence = $3',
-      [unit.unit_id, generationNumber, previousFence, revokedAt],
-    );
-  }
-  await recordTransition(executor, { subjectKind: 'unit', subjectId: unit.unit_id, generation: generationNumber, transitionId: step.transition, from: generation.state, to: step.state, event, fence: step.context.fence, at });
-  const lease = snapshot.record.lease === null ? null : { ...snapshot.record.lease, revokedAt };
-  return { ...snapshot.record, state: step.state, context: step.context, publishedAt, staleAt, updatedAt: at, lease };
+  await recordTransition(executor, { subjectKind: 'unit', subjectId: unit.unit_id, generation: generationNumber, transitionId: step.transition, from: generation.state, to: step.state, event, at });
+  return { ...snapshot.record, state: step.state, context: step.context, publishedAt, staleAt, updatedAt: at };
 }
 
 /**
  * Takes one step on a unit's current generation: a refused step writes nothing.
- * The lease is not one of those steps — only `leaseUnitIn` issues a lease, because
- * it must write the lease row with the token it takes.
  *
  * This is the form to use from inside a transaction the caller already opened —
  * the publication step above all, where the decision requires the generation's
  * `published` state and the uniquely constrained publication record to be one
  * short transaction of the database owner (madarch-tzte.19.1 lends its executor).
  */
-export async function advanceUnitIn(executor: SqlExecutor, options: { readonly unitId: string; readonly event: UnitAdvanceEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
+export async function advanceUnitIn(executor: SqlExecutor, options: UnitAdvanceOptions): Promise<StoreStep<UnitRecord, UnitState>> {
   const event = options.event as UnitEvent;
   // The run's row is taken before the unit's generation, the order every transaction of a run keeps: an event's own
   // insert checks the generation's foreign key, and a step that locked the generation first would wait for the run an
@@ -833,21 +706,6 @@ export async function advanceUnitIn(executor: SqlExecutor, options: { readonly u
   }
   const snapshot = await loadUnit(executor, options.unitId, true);
   if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
-  if (event.type === 'lease') {
-    return {
-      ok: false,
-      record: snapshot.record,
-      refusal: {
-        code: 'fill-store/lease-not-advanced',
-        reason: `fill-unit: unit "${options.unitId}" cannot take a lease from advanceUnit; leaseUnit takes it, so the lease row carries the token, its holder and its expiry`,
-        state: snapshot.record.state,
-        event: event.type,
-        guard: null,
-        guards: [],
-        transitions: [],
-      },
-    } as const;
-  }
   // The run's control, under its row's share lock and inside this step's own transaction (madarch-8bdc.2.5): a run that is
   // cancelling, cancelled or failed revoked the authority of every unit it planned (decision 0027), so no step but the
   // cancel is taken. The answer is the machine's own refusal — the one a step lands on when the cancel's write came first —
@@ -876,55 +734,45 @@ export async function advanceUnitIn(executor: SqlExecutor, options: { readonly u
       } as const;
     }
   }
+  // A worker's step names the attempt it holds: the queue's claim is the attempt's lock, so a step whose
+  // attempt the generation already passed is refused rather than spent on the attempt that replaced it.
+  if (options.attempt !== undefined && snapshot.record.context.attempt > options.attempt) {
+    return {
+      ok: false,
+      record: snapshot.record,
+      refusal: {
+        code: 'fill-unit/attempt-stale',
+        reason: `fill-unit: unit "${options.unitId}" generation ${String(snapshot.record.generation)} stands in attempt ${String(snapshot.record.context.attempt)}, and "${event.type}" names attempt ${String(options.attempt)}: the queue handed the unit out again, so the claim this step belongs to ended`,
+        state: snapshot.record.state,
+        event: event.type,
+        guard: 'attempt-current',
+        guards: ['attempt-current'],
+        transitions: [],
+      },
+    } as const;
+  }
   const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
   if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
   const record = await persistUnitStep(executor, snapshot, step, event.at, event.type);
   return { ok: true, record, transition: step.transition, effects: step.effects } as const;
 }
 
-/** Takes one step on a unit's current generation in its own transaction of the owner. */
-export async function advanceUnit(database: FillStateDatabase, options: { readonly unitId: string; readonly event: UnitAdvanceEvent }): Promise<StoreStep<UnitRecord, UnitState>> {
-  const at = here();
-  return run(at, database, `advanceUnit(${options.unitId}, ${options.event.type})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], (executor) => advanceUnitIn(executor, options), 'write');
-}
-
 /**
- * Leases a ready unit generation: the next fencing token and the next attempt are
- * issued together, the lease row records the holder and its expiry, and the
- * generation enters `leased`. The token grows across the unit's generations, so a
- * late worker that still holds an older token is refused by the machine's
- * `fence-current` guard on every later step, and one that holds a token of an
- * older generation by `generation-current`.
+ * One step of a unit's current generation, and — for a step a worker takes — the attempt it takes it
+ * under: a step naming an attempt the queue already handed out again is refused, because the claim it
+ * belongs to ended (decision 0039, item 12).
  */
-export interface UnitLeaseOptions {
+export interface UnitAdvanceOptions {
   readonly unitId: string;
-  readonly holder: string;
-  readonly ttlMs: number;
-  readonly at: number;
+  readonly event: UnitAdvanceEvent;
+  /** The attempt the worker holds, when the step is a worker's: a later attempt's step is refused. */
+  readonly attempt?: number;
 }
 
-/** Leases a ready unit generation inside a transaction the caller already opened. */
-async function leaseUnitIn(executor: SqlExecutor, options: UnitLeaseOptions): Promise<StoreStep<UnitRecord, UnitState>> {
-  const snapshot = await loadUnit(executor, options.unitId, true);
-  if (snapshot === null) raise(`table fill_unit: no unit ${options.unitId}`);
-  const fence = snapshot.record.context.fence + 1;
-  const attempt = snapshot.record.context.attempt + 1;
-  const event: UnitLeaseEvent = { type: 'lease', at: options.at, fence, attempt };
-  const step = unitMachine.step({ state: snapshot.record.state, context: snapshot.record.context }, event);
-  if (!step.ok) return { ok: false, refusal: step.refusal, record: snapshot.record } as const;
-  const lease: UnitLeaseRecord = { attempt, fence, holder: options.holder, issuedAt: options.at, expiresAt: options.at + options.ttlMs, revokedAt: null };
-  await executor.query(
-    'INSERT INTO fill_unit_lease (unit_id, generation, attempt, fence, holder, issued_at, expires_at, revoked_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)',
-    [options.unitId, snapshot.record.generation, attempt, fence, options.holder, options.at, lease.expiresAt],
-  );
-  const record = { ...(await persistUnitStep(executor, snapshot, step, options.at, event.type)), lease };
-  return { ok: true, record, transition: step.transition, effects: step.effects } as const;
-}
-
-/** Leases a ready unit generation in its own transaction of the owner. */
-export async function leaseUnit(database: FillStateDatabase, options: UnitLeaseOptions): Promise<StoreStep<UnitRecord, UnitState>> {
+/** Takes one step on a unit's current generation in its own transaction of the owner. */
+export async function advanceUnit(database: FillStateDatabase, options: UnitAdvanceOptions): Promise<StoreStep<UnitRecord, UnitState>> {
   const at = here();
-  return run(at, database, `leaseUnit(${options.unitId})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease', 'fill_transition'], (executor) => leaseUnitIn(executor, options), 'write');
+  return run(at, database, `advanceUnit(${options.unitId}, ${options.event.type})`, ['fill_unit', 'fill_unit_generation', 'fill_transition'], (executor) => advanceUnitIn(executor, options), 'write');
 }
 
 /**
@@ -939,7 +787,6 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
   readonly unitId: string;
   readonly runId: string;
   readonly inputsDigest: string;
-  readonly retries: number;
   readonly at: number;
 }): Promise<StoreStep<UnitRecord, UnitState>> {
   const at = here();
@@ -967,18 +814,18 @@ export async function replaceStaleGeneration(database: FillStateDatabase, option
     if (generation !== current.generation + 1) {
       raise(`table fill_unit_generation, row ${current.unitId}/${current.generation}: names replacement ${generation}, which is not the next generation`);
     }
-    const context = newUnitContext({ generation, retries: options.retries, fence: current.context.fence });
+    const context = newUnitContext({ generation });
     await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
-      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
+      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, json(context), options.at],
     );
     await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
-    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.openGeneration, from: 'stale', to: 'planned', event: 'open-generation', fence: context.fence, at: options.at });
+    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.openGeneration, from: 'stale', to: 'planned', event: 'open-generation', at: options.at });
     return {
       ok: true,
       transition: FILL_STORE_STEPS.openGeneration,
       effects: [],
-      record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
+      record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at },
     } as const;
   }, 'write');
 }
@@ -994,7 +841,6 @@ export async function retryGeneration(database: FillStateDatabase, options: {
   readonly unitId: string;
   readonly runId: string;
   readonly inputsDigest: string;
-  readonly retries: number;
   readonly at: number;
 }): Promise<StoreStep<UnitRecord, UnitState>> {
   const at = here();
@@ -1018,18 +864,18 @@ export async function retryGeneration(database: FillStateDatabase, options: {
       } as const;
     }
     const generation = current.generation + 1;
-    const context = newUnitContext({ generation, retries: options.retries, fence: current.context.fence });
+    const context = newUnitContext({ generation });
     await executor.query(
-      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)',
-      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, context.fence, json(context), options.at],
+      'INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
+      [options.unitId, generation, options.runId, 'planned', options.inputsDigest, json(context), options.at],
     );
     await executor.query('UPDATE fill_unit SET generation = $2 WHERE unit_id = $1', [options.unitId, generation]);
-    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.retryGeneration, from: current.state, to: 'planned', event: 'retry-generation', fence: context.fence, at: options.at });
+    await recordTransition(executor, { subjectKind: 'unit', subjectId: options.unitId, generation, transitionId: FILL_STORE_STEPS.retryGeneration, from: current.state, to: 'planned', event: 'retry-generation', at: options.at });
     return {
       ok: true,
       transition: FILL_STORE_STEPS.retryGeneration,
       effects: [],
-      record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at, lease: null },
+      record: { ...current, generation, runId: options.runId, state: 'planned', inputsDigest: options.inputsDigest, context, publishedAt: null, staleAt: null, updatedAt: options.at },
     } as const;
   }, 'write');
 }

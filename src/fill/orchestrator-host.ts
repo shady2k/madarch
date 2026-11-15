@@ -19,10 +19,9 @@ import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { readProduct } from '../product/manifest.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
-import { consumeFillControl } from '../product/fill-runtime.js';
 import type { FillStageConfigurationRead } from '../product/manifest/fill-config.js';
 import type { SqlExecutor } from '../sql-driver.js';
-import type { FactApplication } from './orchestrator.js';
+import type { FactApplication, RunClaim } from './orchestrator.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   cancelRun,
@@ -38,7 +37,6 @@ import {
   type HumanEditGuard,
   type OrchestratorLimits,
   type ProgressSink,
-  type RunControlReader,
   type RunStatus,
   type UnitGraphReader,
   type UnitRef,
@@ -82,6 +80,13 @@ export interface FillRunRequest {
   readonly resume?: boolean;
   readonly workers?: number;
   readonly maxPasses?: number;
+  /**
+   * The run's own job, claimed by the process that asked for the fill: one job per
+   * pressed product in the store's queue, whose claim is the run's lock (decision
+   * 0039, item 12). The caller that claimed it settles it; a caller that names none
+   * drives a run no queue holds, and the run's own state is its only record.
+   */
+  readonly claim?: RunClaim;
 }
 
 export interface FillRunResult {
@@ -146,11 +151,19 @@ export interface FillOrchestratorServiceOptions {
   readonly workers?: number;
   readonly maxPasses?: number;
   readonly queueFactory?: (owner: DatabaseOwner) => Promise<QueueService>;
-  readonly control?: (product: FillProduct) => RunControlReader;
 }
 
 /** The units' queue's name in the process's database. */
 const DEFAULT_FILL_QUEUE = 'fill-units';
+
+/**
+ * How long a run's own job may hold its claim, and how quiet it may be before the
+ * queue treats the process that holds it as gone (decision 0039, item 12): a fill
+ * that runs longer than the lease is a run to end and start again, and five missed
+ * beats of `RUN_HEARTBEAT_MS` are a process that ended.
+ */
+export const RUN_JOB_LEASE_SECONDS = 24 * 60 * 60;
+export const RUN_JOB_HEARTBEAT_SECONDS = 30;
 
 /** The unit states a run is finished with: nothing waits on them any longer. */
 const TERMINAL_UNIT_STATES: readonly string[] = ['published', 'superseded', 'failed', 'cancelled', 'stale', 'skipped'];
@@ -220,7 +233,17 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       await createOrchestratorSchema(database);
       const queue = await withSpan('fill.queue', { 'madarch.queue': queueName }, async () => {
         const opened = options.queueFactory !== undefined ? await options.queueFactory(database) : await createPgBossQueue({ owner: database });
-        await opened.declare({ name: queueName, leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)), retries: 0, retryDelaySeconds: 0, retryBackoff: false, singletons: true });
+        // A unit's job carries its own attempt's bounds (decision 0039, item 12): the expiry is the attempt's
+        // lease, the queue's retry allowance is the generation's, and the retry delay is the wait between two
+        // attempts. The queue hands a job out again only after the attempt that held it ended or expired.
+        await opened.declare({
+          name: queueName,
+          leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
+          retries: limits.retries,
+          retryDelaySeconds: Math.max(0, Math.ceil(limits.retryDelayMs / 1000)),
+          retryBackoff: false,
+          singletons: true,
+        });
         return opened;
       });
       return { owner: database, queue, opened: lent === undefined };
@@ -257,7 +280,6 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       inputs: (ref) => wiring.inputs(ref),
       facts: wiring.facts ?? NO_FACTS,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
-      control: options.control !== undefined ? options.control(product) : async (runId: string) => await consumeFillControl(product.folder, runId),
       ...(wiring.guard === undefined ? {} : { guard: wiring.guard }),
       limits,
       ...(options.log === undefined ? {} : { log: options.log }),
@@ -314,8 +336,14 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       const built = await withSpan('fill.ready', { 'madarch.product': request.product.name }, async () => await orchestratorFor(request.product));
       if ('ok' in built) return built;
       const orchestrator = built;
+      // The run's job is heartbeated while the run lasts, so the queue hands it to another process only after
+      // this one stopped (decision 0039, item 12).
+      if (request.claim !== undefined) orchestrator.heartbeat.claim = request.claim;
       if (request.resume === true) await resumeRun(orchestrator, { runId: request.runId });
-      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, { runId: request.runId }));
+      const started = await withSpan('fill.start', { 'madarch.run': request.runId }, async () => await startRun(orchestrator, {
+        runId: request.runId,
+        ...(request.claim === undefined ? {} : { claim: request.claim }),
+      }));
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await withSpan('fill.plan', { 'madarch.run': request.runId }, async (span) => {
         const held = await planRun(orchestrator, { runId: request.runId });

@@ -14,7 +14,7 @@
 import { here } from '../model/raise.js';
 import { failRequestedFill } from './fill-run.js';
 import { KindCountsCache } from './kind-counts-cache.js';
-import { cancelRun } from '../fill/orchestrator.js';
+import { cancelRun, pauseRun } from '../fill/orchestrator.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { declaredEdgeReads, declaredKindReads, graphContractOf } from '../fill/stages/plugin-contract.js';
@@ -37,7 +37,7 @@ import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { runPhaseOf } from '../fill/fsm.js';
-import { askRunControl, readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
+import { readFillEnd, readProgress, readRunConfiguration } from '../fill/orchestrator-store.js';
 import { readProducerOutcomes } from '../graph/producer-outcomes.js';
 import { createRun, readChain, readRuns, hasSuccessfulFill, readLatestRun, readRun, readLiveRun, readStoreStamp } from '../fill/state-store.js';
 import { fillWritesPages } from '../fill/steps.js';
@@ -777,19 +777,29 @@ export class KnowledgeProduct {
 
   /**
    * A person's pause or stop, taken by the run's own state machine: in this process when the fill runs here (`madarch
-   * fill`), and through the store's control row when another process runs it (`--role fill`, madarch-8bdc.9).
+   * fill`), and by writing the run's state in the store when another process runs it (`--role fill`, madarch-8bdc.9) —
+   * the fill reads that state before every step it takes (decision 0039, item 12), so no control row and no poll exist.
    */
   private async controlRun(action: 'pause' | 'stop'): Promise<{ readonly ok: boolean; readonly message?: string }> {
     const held = await this.fillRun?.control(action);
     if (held !== undefined) return held;
     if (this.fillRunId === undefined) return { ok: false, message: 'no fill of this product is running: there is nothing to do' };
     try {
-      const owner = await this.open();
-      await askRunControl(owner, { runId: this.fillRunId, action, at: Date.now() });
+      await this.controlStoredRun(this.fillRunId, action, `the person ${action === 'pause' ? 'paused' : 'stopped'} the run`);
       return { ok: true };
     } catch (error) {
       return { ok: false, message: `the run ${this.fillRunId} could not be told to ${action}: ${error instanceof Error ? error.message : String(error)}` };
     }
+  }
+
+  /** Writes one run's pause or stop through its own state machine, in this process, on the store it runs in. */
+  private async controlStoredRun(runId: string, action: 'pause' | 'stop', cause: string): Promise<void> {
+    const owner = await this.open();
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const control = { database: owner, product: product.name, clock: Date.now, authority: new Map<string, AbortController>(), sink: undefined };
+    if (action === 'pause') await pauseRun(control, { runId });
+    else await cancelRun(control, { runId, cause });
   }
 
   /** The declared repositories whose checkout holds no commit yet: what a fill says it could not read. */
@@ -2287,11 +2297,15 @@ export class KnowledgeProduct {
     const run = await readRun(owner, runId);
     if (run === null || run.product !== product.name) return { ok: false as const, status: 404, message: `${here()}: this product holds no run ${JSON.stringify(runId)}` };
     if (!(action === 'pause' ? ['running'] : ['created', 'planning', 'running', 'pausing', 'paused']).includes(run.state)) return { ok: false as const, status: 409, message: `${here()}: run ${runId} is ${run.state} and cannot ${action}` };
+    // The run's own state is the control (decision 0039, item 12): the fill reads it before every step it takes, in
+    // this process or another.
     if (run.state === 'paused') {
       // A paused worker has ended and holds no live sessions; use the same durable cancellation as its host.
       await cancelRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId, cause: 'stopped from the fill run page' });
+    } else if (action === 'pause') {
+      await pauseRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId });
     } else {
-      await askRunControl(owner, { runId, action, at: Date.now() });
+      await cancelRun({ database: owner, product: product.name, clock: Date.now, authority: new Map(), sink: undefined }, { runId, cause: 'stopped from the fill run page' });
     }
     return { ok: true as const, runId };
   }

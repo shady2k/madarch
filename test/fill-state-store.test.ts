@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { fillStateSchema } from '../src/adapters/schemas/fill-state.js';
 import { createDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { FillStateDatabase } from '../src/fill/state-store.js';
-import { FILL_STATE_TABLES, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, leaseUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
-import type { RunEvidence, UnitAdvanceEvent } from '../src/fill/fsm.js';
+import { FILL_STATE_TABLES, readStoreStamp, hasSuccessfulFill, advanceChain, advanceRun, advanceUnit, createFillStateSchema, createRun, createUnit, readRun, readUnit, replaceStaleGeneration } from '../src/fill/state-store.js';
+import type { RunEvidence } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
@@ -26,14 +26,21 @@ afterAll(async () => {
   await database.close();
 });
 
-/** Drives one unit to a leased, running state under fence 1 and answers the record it reached. */
+/** One run of one unit, in `running`: a unit belongs to a run, and a unit write refuses a run that ended. */
+async function runOf(unitId: string, runId = `run-of-${unitId}`): Promise<string> {
+  await createRun(database, { runId, product: `product-of-${unitId}`, at: NOW - 2 });
+  await advanceRun(database, { runId, event: { type: 'plan', at: NOW - 1, configuration: 'fixture' } });
+  await advanceRun(database, { runId, event: { type: 'start', at: NOW, stages: 1 } });
+  return runId;
+}
+
+/** Drives one unit into its first running attempt, as the queue's claim hands it out, and answers the record. */
 async function runningUnit(unitId: string) {
-  await createUnit(database, { unitId, product: `product-of-${unitId}`, runId: `run-of-${unitId}`, stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-1', retries: 2, at: NOW });
+  await runOf(unitId);
+  await createUnit(database, { unitId, product: `product-of-${unitId}`, runId: `run-of-${unitId}`, stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-1', at: NOW });
   const admitted = await advanceUnit(database, { unitId, event: { type: 'admit', at: NOW + 1, generation: 1 } });
   expect(admitted.ok).toBe(true);
-  const leased = await leaseUnit(database, { unitId, holder: 'worker-a', ttlMs: 60_000, at: NOW + 2 });
-  expect(leased.ok).toBe(true);
-  const started = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 3, generation: 1, fence: 1 } });
+  const started = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 3, generation: 1, attempt: 1 } });
   expect(started.ok).toBe(true);
   if (!started.ok) throw new Error('the unit did not reach running');
   return started.record;
@@ -41,9 +48,7 @@ async function runningUnit(unitId: string) {
 
 async function publishedUnit(unitId: string) {
   await runningUnit(unitId);
-  await advanceUnit(database, { unitId, event: { type: 'submit-draft', at: NOW + 4, generation: 1, fence: 1 } });
-  await advanceUnit(database, { unitId, event: { type: 'validate-draft', at: NOW + 5, generation: 1, fence: 1 } });
-  const published = await advanceUnit(database, { unitId, event: { type: 'publish', at: NOW + 6, generation: 1, fence: 1, readsFresh: true } });
+  const published = await advanceUnit(database, { unitId, event: { type: 'publish', at: NOW + 6, generation: 1, outcome: { plugin: 'fixture', kind: 'src', outcome: 'empty', produced: 0 } } });
   expect(published.ok).toBe(true);
 }
 
@@ -57,7 +62,7 @@ async function expectAsyncError(work: () => Promise<unknown>): Promise<Error> {
 }
 
 describe('the fill state schema', () => {
-  test('creates exactly its six tables, and can run again on a database that has them', async () => {
+  test('creates exactly its five tables, and can run again on a database that has them', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'madarch-state-schema-'));
     const owner = await createDatabaseOwner({ store: folder });
     try {
@@ -147,99 +152,68 @@ describe('a fill run', () => {
 });
 
 describe('a unit generation', () => {
-  
-  
-  test('refuses a lease event handed to advanceUnit, so no lease hides outside the lease row', async () => {
-    const unitId = 'unit-lease-bypass';
-    await createUnit(database, { unitId, product: 'product-unit', runId: 'run-unit', stageId: 'inventory', scopeKey: `src/${unitId}`, inputsDigest: 'digest-1', retries: 1, at: NOW });
-    await advanceUnit(database, { unitId, event: { type: 'admit', at: NOW + 1, generation: 1 } });
-    // Typed out of `advanceUnit`'s events on purpose: a JavaScript caller can still send it.
-    const refused = await advanceUnit(database, { unitId, event: { type: 'lease', at: NOW + 2, fence: 7, attempt: 9 } as unknown as UnitAdvanceEvent });
-    expect(refused.ok).toBe(false);
-    if (refused.ok) return;
-    expect(refused.refusal.code).toBe('fill-store/lease-not-advanced');
-    expect(refused.refusal.reason).toContain('leaseUnit takes it');
-    const record = await readUnit(database, unitId);
-    expect(record?.state).toBe('ready');
-    expect(record?.context.fence).toBe(0);
-    expect(record?.lease).toBeNull();
+  test('records the attempt the queue hands it out as, and refuses an attempt the generation already passed', async () => {
+    const unitId = 'unit-attempts';
+    const running = await runningUnit(unitId);
+    expect(running.state).toBe('running');
+    expect(running.context.attempt).toBe(1);
+    // A duplicate delivery of the attempt in force is no second step of it.
+    const duplicate = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 4, generation: 1, attempt: 1 } });
+    expect(duplicate.ok).toBe(false);
+    if (duplicate.ok) return;
+    expect(duplicate.refusal.guard).toBe('attempt-advances');
+    // A claim the queue hands out again is the generation's next attempt.
+    const again = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 5, generation: 1, attempt: 2 } });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.record.context.attempt).toBe(2);
+    expect((await readUnit(database, unitId))?.context.attempt).toBe(2);
   });
 
-  test('refuses a second lease while the first stands, and issues a greater token after a retry', async () => {
-    const unitId = 'unit-released';
+  test('a retry sends the generation to its retry wait, and the queue\'s next attempt starts it again', async () => {
+    const unitId = 'unit-retried';
     await runningUnit(unitId);
-    const second = await leaseUnit(database, { unitId, holder: 'worker-b', ttlMs: 60_000, at: NOW + 5 });
-    expect(second.ok).toBe(false);
-    if (second.ok) return;
-    expect(second.refusal.code).toBe('fill-unit/no-transition');
-    expect(second.refusal.reason).toContain('state "running"');
-
-    const retried = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 6, generation: 1, cause: 'lease-expired', retryAt: NOW + 60_000, fence: null } });
+    const retried = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 6, generation: 1, cause: 'transient-failure', retryAt: NOW + 60_000 } });
     expect(retried.ok).toBe(true);
     if (!retried.ok) return;
     expect(retried.record.state).toBe('retry_wait');
-    expect(retried.record.context.retriesLeft).toBe(1);
-    expect(retried.effects).toEqual(['revoke-lease', 'revoke-lease', 'retract-draft', 'schedule-retry', 'emit-progress'].filter((name, index, all) => all.indexOf(name) === index));
-    // The revocation is a storage write: the lease in force carries the moment it was revoked.
-    expect(retried.record.lease?.revokedAt).toBe(NOW + 6);
-
-    const ready = await advanceUnit(database, { unitId, event: { type: 'retry', at: NOW + 70_000, generation: 1, cause: 'lease-expired', retryAt: NOW + 60_000, fence: null } });
-    expect(ready.ok).toBe(true);
-    const released = await leaseUnit(database, { unitId, holder: 'worker-b', ttlMs: 60_000, at: NOW + 80_000 });
-    expect(released.ok).toBe(true);
-    if (!released.ok) return;
-    expect(released.record.context.fence).toBe(2);
-    expect(released.record.context.attempt).toBe(2);
-    expect(released.record.lease?.fence).toBe(2);
-    expect(released.record.lease?.revokedAt).toBeNull();
-
-    const oldWorker = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 81_000, generation: 1, fence: 1 } });
-    expect(oldWorker.ok).toBe(false);
-    if (oldWorker.ok) return;
-    expect(oldWorker.refusal.guard).toBe('fence-current');
-    const newWorker = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 81_000, generation: 1, fence: 2 } });
-    expect(newWorker.ok).toBe(true);
+    expect(retried.record.context.retryAt).toBe(NOW + 60_000);
+    expect(retried.effects).toEqual(['schedule-retry', 'emit-progress']);
+    const again = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 70_000, generation: 1, attempt: 2 } });
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.record.state).toBe('running');
+    expect(again.record.context.attempt).toBe(2);
+    expect(again.record.context.retryAt).toBeNull();
   });
 
-  
-  
-  test('a token of the replaced generation cannot start, block or fail the generation that replaced it', async () => {
-    const unitId = 'unit-replaced-fence';
+  test('a message for the replaced generation is refused, whatever attempt it names', async () => {
+    const unitId = 'unit-replaced';
     await publishedUnit(unitId);
     await advanceUnit(database, { unitId, event: { type: 'invalidate', at: NOW + 7, replacement: 2, cause: 'inputs changed' } });
-    const replaced = await replaceStaleGeneration(database, { unitId, runId: 'run-2', inputsDigest: 'digest-2', retries: 2, at: NOW + 8 });
+    const replaced = await replaceStaleGeneration(database, { unitId, runId: 'run-2', inputsDigest: 'digest-2', at: NOW + 8 });
     expect(replaced.ok).toBe(true);
     if (!replaced.ok) return;
     const admitted = await advanceUnit(database, { unitId, event: { type: 'admit', at: NOW + 9, generation: 2 } });
     expect(admitted.ok).toBe(true);
-    const leased = await leaseUnit(database, { unitId, holder: 'worker-new', ttlMs: 60_000, at: NOW + 10 });
-    expect(leased.ok).toBe(true);
-    if (!leased.ok) return;
-    const newFence = leased.record.context.fence;
-    expect(newFence).toBe(2);
-
-    for (const event of [
-      { type: 'start', at: NOW + 11, generation: 2, fence: 1 },
-      { type: 'block', at: NOW + 12, generation: 2, fence: 1, reason: 'late' },
-      { type: 'fail', at: NOW + 13, generation: 2, fence: 1, cause: 'budget-exhausted' },
-    ] as const) {
-      const refused = await advanceUnit(database, { unitId, event });
-      expect(refused.ok).toBe(false);
-      if (refused.ok) continue;
-      expect(refused.refusal.guard).toBe('fence-current');
-    }
-    // A message for the replaced generation is refused too, whatever token it names.
-    const oldGeneration = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 14, generation: 1, fence: newFence } });
+    // A message for the replaced generation is refused, whatever attempt it names.
+    const oldGeneration = await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 14, generation: 1, attempt: 2 } });
     expect(oldGeneration.ok).toBe(false);
     if (oldGeneration.ok) return;
     expect(oldGeneration.refusal.guard).toBe('generation-current');
-    expect((await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 15, generation: 2, fence: newFence } })).ok).toBe(true);
+    expect((await advanceUnit(database, { unitId, event: { type: 'start', at: NOW + 15, generation: 2, attempt: 1 } })).ok).toBe(true);
   });
 
-  
-  
-  
+  test('a failure keeps what the generation wrote: nothing is retracted when a generation fails', async () => {
+    const unitId = 'unit-failed-keeps';
+    await runningUnit(unitId);
+    const failed = await advanceUnit(database, { unitId, event: { type: 'fail', at: NOW + 7, generation: 1, cause: 'retries-exhausted' } });
+    expect(failed.ok).toBe(true);
+    if (!failed.ok) return;
+    // The machine's only effects on a failure are the authority's revocation and the progress event.
+    expect(failed.effects).toEqual(['revoke-authority', 'emit-progress']);
   });
+});
 
 describe('the store keeps its state on disk', () => {
   });
@@ -247,11 +221,11 @@ describe('the store keeps its state on disk', () => {
 describe('a stored record that does not hold the shape its guards read', () => {
   test('is refused, naming the table and the row, instead of stepping on undefined numbers', async () => {
     const unitId = 'unit-corrupt';
-    await createUnit(database, { unitId, product: 'product-corrupt', runId: 'run-corrupt', stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-corrupt', retries: 1, at: NOW });
+    await runOf(unitId, 'run-corrupt');
+    await createUnit(database, { unitId, product: 'product-corrupt', runId: 'run-corrupt', stageId: 'inventory', scopeKey: 'src', inputsDigest: 'digest-corrupt', at: NOW });
     await database.transaction('write', async (executor) => {
       await executor.query("UPDATE fill_unit_generation SET context = '{\"attempt\": \"one\"}'::jsonb WHERE unit_id = $1", [unitId]);
-      await executor.query('INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ($1, $2, $3, $4::jsonb, $5, $5)',
-        ['run-corrupt', 'product-corrupt', 'running', '{"planningEpoch": 1}', NOW]);
+      await executor.query("UPDATE fill_run SET context = '{\"planningEpoch\": 1}'::jsonb WHERE run_id = $1", ['run-corrupt']);
     });
 
     const unitFailure = await expectAsyncError(() => readUnit(database, unitId));
@@ -272,7 +246,7 @@ describe('a failure of the borrowed database', () => {
       },
     };
     const caught = await expectAsyncError(() => advanceUnit(failing, { unitId: 'unit-a', event: { type: 'admit', at: NOW, generation: 1 } }));
-    expect(caught.message).toContain('advanceUnit(unit-a, admit) failed on fill_unit, fill_unit_generation, fill_unit_lease, fill_transition: boom: connection closed');
+    expect(caught.message).toContain('advanceUnit(unit-a, admit) failed on fill_unit, fill_unit_generation, fill_transition: boom: connection closed');
     expect(caught.message.startsWith(fileURLToPath(new URL('../src/fill/state-store.ts', import.meta.url)))).toBe(true);
     // The line is the operation's own, not the shared wrapper's: it is where the operation
     // took its site, inside advanceUnit.

@@ -19,12 +19,12 @@ import { Type } from 'typebox';
 import { requestStorePreparation, withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftSet, type StageExecutionResult, type StageUnitScope } from '../src/fill/stage.js';
+import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageExecutionResult, type StageUnitScope } from '../src/fill/stage.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import type { QueueService } from '../src/fill/queue.js';
 import { DEFAULT_QUEUE_SCHEMA } from '../src/adapters/pg-boss-queue.js';
-import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, stopHeartbeat, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunControlReader, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitDraft, retractUnitDraft, recordUnitRead, recordUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
+import { DEFAULT_ORCHESTRATOR_LIMITS, admissionOrder, admitUnits, cancelRun, createOrchestrator, driveRun, invalidateStaleUnits, planRun, recoverOrphanedRun, resumeRun, runEvidence, runStatus, schedulerPass, startRun, stopHeartbeat, sweepUnits, workOnce, type FillOrchestrator, type HumanEditGuard, type OrchestratorLimits, type PlanOutcome, type RunClaim, type UnitGraphReader, type UnitRef } from '../src/fill/orchestrator.js';
+import { createOrchestratorSchema, PUBLICATION_SNAPSHOT, readMembership, readProgress, appendProgress, appendProgresses, readUnitReads, readSealedChildren, recordUnitRead, recordUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/read-record.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { daemonFills } from '../src/product/daemon-fills.js';
@@ -32,13 +32,18 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceRun, advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readUnit, RUN_HEARTBEAT_MS, RUN_LEASE_TTL_MS } from '../src/fill/state-store.js';
+import { advanceRun, advanceUnit, createFillStateSchema, readChain, readRun, readRunUnits, readUnit } from '../src/fill/state-store.js';
 import { isFinalRunState, isFinalUnitState } from '../src/fill/fsm.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 const NOW = 1_700_000_000_000;
 const QUEUE = 'fill-units';
 const SNAPSHOT: RunSnapshot = { repository: 'example.com/acme/shop', defaultBranch: 'main', commit: 'a1b2c3d4', registryHash: 'sha256:registry' };
+
+/** One claim on a run's job, as the queue hands it out: the run's lock (decision 0039, item 12). */
+function claimOf(id: string, attempt = 0): RunClaim {
+  return { queue: QUEUE, job: { id, queue: QUEUE, attempt, retries: 1, data: {}, leaseSeconds: 86_400 } };
+}
 
 /** A clock the test moves by hand: nothing in the orchestrator reads the real one. */
 function testClock(start = NOW): { now(): number; advance(ms: number): void; set(at: number): void } {
@@ -78,7 +83,6 @@ async function openWorld(options: {
   product?: string;
   commit?: string;
   configuration?: () => { ok: true; file: string; stages: Record<string, unknown>; lines: Record<string, number> } | undefined;
-  control?: RunControlReader;
   /** Told whether each graph read was made with a transaction of the owner. */
   onGraph?: (withTransaction: boolean) => void;
   /** The named inputs a unit's facts stand on; the run's commit unless the test names its own. */
@@ -98,8 +102,8 @@ async function openWorld(options: {
   await queue.declare({
     name: QUEUE,
     leaseSeconds: Math.max(1, Math.ceil(limits.leaseMs / 1000)),
-    retries: 0,
-    retryDelaySeconds: 0,
+    retries: limits.retries,
+    retryDelaySeconds: Math.max(0, Math.ceil(limits.retryDelayMs / 1000)),
     retryBackoff: false,
     singletons: true,
   });
@@ -130,7 +134,6 @@ async function openWorld(options: {
     clock: clock.now,
     limits,
     ...(options.guard === undefined ? {} : { guard: options.guard }),
-    ...(options.control === undefined ? {} : { control: options.control }),
   });
   return {
     owner, queue, registry: options.registry, orchestrator, graph, applied, clock, commits,
@@ -159,8 +162,7 @@ function fakeStage(id: string, declaration: Partial<FillStage> = {}): FillStage 
     configSchema: Type.Object({}),
     defaults: DEFAULT_STAGE_DEFAULTS,
     plan: () => ({ units: [], coverage: 'planned' }),
-    execute: () => ({ outcome: 'draft' }),
-    validate: () => ({ ok: true }),
+    execute: () => ({ outcome: 'writes' }),
     ...declaration,
   };
 }
@@ -172,7 +174,6 @@ function draftingStage(id: string, options: {
   produces?: readonly string[];
   concurrency?: number;
   coverage?: 'planned' | 'nothing-found';
-  validate?: (draft: StageDraftSet) => { ok: true } | { ok: false; errors: readonly string[] };
 }): FillStage {
   return fakeStage(id, {
     produces: (options.produces ?? []).map((kind) => ({ kind, schemaVersion: 1, scope: 'repository' })),
@@ -183,10 +184,9 @@ function draftingStage(id: string, options: {
       coverage: options.coverage ?? 'planned',
     }),
     execute: (unit, context): StageExecutionResult => {
-      context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts', scope: unit.scope } });
-      return { outcome: 'draft' };
+      context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'fixture', kind: 'module-facts', outcome: 'completed', produced: 1 } });
+      return { outcome: 'writes' };
     },
-    validate: (draft) => (options.validate === undefined ? { ok: true } : options.validate(draft)),
   });
 }
 
@@ -211,8 +211,8 @@ function splittingStage(options: { children?: readonly StageUnitScope[]; splitEv
       attempts.push(unit.id);
       const first = attempts.filter((id) => id === unit.id).length === 1;
       if ((options.splitEveryUnit === true || unit.id === 'root') && first) return { outcome: 'split', children: childrenFor(unit.id) };
-      context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts' } });
-      return { outcome: 'draft' };
+      context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'fixture', kind: 'module-facts', outcome: 'completed', produced: 1 } });
+      return { outcome: 'writes' };
     },
   });
   return { stage, attempts };
@@ -442,49 +442,6 @@ describe('a publication that loses its snapshot', () => {
   }, 60_000);
 });
 
-describe('a retraction of a draft set', () => {
-  test('answers the set\'s head and reads none of its writes back', async () => {
-    // A repository-wide unit's set is tens of megabytes of JSON, and every caller of a retraction discards
-    // what the set held: reading it back parsed the whole set at the run's memory peak.
-    const owner = await createTestDatabaseOwner();
-    try {
-      await createFillStateSchema(owner);
-      await createOrchestratorSchema(owner);
-      // The draft's foreign keys name the run and the generation it belongs to.
-      await owner.transaction('write', async (transaction) => {
-        await transaction.query(`INSERT INTO fill_run (run_id, product, state, context, created_at, updated_at) VALUES ('run-retract', 'p', 'running', '{}'::jsonb, $1, $1)`, [NOW]);
-        await transaction.query(`INSERT INTO fill_unit (unit_id, product, stage_id, scope_key, generation, created_at) VALUES ('modules:retracted', 'p', 'modules', 'modules', 1, $1)`, [NOW]);
-        await transaction.query(`INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at) VALUES ('modules:retracted', 1, 'run-retract', 'planned', 'd', 0, '{}'::jsonb, $1)`, [NOW]);
-      });
-      const writes = Array.from({ length: 1_001 }, (_value, at) => ({ kind: 'fact' as const, evidence: `src/a.ts:${String(at + 1)}`, value: { at } }));
-      const recorded = await recordUnitDraft(owner, { unitId: 'modules:retracted', generation: 1, writes, at: NOW });
-      const statements: string[] = [];
-      const watching: DatabaseOwner = {
-        location: owner.location,
-        ready: owner.ready,
-        allowConcurrentSnapshots: owner.allowConcurrentSnapshots,
-        hasVector: owner.hasVector,
-        transaction: async (kind, work) => await owner.transaction(kind, async (transaction) => await work({
-          query: async (sql, values) => {
-            statements.push(sql);
-            return await transaction.query(sql, values);
-          },
-        })),
-        run: async (work) => await owner.run(work),
-        exec: async (text) => await owner.exec(text),
-        close: async () => await owner.close(),
-      };
-      const head = await retractUnitDraft(watching, { unitId: 'modules:retracted', generation: 1, at: NOW + 1 });
-      expect(head?.digest).toBe(recorded.digest);
-      expect(head?.retractedAt).toBe(NOW + 1);
-      expect(head === null ? [] : Object.keys(head).sort()).toEqual(['digest', 'generation', 'recordedAt', 'retractedAt', 'unitId']);
-      expect(statements.filter((sql) => sql.includes('fill_unit_draft_part'))).toEqual([]);
-    } finally {
-      await owner.close();
-    }
-  }, 60_000);
-});
-
 describe('the membership digest a tracked read stands on', () => {
   test('holds what a read can answer, and is the same for the same rows in another order', () => {
     // A timestamp is the case that matters: the owner hands these back as `Date` objects, and a digest
@@ -606,8 +563,8 @@ describe('admission within the slots, by priority', () => {
     const stage = draftingStage('plugin-turns', { units: ['producer', 'consumer'], concurrency: 2 });
     stage.unitScheduling = (id) => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
     stage.execute = (_unit, context) => {
-      context.draft.write({ kind: 'producer-outcome', evidence: 'Document', value: { plugin: 'example', kind: 'Document', outcome: 'completed', produced: 1 } });
-      return { outcome: 'draft' };
+      context.writes.write({ kind: 'producer-outcome', evidence: 'Document', value: { plugin: 'example', kind: 'Document', outcome: 'completed', produced: 1 } });
+      return { outcome: 'writes' };
     };
     try {
       const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), owner: gated });
@@ -619,12 +576,13 @@ describe('admission within the slots, by priority', () => {
       // A different writer seals a new, abstaining generation after the pass captured the old success.
       await lent.transaction('write', async (tx) => {
         const id = 'plugin-turns/producer';
-        await tx.query(`INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, fence, context, updated_at)
-          SELECT unit_id, generation + 1, run_id, state, inputs_digest, fence + 1, context, updated_at
+        await tx.query(`INSERT INTO fill_unit_generation (unit_id, generation, run_id, state, inputs_digest, context, updated_at)
+          SELECT unit_id, generation + 1, run_id, state, inputs_digest, context, updated_at
           FROM fill_unit_generation WHERE unit_id = $1 AND generation = 1`, [id]);
         await tx.query('UPDATE fill_unit SET generation = 2 WHERE unit_id = $1', [id]);
-        await tx.query(`INSERT INTO fill_unit_draft (unit_id, generation, digest, writes, recorded_at)
-          VALUES ($1, 2, 'abstained', $2::jsonb, $3)`, [id, JSON.stringify([{ kind: 'producer-outcome', value: { plugin: 'example', kind: 'Document', outcome: 'abstained', produced: 0 } }]), NOW]);
+        // The generation's own record says what it answered (decision 0039, item 11): there is no draft to write.
+        await tx.query(`UPDATE fill_unit_generation SET context = jsonb_set(context, '{unitOutcome}', $2::jsonb) WHERE unit_id = $1 AND generation = 2`,
+          [id, JSON.stringify({ plugin: 'example', kind: 'Document', outcome: 'abstained', produced: 0 })]);
         await tx.query(`INSERT INTO fill_publication (unit_id, generation, digest, facts, published_at)
           VALUES ($1, 2, 'abstained', 0, $2)`, [id, NOW]);
       });
@@ -738,7 +696,7 @@ describe('admission within the slots, by priority', () => {
   });
 });
 
-describe('one attempt: lease, run, draft, validate, publish', () => {
+describe('one attempt: start, run, write, publish', () => {
   
   
   
@@ -780,8 +738,8 @@ describe('a split and its join', () => {
         if (unit.id === 'root' && attempts.filter((id) => id === 'root').length === 1) {
           return { outcome: 'split', children: [{ id: 'left', scope: 'left' }, { id: 'right', scope: 'right' }] };
         }
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts' } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'fixture', kind: 'module-facts', outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     });
     const graph = fakeGraph({ [query]: [{ module: 'core' }] });
@@ -868,7 +826,7 @@ describe('staleness from tracked reads, empty results included', () => {
     const unit = await readUnit(opened.owner, 'snapshot/src');
     expect(unit?.generation).toBe(2);
     expect(unit?.state).toBe('planned');
-    expect(unit?.context.fence).toBe(0);
+    expect(unit?.context.attempt).toBe(0);
   });
 });
 
@@ -927,10 +885,9 @@ describe('cancellation, pause and stop', () => {
     const { stage } = waitingStage();
     const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage) });
     await admitUnits(opened.orchestrator, { runId });
-    expect((await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-1', ttlMs: 60_000, at: NOW })).ok).toBe(true);
-    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, fence: 1 } })).ok).toBe(true);
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, attempt: 1 } })).ok).toBe(true);
     expect((await advanceRun(opened.owner, { runId, event: { type: 'cancel', at: NOW, cause: 'the person stopped the run' } })).ok).toBe(true);
-    const blocked = await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'block', at: NOW, generation: 1, fence: 1, reason: 'the attempt was cancelled' } });
+    const blocked = await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'block', at: NOW, generation: 1, reason: 'the attempt was cancelled' } });
     expect(blocked.ok).toBe(false);
     expect(blocked.ok === false ? blocked.refusal.code : '').toBe('fill-unit/no-transition');
     expect(blocked.ok === false ? blocked.refusal.reason : '').toContain('cancelling');
@@ -952,19 +909,19 @@ describe('cancellation, pause and stop', () => {
       execute: async (unit, context): Promise<StageExecutionResult> => {
         running();
         await gate;
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'snapshot', kind: 'file-facts', outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     });
     const registry = new StageRegistry().register(stage);
-    let control: 'running' | 'paused' | 'stopped' = 'running';
-    const { world: opened, runId } = await plannedWorld({ registry, control: async () => control });
+    const { world: opened, runId } = await plannedWorld({ registry });
     await admitUnits(opened.orchestrator, { runId });
     const working = workOnce(opened.orchestrator, { worker: 'worker-1' });
     await reached;
 
-    // Decision 0027's pause drains: the run admits nothing new and pauses once what is in flight is done.
-    control = 'paused';
+    // Decision 0027's pause drains: the run admits nothing new and pauses once what is in flight is done, and
+    // the run's own state is the whole control (decision 0039, item 12).
+    expect((await advanceRun(opened.owner, { runId, event: { type: 'pause', at: NOW + 1 } })).ok).toBe(true);
     const pausedPass = await schedulerPass(opened.orchestrator, { runId });
     expect(pausedPass.run.state).toBe('pausing');
     release();
@@ -974,7 +931,6 @@ describe('cancellation, pause and stop', () => {
     expect((await readUnit(opened.owner, 'snapshot/docs'))?.state).toBe('planned');
 
     // The next planning epoch carries the run to its end.
-    control = 'running';
     await resumeRun(opened.orchestrator, { runId });
     expect((await readRun(opened.owner, runId))?.context).toEqual({ planningEpoch: 1, planningClosed: false });
     const replanned = await planRun(opened.orchestrator, { runId });
@@ -986,15 +942,17 @@ describe('cancellation, pause and stop', () => {
     expect((await readRunUnits(opened.owner, runId)).every((unit) => unit.state === 'published')).toBe(true);
   });
 
-  test('a stop through the control file cancels the run and its units', async () => {
+  test('a stop written through the run\'s own state machine cancels the run and its units', async () => {
+    // The api role writes the run's state (decision 0039, item 12); the handler reads it before every step.
     const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
-    let control: 'running' | 'paused' | 'stopped' = 'stopped';
-    const { world: opened, runId } = await plannedWorld({ registry, control: async () => control });
+    const { world: opened, runId } = await plannedWorld({ registry });
+    // The api role writes the run's stop through the same function, on the store it serves.
+    const cancelled = await cancelRun(opened.orchestrator, { runId, cause: 'the person stopped the run' });
+    expect(cancelled.run.state).toBe('cancelled');
     const pass = await schedulerPass(opened.orchestrator, { runId });
     expect(pass.run.state).toBe('cancelled');
     expect((await readRunUnits(opened.owner, runId)).map((unit) => unit.state)).toEqual(['cancelled']);
     expect((await readProgress(opened.owner, runId)).some((event) => event.kind === 'run-cancelling')).toBe(true);
-    control = 'running';
   });
 });
 
@@ -1123,11 +1081,16 @@ describe('the service the background server owns', () => {
 describe('what the review found, kept as tests', () => {
   test('a run with a unit waiting for its retry has not finished: it settles only once that attempts ends', async () => {
     let attempts = 0;
-    const registry = new StageRegistry().register(draftingStage('snapshot', {
-      units: ['src'], produces: ['file-facts'],
-      validate: () => { attempts += 1; return attempts === 1 ? { ok: false, errors: ['the first draft stands on nothing'] } : { ok: true }; },
-    }));
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 10_000 } });
+    const stage = draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] });
+    const answer = stage.execute;
+    stage.execute = (unit, context) => {
+      attempts += 1;
+      // The first attempt ends short of its answer and the queue hands the job out again.
+      if (attempts === 1) throw new Error('the first attempt stood on nothing');
+      return answer(unit, context);
+    };
+    const registry = new StageRegistry().register(stage);
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 1_000 } });
     await admitUnits(opened.orchestrator, { runId });
     expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('retried');
     expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('retry_wait');
@@ -1141,8 +1104,9 @@ describe('what the review found, kept as tests', () => {
     expect(driven.settled).toBe(false);
     expect(driven.stoppedBecause).toBe('a pass and its claims together changed nothing');
 
-    // Its moment comes and the same attempt carries the run to its end.
-    opened.clock.advance(10_000);
+    // The queue's own retry delay passes, the job is handed out again, and the generation's second attempt
+    // carries the run to its end.
+    await Bun.sleep(1_100);
     const finished = await driveRun(opened.orchestrator, { runId, workers: 1 });
     expect(finished.settled).toBe(true);
     expect(finished.run.state).toBe('succeeded');
@@ -1192,7 +1156,7 @@ describe('what the review found, kept as tests', () => {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
       execute: () => {
         attempts += 1;
-        return attempts === 1 ? { outcome: 'blocked', reason: 'a person must look at this' } : { outcome: 'draft' };
+        return attempts === 1 ? { outcome: 'blocked', reason: 'a person must look at this' } : { outcome: 'writes' };
       },
     }));
     const opened = await world({ registry: retrying, product: 'other-product' });
@@ -1222,8 +1186,8 @@ describe('what the review found, kept as tests', () => {
     const stage = draftingStage('snapshot', { units: ['ok', 'bad'], concurrency: 2 });
     stage.execute = (unit, context) => {
       if (unit.id === 'bad') throw new Error('the second unit failed');
-      context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-      return { outcome: 'draft' };
+      context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'snapshot', kind: 'file-facts', outcome: 'completed', produced: 1 } });
+      return { outcome: 'writes' };
     };
     const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { retries: 0 } });
     const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
@@ -1236,8 +1200,8 @@ describe('what the review found, kept as tests', () => {
     stage.unitScheduling = (id) => ({ after: id === 'consumer' ? ['producer'] : [], group: id, concurrency: 1 });
     stage.execute = (unit, context) => {
       if (unit.id === 'producer') throw new Error('the producer refused its input');
-      context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-      return { outcome: 'draft' };
+      context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'snapshot', kind: 'file-facts', outcome: 'completed', produced: 1 } });
+      return { outcome: 'writes' };
     };
     const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(stage), limits: { retries: 0 } });
     const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
@@ -1250,37 +1214,20 @@ describe('what the review found, kept as tests', () => {
     expect(await isFinalUnitState(consumer?.state ?? '')).toBe(true);
   });
 
-  test('a dead owner\'s run ends once its lease expires, without waiting for run age', async () => {
-    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
-    await admitUnits(opened.orchestrator, { runId });
-    await opened.owner.run((tx) => tx.query('UPDATE fill_run_lease SET expires_at = $1 WHERE run_id = $2', [NOW - 1, runId]));
-    const next = await startRun(opened.orchestrator, { runId: 'run-after-dead-owner' });
-    expect(next.ok).toBe(true);
-    expect((await readRun(opened.owner, runId))?.state).toBe('failed');
-    expect((await readRunUnits(opened.owner, runId)).every((unit) => isFinalUnitState(unit.state))).toBe(true);
+  test('a run whose job the queue hands out again is ended as the process that ran it ended', async () => {
+    // The run records the job attempt that holds it; a claim of a later attempt of the same job is the queue's
+    // own proof that the earlier attempt is over (decision 0039, item 12).
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'] }));
+    const opened = await world({ registry });
+    expect((await startRun(opened.orchestrator, { runId: 'run-of-a-job', claim: claimOf('job-1', 0) })).ok).toBe(true);
+    await planRun(opened.orchestrator, { runId: 'run-of-a-job' });
+    await admitUnits(opened.orchestrator, { runId: 'run-of-a-job' });
+    const recovered = await startRun(opened.orchestrator, { runId: 'run-of-a-job', claim: claimOf('job-1', 1) });
+    expect(recovered.ok).toBe(false);
+    expect(recovered.ok === false ? recovered.code : '').toBe('fill-orchestrator/run-recovered');
+    expect((await readRun(opened.owner, 'run-of-a-job'))?.state).toBe('failed');
+    expect((await readRunUnits(opened.owner, 'run-of-a-job')).every((unit) => isFinalUnitState(unit.state))).toBe(true);
   });
-
-  test('a planning stage that outlives the lease keeps it through the production heartbeat', async () => {
-    let entered: (() => void) | undefined;
-    let release: (() => void) | undefined;
-    const reached = new Promise<void>((resolve) => { entered = resolve; });
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const stage = draftingStage('snapshot', { units: ['src'] });
-    stage.plan = async () => { entered!(); await gate; return { units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }; };
-    const opened = await world({ registry: new StageRegistry().register(stage) });
-    const started = await startRun(opened.orchestrator, { runId: 'run-long-plan' });
-    expect(started.ok).toBe(true);
-    const planning = planRun(opened.orchestrator, { runId: 'run-long-plan' });
-    await reached;
-    opened.clock.advance(RUN_LEASE_TTL_MS + 1);
-    await new Promise((resolve) => setTimeout(resolve, RUN_HEARTBEAT_MS + 500));
-    release!();
-    const plan = await planning;
-    expect(plan.outcome).toBe('planned');
-    const next = await startRun(opened.orchestrator, { runId: 'run-after-long-plan' });
-    expect(next.ok).toBe(false);
-    expect((await readRun(opened.owner, 'run-long-plan'))?.state).toBe('running');
-  }, 15_000);
 
   test('a recovered run refuses the late planner\'s next unit and stays final', async () => {
     let entered: (() => void) | undefined;
@@ -1290,12 +1237,11 @@ describe('what the review found, kept as tests', () => {
     const stage = draftingStage('snapshot', { units: ['src'] });
     stage.plan = async () => { entered!(); await gate; return { units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }; };
     const opened = await world({ registry: new StageRegistry().register(stage) });
-    await startRun(opened.orchestrator, { runId: 'run-recovered' });
+    await startRun(opened.orchestrator, { runId: 'run-recovered', claim: claimOf('job-2', 0) });
     const planning = planRun(opened.orchestrator, { runId: 'run-recovered' });
     await reached;
-    if (opened.orchestrator.heartbeat.timer !== undefined) clearInterval(opened.orchestrator.heartbeat.timer);
-    opened.clock.advance(RUN_LEASE_TTL_MS + 1);
-    await recoverOrphanedRun(opened.orchestrator, { runId: 'run-recovered', at: opened.clock.now() });
+    // The queue hands the run's job out again: its later attempt is the proof the first process ended.
+    await recoverOrphanedRun(opened.orchestrator, { runId: 'run-recovered', at: opened.clock.now(), claim: claimOf('job-2', 1) });
     release!();
     const plan = await planning;
     expect(plan.outcome).not.toBe('planned');
@@ -1303,13 +1249,18 @@ describe('what the review found, kept as tests', () => {
     expect((await readRunUnits(opened.owner, 'run-recovered')).every((unit) => isFinalUnitState(unit.state))).toBe(true);
   });
 
-  test('a live owner\'s lease keeps a second start from ending its run', async () => {
-    const { world: opened, runId } = await plannedWorld({ registry: new StageRegistry().register(draftingStage('snapshot', { units: ['src'] })) });
-    await admitUnits(opened.orchestrator, { runId });
-    const next = await startRun(opened.orchestrator, { runId: 'run-while-live' });
-    expect(next.ok).toBe(false);
-    expect((await readRun(opened.owner, runId))?.state).toBe('running');
-    expect((await readRunUnits(opened.owner, runId)).some((unit) => !isFinalUnitState(unit.state))).toBe(true);
+  test('a live owner\'s claim keeps a second start of its own job from ending its run', async () => {
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'] }));
+    const opened = await world({ registry });
+    expect((await startRun(opened.orchestrator, { runId: 'run-while-live', claim: claimOf('job-3', 0) })).ok).toBe(true);
+    await planRun(opened.orchestrator, { runId: 'run-while-live' });
+    await admitUnits(opened.orchestrator, { runId: 'run-while-live' });
+    // The same claim started again is this process's own run: it continues, and nothing is ended.
+    expect((await startRun(opened.orchestrator, { runId: 'run-while-live', claim: claimOf('job-3', 0) })).ok).toBe(true);
+    // Another job is another press of the product, and the live run is not its to end.
+    expect((await startRun(opened.orchestrator, { runId: 'run-while-live', claim: claimOf('job-4', 0) })).ok).toBe(false);
+    expect((await readRun(opened.owner, 'run-while-live'))?.state).toBe('running');
+    expect((await readRunUnits(opened.owner, 'run-while-live')).some((unit) => !isFinalUnitState(unit.state))).toBe(true);
   });
 
   test('a run whose process died is ended by the next start, and none of its units stays waiting', async () => {
@@ -1335,7 +1286,7 @@ describe('what the review found, kept as tests', () => {
       execute: () => {
         attempts += 1;
         if (failing) throw new Error('the reader failed');
-        return { outcome: 'draft' };
+        return { outcome: 'writes' };
       },
     }));
     const opened = await world({ registry: flaky, product: 'other-product', limits: { retries: 1, retryDelayMs: 0 } });
@@ -1413,8 +1364,8 @@ describe('what the second review found, kept as tests', () => {
       plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
       execute: (unit, context) => {
         void context.graph.query(query).then(() => undefined);
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'snapshot', kind: 'file-facts', outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     }));
     const graph = fakeGraph({ [query]: [{ module: 'core' }] });
@@ -1451,7 +1402,8 @@ describe('a job the queue no longer holds', () => {
   }
 
   test('a unit standing ready with no job is offered the queue again, and the offer is idempotent', async () => {
-    const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
+    // The queue is declared with no retry of its own, so the claim a dead worker left is settled for good.
+    const { world: opened, runId } = await plannedWorld({ registry: oneUnit(), limits: { retries: 0 } });
     await admitUnits(opened.orchestrator, { runId });
     expect(await unfinishedJobs(opened)).toEqual(['snapshot/src']);
 
@@ -1460,7 +1412,7 @@ describe('a job the queue no longer holds', () => {
     // no retries of its own the job is gone while the unit stands `ready`.
     const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
     expect(claimed.data.unitId).toBe('snapshot/src');
-    expect(await opened.queue.fail(QUEUE, claimed, 'the worker died before it leased the unit')).toBe('failed');
+    expect(await opened.queue.fail(QUEUE, claimed, 'the worker died before it started the unit')).toBe('failed');
     expect(await unfinishedJobs(opened)).toEqual([]);
 
     const swept = await sweepUnits(opened.orchestrator, { runId });
@@ -1490,16 +1442,14 @@ describe('a job the queue no longer holds', () => {
     expect((await opened.queue.claim<{ unitId: string }>({ queue: QUEUE })).map((job) => job.data.unitId)).toEqual(['snapshot/src']);
   }, 30_000);
 
-  test('a unit under a lease of its own is left to that lease', async () => {
+  test('a unit an attempt holds is not offered again while the queue still holds its claim', async () => {
     const { world: opened, runId } = await plannedWorld({ registry: oneUnit() });
     await admitUnits(opened.orchestrator, { runId });
-    const leased = await leaseUnit(opened.owner, { unitId: 'snapshot/src', holder: 'worker-1', ttlMs: 60_000, at: NOW });
-    expect(leased.ok).toBe(true);
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, attempt: 1 } })).ok).toBe(true);
     const swept = await sweepUnits(opened.orchestrator, { runId });
-    // The unit is `leased` and its job is the attempt's own: nothing is offered and
-    // nothing is retried before the lease lapses.
+    // The unit is `running` and its job is the attempt's own: nothing is offered while the claim stands.
     expect(swept).toMatchObject({ swept: [], refused: [] });
-    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('leased');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('running');
   }, 30_000);
 });
 
@@ -1510,7 +1460,36 @@ describe('an attempt that died between its draft and its publication', () => {
 describe('the window between a machine step and its enqueue', () => {
   });
 
-describe('a worker whose lease lapsed while it was still inside its stage', () => {
+describe('a worker killed inside its attempt', () => {
+  test('is retried by the queue itself, and the unit runs its next attempt', async () => {
+    // Decision 0039, item 12: a unit's lock, expiry and retries are the queue's. A worker that dies without
+    // settling its job leaves a claim whose lease lapses; the queue's own maintenance fails the job and hands it
+    // out again, and the generation's next attempt is the one that runs.
+    const registry = new StageRegistry().register(draftingStage('snapshot', { units: ['src'], produces: ['file-facts'] }));
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { retries: 1, retryDelayMs: 0, leaseMs: 1_000 } });
+    await admitUnits(opened.orchestrator, { runId });
+    const claimed = (await opened.queue.claim<{ unitId: string }>({ queue: QUEUE }))[0]!;
+    expect(claimed.data.unitId).toBe('snapshot/src');
+    // The worker started its attempt and died inside it: the generation stands in `running`.
+    expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW, generation: 1, attempt: 1 } })).ok).toBe(true);
+    // Its claim's lease lapses, and the queue's maintenance is what notices.
+    await opened.owner.run((tx) => tx.query(`UPDATE ${QUEUE_SCHEMA}.job SET started_on = now() - interval '1 hour', expire_seconds = 1 WHERE id = $1`, [claimed.id]));
+    await opened.queue.recover(QUEUE);
+    const retried = await opened.owner.run(async (tx) => (await tx.query<{ retry_count: number; state: string }>(
+      `SELECT retry_count, state FROM ${QUEUE_SCHEMA}.job WHERE id = $1`, [claimed.id],
+    )).rows[0]);
+    // The queue failed the expired claim and holds the job for its next delivery; the claim that follows is
+    // counted as the job's next attempt when it is taken.
+    expect(retried).toEqual({ retry_count: 0, state: 'retry' });
+    // The next claim is the generation's next attempt, and it publishes.
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-2' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.context.attempt).toBe(2);
+  }, 60_000);
+});
+
+describe('a worker whose attempt the queue handed out again while it was still inside its stage', () => {
   /** The run's unfinished jobs, by the unit each carries: a key no new job can take while it stands. */
   async function unfinished(opened: World): Promise<string[]> {
     const rows = await opened.owner.run(async (transaction) => (await transaction.query<{ singleton_key: string }>(
@@ -1520,19 +1499,17 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
     return rows.map((row) => row.singleton_key);
   }
 
-
   /** What the run said about the attempt it stopped: the refusal's step and what became of its claim. */
   async function refusals(opened: World, runId: string): Promise<string[]> {
     return (await readProgress(opened.owner, runId)).filter((event) => event.kind === 'unit-refused').map((event) => event.summary);
   }
 
   /**
-   * One stage with one unit whose `execute` opens the window the tests need: the run's
-   * own sweep, of another executor, retrying a lease that lapsed under this worker while
-   * it was still inside its stage. `lapse` is what the attempt does before it returns,
-   * so the steps it comes back to are the ones the machine has moved under it.
+   * One stage with one unit whose `execute` opens the window the tests need: while this attempt is inside
+   * its stage, the generation moves past it — the queue hands the unit out again, or the run is stopped — so
+   * the steps it comes back to are the ones the generation already left (decision 0039, item 12).
    */
-  function lapsedStage(outcome: 'draft' | 'blocked'): { registry: StageRegistry; lapse: { now?: () => Promise<void> } } {
+  function lapsedStage(outcome: 'writes' | 'blocked'): { registry: StageRegistry; lapse: { now?: () => Promise<void> } } {
     const lapse: { now?: () => Promise<void> } = {};
     const registry = new StageRegistry().register(fakeStage('snapshot', {
       produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
@@ -1542,45 +1519,44 @@ describe('a worker whose lease lapsed while it was still inside its stage', () =
         lapse.now = undefined;
         await lapseNow?.();
         if (outcome === 'blocked') return { outcome: 'blocked', reason: 'the stage cannot continue with what it read' };
-        context.draft.write({ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: 'src:1', value: { plugin: 'snapshot', kind: 'file-facts', outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     }));
     return { registry, lapse };
   }
 
-  
-  test('a block the machine refuses ends the attempt\'s claim just the same', async () => {
-    const { registry, lapse } = lapsedStage('blocked');
-    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+  test('the publication of an attempt the queue handed out again is refused, and the claim is settled', async () => {
+    const { registry, lapse } = lapsedStage('writes');
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 500, retries: 2 } });
     await admitUnits(opened.orchestrator, { runId });
-    // The lapse lands before the retry's own moment, so the unit stands `retry_wait`
-    // when the stage asks to block: the table allows no block from there.
     lapse.now = async () => {
-      opened.clock.advance(1_000);
-      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+      // The next attempt of the same generation starts while this one is still inside its stage.
+      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'start', at: NOW + 1_000, generation: 1, attempt: 2 } })).ok).toBe(true);
     };
     const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
     expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'completed' });
-    expect(worked.refusal?.reason).toContain('"retry_wait"');
+    expect(worked.refusal?.code).toBe('fill-publication/attempt-stale');
+    expect(await unfinished(opened)).toEqual([]);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('running');
+    expect(await refusals(opened, runId)).toEqual([expect.stringContaining('refused publish')]);
+  }, 30_000);
+
+  test('a block the machine refuses ends the attempt\'s claim just the same', async () => {
+    const { registry, lapse } = lapsedStage('blocked');
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    // The unit is cancelled while the attempt is inside its stage: the table allows no block from there.
+    lapse.now = async () => {
+      expect((await advanceUnit(opened.owner, { unitId: 'snapshot/src', event: { type: 'cancel', at: NOW + 1_000, cause: 'the run is stopping' } })).ok).toBe(true);
+    };
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'completed' });
+    expect(worked.refusal?.reason).toContain('"cancelled"');
     expect(await unfinished(opened)).toEqual([]);
     expect(await refusals(opened, runId)).toEqual([expect.stringContaining('refused block')]);
   }, 30_000);
-
-  
-  });
-
-describe('a draft set a store recorded before the parts existed', () => {
-  // madarch-tzte.21.11 stores a draft set in parts, and a store recorded by the code before it holds the
-  // whole set in the row's own `writes` column. That row is a set like any other: a reader answers it
-  // whole, and a store that answered it empty would publish nothing for it.
-  });
-
-describe('a draft set larger than one part', () => {
-  // madarch-tzte.21.11: one jsonb value of a repository-wide unit's whole draft set — 34 MB for the
-  // modules stage over the madarch tree — took the embedded store's memory up by about 490 MB for good.
-  // A set is recorded in parts of a few hundred writes, and read back whole and in order.
-  });
+});
 
 describe('a generation’s cache key, and what a run reaches over the declared capabilities', () => {
   /**
@@ -1605,8 +1581,8 @@ describe('a generation’s cache key, and what a run reaches over the declared c
       plan: () => ({ units: options.units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' }),
       execute: async (unit, context) => {
         if (options.query !== undefined) await context.graph.query(options.query);
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: `${id}-facts` } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: id, kind: `${id}-facts`, outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     });
   }
@@ -1720,7 +1696,7 @@ describe('a generation’s cache key, and what a run reaches over the declared c
     const stage = fakeStage('snapshot', {
       produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
       plan: () => ({ units: units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' }),
-      execute: () => ({ outcome: 'draft' }),
+      execute: () => ({ outcome: 'writes' }),
     });
     const registry = new StageRegistry().register(stage);
     const graph = fakeGraph({ [normalized]: [spanRow] });
@@ -1755,8 +1731,8 @@ describe('a generation’s cache key, and what a run reaches over the declared c
       plan: () => ({ units: units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' }),
       execute: async (unit, context) => {
         await context.graph.query(spanText);
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: 'snapshot', kind: 'file-facts', outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     });
     const registry = new StageRegistry().register(stage);
@@ -1825,8 +1801,8 @@ describe('the second planning epoch of a first fill (madarch-tzte.26.3)', () => 
       },
       execute: async (unit, context) => {
         await context.graph.query(options.query);
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: `${id}-facts` } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: id, kind: `${id}-facts`, outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     });
   }
@@ -1837,8 +1813,8 @@ describe('the second planning epoch of a first fill (madarch-tzte.26.3)', () => 
       produces: (options.produces ?? []).map((kind) => ({ kind, schemaVersion: 1, scope: 'repository' as const })),
       plan: () => ({ units: options.units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' as const }),
       execute: (unit, context) => {
-        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: `${id}-facts` } });
-        return { outcome: 'draft' };
+        context.writes.write({ kind: 'producer-outcome', evidence: `${unit.scope}:1`, value: { plugin: id, kind: `${id}-facts`, outcome: 'completed', produced: 1 } });
+        return { outcome: 'writes' };
       },
     });
   }
@@ -1886,17 +1862,13 @@ describe('the fill tables reference each other', () => {
         `SELECT conname FROM pg_constraint WHERE contype = 'f' AND conrelid::regclass::text LIKE 'fill\_%' ORDER BY conname`,
       ));
       expect(found.rows.map((row) => row.conname)).toEqual([
-        'fill_control_run_fk',
         'fill_end_run_fk',
         'fill_event_generation_fk',
         'fill_event_run_fk',
         'fill_publication_generation_fk',
         'fill_run_configuration_run_fk',
         'fill_run_stage_run_fk',
-        'fill_unit_draft_generation_fk',
-        'fill_unit_draft_part_generation_fk',
         'fill_unit_generation_unit_fk',
-        'fill_unit_lease_generation_fk',
         'fill_unit_plan_generation_fk',
         'fill_unit_plan_run_fk',
         'fill_unit_read_generation_fk',

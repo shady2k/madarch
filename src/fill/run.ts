@@ -11,7 +11,7 @@
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { closeTrace, openTrace, runInTrace, withSpan } from '../obs/trace.js';
-import { traceKeepOf } from '../knowledge/settings.js';
+import { rawRetentionOf } from '../knowledge/settings.js';
 import { log } from '../obs/log.js';
 import { here } from './fsm-core.js';
 import { createFillOrchestratorService, type FillRunResult, type RefusedFillRun } from './orchestrator-host.js';
@@ -49,6 +49,12 @@ export interface RunFillOptions {
   readonly tokenCap?: number;
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
+  /**
+   * The run's own job, when the caller claimed one: the fill-run job whose claim is the run's lock (decision
+   * 0039, item 12). `madarch fill --role fill` is handed the job it claimed; a run a person's own process
+   * drives claims none, and the run's own state is the whole record of it.
+   */
+  readonly claim?: import('./orchestrator.js').RunClaim;
   /** The content language the press named, when it named one: recorded on the run's root span, never a statement. */
   readonly language?: string;
   /**
@@ -123,7 +129,7 @@ export async function runFill(options: RunFillOptions): Promise<FillRunAnswer> {
   if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${resolve(product, 'madarch/catalog.yaml')}:1: token cap must be a positive integer`);
   const runId = options.runId ?? `fill-${String(Date.now())}`;
   const store = options.store ?? options.home ?? join(tmpdir(), 'madarch-fill-home');
-  const traced = openTrace({ store, runId, keep: traceKeepOf(process.env as Record<string, string | undefined>) });
+  const traced = openTrace({ store, runId, retention: rawRetentionOf(process.env as Record<string, string | undefined>) });
   const steps = [...(options.steps ?? fillSteps())];
   try {
     return await runInTrace(traced, async () => await withSpan('fill.run', {
@@ -176,7 +182,7 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
     });
     try {
       options.onService?.(service);
-      const result = await service.run({ product: fill.product, runId });
+      const result = await service.run({ product: fill.product, runId, ...(options.claim === undefined ? {} : { claim: options.claim }) });
       const unread = fill.unread();
       // The kinds this run's contract declared, so the store's finish reads only the tables the manifest made.
       const kinds = fill.kinds;
