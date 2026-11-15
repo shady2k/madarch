@@ -278,6 +278,14 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
         [input.id, input.kind],
       );
       if (rows.rows[0] === undefined) {
+        // A uid names one entity of one kind, so a write of another kind that names it is refused: attaching its opinion to
+        // that entity would make it a row of a kind it is not. The refusal says which kind the uid belongs to.
+        const held = await tx.query<{ kind: string }>(
+          `SELECT e.name AS kind FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid LIMIT 1`,
+          [input.id],
+        );
+        const other = held.rows[0]?.kind;
+        if (other !== undefined && other !== input.kind) throw new WriteRefusal(`id ${JSON.stringify(input.id)} belongs to an entity of the kind ${JSON.stringify(other)}, and this write names the kind ${JSON.stringify(input.kind)}: a uid is one entity of one kind`, 'id', 409);
         // A keyless kind's identity is its uid, so a write that names one makes that entity: two writes of one name meet
         // on one row (the insert waits on the uid's unique index) instead of making a second. A keyed kind is named by
         // its key, and an id no entity of it holds is still refused.
