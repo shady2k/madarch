@@ -586,14 +586,45 @@ const INITDB_OUTPUT_WAIT_MS = 2_000;
  * Ends initdb and everything it started. On Windows initdb runs its bootstrap `postgres --boot` through cmd.exe, so the
  * tree is ended with `/T`; on POSIX the child was spawned as its own process group, and the whole group is signalled.
  */
-function endInitdbTree(pid: number | undefined): void {
+export function endInitdbTree(pid: number | undefined, dataDir: string, live: boolean, reads: {
+  platform?: NodeJS.Platform;
+  /** The processes a Windows machine runs, by command line: what identity a pid without a start time is read by. */
+  processes?: () => { pid: number; name: string; commandLine: string }[] | undefined;
+  /** Ends one process, and with `tree` everything it started. */
+  kill?: (pid: number, tree: boolean) => void;
+  /** Ends a process group on POSIX. */
+  killGroup?: (group: number) => void;
+} = {}): void {
   if (pid === undefined) return;
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { encoding: 'utf8', timeout: 10_000 });
+  const platform = reads.platform ?? process.platform;
+  const kill = reads.kill ?? ((target: number, tree: boolean) => { spawnSync('taskkill', ['/F', ...(tree ? ['/T'] : []), '/PID', String(target)], { encoding: 'utf8', timeout: 10_000 }); });
+  if (platform === 'win32') {
+    // While initdb itself lives its pid is its own, and its tree goes with it.
+    if (live) { kill(pid, true); return; }
+    // After it exits its id may belong to whatever the machine started next: no pid is signalled then. What it left is
+    // found by identity instead — a program whose command line names this data folder.
+    for (const holder of (reads.processes ?? windowsProcesses)() ?? []) {
+      if (!/(?:^|[\\/])(?:initdb|postgres)\.exe$/i.test(holder.name) || !holder.commandLine.toLowerCase().includes(dataDir.toLowerCase())) continue;
+      kill(holder.pid, false);
+    }
     return;
   }
-  try { process.kill(-pid, 'SIGKILL'); }
-  catch { try { process.kill(pid, 'SIGKILL'); } catch { /* gone between the check and the signal */ } }
+  // A group id is not reused while a member lives, so the group is safe to end after initdb exits; a pid that is no
+  // group leader is never signalled by it.
+  const killGroup = reads.killGroup ?? ((group: number) => { try { process.kill(-group, 'SIGKILL'); } catch { /* no such group */ } });
+  killGroup(pid);
+}
+
+/** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
+function windowsProcesses(): { pid: number; name: string; commandLine: string }[] | undefined {
+  const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+  const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+  if (answer.error !== undefined || answer.status !== 0) return undefined;
+  try {
+    const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
+    const all = Array.isArray(value) ? value : [value];
+    return all.map((row) => ({ pid: row.ProcessId, name: row.Name ?? '', commandLine: row.CommandLine ?? '' }));
+  } catch { return undefined; }
 }
 
 /**
@@ -616,7 +647,7 @@ async function awaitPreparationGone(dataDir: string, waitMs: number): Promise<vo
 }
 
 /** Runs `initdb`, naming the pid it spawned to `named` as soon as there is one, and throws with what initdb said when it fails. */
-async function runInitdb(program: string, args: readonly string[], named: (pid: number, startTime: string | undefined) => void, timeoutMs: number): Promise<void> {
+async function runInitdb(program: string, args: readonly string[], dataDir: string, named: (pid: number, startTime: string | undefined) => void, timeoutMs: number): Promise<void> {
   const child = spawn(program, [...args], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, LC_ALL: 'C' },
@@ -645,14 +676,14 @@ async function runInitdb(program: string, args: readonly string[], named: (pid: 
     });
     child.once('error', () => finish({ code: null, timedOut: false }));
     const timer = setTimeout(() => {
-      endInitdbTree(child.pid);
+      endInitdbTree(child.pid, dataDir, true);
       finish({ code: null, timedOut: true });
     }, timeoutMs);
   });
   // initdb has ended, one way or the other: what it started is ended with it, and both of its pipes are closed here.
   // A bootstrap descendant that survived initdb holds its stdout, and a pipe left open keeps this process alive after
   // the start is over (measured: Bun exited only when the descendant ended, 6 s later).
-  endInitdbTree(child.pid);
+  endInitdbTree(child.pid, dataDir, false);
   child.stdout.destroy();
   child.stderr.destroy();
   if (outcome.timedOut) {
@@ -717,7 +748,7 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
   writeRecord(preparingRecordPath(dataDir), { version, startedAt });
   const started = performance.now();
   try {
-    await runInitdb(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C'], (pid, startTime) => {
+    await runInitdb(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C'], dataDir, (pid, startTime) => {
       // The record names the initdb as soon as it has one: a madarch that a stop ends leaves a folder only a later open
       // may remove, and only once that initdb is gone.
       writeRecord(preparingRecordPath(dataDir), { version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });

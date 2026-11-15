@@ -39,6 +39,18 @@ function processes(): WindowsProcess[] | undefined {
   return undefined;
 }
 
+/** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
+function windowsProcesses(): { pid: number; name: string; commandLine: string }[] | undefined {
+  const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+  const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 15_000 });
+  if (answer.error !== undefined || answer.status !== 0) return undefined;
+  try {
+    const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
+    const all = Array.isArray(value) ? value : [value];
+    return all.map((row) => ({ pid: row.ProcessId, name: row.Name ?? '', commandLine: row.CommandLine ?? '' }));
+  } catch { return undefined; }
+}
+
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
@@ -81,6 +93,10 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   storesOnly?: boolean;
   /** The store data folders under the home's knowledge root, or the error that stopped the listing. */
   storeFolders?: () => string[] | Error;
+  /** A Windows machine's processes by command line, for a store a preparation is still making. */
+  preparationProcesses?: () => { pid: number; name: string; commandLine: string }[] | undefined;
+  /** Ends one process, by the identity its command line gives it. */
+  endProcess?: (pid: number) => void;
 } = {}): boolean {
   const exists = reads.alive ?? alive;
   const snapshot = reads.storesOnly ? [] : (reads.processes ?? processes)();
@@ -158,10 +174,25 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
   const sweep = (store: { folder: string; pid?: number }): boolean => {
     // A store initdb is still making is not a store server: initdb's bootstrap writes the `postmaster.pid` pg_ctl reads,
-    // and pg_ctl refuses it ("cannot stop server; single-user server is running"). Ending the preparation is the process
-    // tree's work, and the folder it leaves is what the next open prepares again.
+    // and pg_ctl refuses it ("cannot stop server; single-user server is running"). What a stopped madarch left of that
+    // preparation may still write the folder, so it is ended here — by identity, a program whose command line names the
+    // folder, since a pid without a start time may be another process's — and success is claimed only when none remains.
     if (preparationInProgress(store.folder)) {
-      console.error(`Windows stop: the store ${store.folder} is still being prepared, so it is left as it stands and the next open prepares it again`);
+      const listing = reads.preparationProcesses ?? windowsProcesses;
+      const holders = (): { pid: number; name: string }[] | undefined => listing()?.filter((row) => /(?:^|[\\/])(?:initdb|postgres)\.exe$/i.test(row.name) && row.commandLine.toLowerCase().includes(store.folder.toLowerCase())).map((row) => ({ pid: row.pid, name: row.name }));
+      const found = holders();
+      if (found === undefined) {
+        console.error(`Windows stop: the store ${store.folder} is still being prepared and the process list could not be read, so it is left as it stands and this stop fails`);
+        return false;
+      }
+      for (const holder of found) (reads.endProcess ?? ((pid: number) => { spawnSync('taskkill', ['/F', '/PID', String(pid)], { encoding: 'utf8', timeout: 10_000 }); }))(holder.pid);
+      const remaining = holders() ?? found;
+      if (remaining.length > 0) {
+        console.error(`Windows stop: the store ${store.folder} is still being prepared and ${remaining.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} still name it, so this stop fails and the folder is left as it stands`);
+        return false;
+      }
+      if (found.length > 0) console.error(`Windows stop: the store ${store.folder} was still being prepared; its left-over ${found.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} were ended, and the next open prepares it again`);
+      else console.error(`Windows stop: the store ${store.folder} is still being prepared, so it is left as it stands and the next open prepares it again`);
       return true;
     }
     store.pid ??= capture(store.folder).pid;

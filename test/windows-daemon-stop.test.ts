@@ -457,6 +457,7 @@ test('the walk\'s second Windows tree ends whole, and a store still being prepar
       pgCtl,
       // pg_ctl refused this store in the walk: preparation must not reach it.
       stopStore: () => { throw new Error('a store being prepared is not swept'); },
+      preparationProcesses: () => [],
     }));
     expect(run.answer).toBe(true);
     expect([...live]).toEqual([9664]);
@@ -464,4 +465,41 @@ test('the walk\'s second Windows tree ends whole, and a store still being prepar
   } finally { rmSync(home, { recursive: true, force: true }); }
   expect(killed.map((one) => one.pid)).toEqual([3420, 7832, 6296, 2712, 9800, 1220, 4396, 3540, 7420]);
   expect(killed.filter((one) => one.subtree).map((one) => one.pid)).toEqual([3420, 7832, 6296, 2712, 4396]);
+});
+
+test('a preparation left over from a stopped madarch is ended by identity, and a survivor fails the stop', () => {
+  // The walk's stop left a store still being prepared while an orphaned bootstrap outside the captured tree kept writing
+  // it. Its pid proves nothing after a reuse, so it is ended by the command line that names the folder, and the stop
+  // claims success only once nothing names it any more.
+  const home = mkdtempSync(join(tmpdir(), 'windows-stop-preparing-holders-'));
+  const folder = join(home, '.madarch', 'knowledge', 'one', 'graph', 'pgdata');
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(home, '.madarch', 'knowledge', 'one', 'graph', 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: 4396 } })}\n`);
+  const snapshot = [{ pid: 7420, parent: 5248, name: 'madarch.exe' }];
+  const bootstrap = { pid: 9664, name: 'postgres.exe', commandLine: `C:\\tools\\postgres.exe --boot -D ${folder}` };
+  const unrelated = { pid: 9665, name: 'notepad.exe', commandLine: 'C:\\Windows\\notepad.exe' };
+  const live = new Set([7420, 9664, 9665]);
+  try {
+    // The bootstrap is ended; the unrelated process naming nothing of this folder is never signalled.
+    const ended = captureErrors(() => stopWindowsDaemon({ pid: 7420, home }, {
+      processes: () => snapshot,
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { live.delete(pid); },
+      preparationProcesses: () => [bootstrap, unrelated].filter((row) => live.has(row.pid)),
+      endProcess: (pid) => { live.delete(pid); },
+    }));
+    expect(ended.answer).toBe(true);
+    expect([...live]).toEqual([9665]);
+    expect(ended.messages.join('\n')).toContain('was still being prepared');
+    // One that the stop cannot end fails it, and is named.
+    const failed = captureErrors(() => stopWindowsDaemon({ pid: 7420, home }, {
+      processes: () => snapshot,
+      alive: (pid) => live.has(pid),
+      kill: (pid) => { live.delete(pid); },
+      preparationProcesses: () => [bootstrap],
+      endProcess: () => { /* the process refuses to go */ },
+    }));
+    expect(failed.answer).toBe(false);
+    expect(failed.messages.join('\n')).toContain('postgres.exe pid 9664');
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
