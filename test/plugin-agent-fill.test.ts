@@ -35,6 +35,7 @@ const answer = { vertices: [{ kind: 'probe.summary', key: { id: 'joined' }, valu
 
 /** Independent ACP framing; each assertion is conditional on actual host file answers. */
 const FAKE = `import { createInterface } from 'node:readline';
+import { writeFileSync } from 'node:fs';
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
 let sequence = 0;
 const pending = new Map();
@@ -46,6 +47,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   if (m.method === 'session/new') send({ id: m.id, result: { sessionId: 'fixture-session', models: { currentModelId: 'fixture-model', availableModels: [{ modelId: 'fixture-model', name: 'Fixture model' }] } } });
   if (m.method === 'session/prompt') {
     const sessionId = m.params.sessionId;
+    if (process.env.PROMPT_FILE !== undefined) writeFileSync(process.env.PROMPT_FILE, m.params.prompt[0].text);
     const a = await ask('fs/read_text_file', { sessionId, path: '/repo/docs/a.md' });
     const b = await ask('fs/read_text_file', { sessionId, path: '/repo/docs/b.md' });
     const outside = await ask('fs/read_text_file', { sessionId, path: '/repo/private.md' });
@@ -155,6 +157,8 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
     const f = fixture(true);
     const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
     const sessions: PluginAgentReport[] = [];
+    // The fake peer hands back the prompt it was sent, so the test reads what madarch put in it.
+    process.env['PROMPT_FILE'] = join(f.root, 'prompt.txt');
     try {
       const run = await runFill({ sink: (event) => { if (event.kind === 'unit-failed' || event.kind === 'unit-blocked') console.error(event.summary); }, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'], pluginAgent: {
         adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
@@ -174,7 +178,13 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       expect(sessions[0]?.agentId).toBe('fixture-acp');
       expect(sessions[0]?.model).toBe('fixture-model');
       expect(sessions[0]?.usage.context).toEqual({ used: 31, size: 1000 });
-    } finally { await owner.close(); }
+      // The task the agent was sent names one language (madarch-64o5.107): the kind's manifest words are English in the
+      // prompt, and the Russian ones the fixture declares reach no agent.
+      const prompt = readFileSync(join(f.root, 'prompt.txt'), 'utf8');
+      expect(prompt).toContain('Read both allowed documents and state one evidenced summary.');
+      expect(prompt).toContain('A summary of the fixture documents.');
+      expect(prompt).not.toMatch(/[\u0400-\u04FF]/u);
+    } finally { delete process.env['PROMPT_FILE']; await owner.close(); }
   }, 120_000);
 
   test('the bundled general agent refines a declared kind already filled by another plugin', async () => {

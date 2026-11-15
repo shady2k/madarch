@@ -3,6 +3,7 @@ import { constants, lstatSync, mkdirSync, openSync, closeSync, writeFileSync } f
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
+import { englishOnly } from './english-task.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { AcpAgentSpec, AcpConnection, AcpMcpServer, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
@@ -165,10 +166,10 @@ export class PluginAgentBridge {
           if (choice.configId === null) await session.setModel(wanted);
           else await session.setConfigOption(choice.configId, wanted);
         }
-        // The prompt is the agent's role and its tools (the plugin's own file) and the task, which names the kind it
-        // fills and what that kind means: the graph it works on is read through the session's own MCP server, so no list
-        // of files and no dump of context stands here (owner's decision, 2026-11-15).
-        const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(task ?? null)}`;
+        // The agent reads one language (madarch-64o5.107) and reads the graph through the session's own MCP server: the
+        // task is resolved to its English text, and no list of files and no dump of context stands here (owner's
+        // decisions, 2026-11-15).
+        const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(englishOnly(task ?? null))}`;
         const meter = this.options.meter;
         meter?.beginSession();
         // No prompt is asked under a spent bound: the unit ends with its reason before the model spends anything
@@ -221,8 +222,11 @@ export class PluginAgentBridge {
           }
           const checked = validateUnitResult(this.outputs, single);
           if (!checked.ok) {
-            // The single-entry check names its place from the entry's own zero: the answer's place is the one a person reads.
-            const reason = checked.refusal.message.replace(new RegExp(`^${name}\\[0\\]\\.?`, 'u'), '');
+            // The single-entry check names its place from the entry's own zero: the answer's place is the one a person
+            // reads. The name is cut by plain comparison, never by a pattern (the architecture gate's no-regex rule).
+            const prefix = `${name}[0]`;
+            const head = checked.refusal.message.startsWith(prefix) ? checked.refusal.message.slice(prefix.length) : checked.refusal.message;
+            const reason = head.startsWith('.') ? head.slice(1) : head;
             dropped.push({ where: `${name}[${String(index)}]`, reason });
             return false;
           }
