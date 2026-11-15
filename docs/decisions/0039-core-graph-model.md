@@ -1114,16 +1114,18 @@ as part of drafting or reviewing this record.
 
 ## Open
 
-1. Approve the applicability cascade and first-filled product profile proposed
-   on madarch-64o5.144 at 19:17? Recommend yes, with explicit evidence-linked
-   derived marks only on declared applicability dependencies; do not cascade
-   merely because a kind has a structural prerequisite.
-
-The supplied record leaves this catalogue proposal awaiting confirmation.
-The eleven original engineering questions are decided in items 24–34; merge
-approval, system upgrades and retention incorporate the later owner answers.
-No additional numerical confidence threshold is required to implement the
-standard “agent first, unsure → person” rule.
+Nothing is left for the owner in this record. The applicability cascade and
+the first-filled product profile (madarch-64o5.144, 19:17) follow his words
+«Если у Kubernetes там еще дальше идут зависимые сущности, то мы уже все это
+дерево не заполним… нужно еще какие-то дополнительные корневые узлы добавить.
+И сначала их определять.»; the engineering refinement — a derived mark cascades
+only along declared applicability dependencies, with evidence naming the
+inapplicable ancestor, never merely because a kind has a structural
+prerequisite — is this record's design (madarch-64o5.145). The eleven original
+engineering questions are decided in items 24–34; merge approval, system
+upgrades and retention incorporate the later owner answers. No numerical
+confidence threshold is needed to implement the standard «agent first, unsure →
+person» rule.
 
 ## Sources and review boundary
 
