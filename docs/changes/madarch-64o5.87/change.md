@@ -3,7 +3,7 @@
 Change: madarch-64o5.87
 Base: ef989dae1b707459a69421ca1d4bdee54cd6904b
 Tasks: madarch-64o5.87
-Kind: request
+Kind: no-behavior
 
 ## Rationale
 
@@ -38,6 +38,7 @@ reads process identity from `/proc`.
 
 Kind: screen
 Place: the run page `/p/run` and the runs list `/p/runs` of a product
+Mockup: docs/changes/madarch-64o5.87/failed-partial-1440.png
 
 1. Finish a successful fill; `/p/run` shows the top badge «Завершён», one end line such as «15 нояб., 02:21 · 60 с», and
    no «Осталось» line or retry action.
