@@ -418,6 +418,25 @@ test('a folder is never moved onto a name already taken, and the store opens', a
   try { await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1'); } finally { await second.stop(); }
 }, 120_000);
 
+test('a move that fails on Windows never removes a folder another process put at the name', () => {
+  // Windows refuses a directory at the destination, so the placeholder is given back before its rename; a folder that
+  // appears there after that is another process's, and the error path leaves it as it stands (madarch-64o5.81 review).
+  const store = storeOf('windows move refused');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(dataDir, { recursive: true });
+  const taken = `${dataDir}.abandoned-2026-11-15T12-00-00-000Z`;
+  let refusal: Error | undefined;
+  try {
+    moveAside(dataDir, new Date('2026-11-15T12:00:00.000Z'), {
+      platform: 'win32',
+      rename: () => { mkdirSync(taken); throw new Error('EPERM: the destination stands'); },
+    });
+  } catch (error) { refusal = error as Error; }
+  expect(refusal?.message).toContain('EPERM');
+  expect(existsSync(taken)).toBe(true);
+  expect(readdirSync(taken)).toEqual([]);
+});
+
 test('a table in postgres survives in the folder a preparation moves aside', async () => {
   // What a folder holds is no proof of what a store is worth: a table lives in the `postgres` database itself, and a
   // folder whose `base` holds only the bootstrap's directories is not empty. The folder is moved aside whole and its

@@ -551,20 +551,32 @@ function initdbWhole(dataDir: string): boolean {
  * filesystem refuses — a name taken after the placeholder, a file inside it — is the caller's to refuse the start with.
  * A test names the moment, so it can hold a name of the very one a move would take.
  */
-export function moveAside(dataDir: string, moment: Date = new Date()): string {
+export function moveAside(dataDir: string, moment: Date = new Date(), steps: {
+  readonly platform?: NodeJS.Platform;
+  readonly mkdir?: (path: string) => void;
+  readonly rmdir?: (path: string) => void;
+  readonly rename?: (from: string, to: string) => void;
+} = {}): string {
+  const platform = steps.platform ?? process.platform;
+  const mkdir = steps.mkdir ?? ((path: string) => mkdirSync(path));
+  const rmdir = steps.rmdir ?? ((path: string) => rmdirSync(path));
+  const rename = steps.rename ?? ((from: string, to: string) => renameSync(from, to));
   const stamp = moment.toISOString().replace(/[:.]/gu, '-');
   for (let attempt = 1; attempt <= 1_000; attempt++) {
     const target = attempt === 1 ? `${dataDir}.abandoned-${stamp}` : `${dataDir}.abandoned-${stamp}-${String(attempt)}`;
-    try { mkdirSync(target); }
+    try { mkdir(target); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
       throw error;
     }
+    // The placeholder is given back before the rename only where a rename never replaces a directory: from that moment
+    // whatever stands at the name is another process's folder, and the error path below never removes it.
+    let placeholder = true;
     try {
-      if (process.platform === 'win32') rmdirSync(target);
-      renameSync(dataDir, target);
+      if (platform === 'win32') { rmdir(target); placeholder = false; }
+      rename(dataDir, target);
     } catch (error) {
-      try { rmdirSync(target); } catch { /* the placeholder is gone already, or a rename took it */ }
+      if (placeholder) { try { rmdir(target); } catch { /* the rename took it, or it is gone */ } }
       throw error;
     }
     return target;
