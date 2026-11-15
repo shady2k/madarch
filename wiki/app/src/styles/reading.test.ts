@@ -73,6 +73,13 @@ describe('the entry stylesheet', () => {
     expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*min-width: 9em/);
   });
 
+  test('the work area takes the screen width; prose keeps a reading measure, tables and diagrams do not', () => {
+    expect(tokensCss).toContain('--work-max: 1920px;');
+    expect(tokensCss).toContain('--prose: 75ch;');
+    expect(indexCss).toContain('.reading :is(p, h1, h2, h3, h4, h5, h6, blockquote) {');
+    expect(indexCss).toContain('max-inline-size: var(--prose);');
+  });
+
   test('the work area is flush and its text measure is fluid, capped only on wide windows', () => {
     const workArea = indexCss.slice(indexCss.indexOf('.shell-document {'), indexCss.indexOf('}', indexCss.indexOf('.shell-document {')));
     const content = indexCss.slice(indexCss.indexOf('.shell-document > main,'), indexCss.indexOf('}', indexCss.indexOf('.shell-document > main,')));
@@ -84,7 +91,7 @@ describe('the entry stylesheet', () => {
     expect(workArea).not.toContain('margin-inline:');
     expect(workArea).not.toContain('border-radius:');
     expect(workArea).not.toContain('box-shadow:');
-    expect(content).toContain('max-inline-size: var(--measure);');
+    expect(content).toContain('max-inline-size: var(--work-max);');
     expect(content).toContain('margin-inline: auto;');
     expect(indexCss).toMatch(/@media \(max-width: 900px\)[\s\S]*?padding-inline: 32px;/);
     expect(indexCss).toMatch(/@media \(max-width: 700px\)[\s\S]*?padding: var\(--page-top\) 20px 2.5em;/);
@@ -121,7 +128,7 @@ describe('the entry stylesheet', () => {
     expect(group).toContain('border-radius: var(--radius-card);');
     expect(group).not.toContain('box-shadow:');
     expect(indexCss).toContain('.shell-document > main,');
-    expect(indexCss).toContain('max-inline-size: var(--measure);');
+    expect(indexCss).toContain('max-inline-size: var(--work-max);');
   });
 
   test('home cards reset section heading margins and repository names stay whole where they fit', () => {
