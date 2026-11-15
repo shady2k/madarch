@@ -846,20 +846,34 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
     const attribute = edgeOfKind(contract, firstKind);
     const refs = batch.map(draft => (['from', 'to'] as const).map(field => {
       const ref = draft[field];
-      const target = contract.vertex.find(kind => kind.name === ref.kind);
+      const allowed = kind![field];
+      if (!allowed.includes(ref.kind)) throw new Error(`${import.meta.path}:850: the ${field} of edge ${JSON.stringify(draft.kind)} names kind ${JSON.stringify(ref.kind)}; expected ${allowed.map(name => JSON.stringify(name)).join(', ')}`);
+      const target = vertexOf(contract, ref.kind);
       const key = canonicalKeyOf(contract, target, liftedReferences(contract, target, ref.key ?? {}), `the ${field} of the edge ${JSON.stringify(draft.kind)}`);
       return { ref, key, uid: ref.uid ?? keyUid(target?.name ?? ref.kind, [JSON.stringify(key)]) };
     }));
-    const nodes = await executor.query<{ id: string; uid: string }>(`SELECT id::text AS id, uid::text AS uid FROM node WHERE uid = ANY($1::uuid[])`, [refs.flatMap(pair => pair.map(ref => ref.uid))]);
-    const byUid = new Map(nodes.rows.map(node => [node.uid, node.id]));
+    const nodes = await withSpan('graph.edge.endpoints', { 'graph.endpoints': refs.length * 2 }, async () => await executor.query<{ id: string; uid: string; kind: string; context_id: string; removed: boolean }>(
+      `SELECT n.id::text AS id, n.uid::text AS uid, k.name AS kind, n.context_id::text AS context_id, n.removed
+       FROM node n JOIN entity k ON k.id = n.entity_id WHERE n.uid = ANY($1::uuid[]) FOR SHARE OF n`,
+      [refs.flatMap(pair => pair.map(ref => ref.uid))],
+    ));
+    const byUid = new Map(nodes.rows.map(node => [node.uid, node]));
     const missing: Record<string, unknown>[] = [];
     const resolved: { draft: EdgeDraft; from: string; to: string; fromUid: string; toUid: string; discriminator: string }[] = [];
     const referenceActions: { missing: Record<string, unknown>[]; resolved?: typeof resolved[number] }[] = [];
     for (let index = 0; index < batch.length; index += 1) {
       const draft = batch[index]!;
       const pair = refs[index]!;
-      const from = byUid.get(pair[0]!.uid);
-      const to = byUid.get(pair[1]!.uid);
+      const endpoints = pair.map((endpoint, side) => {
+        const held = byUid.get(endpoint.uid);
+        if (held === undefined) return undefined;
+        const field = side === 0 ? 'from' : 'to';
+        if (held.kind !== endpoint.ref.kind) throw new Error(`${import.meta.path}:870: the ${field} of edge ${JSON.stringify(draft.kind)} names uid ${JSON.stringify(endpoint.uid)} as kind ${JSON.stringify(endpoint.ref.kind)}, but it belongs to ${JSON.stringify(held.kind)}`);
+        if (held.context_id !== String(contextId)) throw new Error(`${import.meta.path}:871: the ${field} of edge ${JSON.stringify(draft.kind)} names uid ${JSON.stringify(endpoint.uid)} in context ${held.context_id}, not ${contextId}`);
+        if (held.removed) throw new Error(`${import.meta.path}:872: the ${field} of edge ${JSON.stringify(draft.kind)} names removed uid ${JSON.stringify(endpoint.uid)}`);
+        return held.id;
+      });
+      const [from, to] = endpoints;
       if (from !== undefined && to !== undefined) {
         const row = { draft, from, to, fromUid: pair[0]!.uid, toUid: pair[1]!.uid, discriminator: draft.discriminator ?? '' };
         resolved.push(row); referenceActions.push({ missing: [], resolved: row });
