@@ -16,8 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { ChoiceCard } from './ui/choice-card.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Input } from './ui/input.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
-import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
@@ -290,12 +290,12 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
             <Stack className="flex flex-wrap items-end gap-4">
               {modelChoice === null ? null : (
                 <FieldLabel className="grid gap-1 text-small">{t('prepare.modelChoice')}
-                  <Select data-testid="prepare-model" value={modelValue} onChange={(event) => { setModel(event.target.value); setSavedDefaults('idle'); }} options={modelChoice.values.map((entry) => ({ value: entry.value, label: entry.name }))} />
+                  <ChoiceMenu label={t('prepare.modelChoice')} testId="prepare-model" value={modelValue} onChange={(next) => { setModel(next); setSavedDefaults('idle'); }} options={modelChoice.values.map((entry) => ({ value: entry.value, label: entry.name }))} />
                 </FieldLabel>
               )}
               {reasoningChoice === null ? null : (
                 <FieldLabel className="grid gap-1 text-small">{t('prepare.reasoningChoice')}
-                  <Select data-testid="prepare-reasoning" value={reasoningValue} onChange={(event) => { setReasoning(event.target.value); setSavedDefaults('idle'); }} options={reasoningChoice.values.map((entry) => ({ value: entry.value, label: entry.name }))} />
+                  <ChoiceMenu label={t('prepare.reasoningChoice')} testId="prepare-reasoning" value={reasoningValue} onChange={(next) => { setReasoning(next); setSavedDefaults('idle'); }} options={reasoningChoice.values.map((entry) => ({ value: entry.value, label: entry.name }))} />
                 </FieldLabel>
               )}
               <FieldLabel className="grid gap-1 text-small">{t('prepare.cap')}

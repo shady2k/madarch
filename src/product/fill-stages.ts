@@ -6,7 +6,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { sanitizeRepositoryUrl } from '../plugin/repository-input.js';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpan } from '../obs/trace.js';
 import { isRepositoryPath } from '../fill/facts.js';
@@ -80,6 +80,11 @@ export interface StagesFillOptions {
   readonly runId?: string;
   /** The budget explicitly supplied for this run, never a saved catalogue selection. */
   readonly budget?: AgentRunBudget;
+  /**
+   * The store the run's trace is kept under, whose `traces` folder also holds each agent unit's exchange
+   * (madarch-64o5.88). Left out, the agent still runs and madarch keeps no exchange of its own.
+   */
+  readonly store?: string;
   /** The person's token cap for this run; a plan that runs an agent unit needs one, and the engine sets none itself. */
   readonly tokenCap?: number;
 }
@@ -182,6 +187,12 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     ...(budget === undefined ? {} : { budget }),
     save: async (rows: readonly AgentUsageRecord[]) => await recordAgentUsage(options.database, rows),
   };
+  // Each agent unit's whole exchange is kept with the run (madarch-64o5.88): the run id names its file, the store's
+  // `traces` folder is where the run's log and trace already stand, and the trace's own trimming takes it with them.
+  const agent = options.pluginAgent === undefined ? undefined : {
+    ...options.pluginAgent,
+    ...(options.runId === undefined || options.store === undefined ? {} : { exchange: { run: options.runId, traces: join(resolve(options.store), 'traces') } }),
+  };
   const contract = kindsRead.present ? graphContractOf(kindsRead.manifest) : EMPTY_CONTRACT;
   // Only the product's declarations introduce graph kinds.
   const kinds = contract.vertex.length === 0 && contract.edge.length === 0 ? false : { vertex: contract.vertex.map((kind) => kind.name), edge: contract.edge.map((kind) => kind.name) };
@@ -196,7 +207,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       // The product's plugins and the graph their turns read (decision 0035, items 15 and 20): the lock names the exact
       // version and closure, the manifest names the kinds and documents, and the store is where the file units stand.
       ...(kindsRead.present
-        ? { plugins: { ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
+        ? { plugins: { ...(agent === undefined ? {} : { agent }), productFolder: folder, manifest: kindsRead.manifest, locks, owner: options.database, snapshots, ...(options.store === undefined ? {} : { traces: join(resolve(options.store), 'traces') }), ...(options.prepareRepositoryInputs === undefined ? {} : { prepareRepositoryInputs: options.prepareRepositoryInputs }), contract, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(kindsRead.manifest.journal?.debug === true ? { debug: true } : {}), ...(process.env['MADARCH_PLUGIN_CGROUP'] === undefined ? {} : { cgroupParent: process.env['MADARCH_PLUGIN_CGROUP'] }), ...(agentUsage === undefined ? {} : { agentUsage }) } }
         : {}),
     });
     span.setAttribute('madarch.stages', held.all().length);

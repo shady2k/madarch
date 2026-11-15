@@ -78,7 +78,8 @@
     "repositories": "Repositories",
     "toggleGroup": "Toggle {{group}} group",
     "pages": "Pages",
-    "catalogue": "Entity catalogue"
+    "catalogue": "Entity catalogue",
+    "logs": "Logs"
   },
   "diagram": {
     "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
@@ -124,9 +125,55 @@
       "noRun": "The address names no run.",
       "result": "Result by kind",
       "cause": {
-        "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins."
+        "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins.",
+        "plugin": "The plugin could not run: its lock, its closure or its own answer refused the unit.",
+        "agent": "The agent could not run the unit: the adapter is not installed, not signed in, or it ended without an answer.",
+        "cap": "The run crossed its token cap, and the units it had not finished were stopped.",
+        "dependency": "The kind waits for a kind another unit fills, and that unit did not finish.",
+        "timeout": "The unit passed its deadline or stopped answering, and it was stopped.",
+        "unknown": "The run recorded a failure, and its cause is in the detailed logs."
       },
+      "stageTimes": "Time per stage",
+      "logsLink": "Detailed logs of this run",
       "logEmpty": "Nothing has happened yet.",
+      "agents": {
+        "title": "What the agent was given and returned",
+        "empty": "This run ran no agent unit, or its exchange was not kept.",
+        "details": "Details",
+        "state": {
+          "turned": "Answered",
+          "failed": "Failed",
+          "cancelled": "Stopped"
+        },
+        "given": "Given",
+        "givenFiles": "Files it was told about: {{count}}",
+        "opened": "Files opened: {{count}}",
+        "openedDropped": "{{count}} file reads past the record's bound are not kept.",
+        "openedEmpty": "No file was opened.",
+        "steps": "Steps",
+        "stepsEmpty": "The agent streamed no step.",
+        "stepsDropped": "{{count}} steps past the record's bound are not kept.",
+        "step": {
+          "message": "Message",
+          "thought": "Thought",
+          "tool-call": "Tool call",
+          "tool-call-update": "Tool answer",
+          "plan": "Plan",
+          "other": "Update"
+        },
+        "returned": "Returned",
+        "returnedEmpty": "Nothing: the answer was empty.",
+        "returnedMissing": "No answer.",
+        "cut": "cut at the record's bound",
+        "failure": "Why it failed",
+        "context": "Context: {{used}} of {{size}}",
+        "model": "Model: {{model}}",
+        "agent": "Agent: {{agent}}",
+        "time": "{{seconds}} s",
+        "line": "line {{line}}",
+        "bytes": "{{count}} bytes",
+        "raw": "Raw JSON"
+      },
       "failed": "The run failed.",
       "phase": {
       "queued": "Queued",
@@ -151,7 +198,14 @@
     },
     "next": {
       "retry": "Fix the cause, then retry the fill.",
-      "retryAction": "Retry the fill"
+      "retryAction": "Retry the fill",
+      "sandbox": "Enable the controllers for your session, or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins.",
+      "plugin": "Open the detailed logs of this run: the plugin error names its file and line.",
+      "agent": "Choose an agent that is installed and signed in, and raise the token cap above what the run needs.",
+      "cap": "Raise the run's token cap, or fill fewer kinds at once.",
+      "dependency": "Fill the kind this one reads first; the other units still run.",
+      "timeout": "Open the detailed logs of this run, and check the machine's load before pressing again.",
+      "unknown": "Open the detailed logs of this run for the cause."
     },
     "status": {
       "queued": "Running",
@@ -210,6 +264,11 @@
         "failed": "Failed",
         "ready": "Ready",
         "pending": "Queued"
+      },
+      "logRow": "Open in the logs",
+      "stageOther": "Another step",
+      "stage": {
+        "plugin-turns": "Plugins"
       }
     },
     "prefill": {
@@ -1932,7 +1991,12 @@
     "empty": "Empty",
     "complete": "Complete",
     "indeterminate": "Indeterminate",
-    "typography": "Page structure and typography"
+    "typography": "Page structure and typography",
+    "logsTitle": "Log viewer",
+    "logsLive": "Live",
+    "logsPaused": "Paused",
+    "closed": "Closed",
+    "chosen": "Chosen"
   },
   "overview": {
     "title": "Where this product stands",
@@ -1942,5 +2006,103 @@
     "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
     "notKnown": "Problems: not known right now",
     "fillUnknown": "The last fill is not known right now"
+  },
+  "logs": {
+    "title": "Logs",
+    "intro": "Every log madarch keeps: the server's records, this product's fills, each plugin's standard error, the agents' exchanges, the store's PostgreSQL log and its runs' spans.",
+    "source": {
+      "server": "Server",
+      "fill": "Fill",
+      "plugin": "Plugin",
+      "agent": "Agent",
+      "store": "Store",
+      "trace": "Trace"
+    },
+    "level": {
+      "debug": "Debug",
+      "info": "Info",
+      "warn": "Warning",
+      "error": "Error"
+    },
+    "filters": {
+      "source": "Source",
+      "level": "Level",
+      "run": "Run",
+      "from": "From",
+      "to": "To",
+      "search": "Search",
+      "all": "All",
+      "older": "Older entries",
+      "follow": "Follow",
+      "pause": "Pause",
+      "copy": "Copy",
+      "copied": "Copied",
+      "context": "Context",
+      "details": "Log entries"
+    },
+    "empty": "No entries match these filters.",
+    "loading": "Reading the logs…",
+    "summary": "{{shown}} entries shown of {{scanned}} read",
+    "truncated": "The files were read from their ends: older lines are not in this answer.",
+    "cut": "the detail was cut at the record's bound",
+    "openRun": "Open the run",
+    "readFailed": "The logs could not be read: {{message}}",
+    "dateTime": {
+      "none": "Any time",
+      "title": "Pick a moment",
+      "clear": "Clear",
+      "done": "Done",
+      "hour": "Hour",
+      "minute": "Minute",
+      "second": "Second",
+      "previous": "Previous month",
+      "next": "Next month",
+      "close": "Close"
+    },
+    "event": {
+      "fill-started": "Fill started.",
+      "fill-ended": "Fill ended.",
+      "fill-failed": "The fill failed.",
+      "fill-refused": "The fill was refused.",
+      "plugin-closure-hashed": "The plugin's closure was hashed.",
+      "plugin-closure-copied": "The plugin's closure was copied.",
+      "plugin-sandbox-started": "The plugin's sandbox started.",
+      "plugin-introduced": "The plugin introduced itself.",
+      "plugin-paused": "The plugin paused.",
+      "plugin-resumed": "The plugin resumed.",
+      "plugin-cancelled": "The plugin was cancelled.",
+      "plugin-ignored-stop": "The plugin ignored the stop.",
+      "plugin-stop-cancelled": "The plugin was cancelled after ignoring the stop.",
+      "plugin-reported-error": "The plugin reported an error.",
+      "plugin-cgroup-outlived": "A plugin's cgroup outlived its processes.",
+      "unit-extracted": "The unit was extracted.",
+      "agent-file-read": "The agent read a file.",
+      "agent-file-written": "The agent wrote a file.",
+      "agent-update": "The agent streamed an update.",
+      "agent-tool-refused": "The agent's tool request was refused.",
+      "agent-result-validated": "The agent's result was validated.",
+      "sandbox-refused": "The sandbox cannot run here.",
+      "sandbox-filter-installed": "The sandbox's filter was installed.",
+      "sandbox-darwin-bounds": "The macOS sandbox bounds the tree by rlimits and its process group.",
+      "unit-not-extracted": "The unit was not extracted: {{detail}}",
+      "plugin-session-failed": "The plugin session failed: {{detail}}",
+      "sandbox-dependency": "The sandbox could not resolve a runtime dependency: {{detail}}",
+      "unit-failed-retry": "{{unit}} failed with no retry left: {{detail}}",
+      "unit-failed": "{{unit}} failed: {{detail}}",
+      "unit-blocked": "{{unit}} is blocked: {{detail}}",
+      "unit-cannot-split": "{{unit}} cannot split: {{detail}}",
+      "unit-blocked-child": "{{unit}} waits for a child that failed.",
+      "run-blocked": "The run is blocked: {{detail}}",
+      "agent-given": "The agent {{agent}} was given the unit {{unit}}.",
+      "agent-message": "The agent said: {{text}}",
+      "agent-thought": "The agent thought: {{text}}",
+      "agent-tool-call": "The agent called a tool: {{text}}",
+      "agent-tool-call-update": "The tool answered: {{text}}",
+      "agent-plan": "The agent's plan: {{text}}",
+      "agent-other": "The agent's update: {{text}}",
+      "agent-returned": "The agent unit {{unit}} returned {{characters}} characters.",
+      "agent-failed": "The agent unit {{unit}} failed: {{detail}}"
+    },
+    "quoted": "quoted"
   }
 }

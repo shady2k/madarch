@@ -22,6 +22,7 @@ import { KindsSection } from './components/kinds.js';
 import { CatalogueSection } from './components/catalogue.js';
 import { PrepareSection } from './components/prepare.js';
 import { RunsSection } from './components/runs.js';
+import { LogsSection } from './components/logs.js';
 import { FillKindSection } from './components/fill-kind.js';
 import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
@@ -121,5 +122,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'sources': return <SourcesSection context={context} />;
     case 'product-overview': return <ProductOverviewSection context={context} />;
     case 'repositories': return <RepositoriesSection context={context} />;
+    case 'logs': return <LogsSection context={context} />;
   }
 }

@@ -80,8 +80,32 @@ const RUN = {
     { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 2 stages: disk:demo.alpha' },
     { seq: 2, at: new Date(Date.now() - 4000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-published', summary: 'disk:demo.alpha published 12 facts under /work/product/madarch/catalog.yaml 0123456789abcdef0123456789abcdef01234567' },
     { seq: 3, at: new Date(Date.now() - 3000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
+    // The same retry again: the journal says one line with its count, never four identical rows.
+    { seq: 4, at: new Date(Date.now() - 2000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
   ],
   records: 12, publishedUnits: 2, agentUsage: null,
+  // The run's trace as its run view states it: the stage's own id and the time it took.
+  summary: { wallMs: 29_000, steps: [{ step: 'plugin-turns', wallMs: 29_000 }] },
+};
+
+/** One agent unit's exchange, as madarch records it (madarch-64o5.88): its prompt, its steps, its files, its answer. */
+const EXCHANGE = {
+  run: 'fill-run-1', unit: 'agent-fill:demo.beta', agent: 'codex', model: 'gpt-5', session: 'session-1',
+  startedAt: new Date(Date.now() - 5000).toISOString(), endedAt: new Date(Date.now() - 1000).toISOString(), durationMs: 4000, state: 'turned',
+  given: {
+    prompt: 'Fill the requested kind from its manifest definition.\nFiles available through ACP fs/read_text_file:\n/repo/docs/a.md\nTask: {"kind":"demo.beta"}\nOutput contract: {}',
+    bytes: 190, cut: false, task: { kind: 'demo.beta' }, files: ['repo/docs/a.md'], filesTotal: 1,
+  },
+  steps: [
+    { at: new Date(Date.now() - 4000).toISOString(), sessionUpdate: 'agent_thought_chunk', kind: 'thought', text: 'Читаю определение' },
+    { at: new Date(Date.now() - 3000).toISOString(), sessionUpdate: 'tool_call', kind: 'tool-call', title: 'Читаю docs/a.md', tool: 'read', status: 'completed', path: '/repo/docs/a.md' },
+  ],
+  stepsDropped: 0,
+  opened: [{ at: new Date(Date.now() - 3000).toISOString(), repository: 'repo', path: 'docs/a.md', bytes: 42 }],
+  openedDropped: 0,
+  returned: { text: '{"vertices":[],"end":{"state":"complete"}}', bytes: 43, cut: false },
+  usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340, context: { used: 1200, size: 200000 }, turns: 1, reported: true },
+  stop: 'end_turn', failure: null,
 };
 
 const requests: { path: string; method: string; body: unknown }[] = [];
@@ -252,6 +276,21 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
 
+/** One choice of a kit menu: its trigger is pressed and its item is chosen. */
+async function choose(container: HTMLElement, menu: string, value: string): Promise<void> {
+  const trigger = container.querySelector(`[data-testid="${menu}"]`) as HTMLElement | null;
+  expect(trigger).not.toBeNull();
+  await act(async () => {
+    trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger!.click();
+  });
+  await settle();
+  const item = document.querySelector(`[data-testid="${menu}-${value}"]`) as HTMLElement | null;
+  expect(item).not.toBeNull();
+  await act(async () => { item!.click(); });
+  await settle();
+}
+
 /** A native value set, so React's value tracker sees the typed text. */
 function type(input: HTMLInputElement, value: string): void {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ?? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
@@ -344,15 +383,12 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     await settle();
     expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
     expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
-    // The agent's own model and reasoning level stand beside the cap, and both follow the press (madarch-64o5.90).
-    const modelSelect = page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement;
-    const reasoningSelect = page.container.querySelector('[data-testid="prepare-reasoning"]') as HTMLSelectElement;
-    expect(modelSelect.value).toBe('opus');
-    expect(reasoningSelect.value).toBe('medium');
+    // The agent's own model and reasoning level stand beside the cap in the kit's menus, and both follow the press
+    // (madarch-64o5.90; the kit's one menu control, madarch-64o5.88).
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('Opus');
+    expect(page.container.querySelector('[data-testid="prepare-reasoning"]')?.textContent).toContain('Medium');
     expect(page.container.textContent).toContain('Сохранить по умолчанию');
-    await act(async () => { modelSelect.value = 'sonnet'; modelSelect.dispatchEvent(new Event('change', { bubbles: true })); });
-    await settle();
+    await choose(page.container, 'prepare-model', 'sonnet');
     // «Сохранить по умолчанию» saves the agent with the pair beside it; the press itself spends nothing.
     await act(async () => { (page.container.querySelector('[data-testid="prepare-save-defaults"]') as HTMLButtonElement).click(); });
     await settle();
@@ -362,6 +398,7 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('до');
     expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('200');
     // The cap offers the product's default (madarch-64o5.90), and an empty field runs under it rather than blocking.
+
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     expect(cap.value).toBe('200000');
     expect(page.container.querySelector('[data-testid="prepare-cap-default"]')).toBeNull();
@@ -392,7 +429,7 @@ test('Run waits for the product\'s saved model, so a press never sends the adapt
     await act(async () => { release(); });
     await settle();
     // The saved pair now stands over the agent's own, and the press sends it.
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('sonnet');
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('Sonnet');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
@@ -408,7 +445,7 @@ test('the choices of another agent never stand in for the one just picked', asyn
   try {
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
     await settle();
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('Opus');
     // Pick Codex while its choices are held: the previous agent's answer is no answer for this one, and Run waits.
     holdChoices = () => undefined;
     await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-codex"] [role="radio"]') as HTMLButtonElement).click(); });
@@ -419,7 +456,7 @@ test('the choices of another agent never stand in for the one just picked', asyn
     holdChoices = null;
     await act(async () => { release(); });
     await settle();
-    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('gpt-5-codex');
+    expect(page.container.querySelector('[data-testid="prepare-model"]')?.textContent).toContain('GPT-5 Codex');
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
@@ -492,6 +529,30 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     expect(text).not.toContain('/work/product');
     expect(text).not.toContain('0123456789abcdef0123456789abcdef01234567');
     expect(text).not.toContain('the run started 2 stages');
+    // The run journal: the key transitions, a repeated line said once with its count, and every failure with its cause
+    // and the next action in words — the raw summaries stay in the detailed logs.
+    const journal = page.container.querySelector('[data-testid="fill-run-journal"]');
+    expect(journal?.textContent).toContain('Журнал запуска');
+    expect(journal?.textContent).toContain('Повтор: Файлы · disk. ×2');
+    // The failure's own words stand on the page, with the file and line it stands at, and the next action beside them.
+    const causeText = journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent ?? '';
+    expect(causeText).toContain('cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers');
+    // The engine's retry tail is the run's bookkeeping, not the cause: the page states the cause and then what to do.
+    expect(causeText).not.toContain('the attempt is retried');
+    expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('Включите контроллеры для своей сессии');
+    // The event's own wrapper sentence stays out: the page shows the cause's words, not the engine's framing of them.
+    expect(text).not.toContain('demo.alpha failed');
+    // A failure links to its own row in the logs: the run, the unit's name and the error level.
+    const rowLink = journal?.querySelector('[data-testid="fill-run-and-logs"]');
+    expect(rowLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1&q=disk%3Ademo.alpha&level=error');
+    // The stages are named in the reader's words, never by the engine's key.
+    const stages = page.container.querySelector('[data-testid="fill-run-stage-times"]');
+    expect(stages?.textContent).toContain('Плагины · 29 с');
+    expect(stages?.textContent).not.toContain('plugin-turns');
+    const logsLink = journal?.querySelector('[data-testid="fill-run-logs-link"]');
+    expect(logsLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1');
+    await act(async () => { (logsLink as HTMLElement).click(); });
+    expect(page.opened).toContain('/p/logs?run=fill-run-1');
     // A live run offers «Пауза» and «Остановить».
     const pause = page.container.querySelector('[data-testid="run-pause"]') as HTMLButtonElement;
     await act(async () => { pause.click(); });
@@ -526,5 +587,32 @@ test('the stop confirmation is disabled while the link is away', async () => {
   } finally {
     await page.close();
     reportOnline();
+  }
+});
+
+test('the run page shows each agent unit in detail: what it was given, did, returned and cost', async () => {
+  runAnswer = { ...RUN, state: 'succeeded', agentExchanges: [EXCHANGE] };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    const card = page.container.querySelector('[data-testid="fill-run-agents"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain('Что получил и вернул агент');
+    expect(card?.textContent).toContain('Подробно');
+    expect(card?.textContent).toContain('Термины');
+    // What it was given: the prompt as sent, and how many files it was told about.
+    expect(card?.querySelector('[data-testid="agent-prompt"]')?.textContent).toContain('Task: {"kind":"demo.beta"}');
+    expect(card?.textContent).toContain('Файлов передано: 1');
+    // What it did: the steps, and the file it opened, whose name leads to the source.
+    expect(card?.querySelector('[data-testid="agent-steps"]')?.textContent).toContain('Читаю docs/a.md');
+    const link = card?.querySelector('[data-testid="agent-opened"] a');
+    expect(link?.getAttribute('href')).toBe('/api/source?repo=repo&path=docs%2Fa.md');
+    expect(card?.querySelector('[data-testid="agent-opened"]')?.textContent).toContain('repo: docs/a.md');
+    // What it returned, what it cost, and the raw record behind the words.
+    expect(card?.querySelector('[data-testid="agent-answer"]')?.textContent).toContain('"state":"complete"');
+    expect(card?.querySelector('[data-testid="agent-tokens"]')?.textContent).toContain('Токены: 300 вход · 40 выход · 340 всего');
+    expect(card?.querySelector('[data-testid="agent-raw"]')?.textContent).toContain('Сырой JSON');
+    expect(card?.querySelector('[data-testid="agent-failure"]')).toBeNull();
+  } finally {
+    await page.close();
   }
 });

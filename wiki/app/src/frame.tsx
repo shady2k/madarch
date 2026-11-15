@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
   AlertTriangleIcon, BookOpenIcon, CheckIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HistoryIcon, HomeIcon,
-  LayoutGridIcon, MenuIcon, RefreshCwIcon, SettingsIcon, UserRoundIcon,
+  LayoutGridIcon, MenuIcon, RefreshCwIcon, ScrollTextIcon, SettingsIcon, UserRoundIcon,
 } from 'lucide-react';
 import {
   BrandLink, NavigationCount, NavigationFooter, NavigationGroup, NavigationGroupTrigger, NavigationHeading,
@@ -128,6 +128,9 @@ export function FrameNavigation({ navigation, base, path, open, tasks, problemsO
         </NavigationLink>
         <NavigationLink icon={HistoryIcon} active={here(RUNS_PAGE)} aria-current={here(RUNS_PAGE) ? 'page' : undefined} data-testid="nav-runs" {...link(RUNS_PAGE)}>
           <NavigationLabel>{t('navigation.runs')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink icon={ScrollTextIcon} active={here(PAGE_ADDRESSES.logs)} aria-current={here(PAGE_ADDRESSES.logs) ? 'page' : undefined} data-testid="nav-logs" {...link(PAGE_ADDRESSES.logs)}>
+          <NavigationLabel>{t('navigation.logs')}</NavigationLabel>
         </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>

@@ -720,6 +720,7 @@ export function createHandler(dependencies: {
         { method: 'POST', path: API.fillSelected, handle: (request: Request) => dependencies.knowledge!.fillSelected(request) },
         { method: 'GET', path: API.problems, handle: (request: Request) => dependencies.knowledge!.problems(request) },
         { method: 'GET', path: API.fillRuns, handle: (request: Request) => dependencies.knowledge!.fillRuns(request) },
+        { method: 'GET', path: API.logs, handle: (request: Request) => dependencies.knowledge!.logs(request) },
         { method: 'POST', path: API.pause, handle: (request: Request) => dependencies.knowledge!.pause(request) },
         { method: 'POST', path: API.stop, handle: (request: Request) => dependencies.knowledge!.stop(request) },
         { method: 'GET', path: API.agents, handle: (request: Request) => dependencies.knowledge!.agents(request) },

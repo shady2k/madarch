@@ -17,6 +17,7 @@ import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
+import { LogsPage } from './components/logs.js';
 import { parseAddress, type FramePage } from './address.js';
 import { PageView, type PageRuntime } from './page.js';
 import { Alert, AlertDescription } from './components/ui/alert.js';
@@ -233,7 +234,7 @@ export function App(): ReactElement {
     }
     // An older product may have no `problems` template: its Problems page is the frame's template-findings page, not a
     // composition finding. A product with the template draws its own listing.
-    if (address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')) {
+    if ((address.page.template === 'problems' || address.page.template === 'logs') && !bootstrap.templates.some((one) => one.name === address.page.template)) {
       setFailure(null);
       setLoaded(null);
       return;
@@ -340,12 +341,15 @@ export function App(): ReactElement {
     );
   }
   // The kit and template findings have frame pages; other sections wait for their pages. A product without a
-  // `problems` template still has the frame's template-findings page at the same address.
+  // `problems` template still has the frame's template-findings page at the same address, and a product created before
+  // the logs template existed opens the frame's Logs page — the machine's logs are not the product's files.
   const page = section !== null
     ? section === 'kit' ? <KitPage /> : <RebuildingPage word={frameWord(section, t)} />
     : address.page.template === 'problems' && !bootstrap.templates.some((one) => one.name === 'problems')
       ? <ProblemsPage base={base} />
-      : null;
+      : address.page.template === 'logs' && !bootstrap.templates.some((one) => one.name === 'logs')
+        ? <LogsPage base={base} />
+        : null;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <RoleFirstVisit base={base} onChosen={applyRole} />

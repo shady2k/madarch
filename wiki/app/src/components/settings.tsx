@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/typography.js';
 import { Input } from './ui/input.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
-import { Select } from './ui/select.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import {
   chooseAgent, chooseModelRole, isOffline, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
   useChangeStream, useCommandRead,
@@ -52,12 +52,13 @@ function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
   return (
     <Stack className="mb-3 last:mb-0">
       <FieldLabel className="mb-1 block text-small font-medium">{label}
-        <Select
-          data-testid={id}
+        <ChoiceMenu
+          label={label}
+          testId={id}
           className="mt-1 w-full max-w-96"
           value={value ?? ''}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
+          onChange={(next) => onChange(next === '' ? null : next)}
           options={[{ value: '', label: choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current }) }, ...choice.values.map((entry) => ({ value: entry.value, label: entry.name }))]}
         />
       </FieldLabel>
@@ -108,12 +109,13 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
       {role.role === 'writing' ? null : (
         <Stack className="mt-2">
           <FieldLabel className="mb-1 block text-small font-medium">{t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
-            <Select
-              data-testid={`settings-role-select-${role.role}`}
+            <ChoiceMenu
+              label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
+              testId={`settings-role-select-${role.role}`}
               className="mt-1 w-full max-w-96"
               value={assigned ? role.pair!.agent : ''}
               disabled={connection.offline || working || disabled || settings.busy}
-              onChange={(event) => assign(role.role, event.target.value === '' ? null : event.target.value)}
+              onChange={(next) => assign(role.role, next === '' ? null : next)}
               options={[{ value: '', label: settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') }) }, ...options.map((option) => ({ value: option.id, label: option.name }))]}
             />
           </FieldLabel>

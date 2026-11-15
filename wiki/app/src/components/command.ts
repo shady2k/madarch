@@ -289,7 +289,68 @@ export interface FillRunEvent {
   readonly summary: string;
 }
 
-/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events and its usage. */
+/** One step of an agent unit's exchange, as madarch recorded it (madarch-64o5.88). */
+export interface AgentExchangeStepView {
+  readonly at: string;
+  readonly sessionUpdate: string;
+  readonly kind: string;
+  readonly title?: string;
+  readonly tool?: string;
+  readonly status?: string;
+  readonly path?: string;
+  readonly text?: string;
+  readonly detail?: string;
+  readonly bytes?: number;
+  readonly cut?: boolean;
+}
+
+/** One file an agent unit opened through madarch's file callbacks. */
+export interface AgentExchangeOpenView {
+  readonly at: string;
+  readonly repository: string;
+  readonly path: string;
+  readonly line?: number;
+  readonly limit?: number;
+  readonly bytes: number;
+}
+
+/** One agent unit's whole exchange: what it was given, what it did, what it returned and what it cost. */
+export interface AgentExchangeView {
+  readonly run: string;
+  readonly unit: string;
+  readonly agent: string;
+  readonly model: string | null;
+  readonly session: string | null;
+  readonly startedAt: string;
+  readonly endedAt: string;
+  readonly durationMs: number;
+  readonly state: string;
+  readonly given: {
+    readonly prompt: string;
+    readonly bytes: number;
+    readonly cut: boolean;
+    readonly task: unknown;
+    readonly files: readonly string[];
+    readonly filesTotal: number;
+  };
+  readonly steps: readonly AgentExchangeStepView[];
+  readonly stepsDropped: number;
+  readonly opened: readonly AgentExchangeOpenView[];
+  readonly openedDropped: number;
+  readonly returned: { readonly text: string; readonly bytes: number; readonly cut: boolean } | null;
+  readonly usage: {
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly totalTokens?: number;
+    readonly context?: { readonly used: number; readonly size: number };
+    readonly turns: number;
+    readonly reported: boolean;
+  } | null;
+  readonly stop: string | null;
+  readonly failure: string | null;
+}
+
+/** `GET /api/fill-runs?run=<id>`: one run's durable state, its groups, its events, its usage and its agent exchanges. */
 export interface FillRunDetail {
   readonly runId: string;
   readonly state: string;
@@ -310,6 +371,13 @@ export interface FillRunDetail {
   readonly records: number;
   readonly publishedUnits: number;
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number } | null;
+  /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
+  readonly agentExchanges?: readonly AgentExchangeView[];
+  /** The run's trace as its run view states it: its wall time and the time each step took (madarch-64o5.88). */
+  readonly summary?: {
+    readonly wallMs: number;
+    readonly steps: readonly { readonly step: string; readonly wallMs: number }[];
+  };
 }
 
 // ---- the client -------------------------------------------------------------------------------------------------
@@ -428,8 +496,53 @@ export const makeProblemTask = (base: string, id: string): Promise<ProblemTaskAn
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
 
+/** One entry of one madarch log, as `GET /api/logs` answers it (madarch-64o5.88). */
+export interface LogEntryView {
+  readonly id: string;
+  /** The moment in epoch milliseconds, or null for a log whose writer kept no time. */
+  readonly at: number | null;
+  readonly level: 'debug' | 'info' | 'warn' | 'error';
+  readonly source: string;
+  readonly run: string | null;
+  readonly unit: string | null;
+  readonly message: string;
+  /** The engine's own event code, worded by the page, or null for text shown as it was written. */
+  readonly code: string | null;
+  /** The event's arguments, when the code has any. */
+  readonly arguments: Readonly<Record<string, string>>;
+  /** Whether the message is verbatim text (a plugin's standard error, the store's log, an unwritten sentence). */
+  readonly quoted: boolean;
+  readonly file: string | null;
+  readonly line: number | null;
+  readonly path: string | null;
+  readonly detail: string | null;
+  readonly cut: boolean;
+  readonly fields: Readonly<Record<string, string>>;
+}
+
+/** `GET /api/logs`: one page of every log, oldest first, and what the read kept. */
+export interface LogsAnswer {
+  readonly entries: readonly LogEntryView[];
+  readonly more: boolean;
+  readonly scanned: number;
+  readonly truncated: boolean;
+  readonly runs: readonly string[];
+  readonly sources: readonly string[];
+  readonly levels: readonly string[];
+}
+
 /** The product's own fill state, for the page's lock and the top bar's button. */
 export const readFillStatus = (base: string, signal?: AbortSignal): Promise<FillStatusAnswer> => command<FillStatusAnswer>(base, '/api/status', signal === undefined ? {} : { signal });
+
+/** One page of every log madarch keeps: filtered by sources, the quietest level, one run, a text and a moment. */
+export function readLogs(base: string, asked: { readonly sources?: string; readonly level?: string; readonly run?: string; readonly q?: string; readonly since?: number; readonly before?: number; readonly limit?: number }, signal?: AbortSignal): Promise<LogsAnswer> {
+  return command<LogsAnswer>(base, `/api/logs${query({
+    source: asked.sources, level: asked.level, run: asked.run, q: asked.q,
+    since: asked.since === undefined ? undefined : String(asked.since),
+    before: asked.before === undefined ? undefined : String(asked.before),
+    limit: asked.limit === undefined ? undefined : String(asked.limit),
+  })}`, signal === undefined ? {} : { signal });
+}
 
 /** The past runs, newest first. */
 export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs: readonly FillRunDetail[] }> => command(base, '/api/fill-runs', signal === undefined ? {} : { signal });

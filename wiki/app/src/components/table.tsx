@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button.js';
 import { FilterBar, FilterField, PaginationBar, PaginationSummary } from './ui/filter-bar.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { Paragraph, TextLink } from './ui/typography.js';
 import { at, dateOf, formatValue, hostOf, localized } from './format.js';
@@ -130,18 +130,19 @@ export function TableSection({ context }: { readonly context: SectionContext }):
           {canFilter && filters.length > 1 ? (
             <FilterField>
               {t('knowledge.tableField')}
-              <Select aria-label={t('knowledge.tableField')} value={filterField} onChange={(event) => { setFilterField(event.target.value); }} options={filters.map((one) => ({ value: String(one.field ?? ''), label: localized(one.label, language) ?? String(one.field ?? '') }))} />
+              <ChoiceMenu label={t('knowledge.tableField')} testId="table-field" value={filterField} onChange={(value) => { setFilterField(value); }} options={filters.map((one) => ({ value: String(one.field ?? ''), label: localized(one.label, language) ?? String(one.field ?? '') }))} />
             </FilterField>
           ) : null}
           {canFilter ? <Button variant="default" size="sm" onClick={() => { askFilter(filterText, filterField); }}>{t('knowledge.tableFilter')}</Button> : null}
           {canSort ? (
             <FilterField>
               {t('knowledge.tableSort')}
-              <Select
-                aria-label={t('knowledge.tableSort')}
+              <ChoiceMenu
+                label={t('knowledge.tableSort')}
+                testId="table-sort"
                 value={sort}
                 options={[{ value: '', label: '—' }, ...sortable.map((column) => ({ value: String(column.sortField), label: localized(column.label, language) ?? String(column.sortField) }))]}
-                onChange={(event) => { setSort(event.target.value); askSort(event.target.value); }}
+                onChange={(value) => { setSort(value); askSort(value); }}
               />
             </FilterField>
           ) : null}
