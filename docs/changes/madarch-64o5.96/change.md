@@ -38,6 +38,7 @@ None.
 ## Where it is seen
 Kind: screen
 Place: an entity page's «Вокруг», in each renderer, in light and dark, at 1440 and 390
+Mockup: docs/changes/madarch-64o5.96/mermaid-1440-dark.png
 1. The diagram's canvas, nodes, labels and edges take the scheme's palette; every label reads.
 2. The page's own entity stands out from its neighbours.
 3. A diagram wider than the page is shown whole by default, with zoom, fit and drag-to-pan.

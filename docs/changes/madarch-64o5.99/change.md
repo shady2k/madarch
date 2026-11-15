@@ -31,5 +31,6 @@ None.
 ## Where it is seen
 Kind: screen
 Place: any page of a product at 1440, 2560 and 390
+Mockup: docs/changes/madarch-64o5.99/home-2560-dark.png
 1. Tables, lists, diagrams and charts use the screen's width up to the work cap.
 2. Running prose stays a reading column of about 75ch.
