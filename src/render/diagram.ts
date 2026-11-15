@@ -9,6 +9,7 @@
 import { byCodePoint } from '../model/order.js';
 import type { DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { relationWords } from '../knowledge/relation-labels.js';
+import { ARCHIFY_RENDERER, archifyVendorCandidates, archifyVendorFolder, copyArchifyVendor } from './archify-vendor.js';
 
 /** One node of a diagram: an entity, or the fold of several of one kind. */
 export interface DiagramNode {
@@ -262,9 +263,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
   const { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const renderer = fileURLToPath(new URL('../../vendor/archify/renderers/architecture/render-architecture.mjs', import.meta.url));
-  if (!existsSync(renderer)) throw new Error(`${renderer}:1: the vendored archify renderer is missing`);
+  const vendor = archifyVendorFolder();
+  if (vendor === undefined) throw new Error(`the vendored archify renderer is missing: neither the checkout's vendor/archify nor the wiki app's dist/archify carries it (looked in ${archifyVendorCandidates().join(', ')})`);
   const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-'));
   const timeout = options.timeoutMs ?? 30_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -272,18 +272,23 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     const input = join(folder, 'document.json');
     const output = join(folder, 'diagram.html');
     writeFileSync(input, JSON.stringify(document));
+    // The release binary carries the renderer inside its own bundle, which only its own process can open: the vendor
+    // folder is laid beside the document, file by file, and the renderer runs from there (madarch-64o5.97). The same
+    // layout serves a checkout's vendor tree, whose entry imports its sibling modules and reads its template.
+    copyArchifyVendor(vendor, join(folder, 'archify'));
+    const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
     const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
     options.started?.(child.pid, folder);
     const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
     if (ended === 'timeout') {
       child.kill('SIGKILL');
-      throw new Error(`${renderer}:1: the archify renderer did not finish within ${String(timeout)} ms`);
+      throw new Error(`the archify renderer did not finish within ${String(timeout)} ms`);
     }
     if (ended !== 0) {
       const said = (await new Response(child.stderr).text()).trim();
-      throw new Error(`${renderer}:1: the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
+      throw new Error(`the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
     }
-    if (!existsSync(output)) throw new Error(`${renderer}:1: the archify renderer wrote no page`);
+    if (!existsSync(output)) throw new Error('the archify renderer wrote no page');
     return forwarder(readFileSync(output, 'utf8'), graph);
   } finally {
     if (timer !== undefined) clearTimeout(timer);

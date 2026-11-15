@@ -155,6 +155,48 @@ test('an unknown format, a depth below one and a missing entity are refused by t
 });
 
 
+test('the archify renderer is taken from the vendor tree and run from the scratch folder', async () => {
+  const { archifyVendorFolder, ARCHIFY_RENDERER } = await import('../src/render/archify-vendor.js');
+  const { archifyDocument, diagramGraphOf, likec4PictureOf, renderArchify } = await import('../src/render/diagram.js');
+  const { existsSync } = await import('node:fs');
+  const vendor = archifyVendorFolder();
+  if (vendor === undefined) throw new Error('no vendor folder holds the archify renderer');
+  expect(existsSync(join(vendor, ...ARCHIFY_RENDERER))).toBe(true);
+  const graph = diagramGraphOf(neighbourhood, 1, 12);
+  const document = archifyDocument(graph, await likec4PictureOf(graph));
+  let copied = false;
+  const page = await renderArchify(document, graph, { started: (_pid, folder) => { copied = existsSync(join(folder, 'archify', 'renderers', 'architecture', 'render-architecture.mjs')) && existsSync(join(folder, 'archify', 'assets', 'template.html')); } });
+  expect(copied).toBe(true);
+  expect(page).toContain('data-node-id');
+}, 60_000);
+
+test('an archify failure answers one sentence in the reader\'s language, never JSON or a bundle path', async () => {
+  const { createKnowledgePart } = await import('../src/server/knowledge.js');
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-failure-'));
+  const makers = {
+    json: (status: number, body: unknown) => Response.json(body, { status }),
+    refused: (status: number, error: Record<string, unknown>) => ({ response: Response.json({ error }, { status }) }),
+    errorLog: () => undefined,
+  };
+  try {
+    const missing = { ...(product as object), folder, diagramNeighbourhood: async () => undefined } as unknown as KnowledgeProduct;
+    const part = createKnowledgePart(makers as never, missing, () => [], {});
+    const ru = (await part.diagram(new Request('http://localhost/render/diagram?entity=nope&format=archify&lang=ru'))).response;
+    expect(ru.headers.get('content-type')).toContain('text/html');
+    const ruText = await ru.text();
+    expect(ruText).toContain('archify не смог нарисовать эту диаграмму.');
+    expect(ruText).not.toContain('{"');
+    expect(ruText).not.toContain('$bunfs');
+    const en = await (await part.diagram(new Request('http://localhost/render/diagram?entity=nope&format=archify&lang=en'))).response.text();
+    expect(en).toContain('archify could not draw this diagram.');
+    // Mermaid and LikeC4 stay JSON: the page reads their code and says the failure in its own words.
+    const json = (await part.diagram(new Request('http://localhost/render/diagram?entity=nope&format=mermaid&lang=ru'))).response;
+    expect(json.headers.get('content-type')).toContain('application/json');
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
 test('a CPU-looping renderer is killed by its own deadline while another diagram remains responsive', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'madarch-render-loop-'));
   const looping = join(folder, 'loop.ts');

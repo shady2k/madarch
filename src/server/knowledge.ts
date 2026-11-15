@@ -22,6 +22,7 @@ import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
 import type { DraftEnv } from '../product/home.js';
 import { manifestPublicationState } from '../product/manifest-publication-state.js';
 import { renderDiagram } from '../render/diagram-render.js';
+import { diagramFailurePage } from '../render/diagram-failure.js';
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -242,6 +243,16 @@ function fillRefusalCode(message: string): string | undefined {
       if ('error' in answer) {
         // A picture that could not be drawn answers its own words and the depth a reader may try, not a server wait.
         const held = answer as { status: number; error: string; code?: string };
+        // The archify tab is a document of its own, so a failure there is a page with one sentence in the reader's
+        // language: never the server's JSON, and never a path inside the bundle (madarch-64o5.97).
+        if (format === 'archify') {
+          // The reader gets one sentence; the cause stays in the server's log, where an operator looks for it.
+          errorLog(`${here()}: the archify diagram of ${entity} could not be drawn (${held.code ?? 'FAILED'}): ${held.error}`);
+          const status = held.code === 'BAD_INPUT' ? 400 : held.code === 'TIMEOUT' ? 504 : 500;
+          const response = new Response(diagramFailurePage('archify', lang), { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+          response.headers.set('cache-control', 'no-store');
+          return { response };
+        }
         // A picture that could not be drawn is a failed answer (the app shows it with a retry), never a partial page.
         return refused(held.code === 'BAD_INPUT' ? 400 : held.code === 'TIMEOUT' ? 504 : 500, { message: held.error, ...(held.code === undefined ? {} : { code: held.code }) });
       }
