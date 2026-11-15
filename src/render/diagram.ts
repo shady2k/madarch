@@ -9,6 +9,7 @@
 import { byCodePoint } from '../model/order.js';
 import type { DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { relationWords } from '../knowledge/relation-labels.js';
+import { ARCHIFY_RENDERER, archifyVendorCandidates, archifyVendorFolder, copyArchifyVendor } from './archify-vendor.js';
 
 /** One node of a diagram: an entity, or the fold of several of one kind. */
 export interface DiagramNode {
@@ -51,10 +52,13 @@ export function pageOf(kind: string, id: string): string {
  * is its entities, one edge each to the root; a group above it is one node with the count and the page that lists them,
  * drawn as a single edge. The layout therefore never sees more nodes than the groups and the small groups' rows.
  */
-export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number): DiagramGraph {
+export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: number, aggregateAbove: number, base = ''): DiagramGraph {
   const entity = neighbourhood.entity;
   const labelOf = (uid: string): string => neighbourhood.labels.get(uid) ?? uid;
-  const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: pageOf(entity.kind, entity.uid) };
+  // Every node's page stands under the product's own base (madarch-64o5.98): a server that serves several products
+  // answers `/products/<folder>/e/...`, and a link without the prefix is a different address of that server.
+  const page = (kind: string, id: string): string => `${base}${pageOf(kind, id)}`;
+  const root: DiagramNode = { id: entity.uid, kind: entity.kind, label: labelOf(entity.uid), href: page(entity.kind, entity.uid) };
   const nodes = new Map<string, DiagramNode>([[root.id, root]]);
   const edges: DiagramEdge[] = [];
   let folded = 0;
@@ -63,8 +67,8 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     if (group.total > aggregateAbove) {
       const kindWord = neighbourhood.kindWords.get(group.kind) ?? group.kind;
       const id = `fold:${group.side}:${group.relation}:${group.kind}`;
-      const href = neighbourhood.kindPages.get(group.kind);
-      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(href === undefined ? {} : { href }) });
+      const listed = neighbourhood.kindPages.get(group.kind);
+      nodes.set(id, { id, kind: group.kind, label: `${kindWord} · ${String(group.total)}`, count: group.total, ...(listed === undefined ? {} : { href: `${base}${listed}` }) });
       folded += group.total;
       edges.push(group.side === 'out' ? { from: root.id, to: id, label: word, both: false } : { from: id, to: root.id, label: word, both: false });
       continue;
@@ -72,7 +76,7 @@ export function diagramGraphOf(neighbourhood: DiagramNeighbourhood, depth: numbe
     for (const uid of group.nodes) {
       const held = neighbourhood.nodes.get(uid);
       if (held === undefined) continue;
-      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: pageOf(held.kind, uid) });
+      nodes.set(uid, { id: uid, kind: held.kind, label: labelOf(uid), href: page(held.kind, uid) });
       edges.push(group.side === 'out' ? { from: root.id, to: uid, label: word, both: false } : { from: uid, to: root.id, label: word, both: false });
     }
   }
@@ -262,9 +266,8 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
   const { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const renderer = fileURLToPath(new URL('../../vendor/archify/renderers/architecture/render-architecture.mjs', import.meta.url));
-  if (!existsSync(renderer)) throw new Error(`${renderer}:1: the vendored archify renderer is missing`);
+  const vendor = archifyVendorFolder();
+  if (vendor === undefined) throw new Error(`the vendored archify renderer is missing: neither the checkout's vendor/archify nor the wiki app's dist/archify carries it (looked in ${archifyVendorCandidates().join(', ')})`);
   const folder = mkdtempSync(join(tmpdir(), 'madarch-diagram-'));
   const timeout = options.timeoutMs ?? 30_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -272,18 +275,23 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
     const input = join(folder, 'document.json');
     const output = join(folder, 'diagram.html');
     writeFileSync(input, JSON.stringify(document));
+    // The release binary carries the renderer inside its own bundle, which only its own process can open: the vendor
+    // folder is laid beside the document, file by file, and the renderer runs from there (madarch-64o5.97). The same
+    // layout serves a checkout's vendor tree, whose entry imports its sibling modules and reads its template.
+    copyArchifyVendor(vendor, join(folder, 'archify'));
+    const renderer = join(folder, 'archify', ...ARCHIFY_RENDERER);
     const child = Bun.spawn({ cmd: [process.execPath, renderer, input, output], cwd: folder, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, BUN_BE_BUN: '1' } });
     options.started?.(child.pid, folder);
     const ended = await Promise.race([child.exited, new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeout); })]);
     if (ended === 'timeout') {
       child.kill('SIGKILL');
-      throw new Error(`${renderer}:1: the archify renderer did not finish within ${String(timeout)} ms`);
+      throw new Error(`the archify renderer did not finish within ${String(timeout)} ms`);
     }
     if (ended !== 0) {
       const said = (await new Response(child.stderr).text()).trim();
-      throw new Error(`${renderer}:1: the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
+      throw new Error(`the archify renderer ended with ${String(ended)}: ${said === '' ? 'it said nothing' : said}`);
     }
-    if (!existsSync(output)) throw new Error(`${renderer}:1: the archify renderer wrote no page`);
+    if (!existsSync(output)) throw new Error('the archify renderer wrote no page');
     return forwarder(readFileSync(output, 'utf8'), graph);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
