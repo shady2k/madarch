@@ -139,8 +139,14 @@
 
 .shell-document > main,
 .ui-kit-page {
-  max-inline-size: var(--measure);
+  max-inline-size: var(--work-max);
   margin-inline: auto;
+}
+
+/* 4.4 The measure (madarch-64o5.99): the work area takes the screen's width up to the work cap; running prose keeps a
+   reading measure, while tables, lists, diagrams, figures and cards take the width they are given. */
+.reading :is(p, h1, h2, h3, h4, h5, h6, blockquote) {
+  max-inline-size: var(--prose);
 }
 
 /* The page's trail above its title: one line, and the middle of a long path gives way to the ellipsis. */

@@ -84,6 +84,18 @@ const RUN = {
 
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
+/** The agents `/api/agents` offers and the one this product saved; both installed and signed in unless a test says otherwise. */
+let agentOffers: { id: string; label: string; installed: boolean; login: string; loginDetail: string; where: string | null; version: string | null; install: null }[] = [
+  { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
+  { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
+  { id: 'omp', label: 'omp', installed: false, login: 'unknown', loginDetail: '', where: null, version: null, install: null },
+];
+let savedAgent: { id: string; label: string } | null = null;
+/** What `/api/product-settings` answers, and a switch to hold it open while a test presses early (madarch-64o5.90). */
+let productSettings: Record<string, unknown> = { tokenCap: 200_000 };
+let holdSettings: (() => void) | null = null;
+/** A held `/api/agent-choices` answer, so a test can switch agents while one is pending. */
+let holdChoices: (() => void) | null = null;
 
 function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -92,6 +104,15 @@ function answer(_path: string, body: unknown): Response {
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
+  savedAgent = null;
+  productSettings = { tokenCap: 200_000 };
+  holdSettings = null;
+  holdChoices = null;
+  agentOffers = [
+    { id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/claude', version: '1.0', install: null },
+    { id: 'codex', label: 'Codex', installed: true, login: 'signed-in', loginDetail: '', where: '/opt/codex', version: '2.0', install: null },
+    { id: 'omp', label: 'omp', installed: false, login: 'unknown', loginDetail: '', where: null, version: null, install: null },
+  ];
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
@@ -99,9 +120,21 @@ beforeEach(async () => {
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
     requests.push({ path: url.pathname + url.search, method, body });
     if (url.pathname.endsWith('/api/fill-plan')) return answer(url.pathname, planFor(((body as { selected?: string[]; pluginsOnly?: boolean } | undefined)?.selected ?? []), (body as { pluginsOnly?: boolean } | undefined)?.pluginsOnly === true));
-    if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', version: '1.0' }], chosen: null });
-    if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
+    if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: agentOffers, chosen: savedAgent });
+    if (url.pathname.endsWith('/api/agent-choices')) {
+      const asked = url.searchParams.get('agent') ?? 'claude-code';
+      const offered = asked === 'codex'
+        ? { choices: { model: { name: 'Model', current: 'gpt-5-codex', values: [{ value: 'gpt-5-codex', name: 'GPT-5 Codex' }, { value: 'gpt-5-mini', name: 'GPT-5 mini' }] }, reasoning: { name: 'Reasoning', current: 'high', values: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] } } }
+        : { choices: { model: { name: 'Model', current: 'opus', values: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }] }, reasoning: { name: 'Reasoning', current: 'medium', values: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }] } } };
+      const offeredAgent = { id: asked, label: asked === 'codex' ? 'Codex' : 'Claude Code' };
+      if (holdChoices !== null) return await new Promise<Response>((resolve) => { holdChoices = () => resolve(answer(url.pathname, { agent: offeredAgent, ...offered })); });
+      return answer(url.pathname, { agent: offeredAgent, ...offered });
+    }
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
+    if (url.pathname.endsWith('/api/product-settings')) {
+      if (holdSettings !== null) return await new Promise<Response>((resolve) => { holdSettings = () => resolve(answer(url.pathname, productSettings)); });
+      return answer(url.pathname, productSettings);
+    }
     if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
     if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
     if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
@@ -191,7 +224,7 @@ test('selection mode keeps its kinds through a filter, marks the plan\'s prerequ
   }
 });
 
-test('the preparation panel states the final set, both fillers, the agent and the cap, and starts one press', async () => {
+test('the preparation panel shows every installed agent beside plugins-only, picks plugins-only by default, and runs the picked agent', async () => {
   const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
   try {
     const text = page.container.textContent ?? '';
@@ -201,28 +234,129 @@ test('the preparation panel states the final set, both fillers, the agent and th
     expect(text).toContain('Что заполнится');
     expect(text).toContain('Плагины заполнят: disk');
     expect(text).toContain('Агент заполнит: Определение');
-    // No agent is configured, so «Только плагины» stands: the agent's fields are named and the press is live.
-    expect((page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).checked).toBe(true);
-    expect(page.container.querySelector('[data-testid="prepare-unfilled"]')?.textContent).toContain('Определение');
+    // Nothing is saved, so «Только плагины» stands, but both installed agents stand beside it: three choices, visible.
+    expect(page.container.querySelectorAll('[data-testid="prepare-who"] [role="radio"]').length).toBe(4);
+    expect((page.container.querySelector('[data-testid="prepare-agent-omp"] [role="radio"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-omp"]')?.textContent).toContain('Не установлен');
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-install-omp"]') as HTMLElement).click(); });
+    expect(page.opened).toContain('/p/settings');
+    expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(text).toContain('Claude Code');
+    expect(text).toContain('Codex');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toBe('Вход выполнен.');
+    // The unfilled fields are one counted line that opens into a row per kind, never a wall of text.
+    expect(page.container.querySelector('[data-testid="prepare-unfilled-summary"]')?.textContent).toContain('Останутся пустыми 1 поле в 1 виде');
+    expect(page.container.querySelector('[data-testid="prepare-unfilled-kind"]')?.textContent).toContain('Сценарии: Определение');
+    // Beside the press stands its estimate: plugins-only names the time alone.
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toBe('≈ 1 мин');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
-    expect(page.container.querySelector('[data-testid="prepare-agent"]')).toBeNull();
-    // Choose an agent instead: uncheck the box, choose one, cap it, and press once.
-    await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
+    expect(page.container.querySelector('[data-testid="prepare-cap"]')).toBeNull();
+    // Choose Claude Code: its model appears beside the cap.
+    const claude = page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement;
+    await act(async () => { claude.click(); });
     await settle();
-    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
-    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
+    expect(page.container.querySelector('[data-testid="prepare-agent-claude-code"]')?.getAttribute('data-chosen')).toBe('true');
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    // The agent's own model and reasoning level stand beside the cap, and both follow the press (madarch-64o5.90).
+    const modelSelect = page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement;
+    const reasoningSelect = page.container.querySelector('[data-testid="prepare-reasoning"]') as HTMLSelectElement;
+    expect(modelSelect.value).toBe('opus');
+    expect(reasoningSelect.value).toBe('medium');
+    expect(page.container.textContent).toContain('Сохранить по умолчанию');
+    await act(async () => { modelSelect.value = 'sonnet'; modelSelect.dispatchEvent(new Event('change', { bubbles: true })); });
     await settle();
-    // The server needs a positive cap for agent work: the form says so and holds the press until it has one.
-    expect(page.container.querySelector('[data-testid="prepare-cap-required"]')).not.toBeNull();
-    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
+    // «Сохранить по умолчанию» saves the agent with the pair beside it; the press itself spends nothing.
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-save-defaults"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/agent') && one.method === 'POST' && (one.body as { agent?: string }).agent === 'claude-code')).toBe(true);
+    expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { model?: string }).model === 'sonnet' && (one.body as { reasoning?: string }).reasoning === 'medium')).toBe(true);
+    // With an agent the estimate also names the most the run may spend.
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('до');
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('200');
+    // The cap offers the product's default (madarch-64o5.90), and an empty field runs under it rather than blocking.
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
+    expect(cap.value).toBe('200000');
+    expect(page.container.querySelector('[data-testid="prepare-cap-default"]')).toBeNull();
+    await act(async () => { type(cap, ''); });
+    expect(page.container.querySelector('[data-testid="prepare-cap-default"]')?.textContent).toContain('200');
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { type(cap, '1000'); });
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
+    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', model: 'sonnet', reasoning: 'medium', tokenCap: 1000, pluginsOnly: false });
+    expect(page.opened).toContain('/p/run?run=fill-run-2');
+  } finally {
+    await page.close();
+  }
+});
+
+test('Run waits for the product\'s saved model, so a press never sends the adapter\'s defaults', async () => {
+  savedAgent = { id: 'claude-code', label: 'Claude Code' };
+  productSettings = { tokenCap: 200_000, chosenAgent: { id: 'claude-code', label: 'Claude Code', model: 'sonnet', reasoning: 'high' } };
+  holdSettings = () => undefined;
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    // The plan and the agent's choices stand, but the settings that carry the saved pair have not answered: Run waits.
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
+    const release = holdSettings as unknown as () => void;
+    holdSettings = null;
+    await act(async () => { release(); });
+    await settle();
+    // The saved pair now stands over the agent's own, and the press sends it.
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('sonnet');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();
     const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
-    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', tokenCap: 1000, pluginsOnly: false });
-    expect(page.opened).toContain('/p/run?run=fill-run-2');
+    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'claude-code', model: 'sonnet', reasoning: 'high', tokenCap: 200_000, pluginsOnly: false });
+  } finally {
+    await page.close();
+  }
+});
+
+test('the choices of another agent never stand in for the one just picked', async () => {
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('opus');
+    // Pick Codex while its choices are held: the previous agent's answer is no answer for this one, and Run waits.
+    holdChoices = () => undefined;
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-codex"] [role="radio"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(page.container.querySelector('[data-testid="prepare-model"]')).toBeNull();
+    expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
+    const release = holdChoices as unknown as () => void;
+    holdChoices = null;
+    await act(async () => { release(); });
+    await settle();
+    expect((page.container.querySelector('[data-testid="prepare-model"]') as HTMLSelectElement).value).toBe('gpt-5-codex');
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    const pressed = requests.find((one) => one.path.endsWith('/api/fill-selected'));
+    expect(pressed?.body).toEqual({ selected: ['demo.gamma'], agent: 'codex', model: 'gpt-5-codex', reasoning: 'high', tokenCap: 200_000, pluginsOnly: false });
+  } finally {
+    await page.close();
+  }
+});
+
+test('the product\'s saved agent is the default, and an agent that cannot run is shown with what is missing', async () => {
+  savedAgent = { id: 'codex', label: 'Codex' };
+  agentOffers[0] = { ...agentOffers[0]!, login: 'not-signed-in' };
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
+  try {
+    expect(page.container.querySelector('[data-testid="prepare-agent-codex"]')?.getAttribute('data-chosen')).toBe('true');
+    expect(page.container.querySelector('[data-testid="prepare-plugins-only"]')?.getAttribute('aria-checked')).toBe('false');
+    // Claude Code has no sign-in here: its choice stays visible, disabled, and says what is missing in one sentence.
+    const claude = page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement;
+    expect(claude.disabled).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('Нет входа — войдите в Claude Code');
+    // No engine word and no machine path on this page: the state and the next step alone (madarch-64o5.90).
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).not.toContain('/opt');
+    expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).not.toContain('адаптер');
+    expect(requests.some((one) => one.path.endsWith('/api/agents'))).toBe(true);
   } finally {
     await page.close();
   }
@@ -231,13 +365,8 @@ test('the preparation panel states the final set, both fillers, the agent and th
 test('a server refusal is shown in the reader\'s language by its code', async () => {
   const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.gamma' });
   try {
-    await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-agent-claude-code"] [role="radio"]') as HTMLButtonElement).click(); });
     await settle();
-    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
-    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    await settle();
-    const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
-    await act(async () => { type(cap, '1000'); });
     fillSelectionFailure = { status: 409, body: { error: { message: 'this fill runs the agent claude-code, and a token cap is required', code: 'fill/token-cap' } } };
     await act(async () => { (page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).click(); });
     await settle();

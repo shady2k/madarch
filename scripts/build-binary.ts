@@ -20,9 +20,11 @@
  * Windows); the defaults are this machine's own. The script smoke-runs the
  * binary from outside the checkout, as an installed one runs: it asks its
  * `version`, then runs `init`, reads the address it printed, verifies the
- * served product API (which opens LadybugDB), lists the graph-backed draft,
- * and stops the background server `init` started before it reports done —
- * pass or fail, so no madarch process outlives the build.
+ * served product API (which opens LadybugDB), draws one archify diagram from
+ * the draft's catalogue entity (the renderer the binary must carry,
+ * madarch-64o5.97), lists the graph-backed draft, and stops the background
+ * server `init` started before it reports done — pass or fail, so no madarch
+ * process outlives the build.
  *
  * Exit 0 built, 1 when a step of the build fails, 2 when an argument or
  * the input (the wiki app's dist) cannot be used; every refusal names what
@@ -312,8 +314,23 @@ async function createsAndServes(outfile: string, products: string, port: number,
           // madarch's own wiki came out of the copy the binary carries, with no network asked for.
           const listed = await fetch(new URL('/api/products', facts.url));
           if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
-          // The wiki reads the graph through `/graphql`; there is no server-rendered frame to smoke any more.
-          return undefined;
+          // The binary carries the vendored archify renderer inside its embedded wiki app (madarch-64o5.97): a fresh
+          // draft's catalogue entity is enough to draw one, and the answer is the renderer's own page, never JSON.
+          const asked = await fetch(`${facts.url}graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ catalogueEntity(name: "code.file") { id } }' }) });
+          if (asked.ok) {
+            const found = await asked.json().catch(() => undefined) as { data?: { catalogueEntity?: { id?: string } } } | undefined;
+            const entity = found?.data?.catalogueEntity?.id;
+            if (typeof entity !== 'string') return `the built binary's wiki answered no catalogue entity for code.file (GET /graphql answered ${String(asked.status)}): the diagram smoke cannot ask for a picture${daemonLog(products)}`;
+            const diagram = await fetch(`${facts.url}render/diagram?entity=${encodeURIComponent(entity)}&format=archify&lang=ru`);
+            const drawn = await diagram.text();
+            if (!diagram.ok || !drawn.toLowerCase().includes('<!doctype html') || !drawn.includes('data-node-id')) {
+              return `the built binary did not draw an archify diagram (HTTP ${String(diagram.status)}, ${String(drawn.length)} bytes): the vendored renderer is not carried, or it failed${daemonLog(products)}`;
+            }
+            // The wiki reads the graph through `/graphql`; there is no server-rendered frame to smoke any more.
+            return undefined;
+          }
+          // The draft's catalogue is still being published: the diagram waits for it, as every page does.
+          lastStatus = `POST /graphql answered HTTP ${String(asked.status)} while the draft's catalogue was being published`;
         }
       }
     } catch { /* the product's API is still coming up, or its store is opening */ }
