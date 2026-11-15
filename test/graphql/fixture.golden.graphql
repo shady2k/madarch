@@ -33,6 +33,7 @@ type BacklinkEdge {
 
 type Bootstrap {
   structureRevision: String!
+  language: String!
   home: BootstrapHome
   catalogueTemplate: String!
   templates: [PageTemplate!]!

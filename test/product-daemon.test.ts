@@ -281,6 +281,21 @@ test('products-home mode refuses unknown products and paths the home does not ho
   const outside = await fetch(`${server.url}/nowhere`);
   expect(outside.status).toBe(404);
   expect((await outside.json() as { message: string }).message).toContain('products home');
+  // A browser gets a page in its language that names the products with links (madarch-64o5.98), never the JSON.
+  const page = await fetch(`${server.url}/products/unknown/`, { headers: { accept: 'text/html', 'accept-language': 'ru-RU,ru;q=0.9' } });
+  expect(page.status).toBe(404);
+  expect(page.headers.get('content-type')).toContain('text/html');
+  const html = await page.text();
+  expect(html).toContain('По этому адресу ничего не обслуживается');
+  expect(html).toContain('href="/products/alpha/"');
+  expect(html).not.toContain('{"');
+  const nowhere = await fetch(`${server.url}/nowhere`, { headers: { accept: 'text/html' } });
+  expect(nowhere.headers.get('content-type')).toContain('text/html');
+  expect(await nowhere.text()).toContain('href="/products/alpha/"');
+  // A path the product's own wiki does not serve is no JSON in a browser either.
+  const inside = await fetch(`${server.url}/products/alpha/no-such-page`, { headers: { accept: 'text/html' } });
+  expect(inside.headers.get('content-type')).toContain('text/html');
+  expect(await inside.text()).toContain('href="/products/alpha/"');
 });
 
 test('products-home mode serves a product created after the server started', async () => {

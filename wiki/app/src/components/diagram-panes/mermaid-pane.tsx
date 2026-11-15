@@ -37,7 +37,8 @@ export function MermaidPane({ answer, open }: { readonly answer: MermaidAnswer |
     if (root === null || svg === null) return;
     const follow = (event: MouseEvent): void => {
       const anchor = (event.target as Element | null)?.closest('a');
-      const href = anchor?.getAttribute('href') ?? '';
+      // Mermaid writes the link as `xlink:href` in the SVG, so the plain attribute is often empty (madarch-64o5.98).
+      const href = anchor?.getAttribute('href') || anchor?.getAttribute('xlink:href') || '';
       if (href === '' || event.metaKey || event.ctrlKey) return;
       event.preventDefault();
       open(href);

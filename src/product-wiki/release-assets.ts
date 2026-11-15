@@ -1,23 +1,38 @@
 /**
  * The wiki app the release build carries inside the compiled madarch binary
  * (madarch-lfhu, decision 0021's one binary; scripts/build-binary.ts embeds
- * `wiki/app/dist` as the asset named `wiki-app` and reads it back through
- * Bun.main's directory, the binary's own root). Serving looks here before
- * the checkout's own app folder: the binary has no checkout, so the asset
- * (with no sources-hash record, arriving pre-built) is what it serves, and
- * a `MADARCH_APP` pointing elsewhere still wins for a deployment that lays
- * the app on disk itself.
+ * `wiki/app/dist` as the asset named `wiki-app` and reads it back from the
+ * bundle's own root). Serving looks here before the checkout's own app folder:
+ * the binary has no checkout, so the asset (with no sources-hash record,
+ * arriving pre-built) is what it serves, and a `MADARCH_APP` pointing elsewhere
+ * still wins for a deployment that lays the app on disk itself.
  *
- * In a source checkout the module runs beside the sources: the folder this
- * helper names does not exist under `scripts/`, so the answer is undefined
- * and the checkout's own app folder decides, as before.
+ * The root is this module's own: three folders above `src/product-wiki` is the
+ * checkout — whose `wiki-app` does not exist — or the bundle's root, where the
+ * asset stands. `Bun.main` is deliberately not read: a binary built with a
+ * second entry (the read worker, which also draws archify diagrams) names that
+ * worker's file, so `Bun.main` answered a folder with no assets and the release
+ * carried the vendored renderer unseen (madarch-64o5.97).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-/** The root the compiled binary's assets are laid under; `scripts/` in a checkout. */
-function releaseRoot(): string {
-  return dirname(Bun.main);
+/** What the caller may say about this program's own module, for a test that cannot build a release binary. */
+export interface ReleaseRootReadings {
+  /** This module's URL, the one a bundle lays under its root; `import.meta.url` when it is left out. */
+  readonly moduleUrl?: string;
+}
+
+/**
+ * The root the compiled binary's assets are laid under; the checkout's root in a source run. A bundle mounts its
+ * assets at `$bunfs/root` (`~BUN\root` on Windows) whatever folder the module itself is laid in; a source checkout
+ * reads three folders above `src/product-wiki`. `Bun.main` is not read: with a second entry it names that entry's file.
+ */
+export function releaseRoot(readings: ReleaseRootReadings = {}): string {
+  const modulePath = fileURLToPath(readings.moduleUrl ?? import.meta.url);
+  const bundle = /^(.*?[\\/](?:\$bunfs|~BUN)[\\/]root)/u.exec(modulePath)?.[1];
+  return bundle ?? dirname(dirname(dirname(modulePath)));
 }
 
 /**
