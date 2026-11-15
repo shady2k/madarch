@@ -53,7 +53,7 @@ function ChoiceSelect({ id, label, choice, value, disabled, onChange }: {
     <Stack className="mb-3 last:mb-0">
       <FieldLabel className="mb-1 block text-small font-medium">{label}
         <Select value={value ?? ''} disabled={disabled} onValueChange={(next) => onChange(next === '' ? null : next)}>
-          <SelectTrigger aria-label={label} data-testid={id} className="mt-1 w-full max-w-96"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label={label} data-testid={id}><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="">{choice.current === null ? t('settings.model.agentsOwn') : t('settings.model.agentsOwnNamed', { name: choice.values.find((entry) => entry.value === choice.current)?.name ?? choice.current })}</SelectItem>
             {choice.values.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.name}</SelectItem>)}
@@ -108,7 +108,7 @@ function RoleRow({ role, settings, base, names, options, disabled, assign, reloa
         <Stack className="mt-2">
           <FieldLabel className="mb-1 block text-small font-medium">{t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })}
             <Select value={assigned ? role.pair!.agent : ''} disabled={connection.offline || working || disabled || settings.busy} onValueChange={(next) => assign(role.role, next === '' ? null : next)}>
-              <SelectTrigger aria-label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })} data-testid={`settings-role-select-${role.role}`} className="mt-1 w-full max-w-96"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label={t('settings.roles.assign', { role: t(`settings.roles.${role.role}`) })} data-testid={`settings-role-select-${role.role}`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="">{settings.roles.defaultPair === null ? t('settings.roles.unassigned') : t('settings.roles.useDefault', { role: t('settings.roles.writing') })}</SelectItem>
                 {options.map((option) => <SelectItem key={option.id} value={option.id}>{option.name}</SelectItem>)}

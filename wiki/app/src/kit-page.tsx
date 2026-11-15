@@ -80,9 +80,9 @@ const CONTENTS = [{ id: 'kit-intro', label: 'UI kit' }, { id: 'kit-forms', label
 // The figures' data: a repository by bytes, a catalogue by kinds, fill outcomes by day, and ninety days of fills. Fixed
 // numbers, so the page reads the same on every run and a shot can be compared with the one before it.
 const REPOSITORY: readonly ChartNode[] = [
-  { label: 'src', children: [{ label: 'fill', value: 412 }, { label: 'graph', value: 268 }, { label: 'server', value: 196 }, { label: 'knowledge', value: 154 }] },
+  { label: 'src', children: [{ label: 'fill', value: 412 }, { label: 'graph', value: 268 }, { label: 'service', value: 196 }, { label: 'knowledge', value: 154 }] },
   { label: 'wiki/app', children: [{ label: 'components', value: 231 }, { label: 'styles', value: 88 }, { label: 'page.tsx', value: 64 }] },
-  { label: 'test', children: [{ label: 'fixtures', value: 142 }, { label: 'fill', value: 96 }] },
+  { label: 'samples', children: [{ label: 'fixtures', value: 142 }, { label: 'fill', value: 96 }] },
   { label: 'docs', value: 120 },
 ];
 /** The same shape the catalogue has: many kinds whose tail is folded into one entry when it outgrows the budget. */
@@ -210,7 +210,7 @@ export function KitPage(): ReactElement {
         <FilterResults>
           <FilterBar><FilterField>{state('name')}<Input aria-label={state('name')} /></FilterField><Button variant="default" size="sm">{state('action')}</Button></FilterBar>
         </FilterResults>
-        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label="next"><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
+        <PaginationBar><PaginationSummary>1–2 / 2</PaginationSummary><Button size="icon-sm" aria-label={state('next')}><ArrowRightIcon aria-hidden="true" size={14} /></Button></PaginationBar>
       </KitSection>
 
       <KitSection title="Tabs">

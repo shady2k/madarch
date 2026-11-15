@@ -1904,6 +1904,7 @@
     "noTemplateFindings": "No template findings."
   },
   "kit": {
+    "next": "next",
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
     "approvalTitle": "Owner approval required",

@@ -204,7 +204,9 @@ function hasValues(nodes: readonly ChartNode[]): boolean {
  * to its first three letters, which every interface language writes distinctly.
  */
 export function shortMonth(month: number, language: string): string {
-  const name = new Intl.DateTimeFormat(language, { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, month, 1))).replace(/\.$/u, '');
+  const written = new Intl.DateTimeFormat(language, { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, month, 1)));
+  // Some locales end a short month with a period («янв.»): the figure's label drops that period, not a letter.
+  const name = written.endsWith('.') ? written.slice(0, -1) : written;
   return textWidth(name, 11) > 21 && name.length > 3 ? name.slice(0, 3) : name;
 }
 
