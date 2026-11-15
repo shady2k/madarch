@@ -1,5 +1,8 @@
 import type { ExtractContext, Unit, UnitResult, VertexResult, EdgeResult } from 'madarch-plugin-sdk';
-import { readRepositoryHistory, shallowGapOf, type RepositoryAt } from './reader.js';
+import { excludedPath, readRepositoryHistory, shallowGapOf, type RepositoryAt } from './reader.js';
+
+/** Whether a path is one the product's kind declaration leaves out. */
+const leftOut = (exclude: readonly string[] | undefined, path: string): boolean => exclude !== undefined && excludedPath(path, exclude);
 
 /** What the git plugin states about one path: its change count, its last change and the latest period it existed. */
 type PathFacts = {
@@ -13,7 +16,7 @@ type PathFacts = {
 
 /** The git plugin reads disk identities, then interprets history from pinned repository objects. */
 export async function extract(unit: Unit, context: ExtractContext): Promise<UnitResult> {
-  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; keys?: readonly { hash: string }[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
+  const inputs = unit.inputs as { repositories: readonly RepositoryAt[]; edgeOutputs: readonly { kind: string; from: string; to: string }[]; keys?: readonly { hash: string }[]; exclude?: readonly string[]; contract: { vertices: readonly { kind: string; fields: readonly { name: string }[] }[]; edges: readonly { kind: string }[] } };
   if (!Array.isArray(inputs?.repositories)) throw new Error('git needs pinned repository inputs');
   const vertices: VertexResult[] = [], edges: EdgeResult[] = [], problems: string[] = [];
   const files = unit.kind === 'code.repository' ? [] : await context.graph.files('**/*');
@@ -21,6 +24,9 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
   const authors = new Set<string>();
   const paths = new Set<string>();
   const fileIdentity = (repository: string, path: string, commit: string, values: PathFacts): void => {
+    // The product's own exclusions hold for the history as well as the tree: a dependency tree is not the product
+    // (madarch-64o5.83).
+    if (leftOut(inputs.exclude, path)) return;
     const identity = JSON.stringify([repository, path]);
     if (paths.has(identity)) return;
     paths.add(identity);
@@ -122,11 +128,14 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       if (held.hash === pin.commit) edges.push({ kind: 'code.as-is', from: repository, to: commit, evidence });
       held.parents.forEach((hash, position) => edges.push({ kind: 'code.parent', from: commit, to: { kind: 'code.commit', key: { hash } }, values: { position }, evidence }));
       for (const touched of held.touched) {
+        // An edge whose end the product excludes has no vertex to point at, and the fill's partition planning refuses
+        // such an edge: a path the kind leaves out gets neither a vertex nor an edge (madarch-64o5.83).
+        if (leftOut(inputs.exclude, touched.path)) continue;
         const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
         fileIdentity(pin.repository, touched.path, pin.commit, factsOf(touched.path));
-        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
+        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
         edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
-        if (touched.previousPath !== undefined) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
+        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
       }
     }
     for (const gap of history.gaps) problems.push(`${pin.repository}: ${gap.what}: ${gap.reason}`);

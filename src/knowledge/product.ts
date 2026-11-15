@@ -79,6 +79,7 @@ import { type ProblemListing, type TaskRow } from '../loop/views.js';
 import { collectProblems } from '../problems/index.js';
 import { defaultSettings } from '../problems/types.js';
 import { WikiReadError } from './read-error.js';
+import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
@@ -833,18 +834,18 @@ export class KnowledgeProduct {
    * fields are the agent's, and which kinds the manifest holds no producer for. The fill route answers it, and a press
    * that names kinds the plan leaves to an agent stops here with the same words.
    */
-  fillPlan(selected: readonly string[]): FillPlanView {
+  fillPlan(selected: readonly string[], pluginsOnly = false): FillPlanView {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = readKinds(product.folder);
     if (!read.present) throw new WikiReadError(`${read.file}:1: the product has no kinds manifest: the catalogue shows the kinds that file declares`);
-    const targets = readFillTargets(read.manifest, { entities: selected });
+    const targets = readFillTargets(read.manifest, { entities: selected }, pluginsOnly);
     if (!targets.ok) throw new WikiReadError(targets.message);
-    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind));
+    return fillPlanView(read.manifest, product.folder, targets.targets.order, targets.targets.entries.filter((entry) => entry.reason === 'requested').map((entry) => entry.kind), targets.targets.entries, pluginsOnly);
   }
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { selected?: readonly string[]; agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { selected?: readonly string[]; agent?: string | null; tokenCap?: number; expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[]; pluginsOnly?: boolean; targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } } = {}): Promise<{ started: true; runId: string; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -860,19 +861,22 @@ export class KnowledgeProduct {
     // read, never the graph it is about to write (madarch-hsqs stage C).
     const read = readKinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
+    // Plugins-only is the person's explicit choice: it runs the deterministic producers and leaves the agent's fields
+    // unfilled. A press that names no agent and no plugins-only choice is the agent plan's to refuse or accept.
+    const pluginsOnly = options.pluginsOnly === true || options.targets?.pluginsOnly === true;
     try {
       if (options.tokenCap !== undefined && (!Number.isInteger(options.tokenCap) || options.tokenCap < 1)) throw new Error(`${read.manifest.file}:1: token cap must be a positive integer`);
       // The plan is read before the adapter is resolved, so a press that chooses an agent and no cap is refused with the
       // cap's own words: whenever the plan runs an agent unit, a positive cap is the person's to choose (madarch-64o5.63).
       const wantedAgent = options.agent === undefined ? this.chosenAgent()?.id ?? null : options.agent;
-      if (wantedAgent !== null && options.tokenCap === undefined) {
+      if (!pluginsOnly && wantedAgent !== null && options.tokenCap === undefined) {
         const plannedUnderAgent = planManifestFill(read.manifest, product.folder, options.targets?.kinds, true, options.targets?.requested);
         if (plannedUnderAgent.requiresAgent) {
           return { started: false, message: `${read.manifest.file}:1: this fill runs the agent ${wantedAgent}, and a token cap is required: name a positive --token-cap <n> for the fill; the engine sets no cap of its own`, fill: this.fill };
         }
       }
-      const selectedAgent = options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
-      const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested);
+      const selectedAgent = pluginsOnly ? undefined : options.agent === undefined ? configuredPluginAgent(this.storeFolder(), this.env) : options.agent === null ? undefined : pluginAgentOptions(options.agent, this.env, join(this.storeFolder(), 'agent-runs'));
+      const plan = planManifestFill(read.manifest, product.folder, options.targets?.kinds, selectedAgent !== undefined, options.targets?.requested, pluginsOnly);
       const files = workingTreeFiles(product.folder);
       assertPluginTurnsEnabled(plan.order, files.has(WORKFLOWS_FILE) ? firstFillStagesOfFiles(files, product.folder) : engineFirstFillStages(), fillStageConfigurationFrom(files, product.folder));
     } catch (error) {
@@ -961,7 +965,7 @@ export class KnowledgeProduct {
     // store that stands, never pays its own open on a page's thread (measured: the first answers after a press waited
     // 1.9 s for it on two cores, one of them busy).
     if (publication?.status !== 'pending') await this.open().catch(() => undefined);
-    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: options.targets }) };
+    const request = { ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.tokenCap === undefined ? {} : { tokenCap: options.tokenCap }), ...(wanted === undefined ? {} : { language: wanted }), ...(task === undefined ? {} : { task }), ...(options.targets === undefined ? {} : { targets: { ...options.targets, ...(pluginsOnly ? { pluginsOnly: true } : {}) } }) };
     // The run's id names its trace, which the answer's progress is read from: it is the press's own moment, as every
     // reader of a run's trace finds it.
     const runId = `fill-${startedAt.replace(/[-:.]/gu, '').replace(/Z$/u, 'Z')}`;
@@ -1007,7 +1011,7 @@ export class KnowledgeProduct {
    * Fills the store in this process (madarch-8bdc.9): what `madarch fill`, a test that drives this class alone and every
    * caller that is not the api role does. The server's products ask a fill process instead (`runQueuedFill`).
    */
-  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] } } = {}): Promise<void> {
+  private async runInlineFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } } = {}): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let result: KnowledgeFillResult | undefined;
@@ -1064,7 +1068,7 @@ export class KnowledgeProduct {
    * api role never fills in the process that answers pages — a fill process of the same binary claims the job, reads git
    * and publishes into the store, and the pages read what it published. The two talk only through PostgreSQL.
    */
-  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[] } }): Promise<void> {
+  private async runQueuedFill(product: ProductIdentity, runId: string, asked: { readonly agent?: string | null; readonly tokenCap?: number; readonly language?: string; readonly task?: string; readonly selection?: import('../fill/fsm.js').RunSelection; readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean } }): Promise<void> {
     const storeFolder = this.storeFolder();
     this.fillRunId = runId;
     let state: string | undefined;
@@ -2284,6 +2288,32 @@ export class KnowledgeProduct {
 
   async problems(): Promise<ProblemListing> {
     return await this.problemListing();
+  }
+
+  /**
+   * The product's sources (the frame's Sources page): the Markdown documents the graph holds, grouped by the repository
+   * each was read from, and the repositories themselves. A document is an entity of a kind that declares `markdown`;
+   * no kind is named here.
+   */
+  async sources(): Promise<SourcesListing> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const repositories: SourceRepository[] = [
+      { name: null, present: headCommitOf(product.folder) !== undefined, filled: this.pins.size > 0 },
+      ...this.repositories().map((repository) => ({ name: repository.name, present: repository.present, filled: this.pins.has(repository.name) })),
+    ];
+    const read = await this.manifestRead(product.folder);
+    if (!read.present) {
+      return { documents: [], repositories, truncated: [], note: `the product has no ${read.file} in the graph yet: start a fill to read its documents` };
+    }
+    try {
+      const owner = await this.open();
+      const kinds = graphKindsOf(read.manifest);
+      const graph = new GraphReader(owner, this.validAt, undefined, undefined, kinds.declared, kinds.generated, kinds.edges);
+      return await sourcesListing(read.manifest, graph, repositories);
+    } catch (error) {
+      return { documents: [], repositories, truncated: [], note: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** The listing the dismissal reads: collected once per key, from the graph and the manifest. */

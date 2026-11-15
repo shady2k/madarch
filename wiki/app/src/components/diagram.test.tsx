@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import type { SectionContext } from './types.js';
+import { LIKE_C4_THEME_CSS } from './diagram-panes/likec4-pane.js';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,7 +18,7 @@ async function settle(): Promise<void> {
 function context(id: string, depth = 1, aggregateAbove = 12, language = 'en'): SectionContext {
   return {
     section: { id: 'diagram', component: 'diagram', on: 'subject', replace: false, params: { depth, aggregateAbove }, line: 1, alias: 's_diagram' },
-    data: { id }, language, base: '', busy: false, open: () => undefined, reload: () => undefined,
+    data: { id }, language, base: '', busy: false, variables: {}, open: () => undefined, reload: () => undefined,
     renderSection: () => null, product: null, navigation: null, pageName: null,
   };
 }
@@ -60,4 +61,9 @@ function context(id: string, depth = 1, aggregateAbove = 12, language = 'en'): S
     await act(async () => { root.unmount(); });
     container.remove();
   }
+});
+
+test('the LikeC4 palette is the kit tokens, not its own blue', () => {
+  expect(LIKE_C4_THEME_CSS).toContain('--likec4-palette-fill: var(--surface-active)');
+  expect(LIKE_C4_THEME_CSS).toContain('--likec4-palette-stroke: var(--border)');
 });

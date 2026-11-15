@@ -43,6 +43,8 @@ export interface GraphEvidence {
 
 export interface GraphEntity {
   key: string;
+  /** The entity's stable uid, when the read asked for it (a document's page is addressed by it). */
+  uid?: string;
   kind: string;
   label: string;
   properties: Record<string, unknown>;
@@ -291,6 +293,8 @@ export interface FileFactRow {
   readonly path: string;
   readonly repository: string;
   readonly scope: string;
+  /** The file class the disk producer states (`generated`, `dependency`, `test`, …), when one opinion says it. */
+  readonly class: string | null;
   readonly lines: number | null;
   /** A fact a reader states about the file that the graph holds no column for today (a repository-declared generated file). */
   readonly generated?: unknown;
@@ -525,7 +529,7 @@ export class GraphReader {
       // The scope a place is read in is its repository's node: a page's source block and its links resolve the
       // repository from it, the way every other entity's place does.
       const scope = String(nodeFacts.get(node)?.['scope'] ?? nodeFacts.get(node)?.['evidence_scope'] ?? '');
-      return { key, kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
+      return { key, ...(typeof row['uid'] === 'string' ? { uid: row['uid'] } : {}), kind: decl.kind, label, properties, nodeIds: [node], scope, ...(span === undefined ? {} : { span }), ...(evidence.length === 0 ? {} : { evidence }), ...(entityOpinions.length === 0 ? {} : { opinions: entityOpinions }) };
     });
   }
 
@@ -680,6 +684,15 @@ export class GraphReader {
     // findings is not loaded whole to answer one page.
     const generated = this.generatedKind(kind);
     if (generated !== undefined) {
+      // A kind with no natural key has no key text to page by; its entities are read whole, bounded like any prefix.
+      if (generated.key.length === 0) {
+        return await this.run(async (tx) => {
+          const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed ORDER BY n.id LIMIT ${String(limit)}`);
+          const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed`);
+          const entities = await this.generatedEntities(tx, generated, page.rows);
+          return { total: Number(counted.rows[0]?.n ?? '0'), rows: entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity) };
+        });
+      }
       return await this.run(async (tx) => {
         const values = generated.key.map((column) => `(n.key->>'${column.replaceAll("'", "''")}')`);
         const keyText = values.length === 1 ? values[0]! : `concat_ws('/', ${values.join(', ')})`;
@@ -690,7 +703,7 @@ export class GraphReader {
           params.push(after.slice(after.indexOf(':') + 1));
           condition += ` AND ${keyText} > $2`;
         }
-        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
+        const page = await tx.query<Raw>(`SELECT n.id::text AS node_id, n.uid::text AS uid, n.key AS key FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${condition} GROUP BY n.id, n.uid, n.key ORDER BY ${keyText} LIMIT ${String(limit)}`, params);
         const counted = await tx.query<{ n: string }>(`SELECT count(DISTINCT n.id)::text AS n FROM ${generated.table} t JOIN node n ON n.id = t.node_id WHERE t.state = 'open' AND t.context_id = 1 AND n.context_id = 1 AND NOT n.removed AND ${keyText} LIKE $1`, [params[0]]);
         const entities = await this.generatedEntities(tx, generated, page.rows);
         const rows = entities.map(({ evidence: _evidence, opinions: _opinions, ...entity }) => entity);
@@ -710,11 +723,20 @@ export class GraphReader {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
     if (!this.holds(GIT_KINDS.file)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
-      const found = await tx.query<{ node: string; path: string; repository: string; scope: string; lines: number | null; total: string }>(
+      // A kind's class column exists only when the manifest declares it: an older or narrower manifest reads the file
+      // facts without it, and the files' class is unknown rather than a query for a column the table does not hold.
+      const declaredColumns = this.generatedKind(GIT_KINDS.file)?.columns ?? [];
+      const classSelect = declaredColumns.includes('class')
+        ? `(SELECT CASE WHEN count(DISTINCT o."class") = 1 THEN min(o."class") ELSE NULL END
+             FROM ${GIT_TABLES.file} o
+            WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS class`
+        : `NULL::text AS class`;
+      const found = await tx.query<{ node: string; path: string; repository: string; scope: string; class: string | null; lines: number | null; total: string }>(
         `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->>'repository') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
                 (SELECT CASE WHEN count(DISTINCT o."lines") = 1 THEN min(o."lines") ELSE NULL END
                    FROM ${GIT_TABLES.file} o
                   WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
+                ${classSelect},
                 count(*) OVER ()::text AS total
          FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
          WHERE n.context_id = 1 AND NOT n.removed
@@ -731,6 +753,7 @@ export class GraphReader {
           path: row.path,
           repository: row.repository,
           scope: row.scope,
+          class: row.class ?? 'unknown',
           lines: row.lines === null ? null : Number(row.lines),
         })),
       };

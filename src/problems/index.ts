@@ -65,7 +65,7 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     notes.push({ message: `the code section could not be judged: ${(error as Error).message}` });
   }
   // Document predicates still have a fixture evaluator, but production must not read retired Markdown entities.
-  notes.push({ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates' });
+  notes.push({ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates', textKey: 'documentsRetired' });
   // What a producer stated about the graph's own consistency: the product's findings kinds hold one entity a finding
   // (madarch-stm0.7.1). The engine reads the kind's declared fields, and a kind that declares nothing is no findings kind.
   try {

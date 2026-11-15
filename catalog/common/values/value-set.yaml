@@ -54,7 +54,7 @@ reference-set:
 key:
 - name
 origin: person
-nav: own-page
+nav: loop
 details:
 - label_en
 - label_ru

@@ -9,7 +9,11 @@ export interface NavigationKind {
   readonly kind: string;
   readonly one: string;
   readonly many: string;
+  readonly definition: string | null;
+  readonly taken: boolean;
   readonly group: string | null;
+  /** `own-page` or `loop`: the kind's entities stand at a place of their own, not among the pages by kind. */
+  readonly nav: string | null;
   readonly count: number;
   /** The id of the kind's catalogue entity: the page its row opens. */
   readonly entryId: string | null;
@@ -55,7 +59,7 @@ export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
   navigation(lang: $lang) {
     product
     groups { name labels short open parent }
-    kinds { kind one many group count entryId }
+    kinds { kind one many definition taken group nav count entryId }
     purposes { id labels }
   }
 }`;

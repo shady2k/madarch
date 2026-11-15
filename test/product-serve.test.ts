@@ -437,8 +437,8 @@ describe('madarch serve: an existing product served', () => {
     const serve = serveLive(['serve', '--product', folder, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built, MADARCH_APP_BUILD: builder.command, MADARCH_BROWSER: opener });
     const address = await whenServing(serve);
-    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
-    expect(body).toEqual({ id: 'demo-id', name: 'named' });
+    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string; folder: string };
+    expect(body).toEqual({ id: 'demo-id', name: 'named', folder });
     // A document is a graph entity, read through the one read API (decision 0036, section 8).
     const vision = await fetch(`${address}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 20) { edges { node { label markdown } } } }' }) });
     expect(vision.status).toBe(200);
@@ -480,7 +480,7 @@ describe('madarch serve: an existing product served', () => {
     const serve = serveLive(['serve', '--product', setMade, '--port', '0', '--no-open'],
       { MADARCH_HOME: base, MADARCH_APP: built });
     const address = await whenServing(serve);
-    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string };
+    const body = (await (await fetch(`${address}/api/product`)).json()) as { id: string; name: string; folder: string };
     expect(body.id).toBe('8f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
     expect(body.name).toBe('leftover-listings');
     const documents = await fetch(`${address}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ allDocument(first: 200) { edges { node { path } } } }' }) });

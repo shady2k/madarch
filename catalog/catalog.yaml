@@ -183,7 +183,6 @@ groups:
   organisation.membership: { en: "People and roles", ru: "Люди и роли", short: { en: "People", ru: "Люди" }, parent: organisation }
   organisation.ownership: { en: "Ownership", ru: "Ответственность", short: { en: "Ownership", ru: "Ответственность" }, parent: organisation }
   history.work: { en: "Commits and changes", ru: "Коммиты и изменения", short: { en: "Commits", ru: "Коммиты" }, parent: history }
-  history.repository: { en: "Repositories", ru: "Репозитории", short: { en: "Repositories", ru: "Репозитории" }, parent: history }
   work.planning: { en: "Planning", ru: "Планирование", short: { en: "Planning", ru: "Планирование" }, parent: work }
   work.execution: { en: "Execution", ru: "Исполнение", short: { en: "Execution", ru: "Исполнение" }, parent: work }
   work.coordination: { en: "Coordination", ru: "Координация", short: { en: "Coordination", ru: "Координация" }, parent: work }

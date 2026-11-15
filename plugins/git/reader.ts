@@ -280,3 +280,23 @@ export async function readRepositoryHistory(pin: RepositoryAt, options: { readon
   return { repository: { name: pin.repository }, commits, gaps, shallowBoundaries, ancestryOrder };
 }
 
+/** The manifest's own path patterns: `**` across folders, `*` within one. */
+function pathPattern(pattern: string): RegExp {
+  let out = '';
+  for (let at = 0; at < pattern.length; at += 1) {
+    const char = pattern[at]!;
+    if (char === '*') {
+      if (pattern[at + 1] === '*') {
+        at += 1;
+        if (pattern[at + 1] === '/') { at += 1; out += '(?:.*/)?'; } else out += '.*';
+      } else out += '[^/]*';
+    } else if (char === '?') out += '[^/]';
+    else out += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/** Whether a path is one the product's kind declaration leaves out (`exclude:`). */
+export function excludedPath(path: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => pathPattern(pattern).test(path));
+}

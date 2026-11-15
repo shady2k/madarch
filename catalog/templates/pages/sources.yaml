@@ -1,0 +1,13 @@
+# The Sources page (the old portal's «Источники»): the product's Markdown documents, grouped by the repository each was
+# read from, and the repositories themselves. The command component `sources` reads the retained command read; each
+# document's title opens its entity page.
+template: sources
+sections:
+  - id: header
+    component: header
+    title: { en: Sources, ru: Источники }
+    params:
+      titlePath: label
+  - id: sources
+    component: sources
+    after: header

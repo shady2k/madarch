@@ -7,12 +7,12 @@ import { prepareStore } from '../src/adapters/prepare-store.js';
  * The fixture is a product the test makes itself.
  */
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFill } from '../src/fill/run.js';
 import { readFillProgress } from '../src/obs/progress.js';
-import { readTraceSpans, traceReportOf } from '../src/obs/trace-report.js';
+import { readTraceSpans, traceReportOf, TraceSpanReader } from '../src/obs/trace-report.js';
 import { traceFiles } from '../src/obs/trace.js';
 import { writeProduct } from './fixtures/code-stages/repository.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -86,4 +86,42 @@ describe('a fill writes its trace beside the store', () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 900_000);
+});
+
+describe('the progress a status poll reads', () => {
+  const span = (id: string, unit: string): string => JSON.stringify({
+    traceId: 'trace', spanId: id, name: 'fill.unit',
+    startTimeUnixNano: '1700000000000000000', endTimeUnixNano: '1700000000000000900',
+    attributes: [
+      { key: 'madarch.stage', value: { stringValue: 'repository-tree' } },
+      { key: 'madarch.outcome', value: { stringValue: 'published' } },
+      { key: 'madarch.unit', value: { stringValue: unit } },
+    ],
+  });
+
+  test('a trace that did not grow answers the fold it answered before, and one that grew is folded again', () => {
+    // The poll asks every few seconds, and a store's trace can hold 150 000 spans: folding it per poll cost 4 to 11 ms
+    // here and 67 ms on a loaded CI runner, past the poll's own bound (madarch-64o5.81). The reader already keeps the
+    // spans it parsed; the fold of them is kept beside it while no span lands.
+    const root = mkdtempSync(join(tmpdir(), 'madarch-fill-progress-'));
+    try {
+      mkdirSync(join(root, 'traces'));
+      const file = join(root, 'traces', 'fill-run-progress.jsonl');
+      writeFileSync(file, `${span('s1', 'a')}\n`);
+      const reader = new TraceSpanReader();
+      const first = readFillProgress(file, reader);
+      expect(first.spans).toBe(1);
+      expect(first.published).toBe(1);
+      // The same object, not one built again: the poll on a trace that did not move reads nothing.
+      expect(readFillProgress(file, reader)).toBe(first);
+      writeFileSync(file, `${span('s2', 'b')}\n`, { flag: 'a' });
+      const grown = readFillProgress(file, reader);
+      expect(grown).not.toBe(first);
+      expect(grown.spans).toBe(2);
+      expect(grown.published).toBe(2);
+      expect(readFillProgress(file, reader)).toBe(grown);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -119,6 +119,8 @@ export interface FieldDecl {
   readonly name: string;
   readonly type: 'text' | 'integer' | 'bigint' | 'boolean' | 'timestamp' | 'json';
   readonly nullable?: boolean;
+  /** The field's reader-facing label per interface language; a page never shows the field's key in its place. */
+  readonly labels?: Readonly<Record<string, string>>;
   /** An agent must ground a stated value in a file and line range. */
   readonly evidence?: boolean;
   /** The producers the manifest names for the field; a field with no binding names at least one. */
@@ -390,6 +392,8 @@ export interface KindDecl {
    * default rule names the class of every other entity.
    */
   classes?: readonly KindClassRule[];
+  /** The paths this kind's producer leaves out, as the catalogue declares them. */
+  exclude?: readonly string[];
   /** Explicit ordinary plugin output for these fields; overlap requires named refinements. */
   agent?: { readonly plugin: string; readonly fields: '*' | readonly string[]; readonly refines?: readonly string[] };
   line: number;
@@ -638,7 +642,7 @@ const BINDING_PATTERN = /^([a-z][a-z0-9-]*)@(\d+)\.([a-z][a-z0-9_]*)$/u;
 export const KIND_FIELDS: readonly string[] = [
   'purpose', 'audience', 'facts', 'source', 'folder', 'file', 'import-folder', 'import-file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description',
   'identifier', 'terms', 'headings', 'semantics', 'structure', 'details', 'member', 'card', 'history', 'findings', 'reference-set', 'reference-set-entry',
-  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes',
+  'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'fields', 'key', 'capability', 'derives-from', 'agent', 'classes', 'exclude',
   // the catalog's row of the kind (decision 0033, items 8 to 10): read when the manifest declares a catalog
   'id', 'definition', 'sources', 'acquisition', 'relation-constraints', 'template-policy',
 ];
@@ -1726,8 +1730,13 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         // Nothing is authoritative and nothing is claimed: the word "role" left the manifest's field language, and a
         // manifest that still says it is refused where it says it.
         if (body['role'] !== undefined) { problem([field, index, 'role'], '"role" is gone: no field is authoritative and none is claimed — every value a producer states is an opinion'); return; }
-        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding' && key !== 'evidence');
-        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, evidence, producers, reference and binding`); return; }
+        const extra = Object.keys(body).filter((key) => key !== 'name' && key !== 'type' && key !== 'nullable' && key !== 'producers' && key !== 'reference' && key !== 'binding' && key !== 'evidence' && key !== 'labels');
+        if (extra.length > 0) { problem([field, index, extra[0]!], `"${extra[0]}" is not a field of a field: the fields are name, type, nullable, evidence, labels, producers, reference and binding`); return; }
+        const fieldLabels = body['labels'];
+        if (fieldLabels !== undefined && (fieldLabels === null || typeof fieldLabels !== 'object' || Array.isArray(fieldLabels)
+          || Object.keys(fieldLabels).length === 0 || Object.values(fieldLabels).some((label) => typeof label !== 'string' || label.trim() === ''))) {
+          problem([field, index, 'labels'], '"labels" maps an interface language to the field\'s reader-facing name'); return;
+        }
         if (body['evidence'] !== undefined && typeof body['evidence'] !== 'boolean') { problem([field, index, 'evidence'], '"evidence" is true or false'); return; }
         const producers = body['producers'];
         if (producers !== undefined && (!Array.isArray(producers) || producers.length === 0 || producers.some((one) => typeof one !== 'string' || !/^[a-z][a-z0-9-]*$/.test(one)))) {
@@ -1742,6 +1751,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
           type: body['type'] as FieldDecl['type'],
           ...(body['nullable'] === true ? { nullable: true } : {}),
           ...(typeof body['evidence'] === 'boolean' ? { evidence: body['evidence'] } : {}),
+          ...(fieldLabels === undefined ? {} : { labels: fieldLabels as Record<string, string> }),
           ...(producers === undefined ? {} : { producers: producers as string[] }),
           ...(reference === undefined ? {} : { reference }),
           ...(binding === undefined ? {} : { binding }),
@@ -1884,6 +1894,13 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       });
       if (classes.length > 0 && !classes.some((rule) => rule.default === true)) problem(['classes'], 'one class is the default: true, so every entity has a class');
     }
+    // The paths this kind's producer leaves out: the product's patterns, never an engine list of names (madarch-64o5.83).
+    let exclude: string[] | undefined;
+    const rawExclude = decl['exclude'];
+    if (rawExclude !== undefined) {
+      if (!Array.isArray(rawExclude) || rawExclude.length === 0 || rawExclude.some((one) => typeof one !== 'string' || one.trim() === '')) problem(['exclude'], '"exclude" is a list of path patterns the producer leaves out, such as "**/node_modules/**"');
+      else exclude = (rawExclude as string[]).map((one) => one.trim());
+    }
     const derivesFrom = decl['derives-from'];
     if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) problem(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
     const labels: Record<string, KindLabel> = {};
@@ -1946,6 +1963,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       ...(typeof capability === 'string' ? { capability } : {}),
       ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
       ...(classes.length === 0 ? {} : { classes }),
+      ...(exclude === undefined ? {} : { exclude }),
       ...(agent === undefined ? {} : { agent }),
       relations,
       ...(Object.keys(labels).length > 0 ? { labels } : {}),

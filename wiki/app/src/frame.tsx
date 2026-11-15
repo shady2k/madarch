@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactElement, type R
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  AlertTriangleIcon, BookOpenIcon, CheckIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HomeIcon,
+  AlertTriangleIcon, BookOpenIcon, CheckIcon, FileTextIcon, FolderGit2Icon, FolderIcon, GlobeIcon, HistoryIcon, HomeIcon,
   LayoutGridIcon, MenuIcon, RefreshCwIcon, SettingsIcon, UserRoundIcon,
 } from 'lucide-react';
 import {
@@ -28,18 +28,16 @@ import { Input } from './components/ui/input.js';
 import { SearchContainer } from './components/ui/search-results.js';
 import { askSearch, GroupsOf, rowsOf, type SearchGroup } from './components/search.js';
 import { Sheet, SheetTrigger } from './components/ui/sheet.js';
+import { RunIndicator } from './components/run-indicator.js';
+import { FillEntry } from './components/fill-entry.js';
 import { PageHeader, PageTitle, Paragraph } from './components/ui/typography.js';
 import { CATALOGUE_KIND } from '../../../src/page-contract/index.js';
-import { CATALOGUE_PAGE, entityAddress, FRAME_PAGES, GLOSSARY_PAGE, type FramePage } from './address.js';
+import { entityAddress, PAGE_ADDRESSES, RUNS_PAGE, type FramePage } from './address.js';
 import type { Navigation, NavigationGroup as NavGroup, NavigationKind } from './client.js';
 
 /** The word the frame gives one of its own sections, in the language the reader reads. */
 export function frameWord(page: FramePage, t: TFunction): string {
   switch (page) {
-    case 'fill': return t('navigation.fill');
-    case 'problems': return t('loop.problemsTitle');
-    case 'documents': return t('navigation.documents');
-    case 'settings': return t('settings.nav');
     case 'kit': return t('kit.title');
   }
 }
@@ -60,7 +58,7 @@ function word(labels: Readonly<Record<string, string>> | null, fallback: string,
 /** The groups of the sidebar: the kinds that hold entities, under the group the product's manifest gave them. */
 export function groupTree(navigation: Navigation): GroupNode[] {
   const known = new Set(navigation.groups.map((group) => group.name));
-  const held = navigation.kinds.filter((kind) => kind.count > 0);
+  const held = navigation.kinds.filter((kind) => kind.count > 0 && kind.nav !== 'loop');
   const of = (name: string | null): NavigationKind[] => held.filter((kind) => (name === null ? kind.group === null || !known.has(kind.group) : kind.group === name));
   const top = navigation.groups.filter((group) => group.parent === null || !known.has(group.parent));
   const nodes: GroupNode[] = top.map((group) => {
@@ -79,13 +77,17 @@ export function groupTree(navigation: Navigation): GroupNode[] {
 }
 
 /** The product's name and the sections of the frame, under which the kinds the graph holds are listed. */
-export function FrameNavigation({ navigation, base, path, open, tasks }: {
+export function FrameNavigation({ navigation, base, path, open, tasks, problemsOpen = null, productName = null }: {
   readonly navigation: Navigation | null;
   readonly base: string;
   /** The address in front, without the base and the query. */
   readonly path: string;
   readonly open: (path: string) => void;
   readonly tasks: { readonly home: boolean; readonly frame: FramePage | null };
+  /** The open problems, for the «Ждёт вас» count; null until the listing is read. */
+  readonly problemsOpen?: number | null;
+  /** The product's own name from `/api/product`, when the graph holds no product label yet. */
+  readonly productName?: string | null;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -98,13 +100,7 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
   };
   const here = (address: string): boolean => path === address;
   const link = (address: string) => ({ href: base + address, onClick: follow(address) });
-  const row = (id: string, icon: typeof HomeIcon, address: string, word: string): ReactElement => (
-    <NavigationLink icon={icon} active={here(address)} aria-current={here(address) ? 'page' : undefined} data-testid={`nav-${id}`} {...link(address)}>
-      <NavigationLabel>{word}</NavigationLabel>
-    </NavigationLink>
-  );
-  const section = (id: FramePage, icon: typeof HomeIcon): ReactElement => row(id, icon, FRAME_PAGES[id], frameWord(id, t));
-  const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? CATALOGUE_PAGE : entityAddress(CATALOGUE_KIND, kind.entryId);
+  const kindAddress = (kind: NavigationKind): string => kind.entryId === null ? PAGE_ADDRESSES.catalogue : entityAddress(CATALOGUE_KIND, kind.entryId);
   const kindLink = (kind: NavigationKind, depth: 1 | 2): ReactElement => {
     const address = kindAddress(kind);
     return (
@@ -117,18 +113,25 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
   return (
     <>
       <BrandLink data-testid="nav-brand" concept={t('brand.concept')} {...link('/')}><ShellBrandMark /></BrandLink>
-      <ProductCard name={navigation?.product ?? t('brand.product')} />
+      <ProductCard name={productName ?? navigation?.product ?? t('brand.product')} />
       <NavigationScroll aria-label={t('navigation.pages')} data-testid="nav-scroll">
         <NavigationLink icon={HomeIcon} active={tasks.home} aria-current={tasks.home ? 'page' : undefined} data-testid="nav-home" {...link('/')}>
           <NavigationLabel>{t('knowledge.home')}</NavigationLabel>
         </NavigationLink>
-        {row('catalogue', LayoutGridIcon, CATALOGUE_PAGE, t('navigation.catalogue'))}
-        {row('glossary', BookOpenIcon, GLOSSARY_PAGE, t('knowledge.glossary.title'))}
-        {section('fill', RefreshCwIcon)}
+        <NavigationLink icon={LayoutGridIcon} active={here(PAGE_ADDRESSES.catalogue)} aria-current={here(PAGE_ADDRESSES.catalogue) ? 'page' : undefined} data-testid="nav-catalogue" {...link(PAGE_ADDRESSES.catalogue)}>
+          <NavigationLabel>{t('navigation.catalogue')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink icon={BookOpenIcon} active={here(PAGE_ADDRESSES.glossary)} aria-current={here(PAGE_ADDRESSES.glossary) ? 'page' : undefined} data-testid="nav-glossary" {...link(PAGE_ADDRESSES.glossary)}>
+          <NavigationLabel>{t('knowledge.glossary.title')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink icon={HistoryIcon} active={here(RUNS_PAGE)} aria-current={here(RUNS_PAGE) ? 'page' : undefined} data-testid="nav-runs" {...link(RUNS_PAGE)}>
+          <NavigationLabel>{t('navigation.runs')}</NavigationLabel>
+        </NavigationLink>
         <NavigationSection data-testid="nav-waiting">
           <NavigationHeading>{t('knowledge.waiting')}</NavigationHeading>
-          <NavigationLink icon={AlertTriangleIcon} active={tasks.frame === 'problems'} aria-current={tasks.frame === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...link(FRAME_PAGES.problems)}>
-            <NavigationLabel>{frameWord('problems', t)}</NavigationLabel>
+          <NavigationLink icon={AlertTriangleIcon} active={here(PAGE_ADDRESSES.problems)} aria-current={here(PAGE_ADDRESSES.problems) ? 'page' : undefined} data-testid="nav-problems" {...link(PAGE_ADDRESSES.problems)}>
+            <NavigationLabel>{t('loop.problemsTitle')}</NavigationLabel>
+            {problemsOpen === null || problemsOpen === 0 ? null : <NavigationCount data-testid="nav-problems-count">{problemsOpen}</NavigationCount>}
           </NavigationLink>
         </NavigationSection>
         {nodes.length === 0 ? null : <NavigationHeading>{t('knowledge.kinds')}</NavigationHeading>}
@@ -162,8 +165,12 @@ export function FrameNavigation({ navigation, base, path, open, tasks }: {
         })}
       </NavigationScroll>
       <NavigationFooter data-testid="nav-foot">
-        {section('documents', FolderGit2Icon)}
-        {section('settings', SettingsIcon)}
+        <NavigationLink icon={FolderGit2Icon} active={here(PAGE_ADDRESSES.sources)} aria-current={here(PAGE_ADDRESSES.sources) ? 'page' : undefined} data-testid="nav-sources" {...link(PAGE_ADDRESSES.sources)}>
+          <NavigationLabel>{t('navigation.documents')}</NavigationLabel>
+        </NavigationLink>
+        <NavigationLink icon={SettingsIcon} active={here(PAGE_ADDRESSES.settings)} aria-current={here(PAGE_ADDRESSES.settings) ? 'page' : undefined} data-testid="nav-settings" {...link(PAGE_ADDRESSES.settings)}>
+          <NavigationLabel>{t('settings.nav')}</NavigationLabel>
+        </NavigationLink>
       </NavigationFooter>
     </>
   );
@@ -202,7 +209,7 @@ function RoleMenu({ role, roles, onRole }: { readonly role: string; readonly rol
       <DropdownMenuTrigger asChild>
         <ShellRoleButton aria-label={t('knowledge.roles.menu')} title={t('knowledge.roles.menuTitle')} data-testid="role-menu">
           <UserRoundIcon aria-hidden="true" size={18} />
-          <ShellRoleLabel>{role === 'all' ? name('everything') : name(role)}</ShellRoleLabel>
+          <ShellRoleLabel>{role === 'everything' ? name('everything') : name(role)}</ShellRoleLabel>
         </ShellRoleButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={7}>
@@ -281,7 +288,7 @@ function SearchBox({ base, open }: { readonly base: string; readonly open: (path
         value={text}
         aria-label={t('knowledge.searchLabel')}
         placeholder={t('knowledge.searchPlaceholder')}
-        data-testid="search-field"
+        data-testid="top-search"
         onChange={(event) => { setText(event.target.value); ask(event.target.value); }}
         onFocus={() => { if (groups !== undefined) setShown(true); }}
         onKeyDown={(event) => {
@@ -327,7 +334,8 @@ export function FrameToolbar({ base, language, role, roles, busy, menu, open, on
       {menu}
       <SearchBox base={base} open={open} />
       <ShellActions>
-        <Button variant="default" size="default" data-testid="fill-button" onClick={() => { open(FRAME_PAGES.fill); }}>{t('knowledge.fillRun.open')}</Button>
+        <FillEntry open={open} />
+        <RunIndicator base={base} open={open} />
         <Button variant="ghost" size="icon" aria-label={t('knowledge.refresh')} title={t('knowledge.refresh')} disabled={busy} onClick={onReload} data-testid="reload">
           <RefreshCwIcon aria-hidden="true" size={18} />
         </Button>

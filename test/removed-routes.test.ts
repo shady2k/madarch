@@ -28,7 +28,6 @@ const REMOVED: readonly string[] = [
   '/api/documents',
   '/api/document?path=docs/product.md',
   '/api/authored-schema?kind=note',
-  '/api/problems',
   '/api/questions',
   '/api/question?id=one',
   '/api/tasks',

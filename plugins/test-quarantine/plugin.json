@@ -16,5 +16,9 @@
       ]
     }
   ],
-  "concurrency": 1
+  "concurrency": 1,
+  "labels": {
+    "en": "Test quarantine",
+    "ru": "Карантин тестов"
+  }
 }

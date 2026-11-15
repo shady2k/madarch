@@ -51,12 +51,14 @@ export function RelationsSection({ context }: { readonly context: SectionContext
         rows: uniqueRows(edgesOf(connection)),
         total: totalOf(connection) || uniqueRows(edgesOf(connection)).length,
       }];
-  if (groups.length === 0) {
+  // A relation with no rows is no relation: a zero count over nothing is not drawn as a group (madarch-64o5.83).
+  const drawn = groups.filter((group) => group.rows.length > 0);
+  if (drawn.length === 0) {
     return <Paragraph data-testid="relations-empty">{localized(context.section.params['emptyText'], context.language) ?? titleIn(context.section.title, context.language) ?? t('knowledge.linksHere')}</Paragraph>;
   }
   return (
     <>
-      {groups.map((group) => (
+      {drawn.map((group) => (
         <section key={group.key} data-testid="relation-group" data-relation={group.key}>
           <SectionTitle>{`${group.word} · ${String(group.total ?? group.rows.length)}`}</SectionTitle>
           <Table>

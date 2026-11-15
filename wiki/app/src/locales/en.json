@@ -1704,12 +1704,15 @@
     "stackedTitle": "Fill outcomes by day",
     "heatmapTitle": "Fills by weekday and week",
     "sparklineTitle": "Units a fill published",
-    "calendarTitle": "Fills in the last ninety days",
-    "palettes": "Chart palettes, side by side",
-    "paletteNote": "The same figures in the kit's two palettes: magnitude in one ink, or categories told apart by the kit's chart-category tokens. The owner chooses.",
-    "magnitude": "One ink (magnitude, heat)",
-    "categorical": "Categorical (the --chart-cat tokens)",
-    "languagesTitle": "Kinds by language",
-    "outcomesTitle": "Fill outcomes by day"
+    "calendarTitle": "Fills in the last ninety days"
+  },
+  "overview": {
+    "title": "Where this product stands",
+    "description": "What this product is for is written on its own page, by an agent or a person; until then, this is what the graph holds.",
+    "problems": "{{count}} open problems in the code, the documents and the wiki",
+    "noFill": "No fill has run yet.",
+    "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
+    "notKnown": "Problems: not known right now",
+    "fillUnknown": "The last fill is not known right now"
   }
 }
