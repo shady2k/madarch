@@ -2319,7 +2319,7 @@ export class KnowledgeProduct {
    * 0037): the graph names the blob, the host reads it with the git plugin, and the page answers the lines asked for.
    * Nothing here reads a file: the api role never touches a product's working copy.
    */
-  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string; readonly language?: string } | undefined> {
+  async fileText(repository: string, path: string, options: { readonly from?: number; readonly to?: number; readonly fromColumn?: number; readonly blob?: string } = {}): Promise<{ readonly text: string; readonly lines: number; readonly bytes: number; readonly binary: boolean; readonly blob: string; readonly from: number; readonly repository: string; readonly path: string; readonly language?: string; readonly complete: boolean; readonly next: { readonly line: number; readonly column: number } | null; readonly moved?: boolean } | undefined> {
     await this.open();
     await this.followStoreFill();
     const product = this.product();
@@ -2342,17 +2342,20 @@ export class KnowledgeProduct {
     const named = this.repositories().find((held) => held.name === repository);
     const root = named?.path ?? (repository === product.name ? product.folder : join(product.folder, 'repos', repository));
     // The read is a job on the store's one queue, answered by the fill role (madarch-u3vw.16): the queue carries the
-    // request and the answer, and no store of its own is written.
-    const from = Math.max(1, Math.trunc(options.from ?? 1));
+    // request and the answer, and no store of its own is written. A reader's later ranges name the blob its first answer
+    // held; a blob that moved restarts the view at its first line and says so, so two revisions are never interleaved.
+    const moved = options.blob !== undefined && options.blob !== node.blob;
+    const from = moved ? 1 : Math.max(1, Math.trunc(options.from ?? 1));
+    const fromColumn = moved ? null : options.fromColumn === undefined ? null : Math.max(1, Math.trunc(options.fromColumn));
     const queue = await this.fileTextQueue();
-    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, to: options.to === undefined ? null : Math.trunc(options.to) });
+    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, fromColumn, to: moved ? null : options.to === undefined ? null : Math.trunc(options.to) });
     const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
     let asked = 0;
     while (Date.now() < deadline) {
       const held = await fileTextAnswer(queue, id);
       if (held !== null) {
         if ('error' in held) throw new WikiReadError(held.error);
-        return { ...held, blob: node.blob, from, repository, path };
+        return { ...held, blob: node.blob, from, repository, path, ...(moved ? { moved: true } : {}) };
       }
       asked += 1;
       // A read whose worker died is recovered by the queue's own sweep: ask it now and then rather than wait the lease.

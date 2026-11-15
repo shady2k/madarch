@@ -10,13 +10,21 @@ import type { PluginUnitResult } from '../src/plugin/protocol.js';
 const outputs = { vertices: [{ kind: 'summary', key: ['id'], fields: [{ name: 'title', type: 'text' as const, required: false, meaning: 'title', example: 'A' }] }], edges: [] };
 const graph = {
   files: async () => [{ kind: 'file', key: { repository: 'repo', path: 'docs/a.md' } }, { kind: 'file', key: { repository: 'repo', path: 'private/b.md' } }],
-  value: async () => 'first\nsecond',
+  // The graph names each file's blob; its text is asked of the host by that blob (decision 0037).
+  value: async (_kind: string, key: Readonly<Record<string, string | number>>, field: string) => field === 'blob' ? `blob-${String(key['path'])}` : null,
+};
+/** The one blob read the host answers: a file's text, by blob id and line range. */
+const readFile = async (request: { readonly repository: string; readonly blob: string; readonly from?: number; readonly limit?: number }): Promise<string> => {
+  const lines = ['first', 'second'];
+  if (request.blob !== 'blob-docs/a.md') throw new Error(`no text for ${request.blob}`);
+  const from = (request.from ?? 1) - 1;
+  return lines.slice(from, request.limit === undefined ? undefined : from + request.limit).join('\n');
 };
 const result: PluginUnitResult = { unitId: 'ignored', vertices: [{ kind: 'summary', key: { id: 'a' }, values: { title: 'A' }, evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 2 } }], end: { state: 'complete' } };
 function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promise<unknown>, extra: Partial<PluginAgentOptions> = {}, writeRoots: string[] = [], roots: string[] = ['repo/docs']) {
   const state = { closed: 0, frozen: 0, thawed: 0 };
   const bridge = new PluginAgentBridge({ prompt: 'extract', roots, writeRoots }, {
-    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, ...extra,
+    adapter: { id: 'fake', command: 'fake', env: { SECRET: 'must not pass' } }, readFile, ...extra,
     connect: async (spec, options) => {
       expect(spec.env).toEqual({ SECRET: 'must not pass' });
       expect(options.env).toEqual(extra.environment);

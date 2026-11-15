@@ -94,8 +94,19 @@ run('a file page shows its text', () => {
     page.on('pageerror', (error) => errors.push(String(error)));
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     page.on('response', (response) => { if (response.status() >= 500) void response.text().then((body) => console.info('HTTP 500', response.url().slice(-80), body.slice(0, 700))); });
+    /** What one file page draws, read from the live page: the numbers the walk asserts, not only photographs. */
+    interface Measured {
+      readonly title: string;
+      readonly rows: number;
+      readonly scroll: { readonly width: number; readonly content: number; readonly wrapped: boolean } | null;
+      readonly headings: number;
+      readonly binary: string | null;
+      readonly sectionWidth: number | null;
+      readonly tokenColours: readonly string[];
+      readonly failure: string | null;
+    }
     try {
-      const open = async (id: string): Promise<void> => {
+      const open = async (id: string): Promise<Measured> => {
         await page.setViewport({ width: 1150, height: 1080 });
         await page.goto(`${base}e/code.file/${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
         const role = await page.waitForSelector('[data-testid="role-first"]', { timeout: 8_000 }).catch(() => null);
@@ -114,21 +125,41 @@ run('a file page shows its text', () => {
             binary: document.querySelector('[data-testid="file-text-binary"]')?.textContent ?? null,
             sectionWidth: (document.querySelector('[data-testid="file-text"]') as HTMLElement | null)?.getBoundingClientRect().width ?? null,
             tokenColours: [...new Set([...document.querySelectorAll('.file-source-code .shiki-token')].map((el) => (el as HTMLElement).style.color))].slice(0, 8),
+            failure: document.querySelector('[data-testid="file-text-error"]')?.textContent ?? null,
           };
         });
         console.info('measured', JSON.stringify(measured));
-        await page.waitForSelector('[data-testid="file-text"][data-ready], [data-testid="file-text-source"], [data-testid="file-text-binary"]', { timeout: 60_000 }).catch(() => null);
+        // A file read that failed is a failed walk, never a page to photograph (the owner's review of madarch-u3vw.16).
+        expect(measured.failure, `the file page ${id} shows a read error`).toBeNull();
+        expect(errors, `the page ${id} logged errors`).toEqual([]);
+        return measured;
       };
-      await open(yaml);
+      const yamlPage = await open(yaml);
+      expect(yamlPage.title).toBe('cloud-resource.yaml');
+      expect(yamlPage.rows).toBeGreaterThan(5);
+      expect(yamlPage.tokenColours.length).toBeGreaterThan(0);
+      expect(yamlPage.sectionWidth ?? 0).toBeGreaterThan(600);
       await shot(page, 'yaml-source', false); await shot(page, 'yaml-source', true);
-      await open(ts);
+      const tsPage = await open(ts);
+      expect(tsPage.title).toBe('index.ts');
+      expect(tsPage.rows).toBeGreaterThan(3);
+      // The source is highlighted by the kit's own tokens: at least one line carries a syntax colour of the theme.
+      expect(tsPage.tokenColours.some((colour) => colour.startsWith('var(--syntax-'))).toBe(true);
       await shot(page, 'ts-source', false); await shot(page, 'ts-source', true);
-      await open(md);
+      const mdPage = await open(md);
+      expect(mdPage.title).toBe('long.md');
+      expect(mdPage.headings).toBeGreaterThan(100);
+      expect(mdPage.scroll).toBeNull();
       await shot(page, 'md-rendered', false); await shot(page, 'md-rendered', true);
       await page.click('[data-testid="file-text-view-source"]');
       await new Promise((resolve) => setTimeout(resolve, 800));
+      const mdSource = await page.evaluate(() => document.querySelectorAll('.file-source-line').length);
+      expect(mdSource).toBeGreaterThan(0);
       await shot(page, 'md-source', false); await shot(page, 'md-source', true);
-      await open(png);
+      const pngPage = await open(png);
+      expect(pngPage.title).toBe('logo.png');
+      expect(pngPage.binary ?? '').toContain('logo.png');
+      expect(pngPage.rows).toBe(0);
       await shot(page, 'binary', false, [1150, 390]); await shot(page, 'binary', true, [1150, 390]);
       console.info('shots at', OUT);
     } finally { await page.close(); }

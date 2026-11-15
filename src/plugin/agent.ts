@@ -189,10 +189,14 @@ export class PluginAgentBridge {
           if (typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
           const file = byPath.get(virtualPath(`${evidence.repository}/${evidence.path}`));
           if (file === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
-          const content = await this.graph.value(file.kind, file.key, 'content');
+          // The evidence's range is checked against the text the graph's blob names, read through the host (decision 0037):
+          // the graph holds no text of its own, and the agent reads the same bytes the page does.
+          const blob = await this.graph.value(file.kind, file.key, 'blob');
+          if (this.options.readFile === undefined || typeof blob !== 'string' || blob === '') throw new Error(`${WHERE}: agent evidence names a file whose text the host cannot read`);
+          const content = await this.options.readFile({ repository: String(file.key['repository']), blob });
           const start = evidence.lineStart;
           const end = evidence.lineEnd;
-          if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
+          if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
         }
         log.info('plugin agent result validated', { unitId, vertices: result.vertices?.length ?? 0, edges: result.edges?.length ?? 0 });
         return result;

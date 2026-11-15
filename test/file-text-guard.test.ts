@@ -4,11 +4,12 @@
  * request that lies about its paths is answered with words, never a read.
  */
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyBlobRead } from '../src/knowledge/file-texts.js';
+import { closureOf } from '../src/plugin/closure.js';
 import { sdkClosureFiles } from '../src/plugin/closure.js';
 import { createHash } from 'node:crypto';
 
@@ -48,5 +49,37 @@ test('a read is refused by name for a product, a plugin or a repository that is 
     void sdkClosureFiles;
   } finally {
     rmSync(held.folder, { recursive: true, force: true });
+  }
+});
+
+test('a repository or a plugin folder that is a link out of the product is refused by where it really goes', () => {
+  // The owner's review of madarch-u3vw.16: product/repos/sample as a link to an outside Git repository was accepted.
+  const held = product();
+  const outside = mkdtempSync(join(tmpdir(), 'madarch-file-guard-outside-'));
+  try {
+    git(outside, 'init', '--quiet', '--initial-branch=main');
+    writeFileSync(join(outside, 'a.ts'), 'export const answer = 42;\n');
+    git(outside, 'add', '-A'); git(outside, 'commit', '--quiet', '-m', 'outside');
+    // The lock names the plugin's real closure, so the lock is not what refuses the read.
+    const closure = closureOf(join(held.folder, 'plugins', 'git')).hash;
+    mkdirSync(join(held.folder, 'madarch'), { recursive: true });
+    writeFileSync(join(held.folder, 'madarch', 'plugins.lock'), `plugins:\n  - id: git\n    version: 1.0.0\n    closure: ${closure}\n    path: plugins/git\n`);
+    const ask = { product: held.folder, plugin: join('plugins', 'git'), repository: 'sample', root: held.repo, blob: 'a'.repeat(40) };
+    expect(() => verifyBlobRead(ask)).not.toThrow();
+    // The connected repository is replaced by a link to a repository outside the product.
+    rmSync(held.repo, { recursive: true, force: true });
+    symlinkSync(outside, held.repo);
+    expect(() => verifyBlobRead(ask)).toThrow(/resolves to .*which is neither the product .* nor a folder its repos\/ holds/);
+    // The plugin folder that links out of the product is refused too.
+    const escaped = join(outside, 'plugin');
+    mkdirSync(escaped, { recursive: true });
+    writeFileSync(join(escaped, 'plugin.json'), '{}');
+    const pluginFolder = join(held.folder, 'plugins', 'git');
+    rmSync(pluginFolder, { recursive: true, force: true });
+    symlinkSync(escaped, pluginFolder);
+    expect(() => verifyBlobRead(ask)).toThrow(/which is not inside the product/);
+  } finally {
+    rmSync(held.folder, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
 });

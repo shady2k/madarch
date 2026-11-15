@@ -320,12 +320,18 @@ function fillRefusalCode(message: string): string | undefined {
       if (repo !== null && repo !== '') {
         const askedFrom = query.get('from');
         const askedTo = query.get('to');
+        const askedColumn = query.get('fromColumn');
+        const askedBlob = query.get('blob');
         const from = askedFrom === null ? 1 : Number(askedFrom);
         const to = askedTo === null ? undefined : Number(askedTo);
-        for (const [field, value] of [['from', from], ['to', to]] as const) {
+        const fromColumn = askedColumn === null ? undefined : Number(askedColumn);
+        for (const [field, value] of [['from', from], ['to', to], ['fromColumn', fromColumn]] as const) {
           if (value !== undefined && (!Number.isInteger(value) || value < 1)) return refused(400, { field, message: `"${field}" is a line number, a whole number from 1` });
         }
-        const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }) });
+        // A reader's later ranges name the blob its first answer held (the owner's review of madarch-u3vw.16): a blob id
+        // is 40 or 64 hexadecimal digits, and one that no longer stands answers the current revision, marked `moved`.
+        if (askedBlob !== null && !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(askedBlob)) return refused(400, { field: 'blob', message: '"blob" is the git blob id the first answer named: 40 or 64 hexadecimal digits' });
+        const held = await product.fileText(repo, path, { from, ...(to === undefined ? {} : { to }), ...(fromColumn === undefined ? {} : { fromColumn }), ...(askedBlob === null ? {} : { blob: askedBlob }) });
         if (held !== undefined) return { response: json(200, { repo, language: languageOf(path), ...held }) };
       }
       const read = await product.source(repo === null || repo === '' ? null : repo, path);
