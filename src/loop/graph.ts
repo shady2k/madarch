@@ -3,7 +3,9 @@ import type { GraphEntity, GraphReader } from '../knowledge/graph-read.js';
 import type { Author, Correction, Question } from './entities.js';
 
 import type { ProblemDismissal } from './problem-files.js';
-import { problemId } from '../problems/types.js';
+import { problemId, type ProblemTaskLink } from '../problems/types.js';
+import { entityPageAddress } from '../knowledge/addresses.js';
+import { problemIdentityOf } from './problem-task.js';
 
 export type LoopGraph = Pick<GraphReader, 'list'>;
 
@@ -78,6 +80,28 @@ export async function graphCorrections(graph: LoopGraph): Promise<Correction[]> 
     reason: field<string>(entity, 'correction_reason'), by: field<Author>(entity, 'by'), at: field<string>(entity, 'at'),
     resolvedBy: field<Correction['resolvedBy']>(entity, 'resolved_by'), resolvedAt: field<string | null>(entity, 'resolved_at'),
   }));
+}
+
+/**
+ * The tasks a person opened from the Problems page, by the problem each was opened from (madarch-64o5.104): a task of
+ * the product's own task kind whose record names the problem's stable id. The page links to the task it finds, so a
+ * second press opens that task instead of writing another.
+ */
+export async function graphProblemTasks(graph: LoopGraph): Promise<Map<string, ProblemTaskLink>> {
+  const found = new Map<string, ProblemTaskLink>();
+  for (const entity of await entities(graph, 'task')) {
+    const front = entity.properties['front'];
+    if (front === null || typeof front !== 'object' || Array.isArray(front)) continue;
+    const held = front as Record<string, unknown>;
+    const rule = held['rule'], parts = held['identity'];
+    if (typeof rule !== 'string' || rule === '' || !Array.isArray(parts) || parts.length === 0 || parts.some((part) => typeof part !== 'string') || entity.uid === undefined) continue;
+    const identity = problemIdentityOf(parts as string[]);
+    if (identity === '') continue;
+    const problem = problemId(rule, identity);
+    const title = typeof entity.properties['title'] === 'string' && entity.properties['title'] !== '' ? entity.properties['title'] : problem;
+    found.set(problem, { problem, uid: entity.uid, title, href: entityPageAddress(entity.kind, entity.uid) });
+  }
+  return found;
 }
 
 export async function graphProblemDismissals(graph: LoopGraph): Promise<ProblemDismissal[]> {

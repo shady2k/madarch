@@ -19,6 +19,7 @@ import { readCodeSnapshot, evaluateCode } from './code.js';
 import { problemId, type ProblemDraft, type ProblemNote, type ProblemSettings } from './types.js';
 import { unimplementedRuleNotes } from './rules.js';
 import { entityAddress } from '../knowledge/addresses.js';
+import { graphProblemTasks } from '../loop/graph.js';
 
 export interface CollectInput {
   readonly productFolder: string;
@@ -49,6 +50,7 @@ function problemOf(draft: ProblemDraft): Problem {
     place: draft.place, entity: draft.entity, evidence: draft.evidence,
     by: draft.by, at: draft.at,
     ...(draft.scope === undefined ? {} : { scope: draft.scope }),
+    ...(draft.words === undefined ? {} : { words: draft.words }),
   };
 }
 
@@ -100,7 +102,14 @@ export async function collectProblems(input: CollectInput): Promise<Awaited<Retu
     ...(input.dismissed === undefined ? {} : { dismissed: input.dismissed }),
     extraProblems: drafts.map(problemOf),
   });
-  return { ...listing, notes: [...notes, ...listing.notes] };
+  // «Создать задачу» already opened a task for some of these problems: each row links to its task instead of offering a
+  // second one (madarch-64o5.104). A task of a problem the page no longer lists is not linked, and is not judged here.
+  const tasks = await graphProblemTasks(input.graph);
+  const problems = tasks.size === 0 ? listing.problems : listing.problems.map((problem) => {
+    const task = tasks.get(problem.id);
+    return task === undefined ? problem : { ...problem, task: { label: task.title, href: task.href, key: `task:${task.uid}` } };
+  });
+  return { ...listing, problems, notes: [...notes, ...listing.notes] };
 }
 
 ;

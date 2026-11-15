@@ -72,7 +72,6 @@ export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { method: '*', path: '/api/problem-dismiss' },
   { method: '*', path: '/api/problem-task' },
   { method: '*', path: '/api/task-propose' },
-  { method: '*', path: '/api/task-create' },
   { method: '*', path: '/api/task-close' },
   { method: '*', path: '/api/task-run' },
   // The authored writes are commands section 8 keeps; the authored reads are GraphQL's.
