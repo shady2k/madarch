@@ -38,6 +38,16 @@ if (mode === 'open-and-leave') {
   if (marker !== undefined) writeFileSync(marker, `${String(process.pid)}\n`);
   await Bun.sleep(Number(extra ?? '60000'));
   await cluster.stop();
+} else if (mode === 'open-and-exit') {
+  // Opens a store whose initdb is the folder `extra` names, and leaves at once. The process must not outlive the
+  // descendant such an initdb leaves behind: a pipe it holds open is not this process's to wait for (madarch-64o5.79).
+  try {
+    const cluster = await openCluster({ ...clusterPaths(store), bin: extra });
+    await cluster.stop();
+  } catch (error) {
+    console.log(`refused: ${(error as Error).message}`);
+  }
+  console.log('left');
 } else if (mode === 'refuse-platform') {
   // The server's programs are this box's, and the platform is then reported as one whose C library this build does not
   // ask for: the open must refuse by name instead of loading a library that is not there (madarch-8bdc.9).
