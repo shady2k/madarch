@@ -239,11 +239,14 @@ async function serveCheck(): Promise<void> {
     let serveErr = '';
     server.stdout.setEncoding('utf8').on('data', (part: string) => { serveOut += part; });
     server.stderr.setEncoding('utf8').on('data', (part: string) => { serveErr += part; });
-    const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 90_000);
+    // The store's own readiness bound is 60 seconds and starts once its server is launched, after `initdb`; the walk
+    // waits longer than that, so serve's refusal — with the reason the last connection gave and the store's log — is
+    // what the job reports, not this script's "printed no address" (madarch-64o5.81).
+    const serveTimeout = setTimeout(() => { void finish().catch((error: unknown) => console.error(error)); }, 150_000);
     try {
       // The address is the one the command prints once it stands.
       let address: string | undefined;
-      const until = Date.now() + 60_000;
+      const until = Date.now() + 120_000;
       while (Date.now() < until) {
         address = serveOut.match(/^(?:The wiki is running at|Wiki:) (\S+)/m)?.[1];
         if (address !== undefined || server.exitCode !== null) break;

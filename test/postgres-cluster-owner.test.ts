@@ -323,26 +323,89 @@ test('a record of a live initdb outranks what a half-made folder looks like', as
   }
 }, 120_000);
 
-test('a cluster initdb finished while the open waited is kept, not removed', async () => {
-  // The recorded initdb was killed, so the next open waits for it — and it finished first. What it left is a whole
-  // cluster, and the open keeps it instead of removing it as unfinished (codex P1 on 9027bc2a).
-  const store = storeOf('finished while waiting');
+for (const shape of ['readable', 'unreadable'] as const) {
+  test(`a folder carrying our preparing record is prepared again, even when its files look whole (${shape} record)`, async () => {
+    // `madarch.prepared`, written only once initdb exits, is the one proof that a cluster is whole. A folder that carries
+    // `madarch.preparing` was abandoned by a stop or a crash, and its files cannot say otherwise: initdb's bootstrap
+    // writes `PG_VERSION`, `global/pg_control` and `base/1` long before the `postgres` database exists
+    // (madarch-64o5.81). A record a crash left half-written still says madarch started the preparation.
+    const store = storeOf(`abandoned preparation ${shape}`);
+    const { dataDir } = clusterPaths(store);
+    const first = await openCluster({ ...clusterPaths(store) });
+    await first.stop();
+    const sentinel = join(dataDir, 'madarch.test-sentinel');
+    writeFileSync(sentinel, 'gone\n');
+    const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
+    await ended.exited;
+    rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), shape === 'readable'
+      ? `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`
+      : '{"version":"test","startedAt":');
+    const second = await openCluster({ ...clusterPaths(store) });
+    try {
+      expect(existsSync(sentinel)).toBe(false);
+      expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
+      expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
+      await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+    } finally { await second.stop(); }
+  }, 120_000);
+}
+
+test('a store waiting for its server says so every few seconds and refuses with the last attempt\'s reason', async () => {
+  // The wait a Windows store makes for its server is driven here with a probe that never answers: the line reaches
+  // stderr (the walk reads it) every few seconds, not on every 100 ms attempt, and the refusal names why (madarch-64o5.81).
+  const store = storeOf('answer wait');
+  const { dataDir } = clusterPaths(store);
+  const outcome = child('answer-wait', store, '3000');
+  expect(await outcome.exited).toBe(0);
+  const said = await new Response(outcome.stderr).text();
+  const answer = await new Response(outcome.stdout).text();
+  expect(said).toContain(`madarch: waiting for PostgreSQL on ${dataDir}, 0 s of 3`);
+  expect(answer).toContain('did not answer');
+  expect(answer).toContain('database "postgres" does not exist');
+}, 60_000);
+
+test('an initdb killed before it made the postgres database leaves a folder the next open prepares again', async () => {
+  // The shape the clean-install walk met on windows-x64 at b43b57ff (madarch-64o5.81): a stop ended initdb after its
+  // bootstrap checkpoint and before `make_postgres`, so the folder held `PG_VERSION`, `global/pg_control` and `base/1`
+  // and no `postgres` database. The next open started that cluster and every connection answered
+  // `FATAL: database "postgres" does not exist` for the whole readiness bound.
+  const store = storeOf('no postgres database');
   const { dataDir } = clusterPaths(store);
   const first = await openCluster({ ...clusterPaths(store) });
   await first.stop();
-  const sentinel = join(dataDir, 'madarch.test-sentinel');
-  writeFileSync(sentinel, 'kept\n');
+  // What `make_postgres` would have made, removed: the cluster is otherwise whole and its records say nothing.
+  rmSync(join(dataDir, 'base', '5'), { recursive: true, force: true });
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  rmSync(join(dirname(dataDir), 'madarch.preparing'), { force: true });
   const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
   await ended.exited;
-  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
   writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`);
   const second = await openCluster({ ...clusterPaths(store) });
   try {
-    expect(readFileSync(sentinel, 'utf8')).toBe('kept\n');
-    expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
-    expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
+    expect(existsSync(join(dataDir, 'base', '5'))).toBe(true);
     await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
   } finally { await second.stop(); }
+}, 120_000);
+
+test('a server that starts without answering its own admin database is refused with that reason and the log path', async () => {
+  // A store prepared before our records existed has no `madarch.prepared`, so its files are its proof and it is kept.
+  // When the server then cannot answer, the refusal names why — `database "postgres" does not exist` — beside the
+  // store's log, never only "it does not answer" (madarch-64o5.81).
+  const store = storeOf('refused with a reason');
+  const { dataDir } = clusterPaths(store);
+  const first = await openCluster({ ...clusterPaths(store) });
+  await first.stop();
+  rmSync(join(dataDir, 'base', '5'), { recursive: true, force: true });
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  rmSync(join(dirname(dataDir), 'madarch.preparing'), { force: true });
+  let refusal: Error | undefined;
+  try { await openCluster({ ...clusterPaths(store) }); } catch (error) { refusal = error as Error; }
+  try {
+    expect(refusal).toBeDefined();
+    expect(refusal?.message).toContain(join(dataDir, '..', 'postgres.log'));
+    expect(refusal?.message).toContain('database "postgres" does not exist');
+  } finally { await stopStoreForExit(store, { force: true }); }
 }, 120_000);
 
 test('an initdb that does not finish is ended with its whole tree, and the open says so', async () => {

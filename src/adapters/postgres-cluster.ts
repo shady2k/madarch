@@ -183,19 +183,60 @@ async function freeTcpPort(): Promise<number> {
   });
 }
 
-/** Whether the cluster's server answers a connection, asked over its socket and answered by the server itself. */
-async function answering(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<boolean> {
+/** Why a connection to the cluster's server did not answer: undefined when it answered, else the client's own words. */
+async function answerFailure(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<string | undefined> {
   let client: Client | undefined;
   try {
     client = new Client({ ...clusterEndpoint(socketDir), user: CLUSTER_USER, database, connectionTimeoutMillis: 2_000 });
-    client.on('error', (error: Error) => console.error(`PostgreSQL readiness client "${socketDir}/${database}": ${error.message}`));
     await client.connect();
     await client.query('SELECT 1');
-    return true;
-  } catch {
-    return false;
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   } finally {
     await client?.end().catch(() => undefined);
+  }
+}
+
+/** Whether the cluster's server answers a connection, asked over its socket and answered by the server itself. */
+async function answering(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<boolean> {
+  return await answerFailure(socketDir, database) === undefined;
+}
+
+/** How long a store waits for its server to answer, and how often a wait still under way says so. */
+const READINESS_BOUND_MS = 60_000;
+const READINESS_SAY_EVERY_MS = 5_000;
+
+/**
+ * Waits for the server on a store to answer, saying every few seconds what it waits for and refusing with the last
+ * attempt's own words: a wait that says nothing is a server a person reads as hung (madarch-64o5.81 — a clean-install
+ * walk saw 60 s of silence from `madarch serve` and reported that it printed no address). The probe is a caller's to
+ * name, so the wait can be shown without a server; a store's own wait probes its cluster's admin database.
+ */
+export async function awaitServerAnswering(options: {
+  readonly dataDir: string;
+  readonly socketDir: string;
+  readonly boundMs?: number;
+  readonly probe?: (socketDir: string) => Promise<string | undefined>;
+  readonly say?: (line: string) => void;
+}): Promise<void> {
+  const boundMs = options.boundMs ?? READINESS_BOUND_MS;
+  const probe = options.probe ?? ((socketDir: string) => answerFailure(socketDir));
+  const say = options.say ?? ((line: string) => console.error(line));
+  const started = Date.now();
+  let nextSay = 0;
+  for (;;) {
+    const failing = await probe(options.socketDir);
+    if (failing === undefined) return;
+    const elapsed = Date.now() - started;
+    if (elapsed >= boundMs) {
+      throw new Error(`the PostgreSQL server on ${options.dataDir} did not answer on ${options.socketDir} within ${String(Math.round(boundMs / 1_000))} seconds; the last attempt said: ${failing}`);
+    }
+    if (elapsed >= nextSay) {
+      say(`madarch: waiting for PostgreSQL on ${options.dataDir}, ${String(Math.round(elapsed / 1_000))} s of ${String(Math.round(boundMs / 1_000))}`);
+      nextSay = elapsed + READINESS_SAY_EVERY_MS;
+    }
+    await Bun.sleep(100);
   }
 }
 
@@ -449,12 +490,10 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
     const invocation = clusterStartInvocation(dataDir, logFile, connection);
     runBinary(join(bin, postgresProgram('pg_ctl')), invocation.args, { stdio: invocation.stdio });
     if (process.platform === 'win32') {
-      // Replace pg_ctl's existing 60-second wait with an authenticated connection, not inherited output handles.
-      const deadline = Date.now() + 60_000;
-      while (!(await answering(socketDir))) {
-        if (Date.now() >= deadline) throw new Error(`the PostgreSQL server did not answer on ${socketDir} within 60 seconds`);
-        await Bun.sleep(100);
-      }
+      // Replace pg_ctl's existing 60-second wait with an authenticated connection, not inherited output handles. The
+      // wait says what it waits for and refuses with the last attempt's words, so a store that cannot come up is never
+      // 60 seconds of silence.
+      await awaitServerAnswering({ dataDir, socketDir });
     }
   } catch (error) {
     throw new Error(`${logFile}:1: PostgreSQL startup failed: ${String(error)}\n${readFileSync(logFile, 'utf8')}`);
@@ -663,8 +702,8 @@ async function runInitdb(program: string, args: readonly string[], dataDir: stri
  * and hands a stopped process's id to whatever starts next, so a recorded pid is printed here, never trusted. A store
  * that waits never waits silently: it says what it waits for, and for how long.
  */
-async function awaitRecordedInitdb(dataDir: string, record: PreparingRecord, waitMs: number): Promise<void> {
-  const recorded = record.initdb?.pid;
+async function awaitRecordedInitdb(dataDir: string, record: PreparingRecord | undefined, waitMs: number): Promise<void> {
+  const recorded = record?.initdb?.pid;
   const deadline = Date.now() + waitMs;
   let said = false;
   for (;;) {
@@ -690,14 +729,17 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
     keepPrepared(dataDir);
     return;
   }
+  // The record's file is what says madarch started this preparation; a record that cannot be read still says it, and
+  // the wait for what names the folder does not need its pid.
   const preparing = preparingRecord(dataDir);
-  if (preparing !== undefined) {
+  if (preparing !== undefined || existsSync(preparingRecordPath(dataDir))) {
     await awaitRecordedInitdb(dataDir, preparing, waitMs);
-    // The initdb our record names has ended. It may have finished while this open waited: a whole cluster is kept.
-    if (initdbWhole(dataDir)) {
-      keepPrepared(dataDir);
-      return;
-    }
+    // The initdb our record names is gone and no `madarch.prepared` record followed it: the preparation was abandoned,
+    // and its files cannot say otherwise. initdb's bootstrap writes `PG_VERSION`, `global/pg_control` and `base/1`
+    // long before it makes the `postgres` database, so a folder a stop or a crash left after that point looks whole
+    // and is not (madarch-64o5.81: the next open started such a cluster, and every connection answered "database
+    // postgres does not exist"). Only a folder our own record names preparing reaches this line, and the step below
+    // prepares it again under the start lock this open already holds.
   } else if (!empty && initdbWhole(dataDir)) {
     // A store prepared before these records existed: what initdb leaves when it ends is the proof, and the record follows.
     keepPrepared(dataDir);
@@ -858,8 +900,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
           ...(options.preparationWaitMs === undefined ? {} : { preparationWaitMs: options.preparationWaitMs }),
           ...(options.initdbTimeoutMs === undefined ? {} : { initdbTimeoutMs: options.initdbTimeoutMs }),
         });
-        if (!(await answering(socketDir))) {
-          throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}: read that log for what it said (src/adapters/postgres-cluster.ts)`);
+        const failing = await answerFailure(socketDir);
+        if (failing !== undefined) {
+          throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}, and the last attempt said: ${failing} (src/adapters/postgres-cluster.ts)`);
         }
       }
     } finally {
@@ -867,6 +910,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
     }
   } catch (error) {
     releaseLock(users);
+    // The hold is given back, so the process no longer holds it: a stop that walks the holds must not close its
+    // descriptor again (a store whose open was refused would then fail its own stop with EBADF).
+    holds.delete(users);
     throw error;
   }
   return {
