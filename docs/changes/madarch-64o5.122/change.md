@@ -54,7 +54,8 @@ Static: `bun run check` passed; the wiki app's `bun run check` passed.
 Test: the app suite 122 passed, 0 failed; `app.test.tsx` 15 passed, including the brand test: the brand's strong word is
 `madarch`, the product block is an anchor to `/`, it has no SVG, and its initial square names `font-sans`, not
 `font-serif`.
-Screens: `docs/changes/madarch-64o5.122/mockups/` holds the home and preparation pages at 1440 and 390, light and dark.
+Screens: `docs/changes/madarch-64o5.122/mockups/` holds the home and preparation pages at 1440 and 390, light and dark,
+in English and Russian; the 390 shots open the phone drawer, where the product block stands at that width.
 Mutation: not run, filed per the stage rule.
 Review: pending; this record is for the review.
 
