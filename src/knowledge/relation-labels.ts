@@ -28,9 +28,16 @@ export function relationKey(name: string): string {
   return rest === '' ? name : `${head.toLowerCase()}.${rest}`;
 }
 
-/** Engine metadata words, or the unchanged identifier when a product supplies no translation. */
+/** Engine metadata words; a product's declaration supplies its own. A missing translation is still a word, never a raw key. */
 export function relationWords(edge: string, language: string, inverse: boolean): string {
   const code = language.startsWith('ru') ? 'ru' : 'en';
   const words = inverse ? INVERSE_LABELS[code] : RELATION_LABELS[code];
-  return words[edge] ?? words[relationKey(edge)] ?? edge;
+  const key = relationKey(edge);
+  const known = words[edge] ?? words[key];
+  if (known !== undefined) return known;
+  // A product relation whose manifest names no label: read its last segment as words (`codeContains` -> `contains`),
+  // so no renderer or heading prints the declaration key. The product's relationLabels still supply the reader's own word.
+  const leaf = key.split('.').pop() ?? key;
+  const spaced = leaf.replace(/([a-z0-9])([A-Z])/gu, '$1 $2').replace(/[-_]+/gu, ' ').trim().toLowerCase();
+  return spaced === '' ? key : spaced;
 }

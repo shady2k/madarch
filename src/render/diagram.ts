@@ -253,26 +253,26 @@ function archifyTextUnits(text: string): number {
   return units;
 }
 
-/** The width a sublabel still needs at the renderer's 6 px legible minimum, inside an 8 px padded node. */
-function sublabelMinimumWidth(text: string): number {
-  return archifyTextUnits(text) * 6 * 0.6;
+/** The width a sublabel needs at the renderer's preferred 9 px, so the visible text keeps a margin inside its card. */
+function sublabelPreferredWidth(text: string): number {
+  return archifyTextUnits(text) * 9 * 0.6;
 }
 
 /**
- * The sublabel a node can show: the whole path when it fits at the legible minimum, else a middle-shortened path that
- * does. The whole path stays in the node's hover title (the forwarder writes it there), so a deep path never makes the
- * archify renderer refuse the diagram.
+ * The sublabel a node can show: the whole path when it fits at the preferred 9 px inside the card, else a
+ * middle-shortened path that does. The whole path stays in the node's hover title (the forwarder writes it there), so a
+ * deep path never makes the archify renderer refuse the diagram and never starts at the card's edge.
  */
-function archifySublabel(text: string, width: number): string {
-  const available = Math.max(1, width - 8);
-  if (sublabelMinimumWidth(text) <= available) return text;
+export function archifySublabel(text: string, width: number): string {
+  const available = Math.max(1, width - 16);
+  if (sublabelPreferredWidth(text) <= available) return text;
   const parts = text.split('/');
   for (let keep = parts.length - 1; keep >= 1; keep -= 1) {
     const candidate = `…/${parts.slice(-keep).join('/')}`;
-    if (sublabelMinimumWidth(candidate) <= available) return candidate;
+    if (sublabelPreferredWidth(candidate) <= available) return candidate;
   }
   let tail = parts[parts.length - 1] ?? text;
-  while (tail.length > 1 && sublabelMinimumWidth(`…${tail}`) > available) tail = tail.slice(1);
+  while (tail.length > 1 && sublabelPreferredWidth(`…${tail}`) > available) tail = tail.slice(1);
   return `…${tail}`;
 }
 

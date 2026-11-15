@@ -318,3 +318,20 @@ test('a deep path in a narrow node renders, with the whole path reachable', asyn
   expect(answer.html).toContain('data-node-sublabel="…');
   expect(answer.html).toContain(deep);
 }, 60_000);
+
+test('no renderer prints a raw relation key; each uses the shared relation word', async () => {
+  const mermaid = await renderDiagram(product, { entity: '1', format: 'mermaid' });
+  if (!('body' in mermaid)) throw new Error('the Mermaid answer is not JSON');
+  const source = (mermaid.body as { source: string }).source;
+  expect(source).not.toContain('codeContains');
+  expect(source).toContain('contains');
+  const likec4 = await renderDiagram(product, { entity: '1', format: 'likec4' });
+  if (!('body' in likec4)) throw new Error('the LikeC4 answer is not JSON');
+  const workspace = (likec4.body as { workspace: string }).workspace;
+  expect(workspace).not.toContain('codeContains');
+  expect(workspace).toContain('contains');
+  const archify = await renderDiagram(product, { entity: '1', format: 'archify' });
+  if (!('html' in archify)) throw new Error('the archify answer is not HTML');
+  expect(archify.html).not.toContain('codeContains');
+  expect(archify.html).toContain('contains');
+}, 60_000);
