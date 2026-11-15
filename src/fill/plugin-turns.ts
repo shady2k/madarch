@@ -66,6 +66,8 @@ export interface PluginTurnWiring {
   readonly targets?: { readonly kinds: readonly string[]; readonly vertex?: string; readonly requested?: readonly string[]; readonly pluginsOnly?: boolean };
   /** The cgroup the plugin runs under, when the machine delegates one (`MADARCH_PLUGIN_CGROUP`). */
   readonly cgroupParent?: string;
+  /** This machine and its person chose to run plugins without isolation. */
+  readonly unconfined?: boolean;
   /** `journal.debug`: the journal keeps every request the plugin makes, its reads included, with its answer's size. */
   readonly debug?: boolean;
   /**
@@ -375,7 +377,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const repositoryInputs = await (async () => {
     try {
       return pluginRightsOf(closure).filesystem === true
-        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot))
+        ? await withSpan('plugin.repositories', {}, async () => await (wiring.prepareRepositoryInputs ?? prepareRepositoryInputs)(await wiring.snapshots.pins(), workRoot, { ...(wiring.unconfined === true ? { unconfined: true } : {}) }))
         : { filesystemInputs: [], repositories: [] };
     } catch (error) {
       withSpanSync('fs.remove', { 'file.path': workRoot }, () => withSpanSync('fs.remove', { 'file.path': workRoot }, () => rmSync(workRoot, { recursive: true, force: true })));
@@ -393,6 +395,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     trust: 'production',
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
+    ...(wiring.unconfined === true ? { unconfined: true } : {}),
     ...(requests === undefined ? {} : { requests }),
   });
   const author = `${unit.plugin.id}@${unit.lock.version}`;

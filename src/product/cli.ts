@@ -795,6 +795,7 @@ function productHomeOf(named: string | undefined): string {
     try { await withSpan('fs.mkdir', { 'file.path': cwd }, async () => await mkdir(cwd, { recursive: true })); }
     catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
     const template = await templateChoice(parsed, language);
+    await isolationChoice(parsed, language);
     const result = initLife({ cwd, home, template, language });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
@@ -1144,6 +1145,37 @@ async function askLanguage(): Promise<CommandLanguage> {
   }
 }
 
+/** The isolation answer this machine remembers, asked once in a terminal when the sandbox cannot work here. */
+async function isolationChoice(parsed: Parsed, language: CommandLanguage): Promise<void> {
+  if (parsed.json === true || !(process.stdin.isTTY && process.stdout.isTTY)) return;
+  const { readPluginsUnconfined, writePluginsUnconfined } = await import('../knowledge/settings.js');
+  if (readPluginsUnconfined(process.env) !== undefined) return;
+  const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
+  const probe = await probePluginSandbox();
+  if (probe.state === 'confined') return;
+  const words = initWords(language);
+  console.log(words.isolationQuestion(probe.reason));
+  const answer = await askIsolation(language);
+  try { writePluginsUnconfined(process.env, answer); }
+  catch (error) { console.error(`the isolation answer could not be remembered: ${(error as Error).message}`); }
+}
+
+/** What one answer names: yes is 1 or a word for it, everything else is no. */
+export function isolationFromAnswer(answer: string): boolean {
+  const said = answer.trim().toLowerCase();
+  return said === '1' || said.startsWith('y') || said.startsWith('д') || said.startsWith('да');
+}
+
+/** The one question a terminal asks about isolation; no means do not fill, and is the default. */
+async function askIsolation(language: CommandLanguage): Promise<boolean> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return isolationFromAnswer(await prompt.question(initWords(language).isolationChoice));
+  } finally {
+    prompt.close();
+  }
+}
+
 /** Every line `init` prints, in the language the person chose. */
 function initWords(language: CommandLanguage): {
   created: (name: string, where: string) => string;
@@ -1157,6 +1189,8 @@ function initWords(language: CommandLanguage): {
   browserFailed: (why: string) => string;
   askTemplate: string;
   chooseTemplate: string;
+  isolationQuestion: (reason: string) => string;
+  isolationChoice: string;
 } {
   if (language === 'ru') {
     return {
@@ -1171,6 +1205,8 @@ function initWords(language: CommandLanguage): {
       browserFailed: (why) => `Браузер не открылся: ${why}`,
       askTemplate: 'С какого шаблона начать продукт?',
       chooseTemplate: `Выберите 1-${String(STARTER_TEMPLATES.length)} (1): `,
+      isolationQuestion: (reason) => `На этой машине плагины нельзя изолировать: ${reason}. Запускать их без изоляции (они смогут читать и писать то же, что и вы)?`,
+      isolationChoice: '1. Да 2. Нет (2): ',
     };
   }
   return {
@@ -1185,6 +1221,8 @@ function initWords(language: CommandLanguage): {
     browserFailed: (why) => `The browser was not opened: ${why}`,
     askTemplate: 'Which template should the product start from?',
     chooseTemplate: `Choose 1-${String(STARTER_TEMPLATES.length)} (1): `,
+    isolationQuestion: (reason) => `Plugins cannot be isolated on this machine: ${reason}. Run them without isolation (they can read and write what you can)?`,
+    isolationChoice: '1. Yes 2. No (2): ',
   };
 }
 

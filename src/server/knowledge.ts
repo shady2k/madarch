@@ -15,7 +15,8 @@ import type { ResetPlan } from '../knowledge/reset.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
-import { choosableRoles, readSettings, writeRole } from '../knowledge/settings.js';
+import { choosableRoles, readSettings, writePluginsUnconfined, writeRole } from '../knowledge/settings.js';
+import { probePluginSandbox } from '../plugin/sandbox-probe.js';
 import { readKinds } from '../product/manifest/kinds.js';
 import { readFillTargets } from '../knowledge/fill-targets.js';
 import { MAX_EDITORIAL_REQUESTS } from '../writer/editorial.js';
@@ -445,14 +446,25 @@ function fillRefusalCode(message: string): string | undefined {
       const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
       // The roles are the product's own: the manifest declares them, the engine keeps none.
       const roles = choosableRoles(await product.declaredRoles());
-      if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env, roles)), roles }) };
+      if (request.method === 'GET') {
+        const probe = await probePluginSandbox();
+        const held = settled(() => readSettings(env, roles));
+        return { response: json(200, { ...held, pluginsUnconfined: held.pluginsUnconfined ?? null, roles, pluginIsolation: { capable: probe.state === 'confined', reason: probe.reason } }) };
+      }
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const role = (body as { role?: unknown } | null)?.role;
+      const asked = body as { role?: unknown; pluginsUnconfined?: unknown } | null;
+      if (asked?.pluginsUnconfined !== undefined) {
+        if (typeof asked.pluginsUnconfined !== 'boolean') return refused(400, { field: 'pluginsUnconfined', message: '"pluginsUnconfined" is true to run plugins without isolation on this machine, or false not to' });
+        return { response: json(200, { ...settled(() => ({ ...readSettings(env, roles), pluginsUnconfined: writePluginsUnconfined(env, asked.pluginsUnconfined as boolean) })), roles, pluginIsolation: { capable: (await probePluginSandbox()).state === 'confined', reason: (await probePluginSandbox()).reason } }) };
+      }
+      const role = asked?.role;
       if (typeof role !== 'string' || !roles.includes(role)) return refused(400, { field: 'role', accepted: roles.join(', '), message: `"role" is ${JSON.stringify(role)}: the roles are ${roles.join(', ')}` });
-      return { response: json(200, { ...settled(() => writeRole(env, role, roles)), roles }) };
+      settled(() => writeRole(env, role, roles));
+      const held = settled(() => readSettings(env, roles));
+      return { response: json(200, { ...held, pluginsUnconfined: held.pluginsUnconfined ?? null, roles, pluginIsolation: { capable: (await probePluginSandbox()).state === 'confined', reason: (await probePluginSandbox()).reason } }) };
     }),
     reset: guarded('start over', async (request) => {
       const crossSite = foreign(request);

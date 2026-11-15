@@ -47,6 +47,8 @@ export interface RunFillOptions {
   readonly pluginAgent?: PluginAgentOptions;
   /** Maximum reported tokens shared by every plugin agent in this run. */
   readonly tokenCap?: number;
+  /** This machine and its person chose to run plugins without isolation. */
+  readonly unconfined?: boolean;
   /** The run's id; a second press of one moment is one run. */
   readonly runId?: string;
   /** The content language the press named, when it named one: recorded on the run's root span, never a statement. */
@@ -158,7 +160,7 @@ async function runFillTraced(options: RunFillOptions, runId: string): Promise<Fi
   if (unknown.length > 0) throw new Error(`runFill: ${unknown.map((step) => JSON.stringify(step)).join(', ')} is not a step of this fill; its steps are ${[...held].sort().join(', ')} (src/fill/run.ts)`);
   const repositoryInputs = createRunRepositoryInputs();
   try {
-    const fill = await createStagesFill({ product, prepareRepositoryInputs: repositoryInputs.prepare, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }), tokenCap: options.tokenCap }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }) });
+    const fill = await createStagesFill({ product, prepareRepositoryInputs: repositoryInputs.prepare, ...(options.tokenCap === undefined ? {} : { budget: new AgentRunBudget({ tokens: options.tokenCap }), tokenCap: options.tokenCap }), database: options.database, ...(options.prepareContract === undefined ? {} : { prepareContract: options.prepareContract }), runId, ...(options.paths === undefined ? {} : { paths: options.paths }), ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.releaseHashes === undefined ? {} : { releaseHashes: options.releaseHashes }), ...(options.pluginAgent === undefined ? {} : { pluginAgent: options.pluginAgent }), ...(options.unconfined === true ? { unconfined: true } : {}) });
     const wiring = fill.registry.all().every((stage) => wanted.has(stage.id)) ? fill.wiring : narrowed(fill.wiring, wanted, fill.registry);
     // Reading the pins is what names a checkout with no commit: the answer says what the run did for
     // it once the run has settled, and a run of this product still reads every other repository.

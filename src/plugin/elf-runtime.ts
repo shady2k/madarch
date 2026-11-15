@@ -18,7 +18,7 @@
  * from the host and what they point at is bound too — nothing else of the
  * host's environment reaches the plugin.
  */
-import { closeSync, lstatSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { byCodePoint } from '../model/order.js';
 import { withSpanSync } from '../obs/trace.js';
@@ -319,7 +319,16 @@ export function runtimeSandbox(runtime: string, env: HostEnv = process.env, opti
   const mounts = new Set<string>();
   const problems: string[] = [];
   const environment: Record<string, string> = {};
+  // NixOS keeps every library and the loader in /nix/store, often behind links whose farm entries are not all readable
+  // (the credstore entry is a dangling bind source). Binding the store whole, as buildFHSEnv does, covers the runtime
+  // and every library without asking bwrap to bind each link; /run/current-system covers the system profile.
+  const wholeNixStore = platform.startsWith('linux-') && existsSync('/nix/store');
+  if (wholeNixStore) {
+    mounts.add('/nix/store');
+    if (existsSync('/run/current-system')) mounts.add('/run/current-system');
+  }
   const addFolder = (folder: string): void => {
+    if (wholeNixStore && (folder === '/nix/store' || folder.startsWith('/nix/store/') || folder === '/run/current-system' || folder.startsWith('/run/current-system/'))) return;
     if (bindableFolder(folder)) mounts.add(folder);
   };
   const addPath = (file: string, directory = false): void => {

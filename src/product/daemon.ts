@@ -32,6 +32,7 @@ import { here } from '../model/raise.js';
 import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
 import type { ValidatedManifests } from '../graph/manifest-publication.js';
 import { setManifestPublicationState } from './manifest-publication-state.js';
+import { canStartDelegatedScope, delegatedScopeCommand } from '../plugin/sandbox-delegation.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; /** The madarch version the server runs; a record written before versions were kept names none. */ version?: string; }
 const STATE_FILE = '.madarch-daemon.json';
@@ -514,13 +515,45 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
   const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist };
   delete env.MADARCH_STORE_OWNER_URL;
   delete env.MADARCH_STORE_OWNER_TOKEN;
-  const proc = withSpanSync('process.run', { 'process.command': child.command, 'process.args': child.args }, () => spawn(child.command, child.args, { detached: true, stdio: ['ignore', log, log], env }));
-  proc.unref();
+  const start = (command: string, args: string[]): import('node:child_process').ChildProcess => {
+    const started = withSpanSync('process.run', { 'process.command': command, 'process.args': args }, () => spawn(command, args, { detached: true, stdio: ['ignore', log, log], env }));
+    started.unref();
+    return started;
+  };
+  // Where the user manager delegates cpu, memory and pids, the daemon starts in its own transient scope and makes the
+  // daemon/plugins child layout there (sandbox-delegation.ts). The scope's shell writes the daemon's real pid, so the
+  // state file, the command-line check and stop all name the daemon rather than systemd-run.
+  const pidFile = join(home, `.madarch-daemon-pid-${token}`);
+  const delegated = await canStartDelegatedScope();
+  let proc: import('node:child_process').ChildProcess;
+  if (delegated) {
+    const scope = delegatedScopeCommand(child.command, child.args, pidFile, `madarch-daemon-${String(process.pid)}-${String(Date.now())}`);
+    proc = start(scope.command, scope.args);
+    const pidWritten = await waitUntil(() => existsSync(pidFile), 2500);
+    if (!pidWritten) {
+      try { proc.kill('SIGTERM'); } catch { /* already gone */ }
+      try { unlinkSync(pidFile); } catch { /* never written */ }
+      proc = start(child.command, child.args);
+    }
+  } else {
+    proc = start(child.command, child.args);
+  }
+  const daemonPid = (() => {
+    try {
+      const written = withSpanSync('fs.read', { 'file.path': pidFile }, (span) => {
+        const text = readFileSync(pidFile, 'utf8');
+        span.setAttribute('file.bytes', Buffer.byteLength(text));
+        return text;
+      });
+      const held = Number(written.trim());
+      return Number.isInteger(held) && held > 0 ? held : proc.pid!;
+    } catch { return proc.pid!; }
+  })();
   // A spawn that cannot even happen (a PATH without bun) is a failed start,
   // not an uncaught error on a process the state file already names.
   const childFault: { message?: string } = {};
   proc.once('error', (error) => { childFault.message = (error as Error).message; });
-  const state: DaemonState = { pid: proc.pid!, port, startedAt: Date.now(), home, token, version: runningVersion() };
+  const state: DaemonState = { pid: daemonPid, port, startedAt: Date.now(), home, token, version: runningVersion() };
   try { saveState(home, state); } catch (error) {
     await stopProcess(state, reads);
     clearState(home);
@@ -552,8 +585,12 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     if (await answersAsDaemon(port, state.token)) { answered = true; return true; }
     return false;
   }, READY_TIMEOUT_MS);
-  if (ready && answered && daemonIsAlive(state, reads)) return { ok: true, pid: state.pid, port };
+  if (ready && answered && daemonIsAlive(state, reads)) {
+    try { unlinkSync(pidFile); } catch { /* never written */ }
+    return { ok: true, pid: state.pid, port };
+  }
   await stopProcess(state, reads);
+  try { unlinkSync(pidFile); } catch { /* never written */ }
   const current = readState(home);
   const survived = daemonIsAlive(state, reads);
   // A record for a daemon that is really gone goes; a record whose process
@@ -737,6 +774,12 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   const { validateProductManifests } = await import('../graph/manifest-publication.js');
   const { createManifestWatch } = await import('./manifest-watch.js');
   const home = homePath(options.home);
+  const { prepareSandboxCgroup } = await import('../plugin/sandbox-delegation.js');
+  const cgroup = await prepareSandboxCgroup(process.env);
+  if (!cgroup.ok) console.error(cgroup.message);
+  const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
+  const probe = await probePluginSandbox();
+  if (probe.state === 'unavailable') console.error(probe.reason);
   // A start of this home stops a PostgreSQL server a crash left before it serves: its data folder is no process's to
   // keep when no madarch process uses it.
   await stopDatabasesUnder(knowledgeRootOf(home));
