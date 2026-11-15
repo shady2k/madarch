@@ -238,6 +238,44 @@ function archifyType(index: number): string {
   return index === 0 ? 'cloud' : 'backend';
 }
 
+/** The units a text occupies at the archify renderer's own 0.6 px-per-unit advance. */
+function archifyTextUnits(text: string): number {
+  let units = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    const wide = (code >= 0x1100 && code <= 0x115f) || code === 0x2329 || code === 0x232a
+      || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3)
+      || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe10 && code <= 0xfe19)
+      || (code >= 0xfe30 && code <= 0xfe6f) || (code >= 0xff00 && code <= 0xff60)
+      || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1faff);
+    units += wide ? 2 : 1;
+  }
+  return units;
+}
+
+/** The width a sublabel still needs at the renderer's 6 px legible minimum, inside an 8 px padded node. */
+function sublabelMinimumWidth(text: string): number {
+  return archifyTextUnits(text) * 6 * 0.6;
+}
+
+/**
+ * The sublabel a node can show: the whole path when it fits at the legible minimum, else a middle-shortened path that
+ * does. The whole path stays in the node's hover title (the forwarder writes it there), so a deep path never makes the
+ * archify renderer refuse the diagram.
+ */
+function archifySublabel(text: string, width: number): string {
+  const available = Math.max(1, width - 8);
+  if (sublabelMinimumWidth(text) <= available) return text;
+  const parts = text.split('/');
+  for (let keep = parts.length - 1; keep >= 1; keep -= 1) {
+    const candidate = `…/${parts.slice(-keep).join('/')}`;
+    if (sublabelMinimumWidth(candidate) <= available) return candidate;
+  }
+  let tail = parts[parts.length - 1] ?? text;
+  while (tail.length > 1 && sublabelMinimumWidth(`…${tail}`) > available) tail = tail.slice(1);
+  return `…${tail}`;
+}
+
 /** The archify document of a laid-out view: every node a component at LikeC4's position, every edge a connection. */
 export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Record<string, unknown> {
   const layout = layoutOf(liked);
@@ -249,15 +287,19 @@ export function archifyDocument(graph: DiagramGraph, liked: LikeC4Picture): Reco
     const own = occurrences.nodes.find((one) => likec4Id(order.get(one.id) ?? -1) === node.id);
     const id = own === undefined ? `c${String(at)}` : `node_${likec4Name(own.id)}`;
     componentIds.set(node.id, id);
+    const width = Math.round(node.width ?? 160);
+    const full = own?.title ?? own?.kind ?? '';
     return {
       id,
       type: archifyType(at),
       label: node.title === undefined || node.title === '' ? node.id : node.title,
-      // The whole path stands under a shortened name, so two files of one name read apart (madarch-64o5.96).
-      sublabel: own?.title ?? own?.kind ?? '',
+      // The whole path stands under a shortened name, so two files of one name read apart (madarch-64o5.96); a path
+      // longer than the node can carry at the legible minimum is shortened here, and the whole path stays in the
+      // node's hover title (see the forwarder).
+      sublabel: full === '' ? '' : archifySublabel(full, width),
 
       pos: [Math.round(node.x ?? 0), Math.round(node.y ?? 0)],
-      size: [Math.round(node.width ?? 160), Math.round(node.height ?? 60)],
+      size: [width, Math.round(node.height ?? 60)],
     };
   });
   if (components.length === 0) throw new Error(`${import.meta.filename}:1: the laid-out view holds no node, and an archify document needs at least one`);
@@ -331,11 +373,16 @@ export async function renderArchify(document: Record<string, unknown>, graph: Di
 /** The rendered page with the press forwarded: a click on a node's box opens the entity's page in the wiki. */
 export function forwarder(html: string, graph: DiagramGraph): string {
   const links: Record<string, string> = {};
-  for (const node of likec4Occurrences(graph).nodes) if (node.href !== undefined) links[`node_${likec4Name(node.id)}`] = node.href;
+  const titles: Record<string, string> = {};
+  for (const node of likec4Occurrences(graph).nodes) {
+    if (node.href !== undefined) links[`node_${likec4Name(node.id)}`] = node.href;
+    if (node.title !== undefined) titles[`node_${likec4Name(node.id)}`] = node.title;
+  }
   // The press opens a node's page; a theme message paints the page from the kit's own tokens (madarch-64o5.96). The
-  // renderer keeps its own layout and behaviour, and only its colours come from the wiki the frame stands in.
+  // renderer keeps its own layout and behaviour, and only its colours come from the wiki the frame stands in. A node
+  // whose visible sublabel was shortened keeps its whole path in the passport detail and the SVG title.
   const focus = `node_${likec4Name(graph.entity.id)}`;
-  const script = `<script>(function(){var focusId=${JSON.stringify(focus)};var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);window.addEventListener('message',function(event){var data=event.data||{};if(data.madarch!=='theme'||!data.theme)return;var theme=data.theme;var paints={'--bg':theme.canvas,'--grid':theme.nodeBorder,'--canvas-dot':theme.nodeBorder,'--text':theme.nodeText,'--text-muted':theme.edge,'--text-dim':theme.edge,'--text-faint':theme.edge,'--panel':theme.canvas,'--panel-border':theme.nodeBorder,'--lane-fill':theme.canvas,'--lane-stroke':theme.nodeBorder,'--arrow':theme.edge,'--arrow-emphasis':theme.nodeText,'--mask':theme.canvas,'--accept-fill':theme.nodeFill,'--accept-stroke':theme.nodeBorder,'--frontend-fill':theme.nodeFill,'--frontend-stroke':theme.nodeBorder,'--backend-fill':theme.nodeFill,'--backend-stroke':theme.nodeBorder,'--database-fill':theme.nodeFill,'--database-stroke':theme.nodeBorder,'--cloud-fill':theme.nodeFill,'--cloud-stroke':theme.nodeBorder,'--security-fill':theme.nodeFill,'--security-stroke':theme.nodeBorder,'--messagebus-fill':theme.nodeFill,'--messagebus-stroke':theme.nodeBorder,'--external-fill':theme.nodeFill,'--external-stroke':theme.nodeBorder,'--toolbar-bg':theme.canvas,'--toolbar-border':theme.nodeBorder,'--toolbar-text':theme.nodeText,'--toolbar-menu-bg':theme.canvas};var root=document.documentElement;for(var name in paints){root.style.setProperty(name,paints[name]);}root.setAttribute('data-theme',theme.scheme==='dark'?'dark':'light');var focus=document.querySelector('[data-node-id="'+focusId+'"]');if(focus){focus.querySelectorAll('rect,path,polygon').forEach(function(shape){shape.style.fill=theme.focusFill;shape.style.stroke=theme.focusBorder;shape.style.strokeWidth='2';});}parent.postMessage({madarch:'themed'},'*');});})();</script>`;
+  const script = `<script>(function(){var focusId=${JSON.stringify(focus)};var links=${JSON.stringify(links).replaceAll('<', '\\u003c')};var titles=${JSON.stringify(titles).replaceAll('<', '\\u003c')};for(var tid in titles){var detailNode=document.querySelector('[data-node-id="'+tid+'"]');if(detailNode){detailNode.setAttribute('data-node-sublabel',titles[tid]);var titleNode=detailNode.querySelector('title');if(titleNode)titleNode.textContent=titles[tid];}}document.addEventListener('click',function(event){var target=event.target;while(target&&target.getAttribute){var id=target.getAttribute('data-node-id');if(id&&links[id]){parent.postMessage({madarch:'open',href:links[id]},'*');return;}target=target.parentNode;}},true);window.addEventListener('message',function(event){var data=event.data||{};if(data.madarch!=='theme'||!data.theme)return;var theme=data.theme;var paints={'--bg':theme.canvas,'--grid':theme.nodeBorder,'--canvas-dot':theme.nodeBorder,'--text':theme.nodeText,'--text-muted':theme.edge,'--text-dim':theme.edge,'--text-faint':theme.edge,'--panel':theme.canvas,'--panel-border':theme.nodeBorder,'--lane-fill':theme.canvas,'--lane-stroke':theme.nodeBorder,'--arrow':theme.edge,'--arrow-emphasis':theme.nodeText,'--mask':theme.canvas,'--accept-fill':theme.nodeFill,'--accept-stroke':theme.nodeBorder,'--frontend-fill':theme.nodeFill,'--frontend-stroke':theme.nodeBorder,'--backend-fill':theme.nodeFill,'--backend-stroke':theme.nodeBorder,'--database-fill':theme.nodeFill,'--database-stroke':theme.nodeBorder,'--cloud-fill':theme.nodeFill,'--cloud-stroke':theme.nodeBorder,'--security-fill':theme.nodeFill,'--security-stroke':theme.nodeBorder,'--messagebus-fill':theme.nodeFill,'--messagebus-stroke':theme.nodeBorder,'--external-fill':theme.nodeFill,'--external-stroke':theme.nodeBorder,'--toolbar-bg':theme.canvas,'--toolbar-border':theme.nodeBorder,'--toolbar-text':theme.nodeText,'--toolbar-menu-bg':theme.canvas};var root=document.documentElement;for(var name in paints){root.style.setProperty(name,paints[name]);}root.setAttribute('data-theme',theme.scheme==='dark'?'dark':'light');var focus=document.querySelector('[data-node-id="'+focusId+'"]');if(focus){focus.querySelectorAll('rect,path,polygon').forEach(function(shape){shape.style.fill=theme.focusFill;shape.style.stroke=theme.focusBorder;shape.style.strokeWidth='2';});}parent.postMessage({madarch:'themed'},'*');});})();</script>`;
   const at = html.toLowerCase().lastIndexOf('</body>');
   return at < 0 ? `${html}${script}` : `${html.slice(0, at)}${script}${html.slice(at)}`;
 }

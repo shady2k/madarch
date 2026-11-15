@@ -307,3 +307,14 @@ test('the requested fold bound reaches the neighbourhood reader', async () => {
   expect('body' in answer).toBe(true);
   expect(sample).toBe(30);
 });
+
+test('a deep path in a narrow node renders, with the whole path reachable', async () => {
+  const deep = `/src/${'nested/'.repeat(20)}index.ts`;
+  const paths = { ...neighbourhood, labels: new Map(neighbourhood.labels).set('2', deep) };
+  const held = { diagramNeighbourhood: async () => paths } as unknown as KnowledgeProduct;
+  const answer = await renderDiagram(held, { entity: '1', format: 'archify' });
+  if (!('html' in answer)) throw new Error(`the archify answer is not HTML: ${JSON.stringify(answer).slice(0, 400)}`);
+  // The visible sublabel is shortened, while the whole path stays in the node's passport title the forwarder writes.
+  expect(answer.html).toContain('data-node-sublabel="…');
+  expect(answer.html).toContain(deep);
+}, 60_000);
