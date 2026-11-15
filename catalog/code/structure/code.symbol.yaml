@@ -28,19 +28,10 @@ fields:
   binding:
     agent: 'Read the defining source file: fully qualified symbol name, API operation identity (method and route or RPC name),
       or channel address, unique within this file.'
-- name: state_machines
-  type: json
-  nullable: true
-  labels: { en: State machines, ru: Машины состояний }
-  binding:
-    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
-      use [] when none exist and preserve source positions.'
 key:
 - repository
 - path
 - name
-views:
-- state
 sequence: symbol
 details:
 - symbolKind

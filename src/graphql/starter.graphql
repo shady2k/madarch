@@ -996,9 +996,6 @@ type CodeFile implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  stateMachines: JSON
-  stateMachinesOpinions: [Opinion!]!
-  stateMachinesOpinionsCount: Int!
   repository: String
   repositoryOpinions: [Opinion!]!
   repositoryOpinionsCount: Int!
@@ -1728,12 +1725,9 @@ type CodeModule implements Entity {
   folder: CodeDirectory
   folderOpinions: [Opinion!]!
   folderOpinionsCount: Int!
-  description: String
-  descriptionOpinions: [Opinion!]!
-  descriptionOpinionsCount: Int!
-  stateMachines: JSON
-  stateMachinesOpinions: [Opinion!]!
-  stateMachinesOpinionsCount: Int!
+  responsibility: String
+  responsibilityOpinions: [Opinion!]!
+  responsibilityOpinionsCount: Int!
   domainCoversOf(first: Int, after: String): DomainCoversConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -2126,9 +2120,6 @@ type CodeService implements Entity {
   path: String
   pathOpinions: [Opinion!]!
   pathOpinionsCount: Int!
-  stateMachines: JSON
-  stateMachinesOpinions: [Opinion!]!
-  stateMachinesOpinionsCount: Int!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2250,9 +2241,6 @@ type CodeSymbol implements Entity {
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
-  stateMachines: JSON
-  stateMachinesOpinions: [Opinion!]!
-  stateMachinesOpinionsCount: Int!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -5118,14 +5106,7 @@ input CodeFileRepositoryFilter {
   _is_null: Boolean
 }
 
-input CodeFileStateMachinesFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input CodeFileWhere {
-  stateMachines: CodeFileStateMachinesFilter
   repository: CodeFileRepositoryFilter
   path: CodeFilePathFilter
   mode: CodeFileModeFilter
@@ -5495,20 +5476,6 @@ input CodeIndexWhereFilter {
   _is_null: Boolean
 }
 
-input CodeModuleDescriptionFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
 input CodeModuleNameFilter {
   _eq: String
   _neq: String
@@ -5529,16 +5496,23 @@ input CodeModuleOrder {
   nulls: NullsOrder
 }
 
-input CodeModuleStateMachinesFilter {
-  _eq: JSON
-  _neq: JSON
+input CodeModuleResponsibilityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
   _is_null: Boolean
 }
 
 input CodeModuleWhere {
   name: CodeModuleNameFilter
-  description: CodeModuleDescriptionFilter
-  stateMachines: CodeModuleStateMachinesFilter
+  responsibility: CodeModuleResponsibilityFilter
 }
 
 input CodeOperationDefinitionFilter {
@@ -5758,16 +5732,9 @@ input CodeServiceRepositoryFilter {
   _is_null: Boolean
 }
 
-input CodeServiceStateMachinesFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input CodeServiceWhere {
   repository: CodeServiceRepositoryFilter
   path: CodeServicePathFilter
-  stateMachines: CodeServiceStateMachinesFilter
 }
 
 input CodeSymbolNameFilter {
@@ -5818,17 +5785,10 @@ input CodeSymbolRepositoryFilter {
   _is_null: Boolean
 }
 
-input CodeSymbolStateMachinesFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input CodeSymbolWhere {
   repository: CodeSymbolRepositoryFilter
   path: CodeSymbolPathFilter
   name: CodeSymbolNameFilter
-  stateMachines: CodeSymbolStateMachinesFilter
 }
 
 input CodeTableDatabaseFilter {
@@ -8222,7 +8182,6 @@ enum CodeDirectoryOrderField {
 }
 
 enum CodeFileOrderField {
-  stateMachines
   repository
   path
   mode
@@ -8286,8 +8245,7 @@ enum CodeIndexOrderField {
 
 enum CodeModuleOrderField {
   name
-  description
-  stateMachines
+  responsibility
 }
 
 enum CodeOperationOrderField {
@@ -8316,14 +8274,12 @@ enum CodeRepositoryOrderField {
 enum CodeServiceOrderField {
   repository
   path
-  stateMachines
 }
 
 enum CodeSymbolOrderField {
   repository
   path
   name
-  stateMachines
 }
 
 enum CodeTableOrderField {

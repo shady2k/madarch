@@ -105,7 +105,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const modules = areas.map((area) => ({
       kind: 'code.module',
       key: { name: area.path.split('/').pop() },
-      values: { folder: { kind: 'code.directory', key: { repository: area.repository, path: area.path } }, description: 'The module held in ' + area.path + '.', state_machines: [] },
+      values: { folder: { kind: 'code.directory', key: { repository: area.repository, path: area.path } }, responsibility: 'The module held in ' + area.path + '.' },
       evidence: evidenceOf(area),
     }));
     const edges = domains.map((domain) => ({
@@ -199,7 +199,7 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       expect(domainTurn.task.what).toContain('area of the business');
       expect(domainTurn.task.fields.map((field) => field.name)).toEqual(['name', 'description']);
       expect(domainTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers', 'domain.covers-folder', 'domain.uses-term']);
-      expect(moduleTurn.task.fields.map((field) => field.name)).toEqual(['name', 'folder', 'description', 'state_machines']);
+      expect(moduleTurn.task.fields.map((field) => field.name)).toEqual(['name', 'folder', 'responsibility']);
       expect(moduleTurn.task.relations.map((relation) => relation.kind)).toEqual(['module.depends-on']);
 
       // What the graph holds: the domains with the folders they cover, and the modules with their folders.
@@ -210,10 +210,10 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
       const domainRows = (domains.body as { data: { allDomain: { edges: { node: { name: string; description: string; domainCoversFolder: Covered } }[] } } }).data.allDomain.edges.map((edge) => edge.node);
       expect(domainRows.map((node) => [node.name, node.domainCoversFolder.edges.map((held) => [held.node.node.kind, held.node.node.path])])).toEqual([['Identity', [['code.directory', 'src/identity']]], ['Orders', [['code.directory', 'src/orders']]]]);
       expect(domainRows[0]?.description).toContain('area of the product');
-      const modules = await graph('{ allCodeModule(orderBy: [{field: name}]) { edges { node { name description folder { repository path } stateMachines } } } }');
+      const modules = await graph('{ allCodeModule(orderBy: [{field: name}]) { edges { node { name responsibility folder { repository path } } } } }');
       expect(modules.status).toBe(200);
-      const moduleRows = (modules.body as { data: { allCodeModule: { edges: { node: { name: string; folder: { repository: string; path: string }; description: string } }[] } } }).data.allCodeModule.edges.map((edge) => edge.node);
-      expect(moduleRows.map((node) => [node.name, node.folder.path, node.description])).toEqual([['identity', 'src/identity', 'The module held in src/identity.'], ['orders', 'src/orders', 'The module held in src/orders.']]);
+      const moduleRows = (modules.body as { data: { allCodeModule: { edges: { node: { name: string; folder: { repository: string; path: string }; responsibility: string } }[] } } }).data.allCodeModule.edges.map((edge) => edge.node);
+      expect(moduleRows.map((node) => [node.name, node.folder.path, node.responsibility])).toEqual([['identity', 'src/identity', 'The module held in src/identity.'], ['orders', 'src/orders', 'The module held in src/orders.']]);
       // Every entity names the graph file its fact rests on: the file the agent read through the server.
       const evidence = await owner.transaction('snapshot', async (tx) => await tx.query<{ name: string; evidence: { repository: string; path: string; line_start: number; line_end: number }[] }>(
         `SELECT n.key->>'name' AS name, v.evidence FROM ${generatedTableName('domain', 'vertex')} v JOIN node n ON n.id = v.node_id WHERE v.state = 'open' ORDER BY name`));

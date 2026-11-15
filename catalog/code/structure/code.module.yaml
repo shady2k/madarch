@@ -30,26 +30,16 @@ fields:
     ru: Папка
   binding:
     agent: 'The folder the module covers, named by the key of that folder entity in the graph: its repository and its path.'
-- name: description
+- name: responsibility
   type: text
   nullable: true
   labels:
-    en: Description
-    ru: Описание
+    en: Responsibility
+    ru: Ответственность
   binding:
-    agent: 'What the module is responsible for, in one or two sentences, read from the text of the files the folder holds in the graph.'
-- name: state_machines
-  type: json
-  nullable: true
-  labels:
-    en: State machines
-    ru: Машины состояний
-  binding:
-    agent: 'The state machines the module''s own files declare, as [{name, states: [{name, line}], transitions: [{from, to, event, line}], repository, path, lineStart, lineEnd}], each resting on the file of the graph it was read from; [] when the module declares none.'
+    agent: 'What the module is for, in one or two sentences: the responsibility it holds, read from the text of the files the folder holds in the graph.'
 key:
 - name
-views:
-- state
 labels:
   en:
     one: Module

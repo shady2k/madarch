@@ -125,10 +125,11 @@ describe.skipIf(sandboxProblem !== undefined)('the agent fills a kind the manife
       { field: 'title', producers: ['agent-fill'] },
       { field: 'body', producers: ['agent-fill'] },
     ]);
-    // A kind deterministic producers also fill keeps its own producers, and the agent only the field left to it.
+    // A kind deterministic producers fill whole keeps its own producers and leaves the agent no field (the state machines
+    // are a kind of their own, madarch-64o5.114).
     const files = fillPlanView(declarations.manifest, f.product, ['code.file'], ['code.file']);
     expect(files.kinds.find((kind) => kind.kind === 'code.file')?.fields.find((field) => field.field === 'path')?.producers).toEqual(['disk', 'git']);
-    expect(files.kinds.find((kind) => kind.kind === 'code.file')?.agentFields).toEqual(['state_machines']);
+    expect(files.kinds.find((kind) => kind.kind === 'code.file')?.agentFields).toEqual([]);
 
     const store = productStoreFolder(f.product, knowledgeRootOf(f.home));
     const owner = await createDatabaseOwner({ store: storeDatabasePath(store), btreeGist: true });

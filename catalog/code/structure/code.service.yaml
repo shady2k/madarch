@@ -25,13 +25,6 @@ fields:
   type: text
   binding:
     agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-- name: state_machines
-  type: json
-  nullable: true
-  labels: { en: State machines, ru: Машины состояний }
-  binding:
-    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
-      use [] when none exist and preserve source positions.'
 key:
 - repository
 - path
@@ -42,7 +35,6 @@ card: true
 history: membership
 views:
 - c4-component
-- state
 system: container
 details:
 - language
