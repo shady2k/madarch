@@ -22,6 +22,17 @@ as the opinions of the producers that stated them, and has its own page:
 everything the wiki shows is an entity (decisions 0034, 0036).
 _Avoid_: record, instance, item
 
+**Reference** (ru: ссылка):
+One entity naming another: the file `src/index.ts` names the repository it lies
+in, a transition names its two states, a comment names its author. A reference
+is always an edge of the graph between the two vertices, declared as an edge
+kind in the catalogue with its direction, how many it allows and its words in
+both languages; it is never text or JSON in a field, so its target exists, its
+other side shows on the target's page, and a misspelt name cannot be stored
+(madarch-64o5.74; owner, 2026-11-15). A value that names nothing — a path, a
+count, a date, a status — is a field, not a reference.
+_Avoid_: pointer (ru: указатель), link field, reference field
+
 **Kind** (ru: вид; `kind` in code and manifests):
 What the catalogue declares a product can hold: File, Repository, Commit,
 Task, Decision. A kind carries its definition, its fields, its relations, the
