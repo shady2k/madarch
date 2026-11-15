@@ -11,9 +11,10 @@ The owner's walk found a file page with no text (2026-11-15, after the first age
 never the text; the text is read by (repository, blob id) from git's object store through the git plugin in the plugin
 host, for the page and for the agent's file reads alike. Decision 0037 records it.
 
-Implemented: `madarch.plugins/3` adds the host's read of a blob, answered by the git plugin in its sandbox; the store's
-`file_text_request` table (prepared with the store's schema) carries a page's request to the plugin host and its answer
-back; `/api/source` answers a code file by the blob id the graph holds, line ranges included; the code-file template's
+Implemented: `madarch.plugins/3` adds the host's read of a blob, answered by the git plugin in its sandbox; a page's
+request is a job on the store's one pg-boss queue (`file-texts`, prepared with the fills), which the fill role claims,
+answers through the plugin and settles with the bytes as the job's result — the api reads that result back through the
+same queue, and there is no second store; `/api/source` answers a code file by the blob id the graph holds, line ranges included; the code-file template's
 «Текст» section renders Markdown with the documents' own component and a Rendered / Source switch, and every other text
 file as a line-numbered source at the page's width with soft wrap and chunked ranges; the agent's ACP file reads ask the
 same host read by blob id instead of a graph-held text; the disk plugin no longer publishes `content` and the catalogue

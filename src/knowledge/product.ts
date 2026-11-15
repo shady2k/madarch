@@ -34,9 +34,8 @@ import { KINDS_FILE, readKinds, readKindsFrom, setKindsLanguage, type KindsManif
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import type { KnowledgeFillResult, KnowledgeFillRun } from './fill-run.js';
 import { askFillRun, openFillRunQueue } from '../fill/run-jobs.js';
-import { askFileText, forgetFileText, readFileTextAnswer } from '../adapters/file-text-store.js';
+import { askFileText, declareFileTextQueue, fileTextAnswer, FILE_TEXT_QUEUE } from './file-texts.js';
 import { typeNameOf } from '../graphql/names.js';
-import { randomUUID } from 'node:crypto';
 import { startKnowledgeFill } from './fill-run.js';
 import { readFillRunDetail } from './fill-runs.js';
 import { runPhaseOf } from '../fill/fsm.js';
@@ -2338,25 +2337,32 @@ export class KnowledgeProduct {
     // (src/knowledge/file-texts.ts).
     const named = this.repositories().find((held) => held.name === repository);
     const root = named?.path ?? (repository === product.name ? product.folder : join(product.folder, 'repos', repository));
-    const owner = await this.open();
-    const id = randomUUID();
+    // The read is a job on the store's one queue, answered by the fill role (madarch-u3vw.16): the queue carries the
+    // request and the answer, and no store of its own is written.
     const from = Math.max(1, Math.trunc(options.from ?? 1));
-    await askFileText(owner, { id, product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, to: options.to === undefined ? null : Math.trunc(options.to) });
-    try {
-      const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
-      while (Date.now() < deadline) {
-        const held = await readFileTextAnswer(owner, id);
-        if (held !== null) {
-          if (held.error !== undefined) throw new WikiReadError(held.error);
-          if (held.answer === undefined) throw new WikiReadError(`${import.meta.filename}:1: the file read of ${path} answered nothing`);
-          return { ...held.answer, blob: node.blob, from, repository, path };
-        }
-        await Bun.sleep(50);
+    const queue = await this.fileTextQueue();
+    const id = await askFileText(queue, { product: product.folder, plugin: join('plugins', 'git'), repository, root, blob: node.blob, from, to: options.to === undefined ? null : Math.trunc(options.to) });
+    const deadline = Date.now() + FILE_TEXT_DEADLINE_MS;
+    let asked = 0;
+    while (Date.now() < deadline) {
+      const held = await fileTextAnswer(queue, id);
+      if (held !== null) {
+        if ('error' in held) throw new WikiReadError(held.error);
+        return { ...held, blob: node.blob, from, repository, path };
       }
-      throw new WikiReadError(`${import.meta.filename}:1: no file read answered within ${String(FILE_TEXT_DEADLINE_MS)} ms: the page reads a file through the plugin host, and no fill role is answering (madarch serve starts one)`);
-    } finally {
-      await forgetFileText(owner, id).catch(() => undefined);
+      asked += 1;
+      // A read whose worker died is recovered by the queue's own sweep: ask it now and then rather than wait the lease.
+      if (asked % 20 === 0) await queue.recover(FILE_TEXT_QUEUE).catch(() => undefined);
+      await Bun.sleep(50);
     }
+    throw new WikiReadError(`${import.meta.filename}:1: no file read answered within ${String(FILE_TEXT_DEADLINE_MS)} ms: the page reads a file through the plugin host, and no fill role is answering (madarch serve starts one)`);
+  }
+
+  /** The store's read queue: the one fill queue, declared for reads too, and closed with the product. */
+  private async fileTextQueue(): Promise<Awaited<ReturnType<typeof openFillRunQueue>>> {
+    this.fillQueue ??= await openFillRunQueue(await this.open());
+    await declareFileTextQueue(this.fillQueue);
+    return this.fillQueue;
   }
 
   async source(repo: string | null, path: string): Promise<SourceRead | undefined> {

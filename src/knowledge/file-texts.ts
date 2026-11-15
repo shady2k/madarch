@@ -1,12 +1,11 @@
 /**
- * The plugin host's half of the file-text channel (madarch-u3vw.16, decision 0037): a blob is read through the git
- * plugin, which runs in its own sandbox with the repository bound read-only. The host claims the api role's request from
- * the store and answers it; the agent's file reads call the same `readBlobThroughPlugin`, so the page and the agent share
- * one read path and neither reads a working copy.
+ * The file-text queue (madarch-u3vw.16, decision 0037): a page's read of a file's text is a job on the one pg-boss queue,
+ * claimed by the fill role, which asks the git plugin for the blob's lines through madarch.plugins/3 and settles the job
+ * with the bytes as its result. The api role enqueues the job and reads its own record back through the queue, so there
+ * is one queue and no second store: the queue holds the request and the answer.
  *
- * The request names the product folder, the plugin's folder in it, the repository's folder and the blob id. Each is
- * checked here before anything runs: the plugin folder lies inside the product, the repository lies under its `repos/`,
- * and the plugin's closure is the one the product's lock names.
+ * The agent's file reads call `readBlobThroughPlugin` directly — the same plugin read the job performs — so the page and
+ * the agent share one mechanism.
  */
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,10 +16,65 @@ import { parsePluginLock, PLUGINS_LOCK_FILE } from '../plugin/lock.js';
 import { readFileSync } from 'node:fs';
 import { sandboxRepositoryPath } from '../plugin/sandbox.js';
 import { RELEASE_CLOSURE_HASHES } from '../plugin/release-closures.js';
-import { answerFileText, claimFileTexts, type FileTextAnswer, type FileTextAsk, type FileTextDatabase } from '../adapters/file-text-store.js';
+import type { ClaimedJob, QueueService } from '../fill/queue.js';
 
 /** WHERE this module raises from. */
 const WHERE = 'src/knowledge/file-texts.ts';
+
+/** The queue the reads wait in: the store's one pg-boss queue, beside the fills. */
+export const FILE_TEXT_QUEUE = 'file-texts';
+
+/** One request on the queue: the product, the plugin's folder, the repository and the blob, with the lines asked for. */
+export interface FileTextJob {
+  readonly product: string;
+  readonly plugin: string;
+  readonly repository: string;
+  readonly root: string;
+  readonly blob: string;
+  readonly from: number;
+  readonly to: number | null;
+}
+
+/** The answer one job settles with: the lines' text, the whole blob's counts, and whether it is text at all. */
+export interface FileTextResult {
+  readonly text: string;
+  readonly lines: number;
+  readonly bytes: number;
+  readonly binary: boolean;
+}
+
+/** Declares the read queue on a store's queue service: a read is quick, and one retry covers a host that died mid-read. */
+export async function declareFileTextQueue(queue: QueueService): Promise<void> {
+  // The declaration the store preparation installed, applied to this client: the settings must be the prepared ones.
+  await queue.declare({ name: FILE_TEXT_QUEUE, leaseSeconds: 120, retries: 1, retryDelaySeconds: 1, retryBackoff: false });
+}
+
+/** Asks for one read: the job's id is what the caller reads its answer by. */
+export async function askFileText(queue: QueueService, request: FileTextJob): Promise<string> {
+  const held = await queue.enqueue({ queue: FILE_TEXT_QUEUE, data: request });
+  if (!held.created) throw new Error(`${WHERE}:1: the queue created no file read: the ${FILE_TEXT_QUEUE} queue holds singletons and its key was taken`);
+  return held.id;
+}
+
+/** The answer to one read, or null while the queue holds no answer yet. */
+export async function fileTextAnswer(queue: QueueService, id: string): Promise<FileTextResult | { readonly error: string } | null> {
+  const held = await queue.job<FileTextResult & { readonly error?: string }>(FILE_TEXT_QUEUE, id);
+  if (held === null) return null;
+  if (held.state === 'completed') return held.output ?? { error: `${WHERE}:1: the read's job completed with no answer` };
+  if (held.state === 'failed' || held.state === 'cancelled') return { error: held.output?.error ?? `${WHERE}:1: the read's job ended ${held.state} without words` };
+  return null;
+}
+
+/** The oldest reads waiting, claimed for this pass. */
+export async function claimFileTexts(queue: QueueService, limit = 4): Promise<readonly ClaimedJob<FileTextJob>[]> {
+  return await queue.claim<FileTextJob>({ queue: FILE_TEXT_QUEUE, limit });
+}
+
+/** Settles one read: the bytes as the job's result, or the words of why it could not be read. */
+export async function settleFileText(queue: QueueService, job: ClaimedJob<FileTextJob>, answer: FileTextResult | { readonly error: string }): Promise<void> {
+  if ('error' in answer) await queue.fail(FILE_TEXT_QUEUE, job, answer.error);
+  else await queue.complete(FILE_TEXT_QUEUE, job, answer);
+}
 
 /** What one read needs: the product, the plugin's folder in it, the repository's name and folder, and the blob. */
 export interface BlobRead {
@@ -58,7 +112,6 @@ export function verifyBlobRead(read: BlobRead): { pluginFolder: string; reposito
   const stat = (() => { try { return statSync(repositoryRoot); } catch { return undefined; } })();
   if (stat === undefined || !stat.isDirectory()) throw new BlobReadRefusal(`${WHERE}:1: the repository folder ${repositoryRoot} is not there: connect the repository with "madarch repo add" and bootstrap it`);
   if (!existsSync(join(repositoryRoot, 'HEAD')) && !existsSync(join(repositoryRoot, '.git'))) throw new BlobReadRefusal(`${WHERE}:1: the repository folder ${repositoryRoot} is no git checkout, so git's object store cannot answer`);
-  // The plugin runs exactly the closure the product locked: a changed closure needs a person's approval, as in a fill.
   const lockFile = join(read.product, PLUGINS_LOCK_FILE);
   let lockText: string | undefined;
   try { lockText = readFileSync(lockFile, 'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new BlobReadRefusal(`${lockFile}:1: the plugin lock cannot be read: ${(error as Error).message}`); }
@@ -129,7 +182,7 @@ async function readerFor(verified: { pluginFolder: string; repositoryRoot: strin
  * for, and is kept for the next range of the same repository. The plugin names the repository at the path its sandbox
  * gives it, never the host's own.
  */
-export async function readBlobThroughPlugin(read: BlobRead, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>> } = {}): Promise<FileTextAnswer> {
+export async function readBlobThroughPlugin(read: BlobRead, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>> } = {}): Promise<FileTextResult> {
   const verified = verifyBlobRead(read);
   const env = options.env ?? process.env;
   const reader = await readerFor(verified, options);
@@ -143,19 +196,17 @@ function failureOf(error: unknown): string {
   return error instanceof Error ? `${WHERE}:1: ${error.message}` : `${WHERE}:1: the read failed: ${String(error)}`;
 }
 
-/** Answers the store's requests: the api role's pages wait on these rows. Answers how many were served. */
-export async function serveFileTexts(database: FileTextDatabase, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void } = {}): Promise<number> {
-  const asks = await claimFileTexts(database);
-  for (const ask of asks) await answerOne(database, ask, options);
-  return asks.length;
-}
-
-async function answerOne(database: FileTextDatabase, ask: FileTextAsk, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void }): Promise<void> {
-  try {
-    const answer = await readBlobThroughPlugin({ product: ask.product, plugin: ask.plugin, repository: ask.repository, root: ask.root, blob: ask.blob, from: ask.from, ...(ask.to === null ? {} : { to: ask.to }) }, options);
-    await answerFileText(database, ask.id, { text: answer });
-  } catch (error) {
-    options.log?.(`madarch file read: ${failureOf(error)}`);
-    await answerFileText(database, ask.id, { error: failureOf(error) });
+/** Answers the reads waiting on the queue: the api role's pages wait on these jobs. Answers how many were served. */
+export async function serveFileTexts(queue: QueueService, options: { readonly releaseHashes?: readonly string[]; readonly env?: Readonly<Record<string, string | undefined>>; readonly log?: (line: string) => void } = {}): Promise<number> {
+  const jobs = await claimFileTexts(queue);
+  for (const job of jobs) {
+    try {
+      const answer = await readBlobThroughPlugin({ product: job.data.product, plugin: job.data.plugin, repository: job.data.repository, root: job.data.root, blob: job.data.blob, from: job.data.from, ...(job.data.to === null ? {} : { to: job.data.to }) }, options);
+      await settleFileText(queue, job, answer);
+    } catch (error) {
+      options.log?.(`madarch file read: ${failureOf(error)}`);
+      await settleFileText(queue, job, { error: failureOf(error) });
+    }
   }
+  return jobs.length;
 }

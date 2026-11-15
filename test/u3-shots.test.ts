@@ -58,12 +58,15 @@ run('a file page shows its text', () => {
     expect(answer.status).toBe(202);
     void ((await answer.json()) as { runId: string }).runId;
     let state = 'running';
-    for (let at = 0; at < 300; at += 1) {
-      const status = (await (await fetch(`${base}api/status`)).json()) as { fill: { state: string } };
+    let last: unknown = null;
+    for (let at = 0; at < 120; at += 1) {
+      const status = (await (await fetch(`${base}api/status`)).json()) as { fill: { state: string; message?: string } };
       state = status.fill.state;
+      last = status.fill;
       if (['done', 'failed', 'stopped'].includes(state)) break;
       await Bun.sleep(1000);
     }
+    if (state !== 'done') console.info('FILL', JSON.stringify(last).slice(0, 700));
     expect(state).toBe('done');
     const file = async (path: string): Promise<string> => {
       const found = (await (await fetch(`${base}graphql`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: `{ allCodeFile(where: { path: { _eq: ${JSON.stringify(path)} } }, first: 1) { edges { node { id } } } }` }) })).json()) as { data?: { allCodeFile?: { edges: { node: { id: string } }[] } } };
