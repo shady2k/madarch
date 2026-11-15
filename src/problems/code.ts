@@ -4,7 +4,7 @@
  * Every rule reads facts that already exist — a cycle node, an import edge, a
  * file's line and commit count, a symbol's dead-export flag, a comment's
  * marker, an environment variable's required flag and its definitions — and
- * says one plain reason and an evidence path. The rule data (id, Sonar kind,
+ * says one sentence, in the reader's language, and an evidence path. The rule data (id, Sonar kind,
  * severity) comes from `rules.ts`; the thresholds come from the product's
  * manifest, with the starter set's defaults.
  */
@@ -13,7 +13,7 @@ import { pluralForm } from '../knowledge/plural.js';
 import { entityAddress } from '../knowledge/resolve.js';
 import type { GraphEntity, GraphReader, RelationEdge } from '../knowledge/graph-read.js';
 import { ruleSpecs } from './rules.js';
-import type { ProblemDraft, ProblemLink, ProblemNote, ProblemScope, ProblemSettings, ProblemSeverity, RuleSpec } from './types.js';
+import type { ProblemDraft, ProblemLink, ProblemNote, ProblemScope, ProblemSettings, ProblemSeverity, ProblemText, RuleSpec } from './types.js';
 
 /** A path a test file of a repository stands at: the rules read tests differently from code. */
 const isTestPath = (path: string): boolean => /(^|\/)(tests?|__tests__)\//.test(path) || /\.(test|spec)\.[a-z]+$/.test(path) || /_test\.go$/.test(path);
@@ -151,7 +151,7 @@ export function evaluateCode(snapshot: CodeSnapshot, settings: ProblemSettings):
     try {
       drafts.push(...work(snapshot, rule, rule.severity, settings));
     } catch (error) {
-      notes.push({ message: `the rule ${rule.id} could not be run: ${(error as Error).message}` });
+      notes.push({ message: `the rule ${rule.id} could not be run: ${(error as Error).message}`, textKey: 'ruleNotRun', textArgs: { rule: rule.id, error: (error as Error).message } });
     }
   }
   return { problems: drafts, notes };
@@ -172,10 +172,10 @@ const ruCount = (count: number, one: string, few: string, many: string): string 
 };
 
 /** A draft of the code section, with the fields every code finding shares. */
-function draft(rule: Rule, severity: ProblemSeverity, fields: Omit<ProblemDraft, 'section' | 'rule' | 'kind' | 'sonar' | 'severity' | 'fixer' | 'closed' | 'by' | 'at'>): ProblemDraft {
+function draft(rule: Rule, severity: ProblemSeverity, fields: Omit<ProblemDraft, 'section' | 'rule' | 'kind' | 'sonar' | 'severity' | 'closed' | 'by' | 'at'>): ProblemDraft {
   return {
     section: rule.section, rule: rule.id, kind: rule.kind, sonar: rule.sonar, severity,
-    fixer: 'person', closed: false,
+    closed: false,
     ...fields,
     by: null, at: null,
   };
@@ -191,13 +191,11 @@ function dependencyCycles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemS
     const edges = strings(cycle.properties['edges']);
     const names = members.map(pathOfKey);
     const path = cycle.span?.path ?? (names[0] ?? '');
-    const what = level === 'file' ? 'files' : 'modules';
-    const reason = `${names.map(baseName).join(' and ')} import one another in a cycle of ${members.length} ${what}: every change to one reaches the others.`;
     const named = names.map(baseName).join(', ');
     const scope: ProblemScope | undefined = path === '' ? undefined : { type: 'file', path };
     return draft(rule, severity, {
-      reason, file: path, line: cycle.span?.lineStart ?? null,
-      words: findingWords(`${named} import one another in a cycle of ${members.length} ${what}.`, `цикл: ${named} импортируют друг друга.`),
+      text: { code: level === 'file' ? 'cycleFiles' : 'cycleModules', args: { names: named } }, file: path, line: cycle.span?.lineStart ?? null,
+      words: findingWords(`${named} import one another in a cycle of ${members.length} ${level === 'file' ? 'files' : 'modules'}.`, `цикл: ${named} импортируют друг друга.`),
       page: null, pageTitle: null, statement: null, sentence: null, target: cycle.key,
       place: fileLink(path, cycle.span?.lineStart),
       entity: entityLink(cycle.key, cycle.label),
@@ -235,9 +233,8 @@ function sqlInputs(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity
       if (build === undefined) continue;
       const path = sink.span?.path ?? build.span?.path ?? '';
       const names = inputs.map((input) => input.label).join(', ');
-      const reason = `${names} reach ${build.label}, which builds SQL text by joining strings, and ${sink.label} runs that text as it is: the value is never a bound parameter.`;
       problems.push(draft(rule, severity, {
-        reason, file: path, line: sink.span?.lineStart ?? build.span?.lineStart ?? null,
+        text: { code: 'sqlInput', args: { inputs: names, build: build.label, sink: sink.label } }, file: path, line: sink.span?.lineStart ?? build.span?.lineStart ?? null,
         words: findingWords(`${names} reach ${build.label}, and ${sink.label} runs the built SQL without a bound parameter.`, `${names} попадают в ${build.label}, а ${sink.label} выполняет собранный SQL без подстановки параметров.`),
         page: null, pageTitle: null, statement: null, sentence: null, target: sink.key,
         place: fileLink(path, sink.span?.lineStart),
@@ -292,14 +289,14 @@ function routesOutsideAuth(snapshot: CodeSnapshot, rule: Rule, severity: Problem
       const handler = text(route.properties['handlerKey']);
       const handlerPath = text(route.properties['handlerPath']);
       const contractPath = served === undefined ? undefined : text(served.properties['path']);
-      const reason = securedByContract && !protectedRoots.has(root)
-        ? `${route.label} is registered outside the auth group, while ${served?.label ?? 'its operation'} (${contractPath ?? 'the contract'}) requires a token: it answers without one.`
-        : `${route.label} is registered outside the auth group, while the other /${root} routes of ${service || 'this service'} are inside it: it answers without a token.`;
+      const sentence: ProblemText = securedByContract && !protectedRoots.has(root)
+        ? { code: 'routeOutsideAuthContract', args: { route: route.label, operation: served?.label ?? '', contract: contractPath ?? '' } }
+        : { code: 'routeOutsideAuthGroup', args: { route: route.label, root, service } };
       const evidence: ProblemLink[] = [entityLink(route.key, route.label)];
       if (securedByContract && served !== undefined) evidence.push(entityLink(served.key, served.label));
       if (handler !== undefined) evidence.push(entityLink(handler, handlerPath === undefined ? handler : `${handlerPath} (handler)`));
       problems.push(draft(rule, severity, {
-        reason, file: path, line: route.span?.lineStart ?? null,
+        text: sentence, file: path, line: route.span?.lineStart ?? null,
         words: securedByContract && !protectedRoots.has(root)
           ? findingWords(`${route.label} answers without a token, while ${served?.label ?? 'its operation'} requires one.`, `${route.label} отвечает без токена, хотя ${served?.label ?? 'её операция'} требует токен.`)
           : findingWords(`${route.label} answers without a token, while the other /${root} routes of ${service || 'the service'} are inside the auth group.`, `${route.label} отвечает без токена, хотя остальные маршруты /${root} сервиса ${service || '—'} — в группе авторизации.`),
@@ -333,7 +330,7 @@ function largeFiles(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverit
       const lines = number(file.properties['lines'])!;
       const path = text(file.properties['path']) ?? pathOfKey(file.key);
       return draft(rule, severity, {
-        reason: `${path} is ${lines} lines long, over the product's ${threshold}-line threshold: one module holds too much to change safely.`,
+        text: { code: 'largeFile', args: { path, count: lines, limit: threshold } },
         words: findingWords(`${lines} lines, over the ${threshold}-line threshold.`, `${ruCount(lines, 'строка', 'строки', 'строк')} при пороге ${threshold}.`),
         file: path, line: 1,
         page: null, pageTitle: null, statement: null, sentence: null, target: file.key,
@@ -356,7 +353,7 @@ function hotspots(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeverity,
     .map(({ file, lines, commits }) => {
       const path = text(file.properties['path']) ?? pathOfKey(file.key);
       return draft(rule, severity, {
-        reason: `${path} is ${lines} lines long and ${commits} commits changed it (size × churn = ${lines * commits}): most changes land where the code is largest.`,
+        text: { code: 'hotspot', args: { path, count: lines, commits, score: lines * commits } },
         words: findingWords(`${lines} lines changed by ${commits} commits (size × churn = ${lines * commits}).`, `${ruCount(lines, 'строка', 'строки', 'строк')}, ${ruCount(commits, 'коммит', 'коммита', 'коммитов')}: размер × изменения = ${lines * commits}.`),
         file: path, line: 1,
         page: null, pageTitle: null, statement: null, sentence: null, target: file.key,
@@ -379,7 +376,7 @@ function deadExports(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeveri
     .map((symbol) => {
       const path = symbol.span?.path ?? pathOfKey(symbol.key);
       return draft(rule, severity, {
-        reason: `${symbol.label} is exported by ${path} and no code in this repository refers to it: the export is dead.`,
+        text: { code: 'deadExport', args: { symbol: symbol.label, path } },
         words: findingWords(`${symbol.label} is exported by ${path}, and nothing refers to it.`, `${symbol.label} экспортируется из ${path}, и никто на него не ссылается.`),
         file: path, line: symbol.span?.lineStart ?? null,
         page: null, pageTitle: null, statement: null, sentence: null, target: symbol.key,
@@ -407,7 +404,7 @@ function debtMarkers(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSeveri
       const path = debt.span?.path ?? text(debt.properties['path']) ?? '';
       const body = text(debt.properties['text']) ?? '';
       return draft(rule, severity, {
-        reason: `${marker} in ${path}: ${body}`,
+        text: { code: 'debt', args: { marker, path, body } },
         words: findingWords(`${marker} in ${path}: ${body}`, `${marker} в ${path}: ${body}`),
         file: path, line: debt.span?.lineStart ?? number(debt.properties['line']) ?? null,
         page: null, pageTitle: null, statement: null, sentence: null, target: debt.key,
@@ -462,13 +459,13 @@ function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: Problem
     const resolved = composeDefault(value);
     return resolved === '' ? undefined : resolved;
   };
-  const push = (variable: GraphEntity, name: string, definitions: readonly GraphEntity[], reason: string, words: Readonly<Record<'en' | 'ru', string>>): void => {
+  const push = (variable: GraphEntity, name: string, definitions: readonly GraphEntity[], text: ProblemText, words: Readonly<Record<'en' | 'ru', string>>): void => {
     if (reported.has(variable.key)) return;
     reported.add(variable.key);
     const first = definitions[0]!;
     const path = first.span?.path ?? '';
     problems.push(draft(rule, severity, {
-      reason, words,
+      text, words,
       file: path, line: first.span?.lineStart ?? null,
       page: null, pageTitle: null, statement: null, sentence: null, target: variable.key,
       place: fileLink(path, first.span?.lineStart),
@@ -488,19 +485,16 @@ function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: Problem
     if (definitions.length === 0) continue;
     const explicit = definitions.filter((definition) => definition.properties['secret'] === true);
     if (explicit.length > 0) {
-      const values = [...new Set(explicit.map((definition) => literal(definition)!))];
       const files = [...new Set(explicit.map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
-      push(variable, name, explicit,
-        `${name} is declared a secret by ${files.join(' and ')}, and the repository holds its literal value${values.length === 1 ? ` ("${values[0]}")` : `s (${values.map((value) => `"${value}"`).join(', ')})`}: the secret is in the repository.`,
+      // The literal is a secret: the sentence says where it stands, never what it is.
+      push(variable, name, explicit, { code: 'configSecret', args: { name, files: files.join(', ') } },
         findingWords(`${name} is declared a secret by ${files.join(' and ')}, and the repository holds its value.`, `${name} объявлена секретом в ${files.join(' и ')}, а её значение записано в репозитории.`));
       continue;
     }
     if (variable.properties['required'] !== true) continue;
     if (policy.secrets.includes(name)) {
-      const values = [...new Set(definitions.map((definition) => literal(definition)!))];
       const files = [...new Set(definitions.map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
-      push(variable, name, definitions,
-        `${name} is required, and the manifest declares it a secret, yet the checked-in configuration gives it a literal value${values.length === 1 ? ` ("${values[0]}")` : `s (${values.map((value) => `"${value}"`).join(', ')})`} in ${files.join(' and ')}: the value belongs in the environment, not the repository.`,
+      push(variable, name, definitions, { code: 'configDeclaredSecret', args: { name, files: files.join(', ') } },
         findingWords(`${name} is a declared secret, and ${files.join(' and ')} holds its value.`, `${name} объявлена секретом, а её значение записано в ${files.join(' и ')}.`));
       continue;
     }
@@ -509,7 +503,7 @@ function requiredDevValues(snapshot: CodeSnapshot, rule: Rule, severity: Problem
       const value = literal(development)!;
       const files = [...new Set(definitions.filter((definition) => literal(definition) === value).map((definition) => definition.span?.path).filter((path): path is string => path !== undefined))];
       push(variable, name, definitions.filter((definition) => literal(definition) === value),
-        `${name} is required, and the checked-in configuration gives it the development value ("${value}") in ${files.join(' and ')}: every copy of the product starts with it.`,
+        { code: 'configDevValue', args: { name, value, files: files.join(', ') } },
         findingWords(`${name} has the checked-in development value ("${value}") in ${files.join(' and ')}.`, `у ${name} в ${files.join(' и ')} записано значение разработки («${value}»).`));
     }
   }
@@ -530,7 +524,7 @@ function declaredUnused(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSev
       const name = text(dependency.properties['name']) ?? dependency.label;
       const version = text(dependency.properties['version']);
       return draft(rule, severity, {
-        reason: `${name}${version === undefined ? '' : ` (${version})`} is declared by ${path} and no source file of its service imports it: the declaration is dead weight.`,
+        text: { code: 'dependencyDeclaredUnused', args: { dependency: `${name}${version === undefined ? '' : ` (${version})`}`, path } },
         words: findingWords(`${name} is declared by ${path}, and nothing imports it.`, `${name} объявлена в ${path}, и ничего её не импортирует.`),
         file: path, line: dependency.span?.lineStart ?? null,
         page: null, pageTitle: null, statement: null, sentence: null, target: dependency.key,
@@ -552,7 +546,7 @@ function usedUndeclared(snapshot: CodeSnapshot, rule: Rule, severity: ProblemSev
       const path = pkg.span?.path ?? '';
       const name = text(pkg.properties['name']) ?? pkg.label;
       return draft(rule, severity, {
-        reason: `${name} is imported by ${path}, but no manifest of that service declares it: a fresh install resolves a different version or fails.`,
+        text: { code: 'dependencyUsedUndeclared', args: { name, path } },
         words: findingWords(`${name} is imported by ${path}, and no manifest declares it.`, `${name} импортируется в ${path}, и ни один манифест её не объявляет.`),
         file: path, line: pkg.span?.lineStart ?? null,
         page: null, pageTitle: null, statement: null, sentence: null, target: pkg.key,
@@ -576,7 +570,7 @@ function operationsWithoutRoutes(snapshot: CodeSnapshot, rule: Rule, severity: P
     .map((operation) => {
       const path = operation.span?.path ?? pathOfKey(operation.key);
       return draft(rule, severity, {
-        reason: `${operation.label} is declared by ${path}, and no route implements it: a caller following the contract gets no answer.`,
+        text: { code: 'operationWithoutRoute', args: { operation: operation.label, path } },
         words: findingWords(`${operation.label} is declared by ${path}, and no route implements it.`, `${operation.label} объявлена в ${path}, и ни один маршрут её не реализует.`),
         file: path, line: operation.span?.lineStart ?? null,
         page: null, pageTitle: null, statement: null, sentence: null, target: operation.key,
@@ -610,7 +604,7 @@ function routesWithoutOperations(snapshot: CodeSnapshot, rule: Rule, severity: P
     .map((route) => {
       const path = route.span?.path ?? pathOfKey(route.key);
       return draft(rule, severity, {
-        reason: `${route.label} is served by ${path}, and the service's contract declares no such operation: the interface is wider than the document.`,
+        text: { code: 'routeWithoutOperation', args: { route: route.label, path } },
         words: findingWords(`${route.label} is served by ${path}, and the contract declares no such operation.`, `${route.label} обслуживается в ${path}, и контракт такой операции не объявляет.`),
         file: path, line: route.span?.lineStart ?? null,
         page: null, pageTitle: null, statement: null, sentence: null, target: route.key,

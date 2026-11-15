@@ -11,7 +11,7 @@ import { questionAddress } from '../src/knowledge/addresses.js';
 import { entityAddress, sourceAddress, type Resolution } from '../src/knowledge/resolve.js';
 import type { Question } from '../src/loop/entities.js';
 import { ruleSpecs } from '../src/problems/rules.js';
-import type { ProblemDraft, ProblemNote, ProblemLink, ProblemSettings, ProblemSeverity, RuleSpec } from '../src/problems/types.js';
+import type { ProblemDraft, ProblemNote, ProblemLink, ProblemSettings, ProblemSeverity, ProblemText, RuleSpec } from '../src/problems/types.js';
 
 type Rule = RuleSpec;
 
@@ -31,10 +31,10 @@ const questionLink = (question: Question): ProblemLink => ({
 const questionFileLink = (question: Question): ProblemLink => ({ label: `${question.file}:1`, href: sourceAddress(null, question.file, 1), key: null });
 const targetLink = (target: string): ProblemLink => ({ label: target, href: target.includes(':') && !target.startsWith('doc:') ? entityAddress(target) : null, key: target });
 
-const draft = (rule: Rule, severity: ProblemSeverity, question: Question, fields: Pick<ProblemDraft, 'reason' | 'evidence' | 'identity' | 'entity'>): ProblemDraft => ({
+const draft = (rule: Rule, severity: ProblemSeverity, question: Question, fields: Pick<ProblemDraft, 'text' | 'evidence' | 'identity' | 'entity'>): ProblemDraft => ({
   section: 'documents', rule: rule.id, kind: rule.kind, sonar: rule.sonar, severity,
-  fixer: 'person', closed: false,
-  reason: fields.reason, file: question.file, line: 1,
+  closed: false,
+  text: fields.text, file: question.file, line: 1,
   page: null, pageTitle: null, statement: null, sentence: null, target: question.id,
   place: questionFileLink(question),
   entity: fields.entity,
@@ -57,7 +57,7 @@ const PREDICATE_OF_TYPE: Readonly<Record<Question['type'], readonly string[]>> =
 };
 
 /** One engine finding of the documents section, before the rules of the manifest name it. */
-type Finding = { readonly predicate: string; readonly reason: string; readonly evidence: readonly ProblemLink[] };
+type Finding = { readonly predicate: string; readonly text: ProblemText; readonly evidence: readonly ProblemLink[] };
 
 /**
  * Runs the documents section over the questions: the engine reads what each question says, and
@@ -69,7 +69,7 @@ export async function evaluateDocuments(input: DocumentInput): Promise<{ problem
   const problems: ProblemDraft[] = [];
   const declared = new Set(ruleSpecs(input.settings).map((rule) => rule.predicate));
   for (const predicate of ['document-contradiction', 'document-stale', 'document-undocumented', 'document-ambiguous']) {
-    if (!declared.has(predicate)) notes.push({ message: `the manifest declares no rule with the predicate "${predicate}": the findings it would name are not on the page` });
+    if (!declared.has(predicate)) notes.push({ message: `the manifest declares no rule with the predicate "${predicate}": the findings it would name are not on the page`, textKey: 'noRuleForPredicate', textArgs: { predicate } });
   }
   for (const question of [...input.questions].sort((a, b) => byCodePoint(a.slug, b.slug))) {
     if (question.resolvedBy.length > 0) continue; // a refresh used the answer: the documents moved past this question
@@ -80,7 +80,7 @@ export async function evaluateDocuments(input: DocumentInput): Promise<{ problem
       try {
         resolution = await input.resolve(`madarch:${target}`);
       } catch (error) {
-        notes.push({ message: `the question ${question.slug} names ${target}, and it could not be resolved: ${(error as Error).message}` });
+        notes.push({ message: `the question ${question.slug} names ${target}, and it could not be resolved: ${(error as Error).message}`, textKey: 'unresolvableTarget', textArgs: { slug: question.slug, target, error: (error as Error).message } });
         continue;
       }
       if (resolution.state === 'broken') { stale = { target, reason: resolution.reason }; break; }
@@ -89,24 +89,26 @@ export async function evaluateDocuments(input: DocumentInput): Promise<{ problem
     const findings: Finding[] = [];
     if (stale !== undefined) findings.push({
       predicate: 'document-stale',
-      reason: `${stale.target} no longer resolves: ${stale.reason}`,
+      text: { code: 'documentStale', args: { target: stale.target } },
       evidence,
     });
     for (const predicate of PREDICATE_OF_TYPE[question.type]) {
       findings.push({
         predicate,
-        reason: question.type === 'contradiction'
-          ? `${question.title}: the sources disagree — ${question.sides.map((side) => side.claim).join(' / ')}`
+        text: question.type === 'contradiction'
+          ? { code: 'documentContradiction', args: { title: question.title, sides: question.sides.map((side) => side.claim).join(' / ') } }
           : question.type === 'ambiguous-term'
-            ? `${question.title}: the term has more than one meaning in the product and no glossary fixes one.`
-            : `${question.title}: ${question.why === '' ? 'behaviour the documents do not describe' : question.why}`,
+            ? { code: 'documentAmbiguous', args: { title: question.title } }
+            : question.why === ''
+              ? { code: 'documentUndocumented', args: { title: question.title } }
+              : { code: 'documentUndocumentedWhy', args: { title: question.title, why: question.why } },
         evidence,
       });
     }
     for (const finding of findings) {
       for (const rule of rulesOf(input.settings, finding.predicate)) {
         problems.push(draft(rule, rule.severity, question, {
-          reason: finding.reason, evidence: finding.evidence,
+          text: finding.text, evidence: finding.evidence,
           // The identity keeps the rule's id, so a dismissal written before the rules moved to the manifest still names this finding.
           identity: `${question.id}\u0000${rule.id}`, entity: questionLink(question),
         }));

@@ -27,29 +27,29 @@ function section(id: string, component: string, params: Record<string, unknown>)
 const PROBLEMS = {
   problems: [
     {
-      id: 'large-file\u0000a', identity: 'a', section: 'code', rule: 'large-file', kind: 'large-file', sonar: 'code-smell', severity: 'minor', fixer: 'person', closed: false,
+      id: 'large-file\u0000a', identity: 'a', section: 'code', rule: 'large-file', kind: 'large-file', sonar: 'code-smell', severity: 'minor', closed: false,
       place: { label: 'src/big.ts:1', href: '/src?path=src/big.ts&line=1', key: null }, entity: null, evidence: [], page: null, pageTitle: null,
-      statement: null, sentence: null, target: null, reason: 'Файл длиннее, чем человек может удержать в голове.', file: 'src/big.ts', line: 1,
+      statement: null, sentence: null, target: null, text: { code: 'largeFile', args: { path: 'src/big.ts', count: 674, limit: 600 } }, file: 'src/big.ts', line: 1,
       source: '/tmp/product/src/big.ts', by: null, at: null,
     },
     {
-      id: 'wiki.broken-link\u0000b', identity: 'b', section: 'wiki', rule: 'wiki.broken-link', kind: 'broken-link', sonar: 'bug', severity: 'major', fixer: 'agent', closed: false,
+      id: 'wiki.broken-link\u0000b', identity: 'b', section: 'wiki', rule: 'wiki.broken-link', kind: 'broken-link', sonar: 'bug', severity: 'major', closed: false,
       place: { label: 'domain:payments', href: '/e/demo.page/uid-1', key: 'domain:payments' }, entity: { label: 'payments', href: '/e/demo.page/uid-1', key: 'p' }, evidence: [], page: 'p', pageTitle: 'Payments',
-      statement: 'refund-check', sentence: 'A refund is checked.', target: 'madarch:missing', reason: 'Ссылка никуда не ведёт.', file: 'docs/payments.md', line: 12,
+      statement: 'refund-check', sentence: 'A refund is checked.', target: 'madarch:missing', text: { code: 'brokenLinkNoEntity', args: { key: 'payments' } }, file: 'docs/payments.md', line: 12,
       by: null, at: null,
       task: { label: 'Исправить: Битая ссылка — docs/payments.md:12', href: '/e/task/uid-task-1', key: 'task:uid-task-1' },
     },
     {
-      id: 'dead-export\u0000c', identity: 'c', section: 'code', rule: 'dead-export', kind: 'dead-export', sonar: 'code-smell', severity: 'minor', fixer: 'person', closed: false,
+      id: 'dead-export\u0000c', identity: 'c', section: 'code', rule: 'dead-export', kind: 'dead-export', sonar: 'code-smell', severity: 'minor', closed: false,
       place: { label: 'src/old.ts:4', href: '/e/code.file/uid-2', key: 'code.file:src/old.ts' }, entity: null, evidence: [], page: null, pageTitle: null,
-      statement: null, sentence: null, target: null, reason: 'Экспорт никому не нужен.', file: 'src/old.ts', line: 4,
+      statement: null, sentence: null, target: null, text: { code: 'deadExport', args: { symbol: 'unused', path: 'src/old.ts' } }, file: 'src/old.ts', line: 4,
       by: null, at: null,
     },
   ],
   categories: [
-    { rule: 'large-file', kind: 'large-file', section: 'code', sonar: 'code-smell', severity: 'minor', fixer: 'person', count: 1, open: 1, closed: 0, label: { en: 'Large file', ru: 'Большой файл' } },
-    { rule: 'dead-export', kind: 'dead-export', section: 'code', sonar: 'code-smell', severity: 'minor', fixer: 'person', count: 1, open: 1, closed: 0, label: { en: 'Exported but unused', ru: 'Экспорт без использования' } },
-    { rule: 'wiki.broken-link', kind: 'broken-link', section: 'wiki', sonar: 'bug', severity: 'major', fixer: 'agent', count: 1, open: 1, closed: 0, label: { en: 'Broken link', ru: 'Битая ссылка' } },
+    { rule: 'large-file', kind: 'large-file', section: 'code', sonar: 'code-smell', severity: 'minor', count: 1, open: 1, closed: 0, label: { en: 'Large file', ru: 'Большой файл' } },
+    { rule: 'dead-export', kind: 'dead-export', section: 'code', sonar: 'code-smell', severity: 'minor', count: 1, open: 1, closed: 0, label: { en: 'Exported but unused', ru: 'Экспорт без использования' } },
+    { rule: 'wiki.broken-link', kind: 'broken-link', section: 'wiki', sonar: 'bug', severity: 'major', count: 1, open: 1, closed: 0, label: { en: 'Broken link', ru: 'Битая ссылка' } },
   ],
   sections: { code: 2, documents: 0, wiki: 1 }, open: 3, closed: 0, dismissed: 0,
   notes: [{ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates', textKey: 'documentsRetired' }],
@@ -148,6 +148,12 @@ test('the Problems page groups the open findings and presses the retained action
     expect(text).toContain('3 открытых из 3 проблем');
     expect(text).toContain('src/big.ts:1');
     expect(text).toContain('A refund is checked.');
+    // The sentence is the one the locale builds from the server's code and values, not an English sentence.
+    expect(text).toContain('src/big.ts: 674 строки при пороге 600');
+    expect(text).toContain('В графе нет «payments»');
+    // What a problem needs, not who fixes it: code is changed by people and agents alike.
+    expect(page.container.querySelector('[data-testid="problem-needs"]')?.textContent).toBe('Нужна правка кода');
+    expect(text).not.toContain('Исправит человек');
     expect(page.container.querySelector('a[href="/e/demo.page/uid-1"]')).not.toBeNull();
 
     const first = page.container.querySelector('[data-testid="problem-row"][data-rule="large-file"]') as HTMLElement;

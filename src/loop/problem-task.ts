@@ -93,7 +93,8 @@ function placeOf(problem: Problem): string {
 function statementOf(problem: Problem, language: 'en' | 'ru'): string {
   const words = problem.words?.[language];
   if (words !== undefined && words !== '') return words;
-  return problem.sentence ?? problem.statement ?? problem.reason;
+  // A check's own words are data, never the engine's sentence: a task keeps them as what the check said.
+  return problem.sentence ?? problem.statement ?? (problem.text.code === 'checkFinding' ? String(problem.text.args?.['message'] ?? '') : '');
 }
 
 /**
@@ -107,9 +108,11 @@ export function problemTaskRecord(problem: Problem, options: { readonly language
   const place = placeOf(problem);
   const statement = statementOf(problem, language);
   const title = language === 'ru' ? `Исправить: ${name} — ${place}` : `Fix: ${name} — ${place}`;
-  const body = language === 'ru'
-    ? [`Правило: ${name}`, `Место: ${place}`, `Что не так: ${statement}`].join('\n')
-    : [`Rule: ${name}`, `Place: ${place}`, `What is wrong: ${statement}`].join('\n');
+  const lines = language === 'ru'
+    ? [`Правило: ${name}`, `Место: ${place}`]
+    : [`Rule: ${name}`, `Place: ${place}`];
+  if (statement !== '') lines.push(language === 'ru' ? `Что не так: ${statement}` : `What is wrong: ${statement}`);
+  const body = lines.join('\n');
   return {
     title, body, statement,
     // The problem's stable id, as its rule and identity rather than as one string, and the identity as its parts: a

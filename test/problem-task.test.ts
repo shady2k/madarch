@@ -291,10 +291,10 @@ test('the task says what has to change in the product\'s own language', () => {
   const problem = {
     id: 'large-file\u0000code.file:product/src/big.ts', identity: 'code.file:product/src/big.ts', section: 'code' as const,
     rule: 'large-file', kind: 'large-file', sonar: 'code-smell' as const, severity: 'minor' as const,
-    fixer: 'person' as const, closed: false,
+    closed: false,
     place: { label: 'src/big.ts:1', href: '/src?path=src%2Fbig.ts&line=1', key: null }, entity: null, evidence: [],
     page: null, pageTitle: null, statement: null, sentence: null, target: null,
-    reason: 'src/big.ts is 731 lines long, over the product\'s 600-line threshold: one module holds too much to change safely.',
+    text: { code: 'largeFile' as const, args: { path: 'src/big.ts', count: 731, limit: 600 } },
     words: { en: '731 lines, over the 600-line threshold.', ru: '731 строка при пороге 600.' },
     file: 'src/big.ts', line: 1, by: null, at: null, scope: { type: 'file' as const, path: 'src/big.ts' },
   };
