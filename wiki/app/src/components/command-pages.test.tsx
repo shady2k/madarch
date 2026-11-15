@@ -78,6 +78,8 @@ const RUN = {
     { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 2 stages: disk:demo.alpha' },
     { seq: 2, at: new Date(Date.now() - 4000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-published', summary: 'disk:demo.alpha published 12 facts under /work/product/madarch/catalog.yaml 0123456789abcdef0123456789abcdef01234567' },
     { seq: 3, at: new Date(Date.now() - 3000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
+    // The same retry again: the journal says one line with its count, never four identical rows.
+    { seq: 4, at: new Date(Date.now() - 2000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
   ],
   records: 12, publishedUnits: 2, agentUsage: null,
 };
@@ -300,6 +302,17 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     expect(text).not.toContain('/work/product');
     expect(text).not.toContain('0123456789abcdef0123456789abcdef01234567');
     expect(text).not.toContain('the run started 2 stages');
+    // The run journal: the key transitions, a repeated line said once with its count, and every failure with its cause
+    // and the next action in words — the raw summaries stay in the detailed logs.
+    const journal = page.container.querySelector('[data-testid="fill-run-journal"]');
+    expect(journal?.textContent).toContain('Журнал запуска');
+    expect(journal?.textContent).toContain('Повтор: Файлы · disk. ×2');
+    expect(journal?.querySelector('[data-testid="fill-run-journal-cause"]')?.textContent).toContain('Включите контроллеры для своей сессии');
+    expect(text).not.toContain('/product/src/plugin/cgroup.ts');
+    const logsLink = journal?.querySelector('[data-testid="fill-run-logs-link"]');
+    expect(logsLink?.getAttribute('href')).toBe('/p/logs?run=fill-run-1');
+    await act(async () => { (logsLink as HTMLElement).click(); });
+    expect(page.opened).toContain('/p/logs?run=fill-run-1');
     // A live run offers «Пауза» and «Остановить».
     const pause = page.container.querySelector('[data-testid="run-pause"]') as HTMLButtonElement;
     await act(async () => { pause.click(); });

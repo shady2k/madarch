@@ -64,7 +64,8 @@
     "repositories": "Repositories",
     "toggleGroup": "Toggle {{group}} group",
     "pages": "Pages",
-    "catalogue": "Entity catalogue"
+    "catalogue": "Entity catalogue",
+    "logs": "Logs"
   },
   "diagram": {
     "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
@@ -102,8 +103,16 @@
       "noRun": "The address names no run.",
       "result": "Result by kind",
       "cause": {
-        "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins."
+        "sandbox": "The plugin did not start: the container does not delegate the cpu, memory and pids controllers. Enable controller delegation for your session (cgroup.subtree_control), or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins.",
+        "plugin": "The plugin could not run: its lock, its closure or its own answer refused the unit.",
+        "agent": "The agent could not run the unit: the adapter is not installed, not signed in, or it ended without an answer.",
+        "cap": "The run crossed its token cap, and the units it had not finished were stopped.",
+        "dependency": "The kind waits for a kind another unit fills, and that unit did not finish.",
+        "timeout": "The unit passed its deadline or stopped answering, and it was stopped.",
+        "unknown": "The run recorded a failure, and its cause is in the detailed logs."
       },
+      "stageTimes": "Time per stage",
+      "logsLink": "Detailed logs of this run",
       "logEmpty": "Nothing has happened yet.",
       "agents": {
         "title": "What the agent was given and returned",
@@ -189,6 +198,15 @@
         "failed": "Failed",
         "ready": "Ready",
         "pending": "Queued"
+      },
+      "next": {
+        "sandbox": "Enable the controllers for your session, or run with MADARCH_PLUGIN_SANDBOX=off if you trust the plugins.",
+        "plugin": "Open the detailed logs of this run: the plugin error names its file and line.",
+        "agent": "Choose an agent that is installed and signed in, and raise the token cap above what the run needs.",
+        "cap": "Raise the run's token cap, or fill fewer kinds at once.",
+        "dependency": "Fill the kind this one reads first; the other units still run.",
+        "timeout": "Open the detailed logs of this run, and check the machine's load before pressing again.",
+        "unknown": "Open the detailed logs of this run for the cause."
       }
     },
     "prefill": {
@@ -1874,7 +1892,10 @@
     "empty": "Empty",
     "complete": "Complete",
     "indeterminate": "Indeterminate",
-    "typography": "Page structure and typography"
+    "typography": "Page structure and typography",
+    "logsTitle": "Log viewer",
+    "logsLive": "Live",
+    "logsPaused": "Paused"
   },
   "overview": {
     "title": "Where this product stands",
@@ -1884,5 +1905,46 @@
     "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
     "notKnown": "Problems: not known right now",
     "fillUnknown": "The last fill is not known right now"
+  },
+  "logs": {
+    "title": "Logs",
+    "intro": "Every log madarch keeps: the server's records, this product's fills, each plugin's standard error, the agents' exchanges, the store's PostgreSQL log and its runs' spans.",
+    "source": {
+      "server": "Server",
+      "fill": "Fill",
+      "plugin": "Plugin",
+      "agent": "Agent",
+      "store": "Store",
+      "trace": "Trace"
+    },
+    "level": {
+      "debug": "Debug",
+      "info": "Info",
+      "warn": "Warning",
+      "error": "Error"
+    },
+    "filters": {
+      "source": "Source",
+      "level": "Level",
+      "run": "Run",
+      "from": "From",
+      "to": "To",
+      "search": "Search",
+      "all": "All",
+      "older": "Older entries",
+      "follow": "Follow",
+      "pause": "Pause",
+      "copy": "Copy",
+      "copied": "Copied",
+      "context": "Context",
+      "details": "Log entries"
+    },
+    "empty": "No entries match these filters.",
+    "loading": "Reading the logs…",
+    "summary": "{{shown}} entries shown of {{scanned}} read",
+    "truncated": "The files were read from their ends: older lines are not in this answer.",
+    "cut": "the detail was cut at the record's bound",
+    "openRun": "Open the run",
+    "readFailed": "The logs could not be read: {{message}}"
   }
 }

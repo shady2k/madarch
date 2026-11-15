@@ -22,7 +22,7 @@ import {
   pauseFillRun, readFillPlan, readFillRun, stopFillRun, useChangeStream, useCommandRead,
   type FillPlanView, type FillRunDetail, type FillRunGroup,
 } from './command.js';
-import { RUNS_PAGE } from '../address.js';
+import { logsAddress, RUNS_PAGE } from '../address.js';
 import { InlineCode } from './ui/inline-content.js';
 import type { SectionContext } from './types.js';
 
@@ -50,11 +50,25 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
   'unit-planned': 'unitPlanned',
 };
 
-/** A failed unit's cause, when the run page can name it and what to do about it. */
-function failureCauseOf(run: FillRunDetail): 'sandbox' | undefined {
+/** The classes of failure the run journal can name, each with the next thing a person does about it. */
+export type RunCause = 'sandbox' | 'plugin' | 'agent' | 'cap' | 'dependency' | 'timeout' | 'unknown';
+
+/** What a failure's own words say about its cause: the classes the run journal names, never the raw summary. */
+export function runCauseOf(summary: string): RunCause {
+  if (/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX|sandbox/iu.test(summary)) return 'sandbox';
+  if (/plugin is pinned|closure|hashes to|needs a person's approval|plugin/iu.test(summary)) return 'plugin';
+  if (/token cap|token bound|tokens/iu.test(summary)) return 'cap';
+  if (/agent|ACP|auth|sign in|adapter/iu.test(summary)) return 'agent';
+  if (/waits? for a dependency|dependency|blocked/iu.test(summary)) return 'dependency';
+  if (/deadline|timed out|timeout|heartbeat/iu.test(summary)) return 'timeout';
+  return 'unknown';
+}
+
+/** The first failure the run recorded, as the cause the page names above its result. */
+function failureCauseOf(run: FillRunDetail): RunCause | undefined {
   for (const event of run.events) {
-    if (event.type !== 'unit-failed' && event.type !== 'unit-retried' && event.type !== 'unit-blocked') continue;
-    if (/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX/i.test(event.summary)) return 'sandbox';
+    if (event.type !== 'unit-failed' && event.type !== 'unit-retried' && event.type !== 'unit-blocked' && event.type !== 'run-failed' && event.type !== 'run-blocked') continue;
+    return runCauseOf(event.summary);
   }
   return undefined;
 }
@@ -68,27 +82,66 @@ function groupOf(groups: readonly FillRunGroup[], text: string): FillRunGroup | 
   });
 }
 
+/**
+ * The kind and the plugin a run event names: its group's when the run recorded one, and else the unit id's own parts —
+ * a unit is `<plugin>:<kind>` behind its stage's path, with `@<vertex>` or `#<hash>` after it. A run pressed outside the
+ * page records no groups, and its failures still say which kind and which plugin they are about.
+ */
+function unitPartsOf(groups: readonly FillRunGroup[], text: string): { readonly kind: string; readonly plugin: string } | undefined {
+  const group = groupOf(groups, text);
+  if (group !== undefined) return { kind: group.kind, plugin: group.plugin };
+  const unit = text.slice(text.lastIndexOf('/') + 1);
+  const colon = unit.indexOf(':');
+  if (colon <= 0) return undefined;
+  const kind = (unit.slice(colon + 1).split('@')[0] ?? '').split('#')[0] ?? '';
+  return kind === '' ? undefined : { kind, plugin: unit.slice(0, colon) };
+}
+
 function seconds(value: number): number {
   return Math.max(0, Math.round(value / 1000));
 }
 
-/** The run's log as a person reads it: state changes and work per kind, never the engine's own sentences. */
-function logLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): { at: string; text: string }[] {
-  const lines: { at: string; text: string }[] = [];
+/** One line of the run journal: what happened, and for a failure the cause and the next action in words. */
+interface JournalLine {
+  readonly at: string;
+  readonly text: string;
+  readonly cause: RunCause | null;
+  /** How many events of one kind and group the line stands for: a run that retries four times says so once. */
+  readonly times: number;
+}
+
+/**
+ * The run's journal as a person reads it (madarch-64o5.88, part 3): the key transitions of the run and its work per kind,
+ * never the engine's own sentences. A run of the same event type and group in a row is one line with its count, and every
+ * failure carries its cause and the next action in words — the raw summary stays in the detailed logs, which the page links.
+ */
+function journalLines(run: FillRunDetail, groups: readonly FillRunGroup[], labelOf: (kind: string) => string | undefined, pluginName: (name: string) => string | undefined, t: TFunction, language: string): JournalLine[] {
+  const lines: JournalLine[] = [];
   for (const event of run.events.slice(-200)) {
     const word = EVENT_WORDS[event.type];
-    if (word === undefined) continue;
-    const group = groupOf(groups, event.unitId !== '' ? event.unitId : event.stage);
+    // A unit being planned is the run's bookkeeping, not a transition a person reads: the journal keeps the work.
+    if (word === undefined || word === 'unitPlanned') continue;
+    const parts = unitPartsOf(groups, event.unitId !== '' ? event.unitId : event.stage);
+    let text: string;
     if (word.startsWith('unit') || word === 'stagePlanned' || word === 'foundNothing') {
-      if (group === undefined) continue;
-      const kind = labelOf(group.kind);
+      if (parts === undefined) continue;
+      const kind = labelOf(parts.kind);
       if (kind === undefined) continue;
-      lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(group.plugin) ?? group.plugin }) });
+      text = t(`knowledge.fillRun.event.${word}`, { kind, plugin: pluginName(parts.plugin) ?? parts.plugin });
+    } else {
+      text = t(`knowledge.fillRun.event.${word}`);
+    }
+    const failure = word === 'unitFailed' || word === 'unitBlocked' || word === 'unitRetried' || word === 'failed' || word === 'blocked';
+    const cause = failure ? runCauseOf(event.summary) : null;
+    const last = lines[lines.length - 1];
+    // A repeat of the same line is the same line: the count is what a reader needs, not four identical rows.
+    if (last !== undefined && last.text === text) {
+      lines[lines.length - 1] = { ...last, at: event.at, times: last.times + 1, cause: last.cause ?? cause };
       continue;
     }
-    lines.push({ at: event.at, text: t(`knowledge.fillRun.event.${word}`) });
+    lines.push({ at: event.at, text, cause, times: 1 });
   }
-  return lines.map((line) => ({ at: new Date(line.at).toLocaleTimeString(language), text: line.text }));
+  return lines.map((line) => ({ ...line, at: new Date(line.at).toLocaleTimeString(language) }));
 }
 
 /** One fill run. */
@@ -131,7 +184,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
     return group?.labels[language] ?? group?.labels['en'] ?? held.group;
   };
   const names = (run?.order ?? run?.selected ?? []).map((kind) => labelOf(kind)).filter((label): label is string => label !== undefined);
-  const lines = run === null ? [] : logLines(run, run.groups, labelOf, pluginName, t, language);
+  const lines = run === null ? [] : journalLines(run, run.groups, labelOf, pluginName, t, language);
 
   const act = (action: 'pause' | 'stop'): void => {
     if (run === null) return;
@@ -298,14 +351,34 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
         </Card>
       )}
 
-      <Disclosure className="mt-2" data-testid="fill-run-log">
-        <DisclosureSummary>{t('knowledge.fillRun.log')}</DisclosureSummary>
-        {lines.length === 0 ? <Paragraph className="text-small text-muted">{t('knowledge.fillRun.logEmpty')}</Paragraph> : (
-          <PlainList className="m-0 list-none p-0">
-            {lines.map((line, at) => <ListItem key={`${String(at)}:${line.at}`} className="text-small">{line.at} · {line.text}</ListItem>)}
-          </PlainList>
-        )}
-      </Disclosure>
+      <Card data-testid="fill-run-journal">
+        <CardHeader><CardTitle>{t('knowledge.fillRun.log')}</CardTitle></CardHeader>
+        <CardContent>
+          {lines.length === 0 ? <Paragraph className="m-0 text-small text-muted">{t('knowledge.fillRun.logEmpty')}</Paragraph> : (
+            <PlainList className="m-0 list-none p-0">
+              {lines.map((line, at) => (
+                <ListItem key={`${String(at)}:${line.at}`} className="mb-2 text-small" data-testid="fill-run-journal-line">
+                  <Metadata>{line.at} · </Metadata>{line.text}{line.times > 1 ? ` ×${String(line.times)}` : ''}
+                  {line.cause === null ? null : (
+                    <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-journal-cause">
+                      {t(`knowledge.fillRun.cause.${line.cause}`)} {t(`knowledge.fillRun.next.${line.cause}`)}
+                    </Paragraph>
+                  )}
+                </ListItem>
+              ))}
+            </PlainList>
+          )}
+          {liveRun.summary === undefined || liveRun.summary.steps.length === 0 ? null : (
+            <Stack className="mt-3 grid gap-1" data-testid="fill-run-stage-times">
+              <Text className="font-medium">{t('knowledge.fillRun.stageTimes')}</Text>
+              {liveRun.summary.steps.map((step) => (
+                <Metadata key={step.step} className="text-small">{step.step} · {t('knowledge.fillRun.agents.time', { seconds: seconds(step.wallMs) })}</Metadata>
+              ))}
+            </Stack>
+          )}
+          <Paragraph className="mt-3"><TextLink href={context.base + logsAddress(runId)} onClick={(event) => { event.preventDefault(); context.open(logsAddress(runId)); }} data-testid="fill-run-logs-link">{t('knowledge.fillRun.logsLink')}</TextLink></Paragraph>
+        </CardContent>
+      </Card>
 
       <Paragraph><TextLink href={context.base + RUNS_PAGE} onClick={(event) => { event.preventDefault(); context.open(RUNS_PAGE); }}>{t('runs.back')}</TextLink></Paragraph>
 

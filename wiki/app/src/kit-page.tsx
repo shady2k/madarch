@@ -36,6 +36,7 @@ import {
 } from './components/ui/graph.js';
 import { InlineCode, Strong } from './components/ui/inline-content.js';
 import { Input } from './components/ui/input.js';
+import { LogViewer, type LogViewerEntry, type LogViewerFilters, type LogViewerLabels } from './components/ui/log-viewer.js';
 import { KitPageLayout, KitSection, KitState } from './components/ui/kit-preview.js';
 import { MetadataLine } from './components/ui/metadata-line.js';
 import {
@@ -77,12 +78,30 @@ import {
 
 const CONTENTS = [{ id: 'kit-intro', label: 'UI kit' }, { id: 'kit-forms', label: 'Forms' }];
 
+/** The entries the kit's log viewer is shown with: one error with its stack, a warn, two records and a plugin line. */
+const LOG_SAMPLE: readonly LogViewerEntry[] = [
+  { id: 'sample-1', at: '2026-11-15T09:41:02.114Z', level: 'info', source: 'Fill', run: 'fill-sample', unit: 'disk:code.file', message: 'unit disk:code.file is leased to worker-1 under fence 3, attempt 1', detail: null, fields: { attempt: '1', fence: '3' } },
+  { id: 'sample-2', at: '2026-11-15T09:41:02.480Z', level: 'warn', source: 'Plugin', run: 'fill-sample', unit: 'disk:code.file', message: 'the plugin read a file whose language its parser does not know', detail: null, fields: { path: 'repos/app/src/notes.txt' } },
+  { id: 'sample-3', at: '2026-11-15T09:41:07.007Z', level: 'error', source: 'Fill', run: 'fill-sample', unit: 'disk:code.repository', message: 'the plugin session failed: src/plugin/host.ts:1: the plugin is pinned to bun 1.4.2, and this madarch runs another interpreter', detail: 'Error: src/plugin/host.ts:1: the plugin is pinned to bun 1.4.2, and this madarch runs another interpreter\n    at startPluginProcess (src/plugin/sandbox.ts:210:11)\n    at PluginHost.open (src/plugin/host.ts:344:7)', fields: { code: 'plugin-closure', file: 'madarch/plugins.lock', path: 'plugins/disk/plugin.json' } },
+  { id: 'sample-4', at: '2026-11-15T09:41:07.240Z', level: 'info', source: 'Store', run: null, unit: null, message: 'database system is ready to accept connections', detail: null, fields: {} },
+  { id: 'sample-5', at: '2026-11-15T09:41:08.902Z', level: 'debug', source: 'Agent', run: 'fill-sample', unit: 'agent-fill:doc.term', message: 'tool-call: Read docs/terms.md (completed)', detail: null, fields: {} },
+];
+
 export function KitPage(): ReactElement {
   const { t } = useTranslation();
   const state = (key: string): string => t(`kit.${key}`);
   const [choice, setChoice] = useState('one');
   const [segment, setSegment] = useState('one');
   const [toggled, setToggled] = useState(false);
+  const [logFilters, setLogFilters] = useState<LogViewerFilters>({ source: '', level: '', run: '', from: '', to: '', query: '' });
+  const [logLive, setLogLive] = useState(false);
+  const logLabels: LogViewerLabels = {
+    source: state('name'), level: state('default'), run: state('selected'), from: state('name'), to: state('name'),
+    search: state('name'), all: state('sample'), older: state('content'), empty: t('logs.empty'), loading: t('logs.loading'),
+    follow: t('logs.filters.follow'), pause: t('logs.filters.pause'), copy: t('logs.filters.copy'), copied: t('logs.filters.copied'),
+    context: t('logs.filters.context'), details: t('logs.filters.details'),
+    levels: { debug: t('logs.level.debug'), info: t('logs.level.info'), warn: t('logs.level.warn'), error: t('logs.level.error') },
+  };
   return (
     <KitPageLayout title={state('title')} description={state('intro')}>
       <Alert><AlertTitle>{state('approvalTitle')}</AlertTitle><AlertDescription>{state('approval')}</AlertDescription></Alert>
@@ -255,6 +274,24 @@ export function KitPage(): ReactElement {
           <SearchResultLink active href="/#kit-intro">{state('sample')}</SearchResultLink>
           <SearchResultLink active={false} href="/#kit-forms">{state('content')}</SearchResultLink>
         </SearchResults>
+      </KitSection>
+
+      <KitSection title={state('logsTitle')} description={t('logs.intro')}>
+        <KitState label={state('default')}>
+          <LogViewer entries={LOG_SAMPLE} filters={logFilters} onFilters={setLogFilters} sources={[{ value: 'fill', label: t('logs.source.fill') }, { value: 'plugin', label: t('logs.source.plugin') }, { value: 'agent', label: t('logs.source.agent') }, { value: 'store', label: t('logs.source.store') }]} runs={[{ value: 'fill-sample', label: 'fill-sample' }]} labels={logLabels} live={logLive} onLive={setLogLive} summary="5 of 5" />
+        </KitState>
+        <KitState label={state('error')}>
+          <LogViewer entries={LOG_SAMPLE} filters={{ ...logFilters, level: 'error', query: 'pinned' }} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} initialSelectedId="sample-3" summary="1 of 5" />
+        </KitState>
+        <KitState label={state('empty')}>
+          <LogViewer entries={[]} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} />
+        </KitState>
+        <KitState label={state('loading')}>
+          <LogViewer entries={[]} loading filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live={false} onLive={setLogLive} />
+        </KitState>
+        <KitState label={state('logsLive')}>
+          <LogViewer entries={LOG_SAMPLE.slice(-2)} filters={logFilters} onFilters={setLogFilters} sources={[]} runs={[]} labels={logLabels} live onLive={setLogLive} />
+        </KitState>
       </KitSection>
 
       <KitSection title="Embedded">

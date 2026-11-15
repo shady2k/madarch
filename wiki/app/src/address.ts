@@ -26,7 +26,13 @@ export const PAGE_ADDRESSES = {
   sources: '/p/sources',
   settings: '/p/settings',
   runs: '/p/runs',
+  logs: '/p/logs',
 } as const;
+
+/** The Logs page: every log madarch keeps, filtered and followed live; a `run` filters it to one run. */
+export function logsAddress(run?: string): string {
+  return run === undefined || run === '' ? PAGE_ADDRESSES.logs : `${PAGE_ADDRESSES.logs}?${new URLSearchParams({ run }).toString()}`;
+}
 
 /** The runs page: the history of fills, always reachable, and the way to choose a new fill. */
 export const RUNS_PAGE = '/p/runs';

@@ -356,6 +356,11 @@ export interface FillRunDetail {
   readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number } | null;
   /** Each agent unit's exchange: filled for a run the page named, and empty in a listing. */
   readonly agentExchanges?: readonly AgentExchangeView[];
+  /** The run's trace as its run view states it: its wall time and the time each step took (madarch-64o5.88). */
+  readonly summary?: {
+    readonly wallMs: number;
+    readonly steps: readonly { readonly step: string; readonly wallMs: number }[];
+  };
 }
 
 // ---- the client -------------------------------------------------------------------------------------------------
@@ -451,8 +456,47 @@ export const makeProblemTask = (base: string, id: string): Promise<unknown> => c
 /** `GET /api/sources`: the product's Markdown documents and repositories. */
 export const readSources = (base: string, signal?: AbortSignal): Promise<SourcesAnswer> => command(base, '/api/sources', signal === undefined ? {} : { signal });
 
+/** One entry of one madarch log, as `GET /api/logs` answers it (madarch-64o5.88). */
+export interface LogEntryView {
+  readonly id: string;
+  /** The moment in epoch milliseconds, or null for a log whose writer kept no time. */
+  readonly at: number | null;
+  readonly level: 'debug' | 'info' | 'warn' | 'error';
+  readonly source: string;
+  readonly run: string | null;
+  readonly unit: string | null;
+  readonly message: string;
+  readonly file: string | null;
+  readonly line: number | null;
+  readonly path: string | null;
+  readonly detail: string | null;
+  readonly cut: boolean;
+  readonly fields: Readonly<Record<string, string>>;
+}
+
+/** `GET /api/logs`: one page of every log, oldest first, and what the read kept. */
+export interface LogsAnswer {
+  readonly entries: readonly LogEntryView[];
+  readonly more: boolean;
+  readonly scanned: number;
+  readonly truncated: boolean;
+  readonly runs: readonly string[];
+  readonly sources: readonly string[];
+  readonly levels: readonly string[];
+}
+
 /** The product's own fill state, for the page's lock and the top bar's button. */
 export const readFillStatus = (base: string, signal?: AbortSignal): Promise<FillStatusAnswer> => command<FillStatusAnswer>(base, '/api/status', signal === undefined ? {} : { signal });
+
+/** One page of every log madarch keeps: filtered by sources, the quietest level, one run, a text and a moment. */
+export function readLogs(base: string, asked: { readonly sources?: string; readonly level?: string; readonly run?: string; readonly q?: string; readonly since?: number; readonly before?: number; readonly limit?: number }, signal?: AbortSignal): Promise<LogsAnswer> {
+  return command<LogsAnswer>(base, `/api/logs${query({
+    source: asked.sources, level: asked.level, run: asked.run, q: asked.q,
+    since: asked.since === undefined ? undefined : String(asked.since),
+    before: asked.before === undefined ? undefined : String(asked.before),
+    limit: asked.limit === undefined ? undefined : String(asked.limit),
+  })}`, signal === undefined ? {} : { signal });
+}
 
 /** The past runs, newest first. */
 export const readFillRuns = (base: string, signal?: AbortSignal): Promise<{ runs: readonly FillRunDetail[] }> => command(base, '/api/fill-runs', signal === undefined ? {} : { signal });
