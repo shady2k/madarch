@@ -438,6 +438,7 @@ type NavigationKind {
   definition: String
   taken: Boolean!
   group: String
+  nav: String
   count: Int!
   entryId: ID
 }

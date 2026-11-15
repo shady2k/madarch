@@ -30,9 +30,9 @@ const NAVIGATION = {
     { name: 'demo.docs', labels: { en: 'Documents', ru: 'Документы' }, short: null, open: false, parent: null },
   ],
   kinds: [
-    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', count: 2, entryId: 'e1' },
-    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', count: 0, entryId: 'e2' },
-    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', count: 3, entryId: 'e3' },
+    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1' },
+    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2' },
+    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3' },
   ],
   purposes: [],
 };
@@ -77,6 +77,7 @@ const RUN = {
   events: [
     { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 2 stages: disk:demo.alpha' },
     { seq: 2, at: new Date(Date.now() - 4000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-published', summary: 'disk:demo.alpha published 12 facts under /work/product/madarch/catalog.yaml 0123456789abcdef0123456789abcdef01234567' },
+    { seq: 3, at: new Date(Date.now() - 3000).toISOString(), stage: 'disk:demo.alpha', unitId: 'disk:demo.alpha', type: 'unit-retried', summary: 'disk:demo.alpha failed: /product/src/plugin/cgroup.ts:1: the cgroup does not hand the cpu, memory, pids controllers to its children (cgroup.subtree_control holds nothing); the attempt is retried' },
   ],
   records: 12, publishedUnits: 2, agentUsage: null,
 };
@@ -267,6 +268,8 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     const text = page.container.textContent ?? '';
     expect(text).toContain('Код · Файлы · disk');
     expect(text).not.toContain('Сценарии');
+    expect(page.container.querySelector('[data-testid="fill-run-cause"]')?.textContent).toContain('контроллеры cpu, memory и pids');
+    expect(page.container.querySelector('[data-testid="fill-run-cause"]')?.textContent).toContain('MADARCH_PLUGIN_SANDBOX=off');
     expect(text).toContain('Опубликовано 2 из 3 единиц');
     expect(text).not.toContain('demo.alpha');
     // The log is the words of the run's events, never its trace: no machine path and no forty-character id.

@@ -56,7 +56,7 @@ key:
 - set
 - value
 origin: person
-nav: own-page
+nav: loop
 details:
 - set
 - value

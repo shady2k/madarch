@@ -49,6 +49,15 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
   'unit-planned': 'unitPlanned',
 };
 
+/** A failed unit's cause, when the run page can name it and what to do about it. */
+function failureCauseOf(run: FillRunDetail): 'sandbox' | undefined {
+  for (const event of run.events) {
+    if (event.type !== 'unit-failed' && event.type !== 'unit-retried' && event.type !== 'unit-blocked') continue;
+    if (/cgroup|subtree_control|MADARCH_PLUGIN_SANDBOX/i.test(event.summary)) return 'sandbox';
+  }
+  return undefined;
+}
+
 /** The group a run event belongs to: the unit's own id ends its stage's path (`plugin-turns/disk:code.file`). */
 function groupOf(groups: readonly FillRunGroup[], text: string): FillRunGroup | undefined {
   const unit = text.slice(text.lastIndexOf('/') + 1);
@@ -108,6 +117,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
 
   const catalogue = context.navigation?.kinds ?? [];
   const groups = context.navigation?.groups ?? [];
+  const cause = run === null ? undefined : failureCauseOf(run);
   const pluginName = (name: string): string | undefined => {
     const labels = plan.data?.plan.plugins?.find((plugin) => plugin.name === name)?.labels;
     return labels?.[language] ?? labels?.['en'];
@@ -175,6 +185,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
       <Card data-testid="fill-run-groups">
         <CardHeader><CardTitle>{t('knowledge.fillRun.result')}</CardTitle></CardHeader>
         <CardContent>
+          {cause === undefined ? null : <Alert variant="problem" className="mb-3" data-testid="fill-run-cause"><AlertDescription>{t(`knowledge.fillRun.cause.${cause}`)}</AlertDescription></Alert>}
           <PlainList className="m-0 list-none p-0">
             {liveRun.groups.filter((group) => group.total > 0).map((group) => {
               const kind = labelOf(group.kind);

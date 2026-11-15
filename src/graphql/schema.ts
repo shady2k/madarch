@@ -195,6 +195,7 @@ class Builder {
       { name: 'definition', type: 'String' },
       { name: 'taken', type: 'Boolean!' },
       { name: 'group', type: 'String' },
+      { name: 'nav', type: 'String' },
       { name: 'count', type: 'Int!' },
       { name: 'entryId', type: 'ID' },
     ]);

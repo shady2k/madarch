@@ -42,7 +42,8 @@ const PROBLEMS = {
     { rule: 'large-file', kind: 'large-file', section: 'code', sonar: 'code-smell', severity: 'minor', fixer: 'person', count: 1, open: 1, closed: 0, label: { en: 'Large file', ru: 'Большой файл' } },
     { rule: 'wiki.broken-link', kind: 'broken-link', section: 'wiki', sonar: 'bug', severity: 'major', fixer: 'agent', count: 1, open: 1, closed: 0, label: { en: 'Broken link', ru: 'Битая ссылка' } },
   ],
-  sections: { code: 1, documents: 0, wiki: 1 }, open: 2, closed: 0, dismissed: 0, notes: [],
+  sections: { code: 1, documents: 0, wiki: 1 }, open: 2, closed: 0, dismissed: 0,
+  notes: [{ message: 'the documents section is not judged: Markdown questions are retired; generic authored entities do not declare document predicates', textKey: 'documentsRetired' }],
 };
 
 const SOURCES = {
@@ -128,6 +129,9 @@ test('the Problems page groups the open findings and presses the retained action
   try {
     const text = page.container.textContent ?? '';
     expect(text).toContain('Большой файл');
+    expect(text).toContain('Документы не проверяются');
+    expect(text).not.toContain('Markdown questions are retired');
+    expect(text).not.toContain('large-file');
     expect(text).toContain('Битая ссылка');
     expect(text).toContain('2 открытых из 2 проблем');
     expect(text).toContain('src/big.ts:1');
