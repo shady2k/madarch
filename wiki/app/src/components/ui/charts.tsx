@@ -21,13 +21,13 @@ import { Sparkline } from '../../../../../vendor/diagrammatic/src/react/charts/s
 import { StackedBar } from '../../../../../vendor/diagrammatic/src/react/charts/stacked-bar.js';
 import { Sunburst } from '../../../../../vendor/diagrammatic/src/react/charts/sunburst.js';
 import { Treemap } from '../../../../../vendor/diagrammatic/src/react/charts/treemap.js';
-import { Paragraph } from './typography.js';
+import { Paragraph, Stack } from './typography.js';
 
 /** One row of a figure: its label and its value. */
 export interface ChartRow { readonly label: string; readonly value: number }
 
 /** One node of a hierarchy: its label, what it holds, and its children. */
-export interface ChartNode { readonly label: string; readonly value?: number; readonly children?: readonly ChartNode[]; readonly color?: string }
+export interface ChartNode { readonly label: string; readonly value?: number; readonly children?: readonly ChartNode[]; readonly color?: string; readonly textColor?: string }
 
 /** One series across the same groups. */
 export interface ChartSeries { readonly name: string; readonly data: readonly number[] }
@@ -60,8 +60,18 @@ function ChartEmpty({ title, note }: { readonly title: string; readonly note: st
 
 /** A tree drawn as areas: each child's area is its value's share of its parent's. */
 export function ChartTreemap({ title, nodes, note = 'No values to draw', ...size }: Size & { readonly title: string; readonly nodes: readonly ChartNode[]; readonly note?: string }): ReactElement {
-  if (!hasValues(nodes)) return <ChartEmpty title={title} note={note} />;
-  return <Categorical><Treemap title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Categorical>;
+  const { t } = useTranslation();
+  const missing = missingLabels(nodes);
+  if (!hasValues(nodes)) {
+    return <Stack>
+      <ChartEmpty title={title} note={note} />
+      {missing.length === 0 ? null : <Paragraph data-testid="chart-missing">{t('charts.missingValues', { labels: missing.join(', ') })}</Paragraph>}
+    </Stack>;
+  }
+  return <Stack>
+    <Categorical><Treemap title={title} root={{ label: title, children: nodes.map(nodeOf) }} {...size} /></Categorical>
+    {missing.length === 0 ? null : <Paragraph data-testid="chart-missing">{t('charts.missingValues', { labels: missing.join(', ') })}</Paragraph>}
+  </Stack>;
 }
 
 /** The same tree as rings: the root's children the first ring, their children the next. */
@@ -122,17 +132,17 @@ export function ChartCalendar({ title, days, note = 'No activity to draw', ...si
  * beside the picture draws them itself (`ChartHeatmap`, or a table).
  */
 export function ActivityCalendar({ title, days, note = 'No activity to draw' }: { readonly title: string; readonly days: readonly ChartDay[]; readonly note?: string }): ReactElement {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (days.length === 0) return <ChartEmpty title={title} note={note} />;
   // Monday, Wednesday and Friday name the rows; the rest would crowd a phone's calendar.
   const dayNames = [0, 1, 2, 3, 4, 5, 6].map((day) => (day % 2 === 0 ? weekdayShort(day, i18n.language) : ''));
   const total = days.reduce((sum, day) => sum + day.count, 0);
   const dates = [...days.map((day) => day.date.slice(0, 10))].sort();
-  return <div className="max-w-2xl" data-testid="activity-calendar" role="img" aria-label={`${title}: ${String(total)} in ${String(days.length)} days, ${dates[0] ?? ''} to ${dates[dates.length - 1] ?? ''}`}>
+  return <div className="max-w-2xl" data-testid="activity-calendar" role="img" aria-label={t('kit.calendarSummary', { title, total, days: days.length, from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' })}>
     <HeatGraph.Root data={days.map((day) => ({ date: day.date, count: day.count }))} weekStart="monday" colorScale={HEAT_STEPS}>
       <div className="mb-1 text-[10px] leading-none text-muted">
         <div className="grid" aria-hidden="true">
-          <HeatGraph.MonthLabels>{({ label: month }) => <span style={{ gridColumn: month.column + 1 }} className="whitespace-nowrap">{MONTHS[month.month]}</span>}</HeatGraph.MonthLabels>
+          <HeatGraph.MonthLabels>{({ label: month }) => <span style={{ gridColumn: month.column + 1 }} className="whitespace-nowrap">{shortMonth(month.month, i18n.language)}</span>}</HeatGraph.MonthLabels>
         </div>
       </div>
       <div className="flex items-start gap-1.5">
@@ -144,9 +154,9 @@ export function ActivityCalendar({ title, days, note = 'No activity to draw' }: 
         </HeatGraph.Grid>
       </div>
       <div className="mt-1.5 flex items-center justify-end gap-1 text-[10px] text-muted" aria-hidden="true">
-        <span>less</span>
+        <span>{t('kit.calendarLess')}</span>
         <HeatGraph.Legend>{() => <HeatGraph.LegendLevel className="size-3 rounded-[2px] outline outline-1 outline-[var(--border-subtle)]" />}</HeatGraph.Legend>
-        <span>more</span>
+        <span>{t('kit.calendarMore')}</span>
       </div>
     </HeatGraph.Root>
   </div>;
@@ -158,20 +168,30 @@ const HEAT_STEPS = ['var(--surface-soft)', 'var(--heat-step-1)', 'var(--heat-ste
 function weekdayShort(day: number, language: string): string {
   return new Intl.DateTimeFormat(language, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 5 + day)));
 }
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** A node as the vendored forms read one: a label, the value it holds, and its children. */
 function nodeOf(node: ChartNode): ChartTreeNode {
   return {
     label: node.label,
-    ...(node.value === undefined ? {} : { value: node.value }),
+    value: node.value ?? 0,
     ...(node.children === undefined ? {} : { children: node.children.map(nodeOf) }),
     ...(node.color === undefined ? {} : { color: node.color }),
+    ...(node.textColor === undefined ? {} : { textColor: node.textColor }),
   };
 }
 
 /** The vendored tree shape, named here so the conversion is typed against it and not against a lookalike. */
-type ChartTreeNode = { label: string; value?: number; children?: ChartTreeNode[]; color?: string };
+type ChartTreeNode = { label: string; value?: number; children?: ChartTreeNode[]; color?: string; textColor?: string };
+
+/** Every node that states no value, so the figure can name it instead of drawing a made-up one. */
+function missingLabels(nodes: readonly ChartNode[]): string[] {
+  const out: string[] = [];
+  for (const node of nodes) {
+    if (node.value === undefined && (node.children === undefined || node.children.length === 0)) out.push(node.label);
+    if (node.children !== undefined) out.push(...missingLabels(node.children));
+  }
+  return out;
+}
 
 /** Whether a hierarchy holds any value at all, at any depth. */
 function hasValues(nodes: readonly ChartNode[]): boolean {
@@ -210,13 +230,19 @@ export function calendarMatrix(days: readonly ChartDay[], language = 'en'): { ro
   for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 7)) {
     // The week that holds the month's first day names it; the label is centred over the column, so a month that turns
     // inside a week takes the column as close to its start as the grid allows.
-    const month = cursor.getUTCMonth();
-    cols.push(month === monthOfLast ? '' : shortMonth(month, language));
-    monthOfLast = month;
+    // A month is named by the first day of this week that carries the page's data: a week that holds November 1 is
+    // November's, even when it starts in October (madarch-64o5.82 review).
+    let named: number | undefined;
     for (let row = 0; row < 7; row += 1) {
       const day = new Date(cursor); day.setUTCDate(day.getUTCDate() + row);
-      values[row]!.push(byDate.get(day.toISOString().slice(0, 10)) ?? 0);
+      const key = day.toISOString().slice(0, 10);
+      const count = byDate.get(key) ?? 0;
+      values[row]!.push(count);
+      if (named === undefined && byDate.has(key)) named = day.getUTCMonth();
     }
+    const month = named ?? cursor.getUTCMonth();
+    cols.push(month === monthOfLast ? '' : shortMonth(month, language));
+    monthOfLast = month;
   }
   return { rows: [0, 1, 2, 3, 4, 5, 6].map((day) => weekdayShort(day, language)), cols, values };
 }

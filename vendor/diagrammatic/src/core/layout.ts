@@ -216,7 +216,8 @@ export function nodeValue(node: TreeNode): number {
   if (node.children && node.children.length > 0) {
     return node.children.reduce((sum, child) => sum + nodeValue(child), 0);
   }
-  return node.value ?? 1;
+  // A node that states no value is missing, not one unit (madarch-64o5.82 review).
+  return node.value ?? 0;
 }
 
 export type Slice = {

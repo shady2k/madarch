@@ -88,14 +88,8 @@ const REPOSITORY: readonly ChartNode[] = [
 /** The same shape the catalogue has: many kinds whose tail is folded into one entry when it outgrows the budget. */
 const CATALOGUE: readonly ChartNode[] = Array.from({ length: 40 }, (_, index) => ({ label: `kind-${String(index + 1)}`, value: 40 - index }));
 const BARS = [{ label: 'components', value: 3210 }, { label: 'sections', value: 1840 }, { label: 'templates', value: 912 }, { label: 'views', value: 640 }, { label: 'styles', value: 388 }];
-const GROUPS = ['11 Nov', '12 Nov', '13 Nov', '14 Nov', '15 Nov'];
-const STACKED = [
-  { name: 'published', data: [42, 51, 38, 60, 47] },
-  { name: 'failed', data: [3, 1, 5, 2, 4] },
-  { name: 'blocked', data: [6, 4, 2, 5, 3] },
-];
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const HEATMAP = { rows: WEEKDAYS, cols: ['W45', 'W46', 'W47', 'W48', 'W49'], values: [[6, 8, 3, 9, 5], [4, 7, 9, 2, 8], [5, 3, 6, 7, 4], [9, 2, 4, 8, 6], [3, 6, 8, 5, 7], [1, 2, 1, 3, 2], [0, 1, 2, 1, 0]] };
+const HEATMAP_VALUES = [[6, 8, 3, 9, 5], [4, 7, 9, 2, 8], [5, 3, 6, 7, 4], [9, 2, 4, 8, 6], [3, 6, 8, 5, 7], [1, 2, 1, 3, 2], [0, 1, 2, 1, 0]];
+const STACKED_VALUES = [[42, 51, 38, 60, 47], [3, 1, 5, 2, 4], [6, 4, 2, 5, 3]];
 const SPARK = [3, 5, 4, 8, 6, 9, 7, 11, 10, 12, 9, 14];
 /** Ninety days of fills ending on a fixed day, so the calendar reads the same every run. */
 const DAYS: readonly ChartDay[] = Array.from({ length: 90 }, (_, index) => {
@@ -106,17 +100,32 @@ const EMPTY_TREE: readonly ChartNode[] = [{ label: 'nothing yet' }];
 /** The aggregate a section's `bars`, `treemap` or `timeline` display draws: a label, its value and where it leads. */
 const FACT_ROWS = [{ label: 'components', value: 42 }, { label: 'sections', value: 27 }, { label: 'templates', value: 18 }, { label: 'views', value: 9 }];
 
-/** Fold a hierarchy's children to a budget: the biggest stay, the rest become one entry that says how many it holds. */
-function folded(nodes: readonly ChartNode[], budget: number): ChartNode[] {
+/** Fold a hierarchy's children to a budget: the biggest stay, the rest become one entry named by the caller. */
+function folded(nodes: readonly ChartNode[], budget: number, label: (count: number) => string): ChartNode[] {
   const sorted = [...nodes].sort((left, right) => (right.value ?? 0) - (left.value ?? 0));
   if (sorted.length <= budget) return sorted;
   const kept = sorted.slice(0, budget - 1);
   const rest = sorted.slice(budget - 1);
-  return [...kept, { label: `+${String(rest.length)} folded`, value: rest.reduce((sum, node) => sum + (node.value ?? 0), 0), color: 'var(--surface-soft)' }];
+  return [...kept, { label: label(rest.length), value: rest.reduce((sum, node) => sum + (node.value ?? 0), 0), color: 'var(--surface-soft)', textColor: 'var(--text)' }];
+}
+
+/** The five sample days, named by the reader's locale. */
+function groupsOf(language: string): string[] {
+  return Array.from({ length: 5 }, (_, at) => new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 10, 11 + at))));
+}
+
+/** The seven weekday names, born on Monday 2026-01-05, in the reader's locale. */
+function weekdaysOf(language: string): string[] {
+  return Array.from({ length: 7 }, (_, day) => new Intl.DateTimeFormat(language, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 5 + day))));
 }
 
 export function KitPage(): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? 'en';
+  const weekdays = weekdaysOf(language);
+  const groups = groupsOf(language);
+  const stacked = [t('knowledge.fillRun.state.published'), t('knowledge.fillRun.state.failed'), t('knowledge.fillRun.state.blocked')].map((name, at) => ({ name, data: STACKED_VALUES[at]! }));
+  const heatmap = { rows: weekdays, cols: ['W45', 'W46', 'W47', 'W48', 'W49'], values: HEATMAP_VALUES };
   const state = (key: string): string => t(`kit.${key}`);
   const [choice, setChoice] = useState('one');
   const [segment, setSegment] = useState('one');
@@ -298,7 +307,7 @@ export function KitPage(): ReactElement {
           <ChartTreemap title={state('treeTitle')} nodes={REPOSITORY} width={640} height={240} note={state('noData')} />
         </KitState>
         <KitState label={`${state('treemap')} — ${state('folded')}`}>
-          <ChartTreemap title={state('foldedTitle')} nodes={folded(CATALOGUE, 6)} width={640} height={240} note={state('noData')} />
+          <ChartTreemap title={state('foldedTitle')} nodes={folded(CATALOGUE, 6, (count) => t('kit.foldedCount', { count }))} width={640} height={240} note={state('noData')} />
         </KitState>
         <KitState label={`${state('treemap')} — ${state('empty')}`}>
           <ChartTreemap title={state('treeTitle')} nodes={EMPTY_TREE} width={640} height={240} note={state('noData')} />
@@ -316,16 +325,16 @@ export function KitPage(): ReactElement {
           <ChartBar title={state('barTitle')} rows={[]} width={520} height={220} note={state('noData')} />
         </KitState>
         <KitState label={`${state('stackedBar')} — ${state('data')}`}>
-          <ChartStackedBar title={state('stackedTitle')} groups={GROUPS} series={STACKED} width={520} height={240} note={state('noData')} />
+          <ChartStackedBar title={state('stackedTitle')} groups={groups} series={stacked} width={520} height={240} note={state('noData')} />
         </KitState>
         <KitState label={`${state('stackedBar')} — ${state('empty')}`}>
           <ChartStackedBar title={state('stackedTitle')} groups={[]} series={[]} width={520} height={240} note={state('noData')} />
         </KitState>
         <KitState label={`${state('heatmap')} — ${state('data')}`}>
-          <ChartHeatmap title={state('heatmapTitle')} matrix={HEATMAP} width={560} height={260} printValues note={state('noData')} />
+          <ChartHeatmap title={state('heatmapTitle')} matrix={heatmap} width={560} height={260} printValues note={state('noData')} />
         </KitState>
         <KitState label={`${state('heatmap')} — ${state('empty')}`}>
-          <ChartHeatmap title={state('heatmapTitle')} matrix={{ rows: WEEKDAYS, cols: [], values: [] }} width={560} height={260} note={state('noData')} />
+          <ChartHeatmap title={state('heatmapTitle')} matrix={{ rows: weekdays, cols: [], values: [] }} width={560} height={260} note={state('noData')} />
         </KitState>
         <KitState label={`${state('sparkline')} — ${state('data')}`}>
           <ChartSparkline title={state('sparklineTitle')} values={SPARK} width={240} height={48} note={state('noData')} />
@@ -354,7 +363,7 @@ export function KitPage(): ReactElement {
           </KitNarrow>
         </KitFigureState>
         <KitFigureState label={state('darkCharts')}>
-          <ChartHeatmap title={state('heatmapTitle')} matrix={HEATMAP} width={560} height={260} note={state('noData')} />
+          <ChartHeatmap title={state('heatmapTitle')} matrix={heatmap} width={560} height={260} note={state('noData')} />
         </KitFigureState>
       </KitSection>
 

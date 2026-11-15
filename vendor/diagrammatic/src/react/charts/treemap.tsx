@@ -85,6 +85,7 @@ export const Treemap = forwardRef<SVGSVGElement, TreemapProps>(
                         x={tile.x + pad}
                         y={tile.y + pad + T.onSeries.px}
                         {...T.onSeries.attrs}
+                        fill={node.textColor ?? T.onSeries.attrs.fill}
                       >
                         {truncate(node.label, T.onSeries.px, tile.w - pad * 2)}
                       </text>
@@ -95,6 +96,7 @@ export const Treemap = forwardRef<SVGSVGElement, TreemapProps>(
                         y={tile.y + pad * 2 + T.onSeries.px * 2 + 4}
                         opacity="0.7"
                         {...T.onSeries.attrs}
+                        fill={node.textColor ?? T.onSeries.attrs.fill}
                       >
                         {truncate(
                           format(nodeValue(node)),
