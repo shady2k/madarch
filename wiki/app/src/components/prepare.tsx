@@ -14,18 +14,20 @@ import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { ChoiceCard } from './ui/choice-card.js';
+import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Input } from './ui/input.js';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group.js';
 import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
-import { agentStateNote, agentUsable } from './agent-words.js';
+import { agentPrepareNote, agentUsable } from './agent-words.js';
 import {
   chooseAgent, CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveProductSettings, startFillSelection, useCommandRead,
-  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
+  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
+import { fillEstimate } from './prepare-estimate.js';
 import { PluginNames } from './plugin-names.js';
 import type { Navigation } from '../client.js';
 import { catalogueSelectionAddress, runAddress } from '../address.js';
@@ -33,11 +35,6 @@ import type { SectionContext } from './types.js';
 
 const PLUGINS_ONLY = 'plugins-only';
 const labelOf = (navigation: Navigation | null, kind: string): string => navigation?.kinds.find((one) => one.kind === kind)?.many ?? kind;
-/** One kind and the fields the agent leaves unfilled when only plugins run. */
-function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | null, plan: FillPlanView | undefined, language: string): string {
-  return needs.map((need) => `${labelOf(navigation, need.kind)}${need.fields.length === 0 ? '' : ` (${need.fields.map((field) => fieldLabel(plan, need.kind, field, language)).join(', ')})`}`).join(' · ');
-}
-
 export function PrepareSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
@@ -72,6 +69,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   const requiresAgent = needsAgent.length > 0;
   const errors = plan?.errors ?? [];
   const skipped = plan?.skipped ?? [];
+  const emptyFields = needsAgent.reduce((total, need) => total + need.fields.length, 0);
   const runnable = (plan?.order.length ?? 0) > 0;
   // The product's default cap fills the field until the person types another (madarch-64o5.90): an empty field is the
   // default, never a refusal, and a typed cap is this run's alone.
@@ -146,6 +144,12 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
   if (plan === undefined) return <Skeleton className="h-10 w-80" data-testid="prepare-loading" />;
 
   const added = new Map(plan.added.map((entry) => [entry.kind, entry.neededBy]));
+  // The estimate beside the press: time, and the most the run may spend when it runs an agent.
+  const minutes = fillEstimate(plan.units.length, requiresAgent && !pluginsOnly ? needsAgent.length : 0);
+  const spendCap = capNumber ?? defaultCap;
+  const estimate = !pluginsOnly && requiresAgent && spendCap !== null
+    ? t('prepare.estimate', { minutes, tokens: new Intl.NumberFormat(language).format(spendCap) })
+    : t('prepare.estimateTime', { minutes });
   return (
     <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
       {wizard ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro', { count: plan.selectedKinds.length })}</AlertDescription></Alert> : null}
@@ -224,7 +228,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
                   <RadioGroupItem value={offer.id} aria-label={offer.label} disabled={!agentUsable(offer)} />
                   <Text className="min-w-0 flex-1 text-small">
                     <Text className="block font-medium">{offer.label}</Text>
-                    <Text className="block text-muted" data-testid={`prepare-agent-state-${offer.id}`}>{agentStateNote(t, offer)}</Text>
+                    <Text className="block text-muted" data-testid={`prepare-agent-state-${offer.id}`}>{agentPrepareNote(t, offer)}</Text>
                   </Text>
                 </ChoiceCard>
               ))}
@@ -237,8 +241,19 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
               </ChoiceCard>
             </RadioGroup>
           )}
-          {pluginsOnly ? (
-            <Alert className="mb-3" data-testid="prepare-unfilled"><AlertDescription>{t('prepare.unfilled', { what: unfilledWords(needsAgent, navigation, plan, language) || t('prepare.nothing') })}</AlertDescription></Alert>
+          {pluginsOnly && needsAgent.length > 0 ? (
+            <Disclosure className="mb-3" data-testid="prepare-unfilled">
+              <DisclosureSummary className="cursor-pointer text-small text-muted" data-testid="prepare-unfilled-summary">
+                {t('prepare.unfilledSummary', { fields: t('prepare.fieldsN', { count: emptyFields }), kinds: t('prepare.kindsN', { count: needsAgent.length }) })}
+              </DisclosureSummary>
+              <PlainList className="m-0 mt-2 list-none p-0">
+                {needsAgent.map((need) => (
+                  <ListItem key={need.kind} className="text-small text-muted" data-testid="prepare-unfilled-kind">
+                    {t('prepare.unfilledKind', { kind: labelOf(navigation, need.kind), fields: need.fields.map((field) => fieldLabel(plan, need.kind, field, language)).join(', ') })}
+                  </ListItem>
+                ))}
+              </PlainList>
+            </Disclosure>
           ) : null}
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
@@ -269,7 +284,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
             <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || !validCap || !runnable} onClick={run} data-testid="prepare-run">
               {t(busy ? 'prepare.starting' : 'prepare.run')}
             </Button>
-            {runnable ? <Text className="text-small text-muted">{t('prepare.onePress')}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
+            {runnable ? <Text className="text-small text-muted" data-testid="prepare-estimate">{estimate}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
           </Stack>
         </CardContent>
       </Card>

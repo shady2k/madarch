@@ -219,7 +219,11 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     expect(text).toContain('Claude Code');
     expect(text).toContain('Codex');
     expect(page.container.querySelector('[data-testid="prepare-agent-state-claude-code"]')?.textContent).toContain('Вход на этой машине выполнен');
-    expect(page.container.querySelector('[data-testid="prepare-unfilled"]')?.textContent).toContain('Определение');
+    // The unfilled fields are one counted line that opens into a row per kind, never a wall of text.
+    expect(page.container.querySelector('[data-testid="prepare-unfilled-summary"]')?.textContent).toContain('Останутся пустыми 1 поле в 1 виде');
+    expect(page.container.querySelector('[data-testid="prepare-unfilled-kind"]')?.textContent).toContain('Сценарии: Определение');
+    // Beside the press stands its estimate: plugins-only names the time alone.
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toBe('≈ 1 мин');
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(false);
     expect(page.container.querySelector('[data-testid="prepare-cap"]')).toBeNull();
     // Choose Claude Code: its model appears beside the cap.
@@ -242,6 +246,9 @@ test('the preparation panel shows every installed agent beside plugins-only, pic
     await settle();
     expect(requests.some((one) => one.path.endsWith('/api/agent') && one.method === 'POST' && (one.body as { agent?: string }).agent === 'claude-code')).toBe(true);
     expect(requests.some((one) => one.path.endsWith('/api/product-settings') && one.method === 'POST' && (one.body as { model?: string }).model === 'sonnet' && (one.body as { reasoning?: string }).reasoning === 'medium')).toBe(true);
+    // With an agent the estimate also names the most the run may spend.
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('до');
+    expect(page.container.querySelector('[data-testid="prepare-estimate"]')?.textContent).toContain('200');
     // The cap offers the product's default (madarch-64o5.90), and an empty field runs under it rather than blocking.
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     expect(cap.value).toBe('200000');
