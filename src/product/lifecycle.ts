@@ -810,10 +810,10 @@ function withFailures(prints: string[], failures: readonly string[]): LifecycleO
  * nothing behind.
  */
 /** Starts a product, linking the code checkout when present through the same manifest operation as `repo add`. */
-export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string }): LifecycleOutcome {
+export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string; language?: 'en' | 'ru' }): LifecycleOutcome {
   const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
   if (!top.ok || !readdirSync(resolve(top.output)).some((entry) => entry !== '.git')) {
-    const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }) });
+    const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }), ...(options.language === undefined ? {} : { language: options.language }) });
     if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
     return done([`folder: ${draft.folder}`, `id: ${draft.id}`, `name: ${draft.name}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`]);
   }

@@ -14,13 +14,14 @@
  * reports them.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
 import { commandLanguage as commandLanguageOf, type CommandLanguage } from './command-language.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
 import { productsHome, type DraftEnv } from './home.js';
 import { seedStarterSet, starterPageKindNames } from '../knowledge/seed.js';
+import { KINDS_FILE, setKindsLanguage } from './manifest/kinds.js';
 import { DEFAULT_STARTER_TEMPLATE, starterTemplateIds, starterTemplateOf, type StarterTemplate } from '../knowledge/starter-templates.js';
 export type { DraftEnv };
 
@@ -130,6 +131,8 @@ export interface DraftOptions {
    * person's own identity.
    */
   gitEnv?: GitEnv;
+  /** The language the person chose on a first run; the product's manifest carries it, so the wiki speaks it too. */
+  language?: 'en' | 'ru';
 }
 
 // The three homes madarch reads are one module's (`home.ts`), so the wizard's
@@ -295,6 +298,12 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
     // The template's files are copied into the product repository by the one module that writes them: `madarch init --template everything`.
     seedStarterSet(folder, template.id, options.templates);
+    // The wiki's own language setting, kept where the wiki reads it: the product's manifest (madarch-64o5.84). A product
+    // made from no template has no manifest yet, and its language is written with the first kinds it gets.
+    if (options.language !== undefined && existsSync(join(folder, KINDS_FILE))) {
+      const failure = setKindsLanguage(folder, options.language);
+      if (failure !== undefined) throw new Error(failure);
+    }
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);
