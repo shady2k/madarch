@@ -277,9 +277,17 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
         `SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = $2 AND n.context_id = 1 AND NOT n.removed LIMIT 1`,
         [input.id, input.kind],
       );
-      if (rows.rows[0] === undefined) throw new WriteRefusal(`id ${JSON.stringify(input.id)}: no entity of the kind ${JSON.stringify(input.kind)} has it`, 'id', 404);
-      key = rows.rows[0].key;
-      if (vertex.key.length === 0) writeUid = input.id;
+      if (rows.rows[0] === undefined) {
+        // A keyless kind's identity is its uid, so a write that names one makes that entity: two writes of one name meet
+        // on one row (the insert waits on the uid's unique index) instead of making a second. A keyed kind is named by
+        // its key, and an id no entity of it holds is still refused.
+        if (vertex.key.length !== 0) throw new WriteRefusal(`id ${JSON.stringify(input.id)}: no entity of the kind ${JSON.stringify(input.kind)} has it`, 'id', 404);
+        key = {};
+        writeUid = input.id;
+      } else {
+        key = rows.rows[0].key;
+        if (vertex.key.length === 0) writeUid = input.id;
+      }
     } else if (input.key === undefined && vertex.key.length === 0) {
       // A keyless kind is created by the write and answered by the uid of the opinion it just made.
       key = {};

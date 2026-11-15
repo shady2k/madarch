@@ -82,7 +82,7 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
-import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal } from '../loop/problem-task.js';
+import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskUid } from '../loop/problem-task.js';
 import type { Author } from '../loop/entities.js';
 import type { ProblemLink } from '../problems/types.js';
 import { entityPageAddress } from './addresses.js';
@@ -2488,12 +2488,19 @@ export class KnowledgeProduct {
     }
     const rule = listing.categories.find((category) => category.rule === problem.rule);
     const record = problemTaskRecord(problem, { language, ...(rule?.label === undefined ? {} : { label: rule.label }) });
-    // The press is what the write rests on: the problem and the finding's own words, said by the person.
-    const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, at: (this.options.now?.() ?? new Date()).toISOString(), words: record.statement }];
+    // The press is what the write rests on: the problem and the finding's own words, said by the person. The evidence
+    // carries no moment of its own, so two presses of one problem write the same thing once — the journal states when.
+    const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, words: record.statement }];
+    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one, and the
+    // author starts with `person:` — the product then knows a person wrote in it, and its start-over is refused.
+    const source = { producer: `person:${by.name}`, version: by.email.replaceAll('@', '%40') };
     let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
     try {
-      written = await this.putEntity({ producer: 'person', version: `${by.name} <${by.email}>` }, {
+      written = await this.putEntity(source, {
+        // The uid is the problem's: a second press, even one that read no task a moment ago, joins this entity instead
+        // of making another, and finds everything unchanged, so it writes nothing and answers the task that stands.
         kind: PROBLEM_TASK_KIND,
+        id: problemTaskUid(problem),
         values: { title: record.title, body: record.body, front: record.front },
         evidence,
         words: language === 'ru' ? 'Создать задачу' : 'Create a task',
@@ -2505,8 +2512,10 @@ export class KnowledgeProduct {
       throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
     }
     if (written.uid === undefined) throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
-    this.notify();
-    return { task: { label: record.title, href: entityPageAddress(PROBLEM_TASK_KIND, written.uid), key: `task:${written.uid}` }, state: 'created' };
+    // Nothing written means the task stood exactly as this press states it: another press made it, and this one found it.
+    const state = written.written === 0 ? 'existing' as const : 'created' as const;
+    if (state === 'created') this.notify();
+    return { task: { label: record.title, href: entityPageAddress(PROBLEM_TASK_KIND, written.uid), key: `task:${written.uid}` }, state };
   }
 
   async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {

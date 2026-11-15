@@ -7,11 +7,26 @@
  * The kind is the starter catalogue's work task, and nothing about its wording belongs to the engine: the title and the
  * body are said in the language the product's pages are written in, and the record itself is data a later reader joins on.
  */
+import { createHash } from 'node:crypto';
 import type { Problem } from './views.js';
 import { contentLanguage } from '../knowledge/plural.js';
 
 /** The kind a problem's task is an entity of: the product's own task kind, which the starter catalogue declares. */
 export const PROBLEM_TASK_KIND = 'task';
+
+/**
+ * The uid a problem's task takes, derived from the problem's stable id: the same problem names the same task, so two
+ * presses that meet — two tabs, two connections — write one entity instead of one each (madarch-64o5.104). The version
+ * is 8 (a name-based uid of this product's own, RFC 9562's custom version), and nothing reads the uid's meaning.
+ */
+export function problemTaskUid(problem: Problem): string {
+  const digest = createHash('sha1').update(`madarch:problem-task\u0000${problem.rule}\u0000${problem.identity}`).digest();
+  const bytes = Uint8Array.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 /** The language a task's words are written in: the product's, Russian only when it is asked for by name. */
 export const problemTaskLanguage = (language: string | undefined): 'en' | 'ru' => contentLanguage(language);
