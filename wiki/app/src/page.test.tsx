@@ -36,7 +36,7 @@ async function renderPage(sections: Section[], data: Record<string, unknown>, ru
     root.render(createElement(PageView, {
       composition: compositionOf(sections),
       data,
-      runtime: { base: '', language: 'en', busy: false, variables: {}, product: 'Madarch', navigation: null, pageName: null, open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, ...runtime },
+      runtime: { base: '', language: 'en', busy: false, variables: {}, product: 'Madarch', navigation: null, pageName: null, role: 'everything', open: () => undefined, reload: (variables: Record<string, unknown>) => { reloads.push(variables); }, ...runtime },
     }));
   });
   return { container, reloads, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -58,7 +58,7 @@ const ID = '00000000-0000-0000-0000-00000000dead';
 const navigation = {
   product: 'Madarch',
   groups: [],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: null, nav: null, count: 2, entryId: ID }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: null, nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
   purposes: [],
 };
 
@@ -400,4 +400,34 @@ test('a pressed node opens the page the server named for it', () => {
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'n1' })).toBe('/e/a.b/1');
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'other', modelRef: 'n1' })).toBe('/e/a.b/1');
   expect(linkOfNode({}, { id: 'n9' })).toBeUndefined();
+});
+
+test('a section the template does not open for the reader\'s role stands on the page under its title', async () => {
+  const held = section('facts', 'facts', { rows: [{ label: { en: 'Name' }, path: 'label' }] }, { title: { en: 'Facts', ru: 'Факты' }, roles: { open: ['engineer'] } });
+  const data = { facts: { label: 'The shop' } };
+  const analyst = await renderPage([held], data, { role: 'analyst' });
+  try {
+    const collapsed = analyst.container.querySelector('[data-testid="collapsed-section"]');
+    expect(collapsed?.getAttribute('data-section-id')).toBe('facts');
+    expect(collapsed?.querySelector('summary')?.textContent).toBe('Facts');
+    expect(collapsed?.hasAttribute('open')).toBe(false);
+    expect(collapsed?.textContent).toContain('The shop');
+  } finally {
+    await analyst.close();
+  }
+  const engineer = await renderPage([held], data, { role: 'engineer' });
+  try {
+    expect(engineer.container.querySelector('[data-testid="collapsed-section"]')).toBeNull();
+    expect(engineer.container.querySelector('h2')?.textContent).toBe('Facts');
+    expect(engineer.container.textContent).toContain('The shop');
+  } finally {
+    await engineer.close();
+  }
+  // The reader of every role opens every section, as the product's own default role does.
+  const everything = await renderPage([held], data, { role: 'everything' });
+  try {
+    expect(everything.container.querySelector('[data-testid="collapsed-section"]')).toBeNull();
+  } finally {
+    await everything.close();
+  }
 });

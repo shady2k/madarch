@@ -59,15 +59,18 @@ const bootstrap = {
   home: null,
   catalogueTemplate: 'probe',
   templates: [{ name: 'probe', body: TEMPLATE }],
-  recordTemplates: [],
+  // An entity of the fixture's kind opens the same probe template: a page the app composes, not a missing one.
+  recordTemplates: [{ kind: 'a.b', template: 'probe' }],
   ownTemplates: [],
   roles: ['analyst'],
+  roleLeads: [],
 };
 
 const navigation = {
   product: 'Madarch',
   groups: [{ name: 'code', labels: { en: 'Code', ru: 'Код' }, short: null, open: false, parent: null }],
-  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: 'code', nav: null, count: 2, entryId: ID }],
+  kinds: [{ kind: 'a.b', one: 'A', many: 'As', definition: null, taken: true, group: 'code', nav: null, count: 2, entryId: ID, purpose: null, audience: null }],
+  purposes: [],
 };
 
 const requests: { query: string; variables: Record<string, unknown> }[] = [];
@@ -386,6 +389,8 @@ test('a unit publication grows the sidebar before the run ends, without a reload
     await act(async () => { for (const source of FakeSource.all) source.emit(JSON.stringify({ revision: '2', kinds: ['a.b'], facts: 4 })); });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
     await settle();
+    // The group the manifest does not open stands closed; its kinds appear once the reader opens it.
+    await act(async () => { (page.container.querySelector('[data-testid="nav-group"]') as HTMLButtonElement | null)?.click(); });
     expect(page.container.querySelector('[data-testid="nav-kind"]')).not.toBeNull();
     expect(page.container.querySelector('[data-testid="nav-count"]')?.textContent).toBe('4');
     expect(page.container.querySelector('[data-testid="nav-kind"]')?.getAttribute('data-changed')).toBe('true');
@@ -504,3 +509,64 @@ test('the brand is lowercase and the product block is a link with no chevron', a
     expect(initial?.textContent).toBe('M');
   } finally { await page.close(); }
 });
+
+test('a catalogue being published says so in the reader\'s words, and the page comes once it is', async () => {
+  let published = false;
+  const real = globalThis.fetch;
+  (globalThis as { fetch: typeof fetch }).fetch = (async (url: string, init?: { body?: string }) => {
+    if (!String(url).endsWith('/graphql')) return new Response(JSON.stringify({ fill: { state: 'idle' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (!published) return new Response(JSON.stringify({ publication: 'pending', message: 'the catalogue is being published' }), { status: 503, headers: { 'content-type': 'application/json' } });
+    const body = JSON.parse(init?.body ?? '{}') as { query: string; variables?: Record<string, unknown> };
+    return new Response(JSON.stringify(answerFor(body.query, body.variables ?? {})), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    const note = page.container.querySelector('[data-publication="pending"]');
+    expect(note?.getAttribute('role')).toBe('status');
+    expect(note?.textContent).toContain('Publishing the catalogue. Please wait.');
+    expect(page.container.querySelector('[data-testid="wiki-error"]')).toBeNull();
+    // The frame reads the product again by itself while the catalogue is being made.
+    published = true;
+    for (let at = 0; at < 20 && page.container.querySelector('[data-testid="wiki-app"]') === null; at += 1) {
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+    }
+    expect(page.container.querySelector('[data-testid="wiki-app"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-publication]')).toBeNull();
+    expect(page.container.querySelector('h1')?.textContent).toBe('A kind');
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = real;
+    await page.close();
+  }
+}, 10_000);
+
+test('a page names its tab, the document names the page, and a control press opens the page in a tab of its own', async () => {
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    const tabs = (): Element[] => [...page.container.querySelectorAll('[data-testid="tab"]')];
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['A kind']);
+    expect(tabs()[0]?.getAttribute('data-active')).toBe('true');
+    expect(document.title).toBe('A kind — Madarch — knowledge wiki');
+    // A row of the page's table is an entity's link; a control press opens it in a tab of its own, beside this one.
+    const row = page.container.querySelector('[data-testid="page"] a[href="/e/a.b/one-id"]') as HTMLAnchorElement | null;
+    expect(row).not.toBeNull();
+    await act(async () => { row?.dispatchEvent(new MouseEvent('click', { button: 0, ctrlKey: true, bubbles: true, cancelable: true })); });
+    for (let at = 0; at < 10; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(tabs()).toHaveLength(2);
+    expect(tabs().map((tab) => tab.getAttribute('data-active'))).toEqual(['false', 'true']);
+    expect(requests.some((one) => one.variables['id'] === 'one-id')).toBe(true);
+    expect(document.title).toBe('A kind — Madarch — knowledge wiki');
+    // A press on the first tab brings its page back.
+    await act(async () => { (page.container.querySelectorAll('[data-testid="tab-trigger"]')[0] as HTMLButtonElement).click(); });
+    await settle();
+    expect(window.location.pathname).toBe(`/e/catalogue/${ID}`);
+    expect(document.title).toBe('A kind — Madarch — knowledge wiki');
+    // And closing the second tab leaves this one alone.
+    await act(async () => { (page.container.querySelectorAll('[data-testid="tab-close"]')[0] as HTMLButtonElement).click(); });
+    expect(tabs()).toHaveLength(1);
+    expect(tabs()[0]?.textContent).toBe('A kind');
+  } finally {
+    await page.close();
+  }
+}, 10_000);

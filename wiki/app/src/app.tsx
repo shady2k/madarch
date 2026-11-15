@@ -8,13 +8,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
-import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation } from './client.js';
+import { EVERYTHING_ROLE, CATALOGUE_KIND, composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
+import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Navigation, type PublicationState } from './client.js';
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
 import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
+import { pageTitleOf } from './components/header.js';
+import { PageTabs } from './components/page-tabs.js';
+import { pendingByKind, useLiveRun } from './components/run-indicator.js';
+import { activateTab, activeAddress, closeTab, followWindow, openPage, recallTabs, rememberTabs, sessionStorageOrNull, titleTab, type TabsState } from './tabs.js';
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
 import { LogsPage } from './components/logs.js';
@@ -50,9 +54,9 @@ function templateTask(template: string | undefined, t: TFunction): string | null
 
 function storedRole(): string {
   try {
-    return window.localStorage.getItem(ROLE_KEY) ?? 'everything';
+    return window.localStorage.getItem(ROLE_KEY) ?? EVERYTHING_ROLE;
   } catch {
-    return 'all';
+    return EVERYTHING_ROLE;
   }
 }
 
@@ -64,11 +68,13 @@ function keepRole(value: string): void {
   }
 }
 
-/** What one page's answer holds: its composition, the variables it was asked with and the sections' data. */
+/** What one page's answer holds: its composition, the variables it was asked with, the sections' data and its address. */
 interface Loaded {
   readonly composition: PageComposition;
   readonly variables: Record<string, unknown>;
   readonly data: Record<string, unknown>;
+  /** The address the answer was asked for: a page whose address moved keeps its last data until the next answer stands. */
+  readonly address: string;
 }
 
 export function App(): ReactElement {
@@ -77,14 +83,23 @@ export function App(): ReactElement {
   const connection = useConnection();
   const [base] = useState(() => basePathOf(window.location.pathname));
   const [path, setPath] = useState(() => window.location.pathname.slice(base.length) + window.location.search);
+  // The window's open pages: the reader's own state, kept for this window alone (a reload keeps it).
+  const storage = useMemo(() => sessionStorageOrNull(), []);
+  const [tabs, setTabs] = useState<TabsState>(() => recallTabs(storage, base, path));
+  const tabsNow = useRef(tabs);
   const [role, setRole] = useState(storedRole);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [navigation, setNavigation] = useState<Navigation | null>(null);
+  /** The catalogue's publication, while the graph answers that it is being made or could not be: the frame says so. */
+  const [publication, setPublication] = useState<PublicationState | null>(null);
   // The run page polls its own run; the problems listing reads the whole product and would stand in its way while a
   // fill writes. Its count is read on every other page.
   const onRunPage = path.split('?')[0] === '/p/run';
   const problems = useCommandRead<ProblemsCount>('problems-count', (signal) => readProblemsCount(base, signal), !onRunPage);
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product', (signal) => readProduct(base, signal));
+  // The live fill run: read once, for the top bar's indicator and the sidebar's «still being written» counts.
+  const liveRun = useLiveRun(base);
+  const pending = useMemo(() => pendingByKind(liveRun.run), [liveRun.run]);
   const savedRole = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [lastDataAt, setLastDataAt] = useState<number | null>(null);
@@ -102,21 +117,64 @@ export function App(): ReactElement {
     return parseAddress(pathname ?? '/', `?${search}`, '');
   }, [path]);
 
-  const open = useCallback((next: string): void => {
-    // A component names an address of the app; a rendered link carries the base the app is served under.
-    const path = base !== '' && next.startsWith(base) ? next.slice(base.length) : next;
-    window.history.pushState({}, '', base + path);
-    setPath(path);
+  /** The tabs as the press left them: the handlers read the latest, and the bar is drawn from the state. */
+  const applyTabs = useCallback((next: TabsState): void => {
+    tabsNow.current = next;
+    setTabs(next);
+  }, []);
+  useEffect(() => { rememberTabs(storage, base, tabs); }, [base, storage, tabs]);
+
+  /** Shows the page the tab in front names: the address bar and the page below move with it, as a page load would. */
+  const show = useCallback((address: string): void => {
+    if (address === path) return;
+    window.history.pushState({}, '', base + address);
+    setPath(address);
     // A press on a link scrolls the page it opens to its top, as a page load would: the work area is the column that
     // scrolls, not the window.
     document.querySelector('[data-testid="shell-content"]')?.scrollTo({ top: 0 });
-  }, [base]);
+  }, [base, path]);
 
+  /**
+   * A press on a page's address: a plain press shows it in the tab in front, a control or command press in a tab of its
+   * own. An address another tab already holds brings that tab forward instead of standing twice.
+   */
+  const open = useCallback((next: string, options?: { readonly newTab?: boolean }): void => {
+    // A component names an address of the app; a rendered link carries the base the app is served under.
+    const address = base !== '' && next.startsWith(base) ? next.slice(base.length) : next;
+    const state = openPage(tabsNow.current, address, options?.newTab === true);
+    applyTabs(state);
+    show(activeAddress(state));
+  }, [applyTabs, base, show]);
+
+  /** A press on a tab brings the page it holds in front. */
+  const activate = useCallback((key: string): void => {
+    const state = activateTab(tabsNow.current, key);
+    applyTabs(state);
+    show(activeAddress(state));
+  }, [applyTabs, show]);
+
+  /** A press on a tab's close: the tab beside it comes forward when it was the one in front. */
+  const close = useCallback((key: string): void => {
+    const before = activeAddress(tabsNow.current);
+    const state = closeTab(tabsNow.current, key);
+    applyTabs(state);
+    if (activeAddress(state) !== before) show(activeAddress(state));
+  }, [applyTabs, show]);
+
+  // The window's own moves — the back and forward buttons, a link the browser followed: the tab that holds that page
+  // comes forward, else the tab in front names it.
   useEffect(() => {
-    const follow = (): void => { setPath(window.location.pathname.slice(base.length) + window.location.search); };
+    const follow = (): void => {
+      const address = window.location.pathname.slice(base.length) + window.location.search;
+      const state = followWindow(tabsNow.current, address);
+      applyTabs(state);
+      const shown = activeAddress(state);
+      if (shown !== address) window.history.pushState({}, '', base + shown);
+      setPath(shown);
+    };
     window.addEventListener('popstate', follow);
     return () => { window.removeEventListener('popstate', follow); };
-  }, [base]);
+  }, [applyTabs, base]);
 
   useEffect(() => {
     alive.current = true;
@@ -128,6 +186,12 @@ export function App(): ReactElement {
     if (!alive.current || !current()) return undefined;
     // The frame's calm state stands for an unreachable server; it is not a failure of the product's page.
     if (read.offline === true) return undefined;
+    // A catalogue being published, or one that could not be, is the product's own state: the frame says it in its words.
+    if (read.publication !== undefined) {
+      setPublication(read.publication);
+      return undefined;
+    }
+    setPublication(null);
     bootstrapVersion.current += 1;
     if (read.bootstrap === undefined) {
       setFailure(read.message ?? 'the bootstrap could not be read');
@@ -184,13 +248,7 @@ export function App(): ReactElement {
     keepRole(savedRole.data.role);
   }, [savedRole.data]);
 
-  // The document says the language the reader reads and names the product, as the browser's tab shows them.
-  useEffect(() => {
-    document.documentElement.lang = language;
-    document.title = t('knowledge.title', { product: navigation?.product ?? 'madarch' });
-  }, [language, navigation?.product, t]);
-
-  const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>): Promise<void> => {
+  const ask = useCallback(async (composition: PageComposition, variables: Record<string, unknown>, asked: string): Promise<void> => {
     const request = ++pageRequest.current;
     const current = (): boolean => alive.current && request === pageRequest.current;
     setBusy(true);
@@ -199,13 +257,18 @@ export function App(): ReactElement {
     setBusy(false);
     // The frame's calm state stands for the unreachable server, and the page keeps what it last held.
     if (answer.offline === true) return;
+    if (answer.publication !== undefined) {
+      setPublication(answer.publication);
+      return;
+    }
+    setPublication(null);
     const codes = codesOf(answer.errors);
     if (answer.errors.length > 0) {
       if (codes.includes(STALE_STRUCTURE) && bootstrap !== null) {
         const read = await loadBootstrap(current);
         if (current() && read !== undefined) {
           const again = composePage(read, { ...address.page, lang: language, role, ...(address.home ? { home: true } : {}) });
-          if (again.findings.length === 0) await ask(again, again.variables);
+          if (again.findings.length === 0) await ask(again, again.variables, asked);
         }
         return;
       }
@@ -214,7 +277,7 @@ export function App(): ReactElement {
     }
     setFailure(null);
     setLastDataAt(Date.now());
-    setLoaded({ composition, variables, data: splitResponse(composition, answer.data ?? {}) });
+    setLoaded({ composition, variables, data: splitResponse(composition, answer.data ?? {}), address: asked });
   }, [address, base, bootstrap, language, loadBootstrap, role]);
 
   // One page view, one operation: the page is composed from the bootstrap and the address, then asked once.
@@ -250,10 +313,10 @@ export function App(): ReactElement {
     if (composition.operation === '') {
       setFailure(null);
       setBusy(false);
-      setLoaded({ composition, variables: composition.variables, data: {} });
+      setLoaded({ composition, variables: composition.variables, data: {}, address: path });
       return;
     }
-    void ask(composition, composition.variables);
+    void ask(composition, composition.variables, path);
     return () => { pageRequest.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionKey]);
@@ -263,7 +326,7 @@ export function App(): ReactElement {
     const merged = { ...loaded.variables, ...variables };
     // A key set to null drops the variable, as the connection's own default asks.
     for (const [key, value] of Object.entries(variables)) if (value === null) delete merged[key];
-    void ask(loaded.composition, merged);
+    void ask(loaded.composition, merged, loaded.address);
   }, [ask, loaded]);
 
   /**
@@ -304,20 +367,60 @@ export function App(): ReactElement {
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds };
+  // The tab's name: the product on its home, the page's own title once its answer stands, else the page's frame word.
+  // The page's own name is read from the answer that stands for the address in front, never from the last page's.
+  const loadedTitle = loaded === null || loaded.address !== path ? null : pageTitleOf(loaded.composition, loaded.data, language);
+  const knownTitle = address.home ? productName : loadedTitle ?? pageName;
+  // A page names its tab when its name is known: an entity's tab says «Loading…» until the page stands, then its title.
+  useEffect(() => {
+    if (knownTitle === null) return;
+    applyTabs(titleTab(tabsNow.current, tabsNow.current.active, knownTitle));
+  }, [applyTabs, knownTitle, path]);
+  // The document says the language the reader reads and names the page beside the product, as the browser's tab shows them.
+  useEffect(() => {
+    document.documentElement.lang = language;
+    const product = productName ?? navigation?.product ?? 'madarch';
+    document.title = knownTitle === null || knownTitle === product
+      ? t('knowledge.title', { product })
+      : t('knowledge.titleOf', { page: knownTitle, product });
+  }, [knownTitle, language, navigation?.product, productName, t]);
+  // A catalogue being published, or one that could not be, is read again by itself: the frame waits on the product it shows.
+  useEffect(() => {
+    if (publication === null) return;
+    const timer = setTimeout(() => { void loadBootstrap(); }, publication.status === 'pending' ? 1000 : 5000);
+    return () => { clearTimeout(timer); };
+  }, [publication, loadBootstrap]);
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, role, open, reload, onRole: applyRole, changedKinds };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
+  // The groups the reader's role lists first (decision 0031), as the product's manifest declares them.
+  const leads = bootstrap?.roleLeads.find((one) => one.role === role)?.lead ?? [];
   const navigationPanel = (after: () => void): ReactElement => (
-    <FrameNavigation navigation={navigation} base={base} path={here} open={(next) => { open(next); after(); }} tasks={tasks} problemsOpen={problems.data?.open ?? null} productName={productName} changed={changedKinds} />
+    <FrameNavigation
+      navigation={navigation}
+      base={base}
+      path={here}
+      open={(next, options) => { open(next, options); after(); }}
+      tasks={tasks}
+      role={role}
+      leads={leads}
+      problemsOpen={problems.data?.open ?? null}
+      productName={productName}
+      pending={pending}
+      changed={changedKinds}
+    />
   );
   const [menuOpen, setMenuOpen] = useState(false);
-  // The graph could not be read at all, or the server cannot be reached: the frame says so instead of a page.
-  if (bootstrap === null && (failure !== null || connection.offline)) {
+  // The graph could not be read at all, the server cannot be reached, or the catalogue is being published: the frame
+  // says so instead of a page.
+  if (bootstrap === null && (failure !== null || connection.offline || publication !== null)) {
     return (
       <ShellError>
         {connection.offline
           ? <ConnectionBanner lastDataAt={lastDataAt} />
-          : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
+          : publication !== null
+            ? <PublicationNote publication={publication} />
+            : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
       </ShellError>
     );
   }
@@ -368,16 +471,19 @@ export function App(): ReactElement {
               busy={busy}
               menu={<PhoneNavigation open={menuOpen} onOpenChange={setMenuOpen}>{navigationPanel(() => { setMenuOpen(false); })}</PhoneNavigation>}
               open={open}
+              run={liveRun}
               onLanguage={(next) => { void setWikiLanguage(next); }}
               onRole={chooseRole}
               onReload={() => { void loadBootstrap(); }}
             />
+            <PageTabs tabs={tabs.tabs} active={tabs.active} activate={activate} close={close} />
           </ShellFixed>
           <ShellRow>
             <ShellScroll data-testid="shell-content">
               <ShellDocument>
                 <main data-testid="wiki-main">
                   <ConnectionBanner lastDataAt={lastDataAt} />
+                  {publication === null || connection.offline ? null : <PublicationNote publication={publication} />}
                   {failure === null ? null : (
                     <Alert variant="problem" className="mb-4" data-testid="wiki-error">
                       <AlertDescription>{failure}</AlertDescription>
@@ -395,5 +501,27 @@ export function App(): ReactElement {
         </ShellMain>
       </Stack>
     </TooltipProvider>
+  );
+}
+
+/**
+ * The catalogue's own state (decision 0036, section 8): while the product's catalogue is being published, and when it
+ * could not be, the frame says so in the reader's language instead of drawing a page over nothing.
+ */
+function PublicationNote({ publication }: { readonly publication: PublicationState }): ReactElement {
+  const { t } = useTranslation();
+  const pending = publication.status === 'pending';
+  return (
+    <Alert
+      variant="problem"
+      className="mb-4"
+      role={pending ? 'status' : 'alert'}
+      data-publication={publication.status}
+      data-testid="publication-note"
+    >
+      <AlertDescription>
+        {pending ? t('knowledge.publishing') : t('knowledge.publishingFailed', { message: publication.message ?? '' })}
+      </AlertDescription>
+    </Alert>
   );
 }

@@ -79,9 +79,13 @@ beforeAll(async () => {
   // A record template and an entity's own template: the bootstrap names both, and an entity answers the one it opens.
   writeFileSync(join(folder, 'templates/record.yaml'), 'template: record\nextends: entity\nrecords: [demo.file]\nsections:\n  - id: files\n    component: table\n    after: header\n    query: |\n      id\n      label\n    params:\n      path: .\n      columns: [{ label: { en: Label }, path: label }]\n');
   writeFileSync(join(folder, 'templates/own.yaml'), 'template: own\nextends: entity\nentities: [own-entity]\nsections: []\n');
-  writeFileSync(join(folder, 'madarch/catalog.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8'));
+  // One role leads the demo area and reads its files: the frame's purposes and audiences, and the role's leading groups.
+  const catalog = readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8')
+    .replace('language: en\n', 'language: en\nroles:\n  developer: { lead: [demo] }\n');
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), catalog);
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.repository.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.repository.yaml'), 'utf8'));
-  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8'));
+  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.file.yaml'), readFileSync(join(import.meta.dir, 'graphql/fixture-product-demo.file.yaml'), 'utf8')
+    .replace('purpose: structure\n', 'purpose: structure\naudience: [developer]\n'));
   execFileSync('git', ['init', '-q'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
@@ -328,7 +332,7 @@ describe('the GraphQL executor', () => {
       home: null,
       catalogueTemplate: 'entity',
       templates: ['catalogue', 'entity'].map((name) => ({ name, body: readFileSync(join(folder, 'templates', `${name}.yaml`), 'utf8') })),
-      recordTemplates: [], ownTemplates: [], roles: [],
+      recordTemplates: [], ownTemplates: [], roles: [], roleLeads: [],
     };
     const page = composePage(bootstrap, { template: 'catalogue' });
     expect(page.findings).toEqual([]);
@@ -340,7 +344,7 @@ describe('the GraphQL executor', () => {
   });
 
   test('the bootstrap names the templates, the pages they open and the roles', async () => {
-    const data = await graphql(`{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name } recordTemplates { kind template } ownTemplates { id template } roles } }`);
+    const data = await graphql(`{ bootstrap { structureRevision home { id kind template } catalogueTemplate templates { name } recordTemplates { kind template } ownTemplates { id template } roles roleLeads { role lead } } }`);
     const held = data['bootstrap'] as Record<string, any>;
     expect(held.structureRevision).toHaveLength(64);
     // This fixture holds no home kind: the home is null, and the mechanisms's other names stand.
@@ -350,6 +354,18 @@ describe('the GraphQL executor', () => {
     expect(held.recordTemplates).toEqual([{ kind: 'demo.file', template: 'record' }]);
     expect(held.ownTemplates).toEqual([{ id: 'own-entity', template: 'own' }]);
     expect(Array.isArray(held.roles)).toBe(true);
+    expect(held.roles).toEqual(['developer']);
+    // The groups a role lists first, as the manifest declares them: the sidebar reads them with the bootstrap.
+    expect(held.roleLeads).toEqual([{ role: 'developer', lead: ['demo'] }]);
+  });
+
+  test('the navigation names each kind\'s purpose and the roles it is meant for', async () => {
+    const data = await graphql(`{ navigation { purposes { id } kinds { kind purpose audience } } }`);
+    const navigation = data['navigation'] as Record<string, any>;
+    expect(navigation.purposes.map((one: any) => one.id)).toEqual(['structure']);
+    const kinds = new Map(navigation.kinds.map((one: any) => [one.kind, one]));
+    expect(kinds.get('demo.file')).toMatchObject({ purpose: 'structure', audience: ['developer'] });
+    expect(kinds.get('demo.repository')).toMatchObject({ purpose: 'structure', audience: null });
   });
 
   test('an entity answers the template its kind\'s record template names', async () => {
@@ -586,9 +602,11 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   const empty = await run('{ search(text: "search-bound", kinds: ["demo.file"], first: 0) { totalCount pageInfo { hasNextPage } edges { node { id } } } }');
   expect(empty['search']).toMatchObject({ totalCount: 60, pageInfo: { hasNextPage: true }, edges: [] });
   expect(transferred.pop()).toBeLessThanOrEqual(1);
-  const grouped = await run('{ searchGroups(text: "search-bound", kinds: ["demo.file"], perKind: 2) { kind count results { node { id } } } }');
+  const grouped = await run('{ searchGroups(text: "search-bound", kinds: ["demo.file"], perKind: 2) { kind count results { node { id } matched } } }');
   expect(grouped['searchGroups']).toMatchObject([{ kind: 'demo.file', count: 60 }]);
   expect((grouped['searchGroups'] as { results: unknown[] }[])[0]!.results).toHaveLength(2);
+  // Each answer names the text of the field the words were found in: the row's excerpt under its title.
+  for (const hit of (grouped['searchGroups'] as { results: { matched: string }[] }[])[0]!.results) expect(hit.matched).toContain('search-bound');
   expect(transferred.pop()).toBeLessThanOrEqual(40);
 });
 

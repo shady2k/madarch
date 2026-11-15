@@ -34,6 +34,7 @@ const bootstrap: Bootstrap = {
   recordTemplates: [],
   ownTemplates: [],
   roles: ['analyst', 'engineer'],
+  roleLeads: [],
 };
 
 /** Every object type of the starter schema that implements `Entity`. */

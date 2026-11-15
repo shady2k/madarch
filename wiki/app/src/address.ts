@@ -65,6 +65,9 @@ export function runAddress(runId: string): string {
   return `/p/run?run=${encodeURIComponent(runId)}`;
 }
 
+/** A press that walks to an address: in the tab in front, or in a tab of its own (a control, command or middle press). */
+export type OpenPage = (address: string, options?: { readonly newTab?: boolean }) => void;
+
 /** One of the frame's own sections. */
 export type FramePage = keyof typeof FRAME_PAGES;
 

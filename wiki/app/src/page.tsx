@@ -3,7 +3,8 @@
  * each by the component it names, and a `tabs` section holding the sections it groups.
  */
 import type { ReactElement } from 'react';
-import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
+import { sectionOpenFor, titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
+import { Disclosure, DisclosureSummary } from './components/ui/disclosure.js';
 import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
 import { HeaderSection } from './components/header.js';
 import { at } from './components/format.js';
@@ -33,6 +34,7 @@ import { RepositoriesSection } from './components/repositories.js';
 import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
+import type { OpenPage } from './address.js';
 
 export interface PageRuntime {
   readonly base: string;
@@ -40,7 +42,7 @@ export interface PageRuntime {
   readonly busy: boolean;
   /** The page's variables as the composition bound them (a `run` component reads its run from one). */
   readonly variables: Readonly<Record<string, unknown>>;
-  readonly open: (path: string) => void;
+  readonly open: OpenPage;
   readonly reload: (variables: Record<string, unknown>) => void;
   /** The frame's own reading: the product's name and the kinds the sidebar lists. */
   readonly product: string | null;
@@ -49,6 +51,8 @@ export interface PageRuntime {
   readonly onRole?: (role: string) => void;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind. */
   readonly pageName: string | null;
+  /** The reader's role: a section its template does not open for that role stands collapsed under its title. */
+  readonly role: string;
   /** Kinds a unit publication just changed: a page that shows them may highlight them. */
   readonly changedKinds?: ReadonlySet<string>;
 }
@@ -89,10 +93,25 @@ export function PageView({ composition, data, runtime }: { readonly composition:
     };
     // A header draws the page's own title, so it carries no section title above it.
     const title = section.component === 'header' ? undefined : titleIn(section.title, runtime.language);
+    const named = title !== undefined && title !== '';
+    // The role's own page (decision 0036, section 6): a section the template does not open for the reader's role stays on
+    // the page, collapsed under its title. A section the template never titled stays open: it has no word to collapse under.
+    const collapsed = named && !sectionOpenFor(section, runtime.role);
     return (
       <PageSection key={section.id} data-section={section.id}>
-        {title === undefined || title === '' ? null : <SectionTitle>{title}</SectionTitle>}
-        {componentOf(section, context, composition.sections)}
+        {collapsed
+          ? (
+            <Disclosure data-testid="collapsed-section" data-section-id={section.id}>
+              <DisclosureSummary><SectionTitle>{title}</SectionTitle></DisclosureSummary>
+              {componentOf(section, context, composition.sections)}
+            </Disclosure>
+          )
+          : (
+            <>
+              {named ? <SectionTitle>{title}</SectionTitle> : null}
+              {componentOf(section, context, composition.sections)}
+            </>
+          )}
       </PageSection>
     );
   };

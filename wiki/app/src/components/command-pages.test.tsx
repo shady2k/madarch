@@ -32,9 +32,9 @@ const NAVIGATION = {
     { name: 'demo.docs', labels: { en: 'Documents', ru: 'Документы' }, short: null, open: false, parent: null },
   ],
   kinds: [
-    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1' },
-    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2' },
-    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3' },
+    { kind: 'demo.alpha', one: 'Файл', many: 'Файлы', definition: 'Файл кода', taken: true, group: 'demo.code', nav: null, count: 2, entryId: 'e1', purpose: null, audience: null },
+    { kind: 'demo.beta', one: 'Термин', many: 'Термины', definition: 'Термин продукта', taken: false, group: 'demo.docs', nav: null, count: 0, entryId: 'e2', purpose: null, audience: null },
+    { kind: 'demo.gamma', one: 'Сценарий', many: 'Сценарии', definition: 'Сценарий продукта', taken: true, group: 'demo.docs', nav: null, count: 3, entryId: 'e3', purpose: null, audience: null },
   ],
   purposes: [],
 };
@@ -269,7 +269,7 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
     root.render(createElement(TooltipProvider, null, createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
-      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined },
+      runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, role: 'everything', open: (path: string) => { opened.push(path); }, reload: () => undefined },
     })));
   });
   await settle();

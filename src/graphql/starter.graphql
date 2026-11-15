@@ -107,6 +107,7 @@ type Bootstrap {
   recordTemplates: [RecordTemplate!]!
   ownTemplates: [OwnTemplate!]!
   roles: [String!]!
+  roleLeads: [RoleLead!]!
 }
 
 type BootstrapHome {
@@ -3157,6 +3158,8 @@ type NavigationKind {
   nav: String
   count: Int!
   entryId: ID
+  purpose: String
+  audience: [String!]
 }
 
 type NavigationPurpose {
@@ -3466,6 +3469,11 @@ type RecordTemplate {
   template: String!
 }
 
+type RoleLead {
+  role: String!
+  lead: [String!]!
+}
+
 type SearchGroup {
   kind: String!
   label: String!
@@ -3476,6 +3484,7 @@ type SearchGroup {
 type SearchHit {
   node: Entity!
   line: String!
+  matched: String!
 }
 
 type Skill implements Entity {

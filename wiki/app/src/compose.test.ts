@@ -21,6 +21,7 @@ const bootstrap: Bootstrap = {
   recordTemplates: [],
   ownTemplates: [],
   roles: [],
+  roleLeads: [],
 };
 
 /** The kinds the schema holds as entity types, read from the SDL's own names (a type name split into words). */
