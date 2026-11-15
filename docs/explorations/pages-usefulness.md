@@ -371,3 +371,34 @@ states*, not as content. The glossary plugin failed on this repository
 agent and a token cap would answer the remaining question — whether the
 authored pages (document, decision, task) are as thin as the plugin-filled
 ones.
+
+## After the fixes (madarch-64o5.83)
+
+The ten fixes of the "no decision" list landed one commit each; the same pages
+were walked again on a product made from the same repository with the same
+plugins-only fill, and the shots are in `docs/explorations/pages-shots/after/`.
+What the second walk shows, page by page:
+
+- **Commit page** renders — message, author and 53 relation rows — where it
+  printed `operator does not exist: text -> unknown`; the Commits kind page
+  lists its records again.
+- **Search** finds 346 files for a `?q=fill` link, the spelling the review had
+  used, and an empty answer names the words and what is searched.
+- **Runs** read "Published 96 of 100 units · Took 2 min 30 sec · N units
+  failed", the selection behind a disclosure, and moments wear the month's name
+  ("Nov 15, 2026, 3:03 AM").
+- **Entity pages** show no empty relation box and no zero relation group.
+- **Glossary** invites the first term in the reader's words.
+- **Sources** names what will bring documents instead of "No source matches."
+- **File page** has one picture with a renderer choice and prints its path once.
+- **Home** opens on an overview: what the product is for, 138 open problems, the
+  last fill and what it took.
+- **File and folder lists** no longer hold dependency trees: the product
+  declares `**/node_modules/**`, `**/.git/**` and `**/dist/**` on its file and
+  folder kinds, and both the tree and the history leave them out (4,488 files
+  instead of 5,108; no `node_modules` path in the graph).
+
+Still open, needing the owner: the proposals above (the overview as a card with
+the owner and lifecycle, the kind page split, coupling and hotspot scores on
+file pages, a search over code with symbols, a run page as an ops dashboard, one
+"recently changed" feed).
