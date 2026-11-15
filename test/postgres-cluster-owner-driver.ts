@@ -5,7 +5,7 @@
 import { mkdirSync, openSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { dlopen, FFIType } from 'bun:ffi';
-import { clusterEndpoint, clusterPaths, openCluster } from '../src/adapters/postgres-cluster.js';
+import { awaitServerAnswering, clusterEndpoint, clusterPaths, openCluster } from '../src/adapters/postgres-cluster.js';
 import { ensurePostgresInstalled } from '../src/adapters/postgres-install.js';
 
 const [mode, store, extra, marker] = process.argv.slice(2);
@@ -38,6 +38,16 @@ if (mode === 'open-and-leave') {
   if (marker !== undefined) writeFileSync(marker, `${String(process.pid)}\n`);
   await Bun.sleep(Number(extra ?? '60000'));
   await cluster.stop();
+} else if (mode === 'open-and-exit') {
+  // Opens a store whose initdb is the folder `extra` names, and leaves at once. The process must not outlive the
+  // descendant such an initdb leaves behind: a pipe it holds open is not this process's to wait for (madarch-64o5.79).
+  try {
+    const cluster = await openCluster({ ...clusterPaths(store), bin: extra });
+    await cluster.stop();
+  } catch (error) {
+    console.log(`refused: ${(error as Error).message}`);
+  }
+  console.log('left');
 } else if (mode === 'refuse-platform') {
   // The server's programs are this box's, and the platform is then reported as one whose C library this build does not
   // ask for: the open must refuse by name instead of loading a library that is not there (madarch-8bdc.9).
@@ -47,6 +57,16 @@ if (mode === 'open-and-leave') {
     const cluster = await openCluster({ ...clusterPaths(store), bin });
     await cluster.stop();
     console.log('opened');
+  } catch (error) {
+    console.log(`refused: ${(error as Error).message}`);
+  }
+} else if (mode === 'answer-wait') {
+  // The wait a Windows store makes for its server, here with a probe that never answers: the case reads the line the wait
+  // says on stderr, every few seconds rather than every 100 ms, and the refusal it ends with (madarch-64o5.81).
+  const { dataDir, socketDir } = clusterPaths(store);
+  try {
+    await awaitServerAnswering({ dataDir, socketDir, boundMs: Number(extra ?? '3000'), probe: async () => 'database "postgres" does not exist' });
+    console.log('answered');
   } catch (error) {
     console.log(`refused: ${(error as Error).message}`);
   }

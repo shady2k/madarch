@@ -50,6 +50,7 @@ export interface Navigation {
 export const BOOTSTRAP_QUERY = `query Bootstrap($lang: String) {
   bootstrap(lang: $lang) {
     structureRevision
+    language
     home { id kind template }
     catalogueTemplate
     recordTemplates { kind template }

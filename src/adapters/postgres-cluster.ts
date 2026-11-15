@@ -43,11 +43,11 @@
  * PostgreSQL refuses to run as root, so an open as root says what to do instead
  * of failing inside initdb.
  */
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dlopen, FFIType, ptr, type Pointer } from 'bun:ffi';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { Client } from 'pg';
 import { log as defaultLog } from '../obs/log.js';
 import { sha256Hex } from '../graph/digest.js';
@@ -55,7 +55,10 @@ import { ensurePostgresInstalled, refuseRoot } from './postgres-install.js';
 import { createServer } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { postgresProgram, postgresInstallFolder } from './postgres-builds.js';
+import { commandLineArguments } from './postgres-preparation-record.js';
 import { setPriority } from 'node:os';
+import { runningVersion } from '../product/version.js';
+import { namesAnAttempt, newPreparationId, preparedRecordPath, preparingRecordPath, runsOnDataDir, type PreparingRecord } from './postgres-preparation-record.js';
 
 /** The port every cluster's socket is named after: nothing listens on TCP, so two clusters never meet. */
 export const CLUSTER_PORT = 5_432;
@@ -180,19 +183,65 @@ async function freeTcpPort(): Promise<number> {
   });
 }
 
-/** Whether the cluster's server answers a connection, asked over its socket and answered by the server itself. */
-async function answering(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<boolean> {
+/** Why a connection to the cluster's server did not answer: undefined when it answered, else the client's own words. */
+async function answerFailure(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<string | undefined> {
   let client: Client | undefined;
+  // A server that ends the connection after authentication makes the client reject the pending query and emit `error`
+  // as well; an `error` event with no listener is thrown from a socket callback and would end the process serving the
+  // graph instead of answering a readiness failure (madarch-64o5.81 review). The last word the client said wins.
+  let said: string | undefined;
   try {
     client = new Client({ ...clusterEndpoint(socketDir), user: CLUSTER_USER, database, connectionTimeoutMillis: 2_000 });
-    client.on('error', (error: Error) => console.error(`PostgreSQL readiness client "${socketDir}/${database}": ${error.message}`));
+    client.on('error', (error: Error) => { said = error.message; });
     await client.connect();
     await client.query('SELECT 1');
-    return true;
-  } catch {
-    return false;
+    return undefined;
+  } catch (error) {
+    return said ?? (error instanceof Error ? error.message : String(error));
   } finally {
     await client?.end().catch(() => undefined);
+  }
+}
+
+/** Whether the cluster's server answers a connection, asked over its socket and answered by the server itself. */
+async function answering(socketDir: string, database: string = CLUSTER_ADMIN_DATABASE): Promise<boolean> {
+  return await answerFailure(socketDir, database) === undefined;
+}
+
+/** How long a store waits for its server to answer, and how often a wait still under way says so. */
+const READINESS_BOUND_MS = 60_000;
+const READINESS_SAY_EVERY_MS = 5_000;
+
+/**
+ * Waits for the server on a store to answer, saying every few seconds what it waits for and refusing with the last
+ * attempt's own words: a wait that says nothing is a server a person reads as hung (madarch-64o5.81 — a clean-install
+ * walk saw 60 s of silence from `madarch serve` and reported that it printed no address). The probe is a caller's to
+ * name, so the wait can be shown without a server; a store's own wait probes its cluster's admin database.
+ */
+export async function awaitServerAnswering(options: {
+  readonly dataDir: string;
+  readonly socketDir: string;
+  readonly boundMs?: number;
+  readonly probe?: (socketDir: string) => Promise<string | undefined>;
+  readonly say?: (line: string) => void;
+}): Promise<void> {
+  const boundMs = options.boundMs ?? READINESS_BOUND_MS;
+  const probe = options.probe ?? ((socketDir: string) => answerFailure(socketDir));
+  const say = options.say ?? ((line: string) => console.error(line));
+  const started = Date.now();
+  let nextSay = 0;
+  for (;;) {
+    const failing = await probe(options.socketDir);
+    if (failing === undefined) return;
+    const elapsed = Date.now() - started;
+    if (elapsed >= boundMs) {
+      throw new Error(`the PostgreSQL server on ${options.dataDir} did not answer on ${options.socketDir} within ${String(Math.round(boundMs / 1_000))} seconds; the last attempt said: ${failing}`);
+    }
+    if (elapsed >= nextSay) {
+      say(`madarch: waiting for PostgreSQL on ${options.dataDir}, ${String(Math.round(elapsed / 1_000))} s of ${String(Math.round(boundMs / 1_000))}`);
+      nextSay = elapsed + READINESS_SAY_EVERY_MS;
+    }
+    await Bun.sleep(100);
   }
 }
 
@@ -428,10 +477,13 @@ export function clusterStartInvocation(dataDir: string, logFile: string, connect
   };
 }
 
+/** How long an open waits for an initdb a `madarch.preparing` record names: the same 90 s bound the initdb runs under. */
+const PREPARATION_WAIT_MS = 90_000;
+
 /** Starts one private server: Unix socket on Unix, authenticated loopback TCP on Windows. */
-async function startServer(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly log: (line: string) => void }): Promise<void> {
+async function startServer(options: { readonly dataDir: string; readonly socketDir: string; readonly bin: string; readonly log: (line: string) => void; readonly preparationWaitMs?: number; readonly initdbTimeoutMs?: number }): Promise<void> {
   const { dataDir, socketDir, bin } = options;
-  createDataDir(dataDir, bin, options.log);
+  await createDataDir(dataDir, bin, options.log, options.preparationWaitMs ?? PREPARATION_WAIT_MS, options.initdbTimeoutMs ?? INITDB_TIMEOUT_MS);
   removeSocketFiles(socketDir);
   const logFile = join(dataDir, '..', 'postgres.log');
   writeFileSync(logFile, '', 'utf8');
@@ -443,12 +495,10 @@ async function startServer(options: { readonly dataDir: string; readonly socketD
     const invocation = clusterStartInvocation(dataDir, logFile, connection);
     runBinary(join(bin, postgresProgram('pg_ctl')), invocation.args, { stdio: invocation.stdio });
     if (process.platform === 'win32') {
-      // Replace pg_ctl's existing 60-second wait with an authenticated connection, not inherited output handles.
-      const deadline = Date.now() + 60_000;
-      while (!(await answering(socketDir))) {
-        if (Date.now() >= deadline) throw new Error(`the PostgreSQL server did not answer on ${socketDir} within 60 seconds`);
-        await Bun.sleep(100);
-      }
+      // Replace pg_ctl's existing 60-second wait with an authenticated connection, not inherited output handles. The
+      // wait says what it waits for and refuses with the last attempt's words, so a store that cannot come up is never
+      // 60 seconds of silence.
+      await awaitServerAnswering({ dataDir, socketDir });
     }
   } catch (error) {
     throw new Error(`${logFile}:1: PostgreSQL startup failed: ${String(error)}\n${readFileSync(logFile, 'utf8')}`);
@@ -465,9 +515,310 @@ function lowerPriorityOf(dataDir: string): void {
   try { setPriority(pid, SERVER_PRIORITY); } catch { /* the platform refuses: the server keeps the priority it has */ }
 }
 
-/** Makes the data directory with `initdb` when it holds no cluster yet. */
-function createDataDir(dataDir: string, bin: string, log: (line: string) => void): void {
-  if (existsSync(join(dataDir, 'PG_VERSION'))) return;
+/** The record of a preparation under way, read from beside the data directory; undefined when there is none readable. */
+function preparingRecord(dataDir: string): PreparingRecord | undefined {
+  try {
+    const record = JSON.parse(readFileSync(preparingRecordPath(dataDir), 'utf8')) as PreparingRecord;
+    return typeof record?.startedAt === 'string' ? record : undefined;
+  } catch { return undefined; }
+}
+
+/** Writes one of our records beside the data directory, private to the account that runs the store. */
+function writeRecord(path: string, value: object): void {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
+/** Whether our record says this data directory was prepared: the only proof of ours that a cluster is whole. */
+function recordPrepared(dataDir: string): boolean {
+  return existsSync(preparedRecordPath(dataDir));
+}
+
+/** What initdb leaves when it ends: its version file, its control file and its template database. */
+function initdbWhole(dataDir: string): boolean {
+  return existsSync(join(dataDir, 'PG_VERSION')) && existsSync(join(dataDir, 'global', 'pg_control')) && existsSync(join(dataDir, 'base', '1'));
+}
+
+/**
+ * Moves a folder madarch would prepare again aside, by a rename in the store's own folder: a store's files are never
+ * deleted, however little they are expected to hold — a table in `postgres`, a database in a tablespace and a cluster a
+ * person restored all live outside what a folder's own shape says. The name carries the UTC moment so two moves of one
+ * store are told apart, and the folder stands beside the store until a person checks it and removes it by hand.
+ *
+ * A move never replaces anything already there. POSIX `rename` replaces an empty directory at its destination, so the
+ * name is first taken exclusively with `mkdir`: the only directory a move can replace is that placeholder, made a
+ * moment earlier by this call. Windows never replaces a directory on rename, so the placeholder only proves the name
+ * free there. When the name is taken, the next counter is tried, never the folder found at it. A rename the
+ * filesystem refuses — a name taken after the placeholder, a file inside it — is the caller's to refuse the start with.
+ * A test names the moment, so it can hold a name of the very one a move would take.
+ */
+export function moveAside(dataDir: string, moment: Date = new Date(), steps: {
+  readonly platform?: NodeJS.Platform;
+  readonly mkdir?: (path: string) => void;
+  readonly rmdir?: (path: string) => void;
+  readonly rename?: (from: string, to: string) => void;
+} = {}): string {
+  const platform = steps.platform ?? process.platform;
+  const mkdir = steps.mkdir ?? ((path: string) => mkdirSync(path));
+  const rmdir = steps.rmdir ?? ((path: string) => rmdirSync(path));
+  const rename = steps.rename ?? ((from: string, to: string) => renameSync(from, to));
+  const stamp = moment.toISOString().replace(/[:.]/gu, '-');
+  for (let attempt = 1; attempt <= 1_000; attempt++) {
+    const target = attempt === 1 ? `${dataDir}.abandoned-${stamp}` : `${dataDir}.abandoned-${stamp}-${String(attempt)}`;
+    try { mkdir(target); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
+    // The placeholder is given back before the rename only where a rename never replaces a directory: from that moment
+    // whatever stands at the name is another process's folder, and the error path below never removes it.
+    let placeholder = true;
+    try {
+      if (platform === 'win32') { rmdir(target); placeholder = false; }
+      rename(dataDir, target);
+    } catch (error) {
+      if (placeholder) { try { rmdir(target); } catch { /* the rename took it, or it is gone */ } }
+      throw error;
+    }
+    return target;
+  }
+  throw new Error(`${dataDir}:1: a thousand names beside this folder are taken, so the folder is left as it stands and this store does not open: move it by hand and open the store again (src/adapters/postgres-cluster.ts)`);
+}
+
+
+/**
+ * The processes that may still be writing a preparation's data folder: initdb's tree and PostgreSQL's own programs whose
+ * command line names it. A folder under one of them is never removed — the next open would prepare into files still
+ * being written (measured on Windows: an orphaned bootstrap `postgres.exe` wrote into the folder the open had just
+ * removed, and initdb refused the folder it made). undefined when the listing itself cannot be read.
+ */
+function preparationHolders(dataDir: string): { pid: number; name: string }[] | undefined {
+  if (process.platform === 'win32') {
+    const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+    const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+    if (answer.error !== undefined || answer.status !== 0) return undefined;
+    try {
+      const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
+      const all = Array.isArray(value) ? value : [value];
+      return all.filter((row) => /^(?:initdb|postgres|cmd)\.exe$/i.test(row.Name ?? '') && ((row.Name ?? '').toLowerCase().startsWith('cmd')
+        ? (row.CommandLine ?? '').toLowerCase().includes(dataDir.toLowerCase())
+        : runsOnDataDir(row.Name ?? '', commandLineArguments(row.CommandLine ?? '', 'win32'), dataDir, 'win32'))).map((row) => ({ pid: row.ProcessId, name: row.Name }));
+    } catch { return undefined; }
+  }
+  const holders: { pid: number; name: string }[] = [];
+  try {
+    for (const id of readdirSync('/proc')) {
+      if (!/^\d+$/.test(id)) continue;
+      try {
+        const argv = readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').filter((part) => part !== '');
+        const program = argv[0] ?? '';
+        if (!runsOnDataDir(program, argv, dataDir, process.platform)) continue;
+        holders.push({ pid: Number(id), name: program.split('/').pop() ?? '' });
+      } catch { /* gone */ }
+    }
+  } catch { return undefined; }
+  return holders;
+}
+
+/** Keeps a whole cluster: writes the record that says so, and drops the record of a preparation it no longer needs. */
+function keepPrepared(dataDir: string): void {
+  if (!existsSync(preparedRecordPath(dataDir))) writeRecord(preparedRecordPath(dataDir), { version: runningVersion(), preparedAt: new Date().toISOString() });
+  rmSync(preparingRecordPath(dataDir), { force: true });
+}
+
+
+
+/** How long initdb itself is given before its tree is ended. */
+const INITDB_TIMEOUT_MS = 90_000;
+
+/** How long initdb's output is waited for once initdb itself has ended: a bootstrap descendant can hold its pipes open. */
+const INITDB_OUTPUT_WAIT_MS = 2_000;
+
+/**
+ * Ends initdb and everything it started. On Windows initdb runs its bootstrap `postgres --boot` through cmd.exe, so the
+ * tree is ended with `/T`; on POSIX the child was spawned as its own process group, and the whole group is signalled.
+ */
+export function endInitdbTree(pid: number | undefined, dataDir: string, live: boolean, reads: {
+  platform?: NodeJS.Platform;
+  /** The processes a Windows machine runs, by command line: what identity a pid without a start time is read by. */
+  processes?: () => { pid: number; name: string; commandLine: string }[] | undefined;
+  /** Ends one process, and with `tree` everything it started. */
+  kill?: (pid: number, tree: boolean) => void;
+  /** Ends a process group on POSIX. */
+  killGroup?: (group: number) => void;
+} = {}): void {
+  if (pid === undefined) return;
+  const platform = reads.platform ?? process.platform;
+  const kill = reads.kill ?? ((target: number, tree: boolean) => { spawnSync('taskkill', ['/F', ...(tree ? ['/T'] : []), '/PID', String(target)], { encoding: 'utf8', timeout: 10_000 }); });
+  if (platform === 'win32') {
+    // While initdb itself lives its pid is its own, and its tree goes with it.
+    if (live) { kill(pid, true); return; }
+    // After it exits its id may belong to whatever the machine started next: no pid is signalled then. What it left is
+    // found by identity instead — a program whose command line names this data folder.
+    for (const holder of (reads.processes ?? windowsProcesses)() ?? []) {
+      if (!runsOnDataDir(holder.name, commandLineArguments(holder.commandLine, 'win32'), dataDir, 'win32')) continue;
+      kill(holder.pid, false);
+    }
+    return;
+  }
+  // A group id is not reused while a member lives, so the group is safe to end after initdb exits; a pid that is no
+  // group leader is never signalled by it.
+  const killGroup = reads.killGroup ?? ((group: number) => { try { process.kill(-group, 'SIGKILL'); } catch { /* no such group */ } });
+  killGroup(pid);
+}
+
+/**
+ * What a timeout may end: initdb with its tree while it lives, and after its exit nothing by pid — only what names the
+ * data folder, by identity. A timer that fires after the exit must never signal the id.
+ */
+export function timeoutEndsInitdb(pid: number | undefined, dataDir: string, exited: boolean, reads: Parameters<typeof endInitdbTree>[3] = {}): void {
+  endInitdbTree(pid, dataDir, !exited, reads);
+}
+
+/** The processes of a Windows machine, by command line; undefined when the listing cannot be read. */
+function windowsProcesses(): { pid: number; name: string; commandLine: string }[] | undefined {
+  const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+  const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+  if (answer.error !== undefined || answer.status !== 0) return undefined;
+  try {
+    const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
+    const all = Array.isArray(value) ? value : [value];
+    return all.map((row) => ({ pid: row.ProcessId, name: row.Name ?? '', commandLine: row.CommandLine ?? '' }));
+  } catch { return undefined; }
+}
+
+/** Runs `initdb`, naming the pid it spawned to `named` as soon as there is one, and throws with what initdb said when it fails. */
+async function runInitdb(program: string, args: readonly string[], dataDir: string, named: (pid: number, startTime: string | undefined) => void, timeoutMs: number): Promise<void> {
+  const child = spawn(program, [...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, LC_ALL: 'C' },
+    // Its own process group on POSIX, so a timeout ends what initdb started; Windows is ended with `taskkill /T`.
+    detached: process.platform !== 'win32',
+  });
+  if (child.pid !== undefined) named(child.pid, processStartTime(child.pid));
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (part: string) => { stderr += part; });
+  const outcome = await new Promise<{ code: number | null; timedOut: boolean }>((answer) => {
+    let settled = false;
+    let exited = false;
+    let output: ReturnType<typeof setTimeout> | undefined;
+    const finish = (value: { code: number | null; timedOut: boolean }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (output !== undefined) clearTimeout(output);
+      answer(value);
+    };
+    // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
+    // start that waited for the pipes would hang on an initdb that has already ended.
+    // initdb's own end decides, never its pipes: its bootstrap descendants can hold them open after initdb is over, and a
+    // start that waited for the pipes would hang on an initdb that has already ended. Its exit also disarms the timeout:
+    // after it, its pid is nobody's to signal, and a timer that fired in the pipe wait would kill a reused id.
+    child.once('exit', (code) => {
+      exited = true;
+      clearTimeout(timer);
+      output = setTimeout(() => finish({ code, timedOut: false }), INITDB_OUTPUT_WAIT_MS);
+      child.once('close', () => finish({ code, timedOut: false }));
+    });
+    child.once('error', () => finish({ code: null, timedOut: false }));
+    const timer = setTimeout(() => {
+      timeoutEndsInitdb(child.pid, dataDir, exited);
+      finish({ code: null, timedOut: true });
+    }, timeoutMs);
+  });
+  // initdb has ended, one way or the other: what it started is ended with it, and both of its pipes are closed here.
+  // A bootstrap descendant that survived initdb holds its stdout, and a pipe left open keeps this process alive after
+  // the start is over (measured: Bun exited only when the descendant ended, 6 s later).
+  endInitdbTree(child.pid, dataDir, false);
+  child.stdout.destroy();
+  child.stderr.destroy();
+  if (outcome.timedOut) {
+    throw new Error(`${program}:1: ${[...args].join(' ')} did not finish within ${String(timeoutMs)} ms, so initdb and everything it started were ended (src/adapters/postgres-cluster.ts)`);
+  }
+  if (outcome.code !== 0) {
+    const said = stderr.trim();
+    throw new Error(`${program}:1: ${[...args].join(' ')} ${outcome.code === null ? 'could not run' : `exited ${String(outcome.code)}`}${said === '' ? '' : `: ${said}`} (src/adapters/postgres-cluster.ts)`);
+  }
+}
+
+/**
+ * Makes the data directory with `initdb` when it holds no whole cluster. Our record of a preparation decides before
+ * anything about the files: a live initdb may already have written what a whole cluster leaves, and adopting that folder
+ * would start PostgreSQL inside an initialisation. Only a folder our own record prepared and whose initdb is verified
+ * gone is removed; a folder madarch never recorded is left as it stands and the start refuses naming it.
+ */
+/**
+ * Waits for a preparation recorded in this store to end, and refuses while things still name the folder. Identity is the
+ * command line that names the data folder — never the record's pid alone: Windows keeps no kernel start time to compare
+ * and hands a stopped process's id to whatever starts next, so a recorded pid is printed here, never trusted. A store
+ * that waits never waits silently: it says what it waits for, and for how long.
+ */
+async function awaitRecordedInitdb(dataDir: string, record: PreparingRecord | undefined, waitMs: number): Promise<void> {
+  const recorded = record?.initdb?.pid;
+  const deadline = Date.now() + waitMs;
+  let said = false;
+  for (;;) {
+    const holders = preparationHolders(dataDir);
+    if (holders === undefined) {
+      throw new Error(`${dataDir}:1: the process list could not be read, so this folder is left as it stands and this store does not open: open the store again, or move ${dataDir} aside (src/adapters/postgres-cluster.ts)`);
+    }
+    if (holders.length === 0) return;
+    if (!said) {
+      said = true;
+      console.error(`madarch: waiting for ${holders.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} to end before preparing ${dataDir}${recorded === undefined ? '' : ` (the preparation record names initdb pid ${String(recorded)})`}, up to ${String(waitMs)} ms`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`${dataDir}:1: ${holders.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} still name this folder after ${String(waitMs)} ms, so it is left as it stands and this store does not open: open the store again once they end, or move ${dataDir} aside (src/adapters/postgres-cluster.ts)`);
+    }
+    await Bun.sleep(200);
+  }
+}
+
+async function createDataDir(dataDir: string, bin: string, log: (line: string) => void, waitMs: number, initdbTimeoutMs: number): Promise<void> {
+  const empty = !existsSync(dataDir) || readdirSync(dataDir).length === 0;
+  if (recordPrepared(dataDir) && !empty) {
+    keepPrepared(dataDir);
+    return;
+  }
+  // A record beside the folder says madarch started a preparation here. It is read to tell an attempt of ours from
+  // somebody else's, and one that cannot be read or names no attempt of madarch's refuses the start naming the folder:
+  // madarch never erases a folder it cannot prove is its own unfinished preparation (madarch-64o5.81 review).
+  const preparingPath = preparingRecordPath(dataDir);
+  const preparing = preparingRecord(dataDir);
+  if (preparing !== undefined || existsSync(preparingPath)) {
+    if (preparing === undefined) {
+      throw new Error(`${preparingPath}:1: madarch recorded a preparation beside this store and that record cannot be read, so ${dataDir} is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    }
+    if (!namesAnAttempt(preparing)) {
+      throw new Error(`${preparingPath}:1: the record of a preparation beside ${dataDir} names no attempt madarch made, so the folder is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+    }
+    await awaitRecordedInitdb(dataDir, preparing, waitMs);
+    // Nothing names the folder now and no `madarch.prepared` record followed the attempt: the preparation was abandoned.
+    // Whatever the folder holds is moved aside below, never deleted: initdb's bootstrap writes `PG_VERSION`,
+    // `global/pg_control` and `base/1` long before the store's database exists, so such a folder looks whole and is not
+    // (madarch-64o5.81: the next open started one, and every connection answered "database postgres does not exist"),
+    // while a table in `postgres` or a database in a tablespace says nothing about the folder's shape.
+  } else if (!empty && initdbWhole(dataDir)) {
+    // A store prepared before these records existed: what initdb leaves when it ends is the proof, and the record follows.
+    keepPrepared(dataDir);
+    return;
+  } else if (!empty) {
+    // Nothing of madarch's says it made this folder, so nothing of madarch may touch it, however unfinished its files
+    // look: an older or damaged cluster missing `base/1` is a store's data, not preparation's left-over.
+    throw new Error(`${dataDir}:1: this folder holds files and no record of a preparation madarch started (${preparingRecordPath(dataDir)}), so it is left as it stands and this store does not open: move ${dataDir} aside to let madarch prepare the store again (src/adapters/postgres-cluster.ts)`);
+  }
+  // A folder is never deleted here: an abandoned one is moved aside and a person removes it once they have looked.
+  if (existsSync(dataDir)) {
+    if (readdirSync(dataDir).length === 0) rmdirSync(dataDir);
+    else {
+      let target: string;
+      try { target = moveAside(dataDir); }
+      catch (error) {
+        throw new Error(`${dataDir}:1: the folder madarch would prepare again could not be moved aside, so it is left as it stands and this store does not open: move it by hand and open the store again (${error instanceof Error ? error.message : String(error)}) (src/adapters/postgres-cluster.ts)`);
+      }
+      defaultLog.warn(`madarch: the store folder ${dataDir} was not a whole store, so it is kept as ${target}: remove it by hand once you have checked it`, { madarch: 'postgres' });
+    }
+  }
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   // Progress, not a warning: a command whose output a caller reads (a script's, a test's) stays quiet.
   defaultLog.info(`madarch: creating the PostgreSQL data directory ${dataDir}`, { madarch: 'postgres' });
@@ -479,9 +830,29 @@ function createDataDir(dataDir: string, bin: string, log: (line: string) => void
     if (!existsSync(passwordFile)) writeFileSync(passwordFile, `${randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
     authentication.splice(0, 1, '--auth=scram-sha-256', `--pwfile=${passwordFile}`);
   }
+  const version = runningVersion();
+  const startedAt = new Date().toISOString();
+  // The attempt this record names, from its first line to initdb's end: a later open tells our record from one a person
+  // left beside a folder, and erases a folder only on the record of an attempt of ours.
+  const id = newPreparationId();
+  // A record that outlived the folder it named says nothing about the one being made now: preparation is the record
+  // from here until initdb ends, and a crash mid-way must not leave a store that reads as whole.
+  rmSync(preparedRecordPath(dataDir), { force: true });
+  writeRecord(preparingRecordPath(dataDir), { id, version, startedAt });
   const started = performance.now();
   try {
-    runBinary(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C']);
+    await runInitdb(join(bin, postgresProgram('initdb')), ['-D', dataDir, '-U', CLUSTER_USER, ...authentication, '-E', 'UTF8', '--locale=C'], dataDir, (pid, startTime) => {
+      // The record names the initdb as soon as it has one: a madarch that a stop ends leaves a folder only a later open
+      // may remove, and only once that initdb is gone.
+      writeRecord(preparingRecordPath(dataDir), { id, version, startedAt, initdb: startTime === undefined ? { pid } : { pid, startTime } });
+    }, initdbTimeoutMs);
+    writeRecord(preparedRecordPath(dataDir), { version, preparedAt: new Date().toISOString() });
+    rmSync(preparingRecordPath(dataDir), { force: true });
+  } catch (error) {
+    // An initdb that wrote nothing never prepared anything: the record of that attempt is not one to keep, since a
+    // later open would refuse a folder holding nothing rather than prepare it.
+    if (readdirSync(dataDir).length === 0) rmSync(preparingRecordPath(dataDir), { force: true });
+    throw error;
   } finally {
     if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`postgres.initdb ${(performance.now() - started).toFixed(1)} ms`);
   }
@@ -513,6 +884,10 @@ export interface OpenClusterOptions {
   readonly bin?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly log?: (line: string) => void;
+  /** How long an open waits for an initdb a `madarch.preparing` record names; a test names its own instead of 90 s. */
+  readonly preparationWaitMs?: number;
+  /** How long initdb itself is given before its process tree is ended; a test names its own instead of 90 s. */
+  readonly initdbTimeoutMs?: number;
 }
 
 /**
@@ -591,9 +966,14 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
       } else {
         if (startsRefused) throw new Error(`${dataDir}:1: this process is stopping, so the store's PostgreSQL server is not started for it (src/adapters/postgres-cluster.ts)`);
         await reclaimStaleServer(dataDir, bin, socketDir, log);
-        await startServer({ dataDir, socketDir, bin, log });
-        if (!(await answering(socketDir))) {
-          throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}: read that log for what it said (src/adapters/postgres-cluster.ts)`);
+        await startServer({
+          dataDir, socketDir, bin, log,
+          ...(options.preparationWaitMs === undefined ? {} : { preparationWaitMs: options.preparationWaitMs }),
+          ...(options.initdbTimeoutMs === undefined ? {} : { initdbTimeoutMs: options.initdbTimeoutMs }),
+        });
+        const failing = await answerFailure(socketDir);
+        if (failing !== undefined) {
+          throw new Error(`${join(dataDir, '..', 'postgres.log')}:1: the PostgreSQL server started on ${dataDir} does not answer on ${socketDir}, and the last attempt said: ${failing} (src/adapters/postgres-cluster.ts)`);
         }
       }
     } finally {
@@ -601,6 +981,9 @@ async function openOnce(dataDir: string, options: OpenClusterOptions): Promise<R
     }
   } catch (error) {
     releaseLock(users);
+    // The hold is given back, so the process no longer holds it: a stop that walks the holds must not close its
+    // descriptor again (a store whose open was refused would then fail its own stop with EBADF).
+    holds.delete(users);
     throw error;
   }
   return {

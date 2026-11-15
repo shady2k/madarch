@@ -30,7 +30,7 @@ async function diagram(asked: Extract<ReadWork, {kind: 'diagram'}>, owner?: Data
   const hood = owner === undefined ? asked.neighbourhood : await neighbourhood(owner, asked.descriptor!.folder, asked);
   if (hood === undefined) return { status: 404, code: 'FAILED', error: `${import.meta.path}:1: the graph holds no entity "${asked.request.entity}"` };
   stage('folding the neighbourhood');
-  const graph = diagramGraphOf(hood, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE);
+  const graph = diagramGraphOf(hood, asked.request.depth ?? DIAGRAM_DEPTH, asked.request.aggregateAbove ?? DIAGRAM_AGGREGATE_ABOVE, asked.request.base ?? '');
   const key = JSON.stringify({ graph, format: asked.request.format });
   const cached = pictures.get(key);
   if (cached !== undefined) return cached;

@@ -53,7 +53,8 @@ const stackLayouts = {
   fill: 'grid min-w-0 gap-6 lg:grid-cols-[minmax(18rem,1fr)_minmax(0,2fr)]',
   graph: 'max-h-[32rem] overflow-auto',
   catalogue: 'grid min-w-0 items-start gap-6 wide:grid-cols-[minmax(0,1fr)_200px]',
-  reading: 'max-w-[var(--measure)]',
+  // The reading layout takes the work area's width; the prose inside it keeps a reading measure (madarch-64o5.99).
+  reading: 'w-full',
   navigation: 'flex min-h-0 h-full w-full flex-col px-[14px] wide:px-[18px]',
   shell: 'shell flex h-dvh overflow-hidden bg-page text-ink [font-family:var(--font-sans)] text-body',
 };

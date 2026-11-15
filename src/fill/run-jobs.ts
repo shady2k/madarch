@@ -24,6 +24,9 @@ export interface FillRunJob {
   /** The language the press named, when it named one. */
   readonly language?: string;
   readonly agent?: string | null;
+  /** The model and the reasoning level this run asks of its agent (madarch-64o5.90): the press's, not the saved pair. */
+  readonly model?: string;
+  readonly reasoning?: string;
   readonly tokenCap?: number;
   /** The task the press named, when it named one. */
   readonly task?: string;

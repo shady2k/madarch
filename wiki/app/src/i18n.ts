@@ -11,6 +11,30 @@ export function normalizeLanguage(language: string | undefined): WikiLanguage {
   return language?.toLowerCase().startsWith('ru') ? 'ru' : 'en';
 }
 
+/** Whether this reader has chosen a language on this machine; the product's own speaks only for a reader who has not. */
+export function hasChosenLanguage(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(languageStorageKey) !== null && globalThis.localStorage?.getItem(languageStorageKey) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the language is being changed for a product rather than by the reader: the listener below saves the reader's
+ * own choices only, so a product's language leaves the preference as the reader left it (madarch-64o5.84).
+ */
+let adopting = false;
+
+/** The language the wiki opens in: the product's own when this reader saved none (madarch-64o5.84). */
+export async function adoptProductLanguage(language: string | undefined): Promise<void> {
+  if (language === undefined || language === '' || hasChosenLanguage()) return;
+  const wanted = normalizeLanguage(language);
+  if (normalizeLanguage(i18n.resolvedLanguage) === wanted) return;
+  adopting = true;
+  try { await i18n.changeLanguage(wanted); } finally { adopting = false; }
+}
+
 function initialLanguage(): WikiLanguage {
   try {
     const saved = globalThis.localStorage?.getItem(languageStorageKey);
@@ -48,6 +72,8 @@ plurals.getSuffix = (code: string, count: number, options?: { ordinal?: boolean 
   options?.ordinal === true || typeof count !== 'number' ? suffixOf(code, count, options) : `${plurals.options.prepend}${pluralForm(code, count)}`;
 
 i18n.on('languageChanged', (language) => {
+  // A product's language is not a preference: it changes the page and leaves what the reader chose alone.
+  if (adopting) return;
   try {
     globalThis.localStorage?.setItem(languageStorageKey, normalizeLanguage(language));
   } catch {

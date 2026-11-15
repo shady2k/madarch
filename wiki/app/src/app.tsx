@@ -13,7 +13,7 @@ import { basePathOf, codesOf, postQuery, readBootstrap, readNavigation, type Nav
 import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
 import { ConnectionBanner } from './components/connection-banner.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ChangeNotice, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
-import { normalizeLanguage, setWikiLanguage } from './i18n.js';
+import { adoptProductLanguage, normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
 import { KitPage } from './kit-page.js';
 import { ProblemsPage } from './problems.js';
@@ -135,6 +135,9 @@ export function App(): ReactElement {
     setBootstrap(read.bootstrap);
     setNavigation(read.navigation ?? null);
     setLastDataAt(Date.now());
+    // A reader who saved no language reads the wiki in the product's own: the first open of a product made in Russian
+    // speaks Russian, and a reader's saved choice always stands (madarch-64o5.84).
+    await adoptProductLanguage(read.bootstrap.language);
     return read.bootstrap;
   }, [base, language]);
 

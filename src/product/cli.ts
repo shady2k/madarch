@@ -12,7 +12,9 @@
  */
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
-import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
+import { commandLanguage, rememberedLanguage, type CommandLanguage } from './command-language.js';
+import { wikiWords } from './wiki-words.js';
+import { stopChildWithin } from './child-stop.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -561,20 +563,21 @@ export function repoModeFromAnswer(answer: string): RepoConnectMode | undefined 
 const MANIFESTS_GUIDE = 'https://github.com/shady2k/madarch/blob/main/docs/guides/how-to-write-a-product-s-manifests.md';
 
 /** A terminal chooses a starter; scripts without an explicit choice leave the manifest to the wiki. */
-async function templateChoice(parsed: Parsed): Promise<string> {
+async function templateChoice(parsed: Parsed, language: CommandLanguage = commandLanguage()): Promise<string> {
   if (parsed.template !== undefined) return parsed.template;
-  if (process.stdin.isTTY && process.stdout.isTTY) return await askTemplate();
+  if (process.stdin.isTTY && process.stdout.isTTY) return await askTemplate(language);
   return 'none';
 }
 
 /** The template menu of a terminal: every declared template, in their declared order, and the first one by default. */
-async function askTemplate(): Promise<string> {
+async function askTemplate(language: CommandLanguage = commandLanguage()): Promise<string> {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  const words = initWords(language);
   try {
-    console.log('Which template should the product start from?');
-    for (const line of templateMenuLines()) console.log(line);
+    console.log(words.askTemplate);
+    for (const line of templateMenuLines(STARTER_TEMPLATES, language)) console.log(line);
     while (true) {
-      const answer = (await prompt.question(`Choose 1-${STARTER_TEMPLATES.length} (1): `)).trim();
+      const answer = (await prompt.question(words.chooseTemplate)).trim();
       if (answer === '') return STARTER_TEMPLATES[0]!.id;
       const index = Number(answer);
       if (Number.isInteger(index) && index >= 1 && index <= STARTER_TEMPLATES.length) return STARTER_TEMPLATES[index - 1]!.id;
@@ -586,12 +589,12 @@ async function askTemplate(): Promise<string> {
 }
 
 /** What the product was made from, in the words the newcomer bar uses: the template, its kinds, and where the guide is. */
-function printTemplate(templateId: string, kinds: number): void {
+function printTemplate(templateId: string, kinds: number, language: CommandLanguage = commandLanguage()): void {
   const template = starterTemplateOf(templateId);
   if (template === undefined) return;
-  console.log(kinds === 0
-    ? `✓ Template "${template.title.en}": no manifest was copied; write madarch/catalog.yaml and madarch/kinds/<group>/<subgroup>/<kind>.yaml to give the wiki its kinds (${MANIFESTS_GUIDE})`
-    : `✓ Template "${template.title.en}": ${String(kinds)} kinds in madarch/kinds/, with the page templates and plugins those kinds use`);
+  const words = initWords(language);
+  const title = template.title[language] ?? template.title.en;
+  console.log(kinds === 0 ? words.templateEmpty(MANIFESTS_GUIDE) : words.template(title, kinds, MANIFESTS_GUIDE));
 }
 
 async function askRepoMode(): Promise<RepoConnectMode> {
@@ -651,7 +654,14 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
         const unpublish = args[0] === 'daemon-serve' ? publishStoreOwner(home) : undefined;
         const { command, args: childArgs } = selfCommand(['--role', 'api', ...servingArgs]);
         const child = Bun.spawn([command, ...childArgs], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...process.env, MADARCH_API_PARENT: String(process.pid) } });
-        const stop = (): void => { child.kill('SIGTERM'); };
+        // A role that will not leave — one inside a store's start, say — is killed rather than waited for: the child's
+        // output is this process's own, so a descendant of it holding that open would keep a stop from ever ending.
+        const stop = (): void => {
+          // One SIGTERM, sent by the bound itself: a second one would find the role's own handler already spent and
+          // end it mid-shutdown, before it has given its stores up.
+          void stopChildWithin({ pid: child.pid, kill: (signal) => { try { child.kill(signal as NodeJS.Signals); } catch { /* gone */ } }, exited: child.exited }, { what: 'the api role' })
+            .then((outcome) => { if (outcome === 'stuck') process.exitCode = 1; });
+        };
         process.once('SIGTERM', stop); process.once('SIGINT', stop);
         try { return await child.exited; }
         finally { process.off('SIGTERM', stop); process.off('SIGINT', stop); unpublish?.(); }
@@ -779,22 +789,24 @@ function productHomeOf(named: string | undefined): string {
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
     const { initLife } = await import('./lifecycle.js');
+    const language = await initLanguage(parsed);
     const cwd = resolve(parsed.words[0] ?? process.cwd());
     try { await mkdir(cwd, { recursive: true }); }
     catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
-    const template = await templateChoice(parsed);
-    const result = initLife({ cwd, home, template });
+    const template = await templateChoice(parsed, language);
+    const result = initLife({ cwd, home, template, language });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
     const source = result.prints.find((line) => line.startsWith('source: '))?.slice('source: '.length);
     const facts = Object.fromEntries(result.prints.map((line) => { const at = line.indexOf(': '); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 2)]; }));
     if (!parsed.json) {
-      console.log(`✓ Created the product "${basename(folder)}" in ${displayPath(folder)}`);
-      if (facts['template'] !== undefined) printTemplate(String(facts['template']), Number(facts['kinds'] ?? 0));
-      if (source !== undefined) console.log(`✓ Connected your repository ${displayPath(source)} (it stays where it is)`);
-      else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(`✓ Connected your repository ${displayPath(cwd)} (it stays where it is)`);
+      const words = initWords(language);
+      console.log(words.created(basename(folder), displayPath(folder)));
+      if (facts['template'] !== undefined) printTemplate(String(facts['template']), Number(facts['kinds'] ?? 0), language);
+      if (source !== undefined) console.log(words.connected(displayPath(source)));
+      else if (result.prints.some((line) => line.startsWith('already linked to product: '))) console.log(words.connected(displayPath(cwd)));
     }
-    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined);
+    return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined, language);
   }
   if (command === 'reset') return await resetCommand(parsed.words[0], home, parsed.yes);
   if (command === 'version') return versionCommand();
@@ -1087,23 +1099,123 @@ function displayPath(folder: string): string {
   return home && folder.startsWith(`${home}/`) ? `~/${folder.slice(home.length + 1)}` : folder;
 }
 
-/** The next steps one reader follows after the product's wiki is up. */
-function nextSteps(folder: string, init: boolean): void {
-  const shown = displayPath(folder);
-  console.log('');
-  console.log('Next:');
-  if (init) {
-    console.log('  1. Open the wiki address above. The wiki is empty and says so.');
-    console.log('  2. Choose the agent that writes the pages (Claude Code or Codex; madarch installs its adapter if you say yes), then press "Start the fill".');
-    console.log('     The fill reads your repository, then the agent writes the product page and one page per domain; each page appears in the wiki as it is written.');
-    console.log(`     No agent runs until you press, and each agent unit is bound by ${DEFAULT_STAGE_LIMITS.maxTurns} turns and ${Math.round(DEFAULT_STAGE_LIMITS.maxDurationMs / 60_000)} minutes.`);
-    console.log(`  3. The pages are Markdown files in ${shown}/docs/, and they are yours to commit. Your code stays where it is.`);
-  } else {
-    console.log(`  • The wiki opens on the page that says the product is created and nothing is read yet: press Fill there to read the product repository into the graph. Nothing is read or written until you press.`);
-    console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set, then Fill again.`);
-    console.log('  • To read code too, connect a code repository (madarch repo add <name> <url>) before the fill; the pages appear as the fill reads them.');
+/**
+ * The language a first run asks for (madarch-64o5.84): a terminal, no `--json`, no `MADARCH_LANG` and no language this
+ * machine remembers. The answer is kept in the madarch home's `settings.json` — where the wiki's reading role lives —
+ * so every later command and the wiki speak it; a person who answers nothing keeps the default from the locale.
+ */
+async function initLanguage(parsed: Parsed): Promise<CommandLanguage> {
+  if (parsed.json === true || process.env['MADARCH_LANG'] !== undefined) return commandLanguage();
+  if (!(process.stdin.isTTY && process.stdout.isTTY)) return commandLanguage();
+  if (rememberedLanguage() !== undefined) return commandLanguage();
+  const asked = await askLanguage();
+  try {
+    const { writeLanguage } = await import('../knowledge/settings.js');
+    writeLanguage(process.env, asked);
+  } catch (error) {
+    console.error(`the language could not be remembered: ${(error as Error).message}`);
   }
-  console.log('  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
+  return asked;
+}
+
+/** The question a first run asks, as one string, so a test reads it exactly. */
+export function languageQuestion(fallback: CommandLanguage): string {
+  return `Language / Язык: 1. Русский 2. English (${fallback === 'ru' ? '1' : '2'}): `;
+}
+
+/** What one answer names: a number or a language's own word, and the default when it names neither. */
+export function languageFromAnswer(answer: string, fallback: CommandLanguage): CommandLanguage {
+  const said = answer.trim().toLowerCase();
+  if (said === '') return fallback;
+  if (said === '1' || said.startsWith('ru') || said.startsWith('рус')) return 'ru';
+  if (said === '2' || said.startsWith('en') || said.startsWith('англ')) return 'en';
+  return fallback;
+}
+
+/** The language menu of a terminal: Russian first, English second, and the machine's own language by default. */
+async function askLanguage(): Promise<CommandLanguage> {
+  const fallback = commandLanguage();
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return languageFromAnswer(await prompt.question(languageQuestion(fallback)), fallback);
+  } finally {
+    prompt.close();
+  }
+}
+
+/** Every line `init` prints, in the language the person chose. */
+function initWords(language: CommandLanguage): {
+  created: (name: string, where: string) => string;
+  connected: (where: string) => string;
+  template: (title: string, kinds: number, guide: string) => string;
+  templateEmpty: (guide: string) => string;
+  running: (url: string) => string;
+  alreadyRunning: (url: string) => string;
+  sshLead: string;
+  sshOpen: (port: number, name: string) => string;
+  browserFailed: (why: string) => string;
+  askTemplate: string;
+  chooseTemplate: string;
+} {
+  if (language === 'ru') {
+    return {
+      created: (name, where) => `✓ Продукт «${name}» создан в ${where}`,
+      connected: (where) => `✓ Ваш репозиторий подключён: ${where} (он остаётся на месте)`,
+      template: (title, kinds, guide) => `✓ Шаблон «${title}»: видов в madarch/kinds/ — ${String(kinds)}; шаблоны страниц и плагины этих видов — рядом (${guide})`,
+      templateEmpty: (guide) => `✓ Шаблон: набор не скопирован; напишите madarch/catalog.yaml и madarch/kinds/<group>/<subgroup>/<kind>.yaml, чтобы задать виды вики (${guide})`,
+      running: (url) => `Wiki работает по адресу ${url}`,
+      alreadyRunning: (url) => `Wiki уже работает по адресу ${url}`,
+      sshLead: 'Эта машина удалённая (SSH). Чтобы открыть вики у себя, выполните там:',
+      sshOpen: (port, name) => `и откройте http://localhost:${String(port)}/products/${name}/`,
+      browserFailed: (why) => `Браузер не открылся: ${why}`,
+      askTemplate: 'С какого шаблона начать продукт?',
+      chooseTemplate: `Выберите 1-${String(STARTER_TEMPLATES.length)} (1): `,
+    };
+  }
+  return {
+    created: (name, where) => `✓ Created the product "${name}" in ${where}`,
+    connected: (where) => `✓ Connected your repository ${where} (it stays where it is)`,
+    template: (title, kinds, guide) => `✓ Template "${title}": ${String(kinds)} kinds in madarch/kinds/, with the page templates and plugins those kinds use (${guide})`,
+    templateEmpty: (guide) => `✓ Template: no manifest was copied; write madarch/catalog.yaml and madarch/kinds/<group>/<subgroup>/<kind>.yaml to give the wiki its kinds (${guide})`,
+    running: (url) => `The wiki is running at ${url}`,
+    alreadyRunning: (url) => `The wiki is already running at ${url}`,
+    sshLead: 'This machine is remote (SSH). To open the wiki on your computer, run there:',
+    sshOpen: (port, name) => `and open http://localhost:${String(port)}/products/${name}/`,
+    browserFailed: (why) => `The browser was not opened: ${why}`,
+    askTemplate: 'Which template should the product start from?',
+    chooseTemplate: `Choose 1-${String(STARTER_TEMPLATES.length)} (1): `,
+  };
+}
+
+/**
+ * The next steps one reader follows after the product's wiki is up, in the person's language. Every button and page
+ * name the steps quote is the wiki's own, read from its locale files (`wiki-words.ts`), so the text cannot drift from
+ * the interface it describes; the steps around the names are ours.
+ */
+export function nextSteps(folder: string, init: boolean, language: CommandLanguage = commandLanguage()): void {
+  const shown = displayPath(folder);
+  const words = wikiWords(language);
+  const ru = language === 'ru';
+  console.log('');
+  console.log(ru ? 'Далее:' : 'Next:');
+  if (init) {
+    if (ru) {
+      console.log(`  1. Откройте адрес wiki выше. При первом входе ответьте на «${words.roleQuestion}»: wiki показывает то, что нужно выбранной роли.`);
+      console.log(`  2. Нажмите «${words.fill}» и отметьте виды в «${words.catalogue}»; то, что им нужно, добавится само.`);
+      console.log(`  3. На странице «${words.prepare}» выберите «${words.pluginsOnly}» (без агента и без токенов) или агента с ограничением токенов, затем «${words.start}»; за прогоном следите на его странице.`);
+    } else {
+      console.log(`  1. Open the wiki address above. On the first visit answer "${words.roleQuestion}": the wiki shows what the role you choose needs.`);
+      console.log(`  2. Press "${words.fill}" and pick the kinds in the "${words.catalogue}"; what they need is added for you.`);
+      console.log(`  3. On the "${words.prepare}" page choose "${words.pluginsOnly}" (no agent, no tokens) or an agent with a token limit, then "${words.start}"; follow the run on its own page.`);
+    }
+  } else if (ru) {
+    console.log(`  • Wiki открывается на домашней странице продукта: «${words.fill}» ведёт в «${words.catalogue}», где отмечают виды, а «${words.prepare}» — где выбирают «${words.pluginsOnly}» или агента с ограничением токенов. Ничего не читается и не пишется, пока вы не запустите.`);
+    console.log(`  • Документы продукта — файлы Markdown в ${shown}/docs/; их пишет человек или агент. Чтобы читать и код, подключите репозиторий (madarch repo add <name> <url>) до заполнения.`);
+  } else {
+    console.log(`  • The wiki opens on the product\'s home page: "${words.fill}" leads to the "${words.catalogue}" where the kinds are picked, and "${words.prepare}" is where "${words.pluginsOnly}" or an agent with a token limit is chosen. Nothing is read or written until you start it.`);
+    console.log(`  • Product documents are Markdown files in ${shown}/docs/, written by a person or an agent. To read code too, connect a code repository (madarch repo add <name> <url>) before the fill.`);
+  }
+  console.log(ru ? '  • Wiki работает в фоне: адрес открывается в любое время; madarch stop останавливает её.' : '  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
 }
 
 /**
@@ -1114,7 +1226,8 @@ function nextSteps(folder: string, init: boolean): void {
  * facts already collected; the daemon's own are added beside them and one
  * JSON line is printed.
  */
-async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>): Promise<number> {
+async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: boolean, jsonBase?: Record<string, unknown>, language: CommandLanguage = commandLanguage()): Promise<number> {
+  const words = initWords(language);
   const daemonStarted = performance.now();
   const started = await ensureDaemon({ home: parsed.home, port: parsed.port, appFolder: deps.app?.appFolder, buildCommand: deps.app?.buildCommand, env: deps.app?.env });
   if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup ensureDaemon ${(performance.now() - daemonStarted).toFixed(1)} ms`);
@@ -1140,19 +1253,19 @@ async function serveShared(parsed: Parsed, deps: CliDeps, folder: string, init: 
     }));
     return 0;
   }
-  console.log(started.reused ? `The wiki is already running at ${url}` : `The wiki is running at ${url}`);
+  console.log(started.reused ? words.alreadyRunning(url) : words.running(url));
   if (started.note !== undefined) console.log(started.note);
   if (ssh) {
-    console.log('This machine is remote (SSH). To open the wiki on your computer, run there:');
+    console.log(words.sshLead);
     console.log(`  ${tunnel}`);
-    console.log(`and open http://localhost:${started.port}/products/${name}/`);
+    console.log(words.sshOpen(started.port, name));
   }
   const noDesktop = process.platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY;
   const open = parsed.open !== false && !ssh && (!noDesktop || Boolean(deps.opener || env.MADARCH_BROWSER?.trim() || env.BROWSER?.trim()));
   if (open) {
-    void (deps.opener ?? machineOpener(env))(url).then((opened) => { if (!opened.ok) console.error(`The browser was not opened: ${opened.message}`); });
+    void (deps.opener ?? machineOpener(env))(url).then((opened) => { if (!opened.ok) console.error(words.browserFailed(opened.message)); });
   }
-  nextSteps(folder, init);
+  nextSteps(folder, init, language);
   return 0;
 }
 

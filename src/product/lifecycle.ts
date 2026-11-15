@@ -810,10 +810,10 @@ function withFailures(prints: string[], failures: readonly string[]): LifecycleO
  * nothing behind.
  */
 /** Starts a product, linking the code checkout when present through the same manifest operation as `repo add`. */
-export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string }): LifecycleOutcome {
+export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv; template?: string; language?: 'en' | 'ru' }): LifecycleOutcome {
   const top = runGit(options.cwd, ['rev-parse', '--show-toplevel'], options.gitEnv);
   if (!top.ok || !readdirSync(resolve(top.output)).some((entry) => entry !== '.git')) {
-    const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }) });
+    const draft = createDraft({ ...(options.home === undefined ? {} : { home: options.home }), ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }), ...(options.language === undefined ? {} : { language: options.language }) });
     if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
     return done([`folder: ${draft.folder}`, `id: ${draft.id}`, `name: ${draft.name}`, `template: ${draft.template}`, `kinds: ${String(draft.kinds)}`]);
   }
@@ -846,7 +846,7 @@ export function initLife(options: { cwd: string; home?: string; gitEnv?: GitEnv;
   } catch { /* a missing products home contains no prior link */ }
   const target = join(products, name);
   if (pathExists(target)) return refused2([], `cannot initialize this checkout: ${target} already exists; choose another checkout name or move that product`);
-  const draft = createDraft({ home: products, name, ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }) });
+  const draft = createDraft({ home: products, name, ...(options.gitEnv === undefined ? {} : { gitEnv: options.gitEnv }), ...(options.template === undefined ? {} : { template: options.template }), ...(options.language === undefined ? {} : { language: options.language }) });
   if (draft.outcome !== 'created') return draft.outcome === 'refused' ? refused2([], draft.message) : failed1([], draft.message);
   const remote = runGit(source, ['remote', 'get-url', 'origin'], options.gitEnv);
   const url = remote.ok ? remote.output : undefined;
