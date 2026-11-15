@@ -6,7 +6,7 @@
  * The cases run real processes: the cluster's rule is a lock the kernel holds, and only a second process can show it.
  */
 import { afterAll, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { clusterPaths, clusterQuery, openCluster, processStartTime, stopStoreForExit, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER } from '../src/adapters/postgres-cluster.js';
@@ -289,3 +289,69 @@ test('a whole store is never prepared again, and a cluster made before the recor
     await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
   } finally { await second.stop(); }
 }, 120_000);
+
+test('a record of a live initdb outranks what a half-made folder looks like', async () => {
+  // A running initdb writes what a whole cluster leaves — `PG_VERSION`, `global/pg_control`, `base/1` — so those files
+  // cannot say the cluster is ready while our record says a preparation is under way (codex P1 on 9027bc2a).
+  const store = storeOf('preparing artifacts');
+  const { dataDir } = clusterPaths(store);
+  mkdirSync(join(dataDir, 'global'), { recursive: true });
+  mkdirSync(join(dataDir, 'base', '1'), { recursive: true });
+  writeFileSync(join(dataDir, 'PG_VERSION'), '18\n');
+  writeFileSync(join(dataDir, 'global', 'pg_control'), 'partial');
+  const initdb = Bun.spawn(['sleep', '60'], { stdout: 'ignore', stderr: 'ignore' });
+  try {
+    writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: initdb.pid, startTime: processStartTime(initdb.pid) } })}\n`);
+    let refusal: Error | undefined;
+    try { await openCluster({ ...clusterPaths(store), preparationWaitMs: 300 }); } catch (error) { refusal = error as Error; }
+    expect(refusal).toBeDefined();
+    expect(refusal?.message).toContain(dataDir);
+    expect(refusal?.message).toContain(String(initdb.pid));
+    expect(readFileSync(join(dataDir, 'global', 'pg_control'), 'utf8')).toBe('partial');
+  } finally {
+    initdb.kill('SIGKILL');
+    await initdb.exited;
+  }
+}, 120_000);
+
+test('a cluster initdb finished while the open waited is kept, not removed', async () => {
+  // The recorded initdb was killed, so the next open waits for it — and it finished first. What it left is a whole
+  // cluster, and the open keeps it instead of removing it as unfinished (codex P1 on 9027bc2a).
+  const store = storeOf('finished while waiting');
+  const { dataDir } = clusterPaths(store);
+  const first = await openCluster({ ...clusterPaths(store) });
+  await first.stop();
+  const sentinel = join(dataDir, 'madarch.test-sentinel');
+  writeFileSync(sentinel, 'kept\n');
+  const ended = Bun.spawn(['true'], { stdout: 'ignore', stderr: 'ignore' });
+  await ended.exited;
+  rmSync(join(dirname(dataDir), 'madarch.prepared'), { force: true });
+  writeFileSync(join(dirname(dataDir), 'madarch.preparing'), `${JSON.stringify({ version: 'test', startedAt: new Date().toISOString(), initdb: { pid: ended.pid } })}\n`);
+  const second = await openCluster({ ...clusterPaths(store) });
+  try {
+    expect(readFileSync(sentinel, 'utf8')).toBe('kept\n');
+    expect(existsSync(join(dirname(dataDir), 'madarch.prepared'))).toBe(true);
+    expect(existsSync(join(dirname(dataDir), 'madarch.preparing'))).toBe(false);
+    await clusterQuery(second, CLUSTER_ADMIN_DATABASE, 'SELECT 1');
+  } finally { await second.stop(); }
+}, 120_000);
+
+test('an initdb that does not finish is ended with its whole tree, and the open says so', async () => {
+  // initdb runs its bootstrap in a descendant that holds initdb's pipes, so killing initdb alone leaves a start waiting
+  // on an initdb that ended — and the descendant writing the store (codex P1 on 9027bc2a).
+  const store = storeOf('hung initdb');
+  const bin = join(root, 'fake-bin');
+  mkdirSync(bin, { recursive: true });
+  const pids = join(root, 'fake-initdb-pids.txt');
+  writeFileSync(join(bin, 'initdb'), `#!/bin/sh\necho $$ > "${pids}"\nsleep 300 &\necho $! >> "${pids}"\nsleep 300\n`);
+  chmodSync(join(bin, 'initdb'), 0o755);
+  let refusal: Error | undefined;
+  try { await openCluster({ ...clusterPaths(store), bin, initdbTimeoutMs: 500 }); } catch (error) { refusal = error as Error; }
+  expect(refusal).toBeDefined();
+  expect(refusal?.message).toContain('did not finish within 500 ms');
+  const written = readFileSync(pids, 'utf8').trim().split('\n').map((line) => Number(line));
+  expect(written).toHaveLength(2);
+  const deadline = Date.now() + 10_000;
+  while (written.some((pid) => alive(pid)) && Date.now() < deadline) await Bun.sleep(50);
+  expect(written.filter((pid) => alive(pid))).toEqual([]);
+}, 60_000);

@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { postgresInstallFolder, postgresProgram } from '../adapters/postgres-builds.js';
+import { preparationInProgress } from '../adapters/postgres-cluster.js';
 import { knowledgeRootOf } from './store.js';
 
 export interface WindowsProcess { pid: number; parent: number; name: string; }
@@ -156,6 +157,13 @@ export function stopWindowsDaemon(state: { pid: number; home: string }, reads: {
   }
   const pgCtl = reads.pgCtl ?? join(postgresInstallFolder(process.env), 'bin', postgresProgram('pg_ctl'));
   const sweep = (store: { folder: string; pid?: number }): boolean => {
+    // A store initdb is still making is not a store server: initdb's bootstrap writes the `postmaster.pid` pg_ctl reads,
+    // and pg_ctl refuses it ("cannot stop server; single-user server is running"). Ending the preparation is the process
+    // tree's work, and the folder it leaves is what the next open prepares again.
+    if (preparationInProgress(store.folder)) {
+      console.error(`Windows stop: the store ${store.folder} is still being prepared, so it is left as it stands and the next open prepares it again`);
+      return true;
+    }
     store.pid ??= capture(store.folder).pid;
     const pidFile = join(store.folder, 'postmaster.pid');
     if (!existsSync(pidFile) && (store.pid === undefined || !exists(store.pid))) return true;
