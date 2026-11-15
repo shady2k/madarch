@@ -3,7 +3,7 @@
  * answers, and the problems: corrections people recorded and what the engine
  * found itself (a ground that is gone, a link that names nothing, a file it
  * cannot read). The rows are plain data; the app words them, in both languages.
- * Every problem says who fixes it: the agent at the next refresh, or a person.
+ * Every problem says what it needs, and its sentence is a code the app says in the reader's language.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
@@ -13,11 +13,12 @@ import { declaredKindReads } from '../fill/stages/plugin-contract.js';
 import { KINDS_FILE, type FindingKind, type KindsManifest } from '../product/manifest/kinds.js';
 import type { ProductFileSource } from '../plugin/product-files.js';
 import { questionAddress } from '../knowledge/addresses.js';
-import { entityAddress, sourceAddress, type Resolution } from '../knowledge/resolve.js';
+import { entityAddress, sourceAddress, type BrokenWhy, type Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/units.js';
 import type { Author } from './entities.js';
 import type { LoopGraph } from './graph.js';
 import { type PlaceView, type TaskScope } from './tasks.js';
+import type { ProblemText, ProblemTextCode } from '../problems/types.js';
 import type { Unplaced } from './plan.js';
 import { ruleForKind } from '../problems/rules.js';
 import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, type ProblemSeverity, type ProblemSettings, type ProblemScope, type SonarKind } from '../problems/types.js';
@@ -27,7 +28,6 @@ import { problemId, type ProblemLink, type ProblemNote, type ProblemSection, typ
 /** The kind of a wiki finding; the code and the documents carry kinds of their own. */
 type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced' | 'manifest';
 /** Who fixes it: the agent when the pages are refreshed, or a person. */
-type Fixer = 'agent' | 'person';
 
 export interface Problem {
   /** The problem's stable id: its rule and the place it names, never its position in the list. */
@@ -49,7 +49,6 @@ export interface Problem {
   readonly evidence: readonly ProblemLink[];
   /** What «Создать задачу» opens a task on; absent where the page offers no task. */
   readonly scope?: ProblemScope;
-  readonly fixer: Fixer;
   /** A correction that a rewrite already used is closed. */
   readonly closed: boolean;
   /** The page it is about (id), when there is one. */
@@ -59,13 +58,8 @@ export interface Problem {
   readonly sentence: string | null;
   /** The ground or link that is broken, or the correction's slug. */
   readonly target: string | null;
-  readonly reason: string;
-  /**
-   * The reason as a key and its values, when the engine wrote it in English words the interface words itself: the app
-   * says `loop.problemText.<textKey>` with `textArgs`, and `reason` is the fallback (madarch-8bdc.2.5).
-   */
-  readonly textKey?: string;
-  readonly textArgs?: Record<string, string | number>;
+  /** The problem's sentence as the code the app says in the reader's language, and its values. */
+  readonly text: ProblemText;
   readonly file: string;
   readonly line: number | null;
   /** The file's place on this machine, when the reader knows it: the identity above is what a reader navigates by. */
@@ -99,7 +93,6 @@ export interface ProblemCategory {
   readonly section: ProblemSection;
   readonly sonar: SonarKind;
   readonly severity: ProblemSeverity;
-  readonly fixer: Fixer;
   /** Every problem of this rule, open and closed; dismissals are left out. */
   readonly count: number;
   readonly open: number;
@@ -142,6 +135,17 @@ const placeOfWiki = (page: string | null, file: string, line: number | null): Pr
   return { label: line === null ? file : `${file}:${line}`, href, key: null };
 };
 
+/** The sentence of a broken link, from the resolution's own code: the engine stores no English sentence. */
+function brokenLinkText(why: BrokenWhy): ProblemText {
+  switch (why.code) {
+    case 'empty': return { code: 'brokenLinkEmpty' };
+    case 'no-entity': return { code: 'brokenLinkNoEntity', args: { key: why.key } };
+    case 'no-path': return { code: 'brokenLinkNoPath' };
+    case 'no-document': return { code: 'brokenLinkNoDocument', args: { path: why.path } };
+    case 'no-section': return { code: 'brokenLinkNoSection', args: { path: why.path, anchor: why.anchor, repos: why.repos } };
+  }
+}
+
 /**
  * One wiki finding, with the rule that names it: the rule data gives the Sonar kind and the
  * severity, the manifest may lower the severity, and the id is the rule with the place it names.
@@ -150,8 +154,8 @@ function wikiProblem(
   kind: ProblemKind,
   identity: string,
   fields: {
-    reason: string; file: string; line: number | null; target: string | null; page: string | null; pageTitle: string | null;
-    statement: string | null; sentence: string | null; fixer: Fixer; closed: boolean; by: Author | null; at: string | null;
+    text: ProblemText; file: string; line: number | null; target: string | null; page: string | null; pageTitle: string | null;
+    statement: string | null; sentence: string | null; closed: boolean; by: Author | null; at: string | null;
     source?: string; place?: ProblemLink; entity?: ProblemLink | null; evidence?: readonly ProblemLink[];
     textKey?: string; textArgs?: Record<string, string | number>;
     words?: Readonly<Record<'en' | 'ru', string>>;
@@ -162,7 +166,7 @@ function wikiProblem(
   const rule = ruleForKind(settings, kind);
   if (rule === undefined) {
     const note = `the manifest declares no wiki rule of the kind "${kind}": the findings it would name are not on the page`;
-    if (!notes.some((held) => held.message === note)) notes.push({ message: note });
+    if (!notes.some((held) => held.message === note)) notes.push({ message: note, textKey: 'noWikiRule', textArgs: { kind } });
     return undefined;
   }
   const severity = rule.severity;
@@ -170,9 +174,9 @@ function wikiProblem(
   const entity = fields.entity ?? (fields.page === null ? null : { label: fields.pageTitle ?? fields.page, href: entityAddress(fields.page), key: fields.page });
   return {
     id: problemId(rule.id, identity), identity, section: rule.section, rule: rule.id, kind, sonar: rule.sonar, severity,
-    fixer: fields.fixer, closed: fields.closed,
+    closed: fields.closed,
     page: fields.page, pageTitle: fields.pageTitle, statement: fields.statement, sentence: fields.sentence,
-    target: fields.target, reason: fields.reason, ...(fields.textKey === undefined ? {} : { textKey: fields.textKey, textArgs: fields.textArgs }), file: fields.file, line: fields.line,
+    target: fields.target, text: fields.text, file: fields.file, line: fields.line,
     ...(fields.words === undefined ? {} : { words: fields.words }),
     ...(fields.source === undefined ? {} : { source: fields.source }),
     place, entity,
@@ -196,19 +200,21 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const finding of [...input.findings, ...read.findings]) {
     // A finding in the manifest is the manifest's own rule; every other finding keeps the kind it carries.
     const kind = (finding.kind ?? (finding.file === KINDS_FILE ? 'manifest' : 'unreadable-file')) as ProblemKind;
-    const fixer = 'person';
     const key = `${finding.file}:${finding.line}:${kind}:${finding.message}`;
     if (seenFinding.has(key)) continue;
     seenFinding.add(key);
+    // A finding the reader words itself carries its own code; a check's own words are data, said inside one sentence.
+    const text: ProblemText = finding.textKey === undefined
+      ? { code: 'checkFinding', args: { message: finding.message } }
+      : { code: finding.textKey as ProblemTextCode, args: finding.textArgs ?? {} };
     add(wikiProblem(kind, key, {
-      ...none, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }),
-      ...(finding.textKey === undefined ? {} : { textKey: finding.textKey, textArgs: finding.textArgs }),
+      ...none, text, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }),
     }, input.settings, notes));
   }
   for (const miss of input.unplaced ?? []) {
     const file = miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md`;
     const entity = miss.kind === 'question' ? { label: miss.slug, href: questionAddress(miss.slug), key: `question:${miss.slug}` } : null;
-    add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, fixer: 'person', target: miss.slug, reason: miss.reason, file, entity }, input.settings, notes));
+    add(wikiProblem('unplaced', `${miss.kind}:${miss.slug}`, { ...none, target: miss.slug, text: miss.text, file, entity }, input.settings, notes));
   }
   // Grounds and links that name nothing.
   const seen = new Set<string>();
@@ -222,8 +228,8 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
         const resolution = await input.resolve(`madarch:${target}`);
         if (resolution.state === 'broken') {
           add(wikiProblem('broken-link', key, {
-            ...none, fixer: 'agent', page: page.id, pageTitle: page.title, statement: statement.id, sentence: statement.text, target,
-            reason: resolution.reason, file: page.file, line: statement.line,
+            ...none, page: page.id, pageTitle: page.title, statement: statement.id, sentence: statement.text, target,
+            text: brokenLinkText(resolution.why), file: page.file, line: statement.line,
             evidence: [{ label: target, href: null, key: target }],
           }, input.settings, notes));
         }
@@ -232,7 +238,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   }
   // Grounds that are gone from the code or the documents since a page was written.
   if (input.repository === undefined) {
-    if (pages.length > 0) notes.push({ message: 'the pages name no single code repository, so grounds that disappeared from the code are not looked for' });
+    if (pages.length > 0) notes.push({ message: 'the pages name no single code repository, so grounds that disappeared from the code are not looked for', textKey: 'noSingleRepository' });
   } else if (pages.length > 0) {
     const changes = await changedGrounds(input.owner, { commit: input.repository.commit });
     for (const change of changes) {
@@ -242,8 +248,8 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
       const duplicate = out.some((p) => p.kind === 'broken-link' && p.page === change.page && p.statement === change.statement && p.target === change.ground);
       if (duplicate) continue;
       add(wikiProblem('ground-removed', `${page.id}\u0000${change.statement}\u0000${change.ground}`, {
-        ...none, fixer: 'agent', page: page.id, pageTitle: page.title, statement: change.statement, sentence: change.text, target: change.ground,
-        reason: `${change.ground} is no longer in ${input.repository.name} at the commit the graph describes`, file: page.file, line: change.line,
+        ...none, page: page.id, pageTitle: page.title, statement: change.statement, sentence: change.text, target: change.ground,
+        text: { code: 'groundRemoved', args: { ground: change.ground, repository: input.repository.name } }, file: page.file, line: change.line,
         evidence: [{ label: change.ground, href: null, key: change.ground }],
       }, input.settings, notes));
     }
@@ -269,7 +275,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
     const first = rows[0]!;
     const setting = declared[rule]!;
     return {
-      rule, kind: first.kind, section: first.section, sonar: first.sonar, severity: first.severity, fixer: first.fixer,
+      rule, kind: first.kind, section: first.section, sonar: first.sonar, severity: first.severity,
       count: rows.length, open: rows.filter((problem) => !problem.closed).length, closed: rows.filter((problem) => problem.closed).length,
       label: { ...setting.label },
     };

@@ -35,9 +35,12 @@ export interface ProblemDraft {
   readonly kind: string;
   readonly sonar: SonarKind;
   readonly severity: ProblemSeverity;
-  readonly fixer: 'agent' | 'person';
   readonly closed: boolean;
-  readonly reason: string;
+  /**
+   * The problem's own sentence as a code and its values: the engine stores no English sentence, and the wiki says it in
+   * the reader's language (`loop.problemText.<code>` in the app's locales).
+   */
+  readonly text: ProblemText;
   readonly file: string;
   readonly line: number | null;
   readonly page: string | null;
@@ -139,6 +142,30 @@ export interface ProblemNote {
   readonly textKey?: string;
   readonly textArgs?: Record<string, string | number>;
 }
+
+/**
+ * A sentence of the Problems page, as the message code the engine sends and the values it fills: the wiki builds the
+ * sentence from its locales, so a reader reads it in their language and the engine holds no English sentence.
+ */
+export interface ProblemText {
+  readonly code: ProblemTextCode;
+  readonly args?: Readonly<Record<string, string | number>>;
+}
+
+/**
+ * Every sentence the Problems page can say, as the code of `loop.problemText.<code>` in the app's locales: the engine
+ * sends a code and its values, and a code outside this list does not compile (madarch-64o5.92).
+ */
+export const PROBLEM_TEXT_CODES = [
+  'brokenLinkEmpty', 'brokenLinkNoDocument', 'brokenLinkNoEntity', 'brokenLinkNoPath', 'brokenLinkNoSection',
+  'checkFinding', 'configDeclaredSecret', 'configDevValue', 'configSecret', 'consistencyFinding',
+  'cycleFiles', 'cycleModules', 'deadExport', 'debt', 'dependencyDeclaredUnused', 'dependencyUsedUndeclared',
+  'documentAmbiguous', 'documentContradiction', 'documentStale', 'documentUndocumented', 'documentUndocumentedWhy',
+  'groundRemoved', 'hotspot', 'largeFile', 'operationWithoutRoute', 'routeOutsideAuthContract', 'routeOutsideAuthGroup',
+  'routeWithoutOperation', 'sqlInput', 'unplacedCorrection', 'unplacedQuestion',
+] as const;
+
+export type ProblemTextCode = (typeof PROBLEM_TEXT_CODES)[number];
 
 /** The stable id of a problem: its rule and identity, never its position in a list. */
 export const problemId = (rule: string, identity: string): string => `${rule}\u0000${identity}`;

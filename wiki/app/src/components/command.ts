@@ -172,7 +172,6 @@ export interface Problem {
   readonly kind: string;
   readonly sonar: string;
   readonly severity: string;
-  readonly fixer: 'agent' | 'person';
   readonly closed: boolean;
   readonly place: ProblemLink;
   readonly entity: ProblemLink | null;
@@ -183,9 +182,8 @@ export interface Problem {
   readonly statement: string | null;
   readonly sentence: string | null;
   readonly target: string | null;
-  readonly reason: string;
-  readonly textKey?: string;
-  readonly textArgs?: Readonly<Record<string, string | number>>;
+  /** The problem's sentence as a code the page says in the reader's language, and the values it fills. */
+  readonly text: { readonly code: string; readonly args?: Readonly<Record<string, string | number>> };
   readonly file: string;
   readonly line: number | null;
   readonly source?: string;
@@ -207,7 +205,6 @@ export interface ProblemCategory {
   readonly section: string;
   readonly sonar: string;
   readonly severity: string;
-  readonly fixer: 'agent' | 'person';
   readonly count: number;
   readonly open: number;
   readonly closed: number;

@@ -30,7 +30,7 @@ describe('the wiki section', () => {
     expect(listing.problems).toHaveLength(1);
     expect(listing.problems[0]).toMatchObject({
       id: 'wiki.manifest\u0000madarch/catalog.yaml:8:manifest:kind "question": "group" names a group of "groups" but has the wrong shape, got "product"',
-      section: 'wiki', rule: 'wiki.manifest', kind: 'manifest', sonar: 'bug', severity: 'major', fixer: 'person',
+      section: 'wiki', rule: 'wiki.manifest', kind: 'manifest', sonar: 'bug', severity: 'major',
       file: KINDS_FILE, line: 8, scope: { type: 'file', path: KINDS_FILE }, place: { label: 'madarch/catalog.yaml:8', href: '/src?path=madarch%2Fcatalog.yaml&line=8' },
     });
     expect(listing.sections).toEqual({ code: 0, documents: 0, wiki: 1 });
@@ -38,10 +38,10 @@ describe('the wiki section', () => {
 
   test('an answer that reaches no page keeps its old kind and gains its rule', async () => {
     const listing = await listProblems(input(folder(), {
-      unplaced: [{ kind: 'question', slug: 'discount', title: 'Which discount?', reason: 'the question names no page' }],
+      unplaced: [{ kind: 'question', slug: 'discount', title: 'Which discount?', text: { code: 'unplacedQuestion', args: { about: 'domain:orders', file: 'docs/questions/discount.md' } } }],
     }));
     const unplaced = listing.problems.find((problem) => problem.kind === 'unplaced')!;
-    expect(unplaced).toMatchObject({ section: 'wiki', rule: 'wiki.unplaced', sonar: 'code-smell', severity: 'minor', fixer: 'person', place: { label: 'docs/questions/discount.md', href: '/src?path=docs%2Fquestions%2Fdiscount.md' } });
+    expect(unplaced).toMatchObject({ section: 'wiki', rule: 'wiki.unplaced', sonar: 'code-smell', severity: 'minor', place: { label: 'docs/questions/discount.md', href: '/src?path=docs%2Fquestions%2Fdiscount.md' } });
     expect(unplaced.entity).toMatchObject({ href: '/questions/discount', key: 'question:discount' });
   });
 
