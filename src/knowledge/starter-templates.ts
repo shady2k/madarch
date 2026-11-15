@@ -53,7 +53,10 @@ export function starterTemplateIds(templates: readonly StarterTemplate[] = START
   return templates.map((template) => template.id);
 }
 
-/** The menu's numbered lines, one per declared template, in their declared order: the data decides what is offered. */
-export function templateMenuLines(templates: readonly StarterTemplate[] = STARTER_TEMPLATES): string[] {
-  return templates.map((template, at) => `  ${at + 1}. ${template.title.en} — ${template.description.en}`);
+/**
+ * The menu's numbered lines, one per declared template, in their declared order and in the reader's language: the data
+ * decides what is offered, and each template names itself in both languages it carries (madarch-64o5.84).
+ */
+export function templateMenuLines(templates: readonly StarterTemplate[] = STARTER_TEMPLATES, language: 'en' | 'ru' = 'en'): string[] {
+  return templates.map((template, at) => `  ${at + 1}. ${template.title[language]} — ${template.description[language]}`);
 }
