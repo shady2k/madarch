@@ -40,7 +40,7 @@
           "properties": {
             "protocol": {
               "type": "string",
-              "const": "madarch.plugins/2",
+              "const": "madarch.plugins/3",
               "description": "The protocol version this plugin speaks."
             },
             "name": {
@@ -362,6 +362,10 @@
             },
             "planOutput": {
               "type": "boolean"
+            },
+            "read": {
+              "type": "boolean",
+              "description": "The plugin answers the host's blob reads: a page's text and the agent's file reads, by (repository, blob id) (decision 0037)."
             },
             "reads": {
               "anyOf": [

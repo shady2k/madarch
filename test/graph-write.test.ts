@@ -164,25 +164,25 @@ test('ordinary file opinions preserve batched inserts, changes and scoped remova
   try {
     const files = Array.from({ length: 503 }, (_, index) => ({
       path: index === 502 ? 'outside/keep.txt' : `inside/file-${index}.txt`,
-      mode: '100644', blob: 'b'.repeat(40), content: 'old\n',
+      mode: '100644', blob: 'b'.repeat(40),
     }));
     const draft = (file: typeof files[number]): VertexDraft => ({
       kind: 'code.file', key: { repository: 'batched-entries', path: file.path },
-      values: { mode: file.mode, blob: file.blob, content: file.content }, producer: 'disk', producerVersion: '1',
+      values: { mode: file.mode, blob: file.blob }, producer: 'disk', producerVersion: '1',
     });
     const publish = async (vertices: VertexDraft[], paths: string[] = []): Promise<number> => await store.transaction('write', async tx => await publishGraphDrafts(tx, repositoryContract, {
       vertices, removals: paths.map(path => ({ kind: 'code.file', key: { repository: 'batched-entries', path }, producer: 'disk' })),
     }));
     expect(await publish(files.map(draft))).toBe(1006);
     expect(await publish(files.map(draft))).toBe(0);
-    const changed = files.slice(0, 501).map(file => ({ ...file, mode: '100755', blob: 'c'.repeat(40), content: 'new\n' }));
+    const changed = files.slice(0, 501).map(file => ({ ...file, mode: '100755', blob: 'c'.repeat(40) }));
     expect(await publish(changed.map(draft), ['inside/file-501.txt'])).toBe(502);
-    const held = await store.transaction('snapshot', async tx => await tx.query<{ path: string; mode: string; content: string }>(
-      `SELECT n.key->>'path' AS path, o.mode, o.content FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND NOT n.removed ORDER BY n.key->>'path'`,
+    const held = await store.transaction('snapshot', async tx => await tx.query<{ path: string; mode: string; blob: string }>(
+      `SELECT n.key->>'path' AS path, o.mode, o.blob FROM ${GIT_TABLES.file} o JOIN node n ON n.id = o.node_id WHERE o.state = 'open' AND NOT n.removed ORDER BY n.key->>'path'`,
     ));
     expect(held.rows).toHaveLength(502);
-    expect(held.rows.filter(row => row.path.startsWith('inside/')).every(row => row.mode === '100755' && row.content === 'new\n')).toBe(true);
-    expect(held.rows.find(row => row.path === 'outside/keep.txt')).toEqual({ path: 'outside/keep.txt', mode: '100644', content: 'old\n' });
+    expect(held.rows.filter(row => row.path.startsWith('inside/')).every(row => row.mode === '100755' && row.blob === 'c'.repeat(40))).toBe(true);
+    expect(held.rows.find(row => row.path === 'outside/keep.txt')).toEqual({ path: 'outside/keep.txt', mode: '100644', blob: 'b'.repeat(40) });
     expect(await publish([], held.rows.map(row => row.path))).toBe(502);
     const remaining = await store.transaction('snapshot', async tx => await tx.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE state = 'open'`));
     expect(remaining.rows[0]?.n).toBe('0');
@@ -507,7 +507,7 @@ describe('the manifest makes the table and the writer fills it', () => {
       expect(journal.rows[0]).toEqual({ n: '1', author: '', author_node: null });
       // The empty graph takes a fill: a publication writes its rows again.
       await prepareStore(old, { contract: repositoryContract });
-      const written = await old.transaction('write', async tx => await publishGraphDrafts(tx, repositoryContract, { vertices: [{ kind: 'code.file', key: { repository: 'r', path: 'a.ts' }, values: { mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, content: 'x\n', language: 'TypeScript', languages: ['TypeScript'] }, producer: 'disk', producerVersion: '1' }], removals: [] }));
+      const written = await old.transaction('write', async tx => await publishGraphDrafts(tx, repositoryContract, { vertices: [{ kind: 'code.file', key: { repository: 'r', path: 'a.ts' }, values: { mode: '100644', blob: 'b'.repeat(40), bytes: 3, form: 'text', lines: 1, language: 'TypeScript', languages: ['TypeScript'] }, producer: 'disk', producerVersion: '1' }], removals: [] }));
       expect(written).toBeGreaterThan(0);
     } finally {
       await old.close();

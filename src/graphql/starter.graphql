@@ -1019,9 +1019,6 @@ type CodeFile implements Entity {
   lines: BigInt
   linesOpinions: [Opinion!]!
   linesOpinionsCount: Int!
-  content: String
-  contentOpinions: [Opinion!]!
-  contentOpinionsCount: Int!
   language: String
   languageOpinions: [Opinion!]!
   languageOpinionsCount: Int!
@@ -4904,20 +4901,6 @@ input CodeFileCommitCountFilter {
   _is_null: Boolean
 }
 
-input CodeFileContentFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
 input CodeFileDirectoryFilter {
   _eq: String
   _neq: String
@@ -5079,7 +5062,6 @@ input CodeFileWhere {
   bytes: CodeFileBytesFilter
   form: CodeFileFormFilter
   lines: CodeFileLinesFilter
-  content: CodeFileContentFilter
   language: CodeFileLanguageFilter
   languages: CodeFileLanguagesFilter
   class: CodeFileClassFilter
@@ -8291,7 +8273,6 @@ enum CodeFileOrderField {
   bytes
   form
   lines
-  content
   language
   languages
   class

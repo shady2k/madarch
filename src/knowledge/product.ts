@@ -480,7 +480,9 @@ export class KnowledgeProduct {
     const seq = this.reader?.seq ?? 0;
     const held = this.filesMemo;
     if (held !== undefined && held.seq === seq && held.repository === repository) return held.files;
-    const files = await StoredProductFiles.load(reader, repository, product.folder);
+    // A document's text is read by the blob id the graph names, through the host's queue (decision 0037): the same read
+    // a file's page makes, async and bounded, and no stored copy.
+    const files = await StoredProductFiles.load(reader, repository, product.folder, async (path) => (await this.fileText(repository, path))?.text ?? null);
     this.filesMemo = { seq, repository, files };
     return files;
   }
