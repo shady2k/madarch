@@ -19,8 +19,8 @@ Fills, agents, applicability cascade (madarch-64o5.145), federation, reserved-na
 None.
 
 ## Coverage
-- product-repository/catalogue-tree: test/catalogue-dependencies.test.ts
-- product-repository/catalogue-only-contract: test/catalogue-only-contracts.test.ts; test/catalog-check.test.ts
+- product-repository/catalogue-tree: test
+- product-repository/catalogue-only-contract: test
 
 ## Where it is seen
 Kind: command
