@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
+import { commandLanguage as commandLanguageOf, type CommandLanguage } from './command-language.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
 import { productsHome, type DraftEnv } from './home.js';
 import { seedStarterSet, starterPageKindNames } from '../knowledge/seed.js';
@@ -207,10 +208,9 @@ function gitNamesAnAuthor(folder: string, gitEnv: GitEnv | undefined): boolean {
   return asked.ok || cannotRun;
 }
 
-/** The reader's language for a command that has no product yet: `MADARCH_LANG`, else the machine's locale. */
-function commandLanguage(gitEnv: GitEnv | undefined): 'en' | 'ru' {
-  const chosen = (gitEnv?.['MADARCH_LANG'] ?? process.env['MADARCH_LANG'] ?? process.env['LC_ALL'] ?? process.env['LC_MESSAGES'] ?? process.env['LANG'] ?? '').toLowerCase();
-  return chosen.startsWith('ru') ? 'ru' : 'en';
+/** The reader's language for a command that has no product yet: the machine's, or the one a test sealed in its env. */
+function commandLanguage(gitEnv: GitEnv | undefined): CommandLanguage {
+  return gitEnv === undefined ? commandLanguageOf() : commandLanguageOf(gitEnv);
 }
 
 /** What init says when git has no author identity: the fact, and the two commands that set one. */

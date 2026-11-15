@@ -24,6 +24,8 @@ import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository, withoutEnrichmentKin
 import { localizableEntities, localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
 import { readerText } from './markdown-reader.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
+import { commandLanguage } from '../src/product/command-language.js';
+import { nextSteps } from '../src/product/cli.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 
@@ -100,12 +102,45 @@ describe('madarch init', () => {
     expect(initOutput).toContain('Connected your repository');
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/products\/training-shop\/$/);
     expect(initOutput).toContain('Next:');
-    expect(initOutput).toContain('Choose the agent');
+    // The steps are the current wiki's: the role a first visit asks for, the catalogue's kinds, the run's preparation
+    // and its two choices, and the run's own page (madarch-64o5.84).
+    expect(initOutput).toContain('choose the role you read as');
+    expect(initOutput).toContain('"Fill…"');
+    expect(initOutput).toContain('pick the kinds in the catalogue');
+    expect(initOutput).toContain('"Run preparation"');
+    expect(initOutput).toContain('"Plugins only"');
+    expect(initOutput).toContain('agent with a token limit');
     expect(initOutput).toContain('"Start the fill"');
-    expect(initOutput).toContain('30 turns and 10 minutes');
+    expect(initOutput).toContain('follow the run on its own page');
     expect(initOutput).toContain('madarch stop');
+    // The old flow's claims are gone: no agent chosen from the init text, no pages written into docs/, no turn bound.
+    expect(initOutput).not.toContain('Choose the agent');
+    expect(initOutput).not.toContain('pages are Markdown files');
+    expect(initOutput).not.toContain('30 turns');
     expect(initOutput).not.toMatch(/\bbun\b|\bnode\b|scripts\//);
     expect(existsSync(join(home, 'training-shop', 'madarch', 'catalog.yaml'))).toBe(true);
+  });
+
+  test('the steps are the reader\'s language when the machine reads Russian (madarch-64o5.84)', () => {
+    expect(commandLanguage({ MADARCH_LANG: 'ru' })).toBe('ru');
+    expect(commandLanguage({ LANG: 'ru_RU.UTF-8' })).toBe('ru');
+    expect(commandLanguage({})).toBe('en');
+    // The same steps, printed for a Russian reader: the wiki's own words for its buttons, and no claim of the old flow.
+    const lines: string[] = [];
+    const held = console.log;
+    try {
+      (console as { log: (...args: unknown[]) => void }).log = (line?: unknown) => { lines.push(String(line ?? '')); };
+      nextSteps('~/madarch/products/training-shop', true, 'ru');
+    } finally {
+      (console as { log: (...args: unknown[]) => void }).log = held;
+    }
+    const said = lines.join('\n');
+    expect(said).toContain('Далее:');
+    expect(said).toContain('«Заполнить…»');
+    expect(said).toContain('«Только плагины»');
+    expect(said).toContain('«Запустить заполнение»');
+    expect(said).toContain('madarch stop');
+    expect(said).not.toContain('docs/');
   });
 
   test('the wiki it opens is empty, offers the agents and has run none', async () => {

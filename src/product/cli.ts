@@ -12,7 +12,7 @@
  */
 import { withDaemonStorePreparation, publishStoreOwner, requestStorePreparation, withStorePreparationOwner } from './store-preparation.js';
 import { selfCommand } from './self-command.js';
-import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
+import { commandLanguage, type CommandLanguage } from './command-language.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -1087,23 +1087,35 @@ function displayPath(folder: string): string {
   return home && folder.startsWith(`${home}/`) ? `~/${folder.slice(home.length + 1)}` : folder;
 }
 
-/** The next steps one reader follows after the product's wiki is up. */
-function nextSteps(folder: string, init: boolean): void {
+/**
+ * The next steps one reader follows after the product's wiki is up, in the person's language: the address, the role a
+ * first visit asks for, the fill's two presses (the catalogue, then the run's preparation), and how the background wiki
+ * ends. The steps are the wiki's own — the catalogue and the wiki's buttons — so a person reads them there and finds
+ * them where they are named.
+ */
+export function nextSteps(folder: string, init: boolean, language: CommandLanguage = commandLanguage()): void {
   const shown = displayPath(folder);
+  const ru = language === 'ru';
   console.log('');
-  console.log('Next:');
+  console.log(ru ? 'Далее:' : 'Next:');
   if (init) {
-    console.log('  1. Open the wiki address above. The wiki is empty and says so.');
-    console.log('  2. Choose the agent that writes the pages (Claude Code or Codex; madarch installs its adapter if you say yes), then press "Start the fill".');
-    console.log('     The fill reads your repository, then the agent writes the product page and one page per domain; each page appears in the wiki as it is written.');
-    console.log(`     No agent runs until you press, and each agent unit is bound by ${DEFAULT_STAGE_LIMITS.maxTurns} turns and ${Math.round(DEFAULT_STAGE_LIMITS.maxDurationMs / 60_000)} minutes.`);
-    console.log(`  3. The pages are Markdown files in ${shown}/docs/, and they are yours to commit. Your code stays where it is.`);
+    if (ru) {
+      console.log('  1. Откройте адрес wiki выше. При первом входе выберите роль, от имени которой читаете: wiki показывает то, что нужно этой роли.');
+      console.log('  2. Нажмите «Заполнить…» и отметьте виды в каталоге; то, что им нужно, добавится само.');
+      console.log('  3. На «Подготовке запуска» выберите «Только плагины» (без агента и без токенов) или агента с ограничением токенов, затем «Запустить заполнение»; за прогоном следите на его странице.');
+    } else {
+      console.log('  1. Open the wiki address above. On the first visit choose the role you read as: the wiki shows what that role needs.');
+      console.log('  2. Press "Fill…" and pick the kinds in the catalogue; what they need is added for you.');
+      console.log('  3. On "Run preparation" choose "Plugins only" (no agent, no tokens) or an agent with a token limit, then "Start the fill"; follow the run on its own page.');
+    }
+  } else if (ru) {
+    console.log('  • Wiki открывается на домашней странице продукта: «Заполнить…» ведёт в каталог, где отмечают виды, а «Подготовка запуска» — где выбирают «Только плагины» или агента с ограничением токенов. Ничего не читается и не пишется, пока вы не запустите.');
+    console.log(`  • Документы продукта — файлы Markdown в ${shown}/docs/; их пишет человек или агент. Чтобы читать и код, подключите репозиторий (madarch repo add <name> <url>) до заполнения.`);
   } else {
-    console.log(`  • The wiki opens on the page that says the product is created and nothing is read yet: press Fill there to read the product repository into the graph. Nothing is read or written until you press.`);
-    console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set, then Fill again.`);
-    console.log('  • To read code too, connect a code repository (madarch repo add <name> <url>) before the fill; the pages appear as the fill reads them.');
+    console.log('  • The wiki opens on the product\'s home page: "Fill…" leads to the catalogue where the kinds are picked, and "Run preparation" is where "Plugins only" or an agent with a token limit is chosen. Nothing is read or written until you start it.');
+    console.log(`  • Product documents are Markdown files in ${shown}/docs/, written by a person or an agent. To read code too, connect a code repository (madarch repo add <name> <url>) before the fill.`);
   }
-  console.log('  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
+  console.log(ru ? '  • Wiki работает в фоне: адрес открывается в любое время; madarch stop останавливает её.' : '  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
 }
 
 /**
