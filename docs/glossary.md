@@ -33,6 +33,22 @@ other side shows on the target's page, and a misspelt name cannot be stored
 count, a date, a status — is a field, not a reference.
 _Avoid_: pointer (ru: указатель), link field, reference field
 
+**Value type** (ru: тип значения):
+What a field's value must be, declared once in the catalogue's library of value
+types and reused by the fields of any kind and inside JSON Schemas: text,
+number, date, yes/no, a value of a set, or a format such as IP address, e-mail,
+URL or version, checked by the format's standard check or a regular expression
+declared in the type. A value that does not fit is refused, naming the field
+and the value. A JSON field always declares its JSON Schema (madarch-64o5.74;
+owner, 2026-11-15).
+_Avoid_: datatype (in prose), format (for the whole type)
+
+**Synonym** (ru: синоним):
+Another name of an entity — «мадарч» for madarch — kept on every entity beside
+its name; names and synonyms make the dictionary by which the writer finds an
+entity named in text without a reference (madarch-64o5.74, madarch-64o5.120).
+_Avoid_: alias (in prose)
+
 **Kind** (ru: вид; `kind` in code and manifests):
 What the catalogue declares a product can hold: File, Repository, Commit,
 Task, Decision. A kind carries its definition, its fields, its relations, the
