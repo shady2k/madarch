@@ -723,14 +723,20 @@ export class GraphReader {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
     if (!this.holds(GIT_KINDS.file)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
+      // A kind's class column exists only when the manifest declares it: an older or narrower manifest reads the file
+      // facts without it, and the files' class is unknown rather than a query for a column the table does not hold.
+      const declaredColumns = this.generatedKind(GIT_KINDS.file)?.columns ?? [];
+      const classSelect = declaredColumns.includes('class')
+        ? `(SELECT CASE WHEN count(DISTINCT o."class") = 1 THEN min(o."class") ELSE NULL END
+             FROM ${GIT_TABLES.file} o
+            WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS class`
+        : `NULL::text AS class`;
       const found = await tx.query<{ node: string; path: string; repository: string; scope: string; class: string | null; lines: number | null; total: string }>(
         `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->>'repository') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
                 (SELECT CASE WHEN count(DISTINCT o."lines") = 1 THEN min(o."lines") ELSE NULL END
                    FROM ${GIT_TABLES.file} o
                   WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
-                (SELECT CASE WHEN count(DISTINCT o."class") = 1 THEN min(o."class") ELSE NULL END
-                   FROM ${GIT_TABLES.file} o
-                  WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS class,
+                ${classSelect},
                 count(*) OVER ()::text AS total
          FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
          WHERE n.context_id = 1 AND NOT n.removed
@@ -747,7 +753,7 @@ export class GraphReader {
           path: row.path,
           repository: row.repository,
           scope: row.scope,
-          class: row.class,
+          class: row.class ?? 'unknown',
           lines: row.lines === null ? null : Number(row.lines),
         })),
       };
