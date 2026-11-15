@@ -154,6 +154,10 @@ export interface ReaderSettingsAnswer {
   readonly role: string;
   readonly asked: boolean;
   readonly roles: readonly string[];
+  /** Whether this machine and its person chose to run plugins without isolation; null when nobody was asked. */
+  readonly pluginsUnconfined: boolean | null;
+  /** What the start probe found about this machine's plugin sandbox. */
+  readonly pluginIsolation: { readonly capable: boolean; readonly reason: string };
 }
 
 /** One place or entity a problem names. */
@@ -412,6 +416,9 @@ export const readReaderSettings = (base: string, signal?: AbortSignal): Promise<
 
 /** Keeps the reader's role on this machine. */
 export const saveReaderRole = (base: string, role: string): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ role }) });
+
+/** Keeps this machine's answer about running plugins without isolation. */
+export const saveReaderIsolation = (base: string, unconfined: boolean): Promise<ReaderSettingsAnswer> => command(base, '/api/settings', { method: 'POST', body: JSON.stringify({ pluginsUnconfined: unconfined }) });
 
 /** `GET /api/problems`: the open problems, grouped by rule. */
 export const readProblems = (base: string, signal?: AbortSignal): Promise<ProblemListing> => command(base, '/api/problems', signal === undefined ? {} : { signal });

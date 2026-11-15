@@ -96,6 +96,8 @@ let agentOffers: { id: string; label: string; installed: boolean; login: string;
 let savedAgent: { id: string; label: string } | null = null;
 /** What `/api/product-settings` answers, and a switch to hold it open while a test presses early (madarch-64o5.90). */
 let productSettings: Record<string, unknown> = { tokenCap: 200_000 };
+/** What `/api/settings` answers: this machine, not the product. */
+let readerSettings: Record<string, unknown> = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
 let holdSettings: (() => void) | null = null;
 /** A held `/api/agent-choices` answer, so a test can switch agents while one is pending. */
 let holdChoices: (() => void) | null = null;
@@ -193,6 +195,7 @@ beforeEach(async () => {
   runAnswer = RUN;
   savedAgent = null;
   productSettings = { tokenCap: 200_000 };
+  readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: true, reason: 'plugins run isolated on this machine' } };
   holdSettings = null;
   holdChoices = null;
   agentOffers = [
@@ -218,6 +221,13 @@ beforeEach(async () => {
       return answer(url.pathname, { agent: offeredAgent, ...offered });
     }
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
+    if (url.pathname.endsWith('/api/settings')) {
+      if (method === 'POST') {
+        const asked = body as { pluginsUnconfined?: boolean } | null;
+        if (asked?.pluginsUnconfined !== undefined) readerSettings = { ...readerSettings, pluginsUnconfined: asked.pluginsUnconfined };
+      }
+      return answer(url.pathname, readerSettings);
+    }
     if (url.pathname.endsWith('/api/product-settings')) {
       if (holdSettings !== null) return await new Promise<Response>((resolve) => { holdSettings = () => resolve(answer(url.pathname, productSettings)); });
       return answer(url.pathname, productSettings);
@@ -528,3 +538,21 @@ test('the stop confirmation is disabled while the link is away', async () => {
     reportOnline();
   }
 });
+
+test('a preparation page asks once when this machine cannot isolate plugins, and remembers the answer', async () => {
+  readerSettings = { role: 'everything', asked: true, roles: ['everything'], pluginsUnconfined: null, pluginIsolation: { capable: false, reason: 'this machine does not give madarch a cgroup to limit plugins in' } };
+  const page = await render([section('prepare', 'prepare', {})], { kinds: 'demo.alpha' });
+  try {
+    expect(page.container.querySelector('[data-testid="prepare-isolation-question"]')?.textContent).toContain('нельзя изолировать');
+    expect(page.container.querySelector('[data-testid="prepare-run"]')?.hasAttribute('disabled')).toBe(true);
+    expect(page.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
+    await act(async () => { (page.container.querySelector('[data-testid="prepare-isolation-run"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.some((one) => one.path.endsWith('/api/settings') && one.method === 'POST' && (one.body as { pluginsUnconfined?: boolean }).pluginsUnconfined === true)).toBe(true);
+    expect(page.container.querySelector('[data-testid="prepare-isolation-question"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="prepare-isolation-unconfined"]')?.textContent).toContain('без изоляции');
+    expect(page.container.querySelector('[data-testid="prepare-isolation-link"]')).not.toBeNull();
+    expect(page.container.textContent).not.toContain('MADARCH_PLUGIN_SANDBOX');
+  } finally { await page.close(); }
+});
+

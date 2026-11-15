@@ -25,8 +25,8 @@ import { OfflineAction } from './ui/offline-action.js';
 import { useConnection } from '../connection.js';
 import { agentUsable } from './agent-words.js';
 import {
-  chooseAgent, CommandError, isOffline, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, saveProductSettings, startFillSelection, useCommandRead,
-  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer,
+  chooseAgent, CommandError, isOffline, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, readProductSettings, readReaderSettings, saveReaderIsolation, saveProductSettings, startFillSelection, useCommandRead,
+  type AgentChoicesAnswer, type AgentsAnswer, type FillPlanView, type FillStatusAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
 import { fillEstimate } from './prepare-estimate.js';
@@ -55,6 +55,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const [model, setModel] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState<string | null>(null);
   const [savedDefaults, setSavedDefaults] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [isolationSaving, setIsolationSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const key = requested.join(',');
@@ -67,6 +68,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   const product = useCommandRead<{ readonly id: string; readonly name: string; readonly folder?: string }>('product', (signal) => readProduct(base, signal));
   const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
   const settings = useCommandRead<ProductSettingsAnswer>('product-settings', (signal) => readProductSettings(base, signal));
+  const reader = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const plan = planRead.data?.plan;
   const needsAgent = plan?.needsAgent ?? [];
   const requiresAgent = needsAgent.length > 0;
@@ -77,6 +79,9 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   // The product's default cap fills the field until the person types another (madarch-64o5.90): an empty field is the
   // default, never a refusal, and a typed cap is this run's alone.
   const defaultCap = settings.data?.tokenCap ?? null;
+  const isolation = reader.data?.pluginIsolation ?? null;
+  const unconfined = reader.data?.pluginsUnconfined ?? null;
+  const isolationBlocked = reader.data === null || (isolation !== null && !isolation.capable && unconfined !== true);
   const capText = cap ?? (defaultCap === null ? '' : String(defaultCap));
   const capNumber = capText.trim() === '' ? null : Number(capText);
   const capInvalid = capText.trim() !== '' && !(capNumber !== null && Number.isSafeInteger(capNumber) && capNumber > 0);
@@ -132,8 +137,14 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
     remember.then(() => saveProductSettings(base, { model: modelValue === '' ? null : modelValue, reasoning: reasoningValue === '' ? null : reasoningValue }))
       .then(() => { setSavedDefaults('saved'); settings.reload(); }, (error: unknown) => { setSavedDefaults('failed'); setFailure(error instanceof Error ? error.message : String(error)); });
   };
+  const saveIsolation = (choice: boolean): void => {
+    if (connection.offline) return;
+    setIsolationSaving(true);
+    setFailure(null);
+    saveReaderIsolation(base, choice).then(() => { setIsolationSaving(false); reader.reload(); }, (error: unknown) => { setIsolationSaving(false); setFailure(isOffline(error) ? null : error instanceof Error ? error.message : String(error)); });
+  };
   const run = (): void => {
-    if (connection.offline || plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady) return;
+    if (connection.offline || plan === undefined || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady || isolationBlocked) return;
     setBusy(true);
     setFailure(null);
     startFillSelection(base, {
@@ -167,6 +178,23 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
   return (
     <Stack layout="reading" className="grid gap-5" data-testid="prepare-panel">
       {wizard && !inline ? <Alert data-testid="prepare-wizard"><AlertDescription>{t('prepare.wizardIntro')}</AlertDescription></Alert> : null}
+      {isolation !== null && !isolation.capable ? (
+        unconfined === null ? (
+          <Alert data-testid="prepare-isolation-question">
+            <AlertDescription>
+              {t('prepare.isolationQuestion', { reason: isolation.reason })}
+              <InlineGroup className="mt-2 flex flex-wrap gap-2">
+                <Button variant="default" size="default" disabled={connection.offline || isolationSaving} onClick={() => saveIsolation(true)} data-testid="prepare-isolation-run">{t('prepare.isolationRun')}</Button>
+                <Button variant="outline" size="default" disabled={connection.offline || isolationSaving} onClick={() => saveIsolation(false)} data-testid="prepare-isolation-no">{t('prepare.isolationNo')}</Button>
+              </InlineGroup>
+            </AlertDescription>
+          </Alert>
+        ) : unconfined ? (
+          <Alert data-testid="prepare-isolation-unconfined"><AlertDescription>{t('prepare.isolationUnconfined')} <TextLink href={PAGE_ADDRESSES.settings} onClick={(event) => { event.preventDefault(); context.open(PAGE_ADDRESSES.settings); }} data-testid="prepare-isolation-link">{t('prepare.isolationSettings')}</TextLink></AlertDescription></Alert>
+        ) : (
+          <Alert variant="problem" data-testid="prepare-isolation-denied"><AlertDescription>{t('prepare.isolationDenied')} <TextLink href={PAGE_ADDRESSES.settings} onClick={(event) => { event.preventDefault(); context.open(PAGE_ADDRESSES.settings); }} data-testid="prepare-isolation-link">{t('prepare.isolationSettings')}</TextLink></AlertDescription></Alert>
+        )
+      ) : null}
       <Stack className="flex flex-wrap items-center justify-between gap-3">
         <Paragraph className="m-0 text-secondary">{t('prepare.intro')}</Paragraph>
         <TextLink href={base + catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)} onClick={(event) => { event.preventDefault(); context.open(catalogueSelectionAddress(plan.requestedKinds.length > 0 ? plan.requestedKinds : requested)); }} data-testid="prepare-change">
@@ -315,7 +343,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
             <OfflineAction offline={connection.offline}>
-              <Button variant="default" size="default" disabled={connection.offline || busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady} onClick={run} data-testid="prepare-run">
+              <Button variant="default" size="default" disabled={connection.offline || busy || planRead.busy || errors.length > 0 || !validCap || !runnable || !agentReady || !settingsReady || isolationBlocked} onClick={run} data-testid="prepare-run">
                 {t(busy ? 'prepare.starting' : 'prepare.run')}
               </Button>
             </OfflineAction>
