@@ -9,7 +9,7 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, answersAsDaemon, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer, type Socket as Sock } from 'node:net';
 
@@ -407,6 +407,24 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   expect((await answer.json() as { id: string }).id).toBe('alpha-id');
   expect(stopDaemon({ home })).toBe(0);
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
+});
+
+test('another HTTP server on the picked port is no readiness: only the child\'s own proof counts (madarch-64o5.80)', async () => {
+  // The pid and the token prove the child exists, not that it answers on the port: a foreign HTTP server that took the
+  // port answers any 2xx, and the start must not read that as its own server being up.
+  const { createServer } = await import('node:http');
+  const foreign = createServer((request, response) => {
+    if (request.url?.startsWith('/api/daemon')) { response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ proof: 'forged' })); return; }
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<!doctype html><title>not madarch</title>');
+  });
+  const port = await freePort();
+  await new Promise<void>((listening, failed) => { foreign.once('error', failed); foreign.listen(port, '127.0.0.1', () => listening()); });
+  try {
+    expect(await answersAsDaemon(port, 'the-child-token')).toBe(false);
+  } finally {
+    await new Promise<void>((closed) => foreign.close(() => closed()));
+  }
 });
 
 test('a start that asked for a free port picks again when another process takes the one it picked', async () => {

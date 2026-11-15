@@ -16,6 +16,7 @@ import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSyn
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHmac, randomUUID } from 'node:crypto';
 import { productsHome, type DraftEnv } from './home.js';
 import { listProducts } from './list.js';
 import { ensureBuilt } from '../product-wiki/app.js';
@@ -473,6 +474,25 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   return { ok: true, url: `http://127.0.0.1:${started.port}`, pid: started.pid, port: started.port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }), ...(replaced === undefined ? {} : { note: replaced }) };
 }
 
+
+/**
+ * Whether the server answering on a port is the daemon child this record started: the child answers an HMAC of a fresh
+ * nonce with the token its environment carries, and no other server on the port can. An answer that is not that proof —
+ * a 2xx from a stranger, a 404, a wrong proof — is not this child.
+ */
+export async function answersAsDaemon(port: number, token: string): Promise<boolean> {
+  const nonce = randomUUID();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}`, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    if (!response.ok) return false;
+    const body = (await response.json().catch(() => null)) as { proof?: unknown } | null;
+    if (body === null || typeof body.proof !== 'string') return false;
+    return body.proof === createHmac('sha256', token).update(nonce).digest('hex');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Spawns one daemon on one port and waits for its listener, and answers what it
  * took or why that failed. `taken` marks the one failure a start that asked for
@@ -525,11 +545,10 @@ async function startChild(home: string, port: number, appDist: string, reads: Ch
     // record's token; one that is merely `starting` has nothing to check yet.
     if (seen.reading !== 'daemon') return false;
     if (!daemonTokenMatches(state)) { tokenMissed = true; return false; }
-    try {
-      // The root redirects to a product; listener readiness must not wait for that product's first acquisition.
-      const response = await fetch(`http://127.0.0.1:${port}/`, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-      if (response.ok || response.status === 302) { answered = true; return true; }
-    } catch { /* the listener is still binding */ }
+    // Only the child's own answer counts: a server that took this port answers every 2xx, so the probe asks for the
+    // proof the child alone can give (an HMAC of a fresh nonce with the token this record holds). Another server on the
+    // port is the port being taken, and a start that asked for a free one picks again (madarch-64o5.80).
+    if (await answersAsDaemon(port, state.token)) { answered = true; return true; }
     return false;
   }, READY_TIMEOUT_MS);
   if (ready && answered && daemonIsAlive(state, reads)) return { ok: true, pid: state.pid, port };
