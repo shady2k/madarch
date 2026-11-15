@@ -337,7 +337,11 @@ async function command<T>(base: string, path: string, init: RequestInit = {}): P
     reportOffline();
     throw new CommandError(offlineWords(), 'offline');
   }
-  if (response.status === 502 || response.status === 503 || response.status === 504) {
+  if (response.status === 503) {
+    reportOffline('starting');
+    throw new CommandError(offlineWords(), 'offline');
+  }
+  if (response.status === 502 || response.status === 504) {
     reportOffline();
     throw new CommandError(offlineWords(), 'offline');
   }

@@ -10,7 +10,8 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { composePage, splitResponse, type Bootstrap, type PageComposition } from '../../../src/page-contract/index.js';
 import { basePathOf, codesOf, postQuery, readBootstrap, type Navigation } from './client.js';
-import { reportOnline, setConnectionProbe, useConnection } from './connection.js';
+import { reportOffline, reportOnline, setConnectionProbe, useConnection } from './connection.js';
+import { ConnectionBanner } from './components/connection-banner.js';
 import { readProblemsCount, readProduct, readReaderSettings, saveReaderRole, useChangeStream, useCommandRead, type ProblemsCount, type ReaderSettingsAnswer } from './components/command.js';
 import { normalizeLanguage, setWikiLanguage } from './i18n.js';
 import { frameWord, FrameNavigation, FrameToolbar, PhoneNavigation, RebuildingPage } from './frame.js';
@@ -85,6 +86,7 @@ export function App(): ReactElement {
   const identity = useCommandRead<{ readonly id: string; readonly name: string }>('product', (signal) => readProduct(base, signal));
   const savedRole = useCommandRead<ReaderSettingsAnswer>('reader-settings', (signal) => readReaderSettings(base, signal));
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [lastDataAt, setLastDataAt] = useState<number | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const bootstrapVersion = useRef(0);
@@ -129,6 +131,7 @@ export function App(): ReactElement {
     }
     setBootstrap(read.bootstrap);
     setNavigation(read.navigation ?? null);
+    setLastDataAt(Date.now());
     return read.bootstrap;
   }, [base, language]);
 
@@ -136,6 +139,8 @@ export function App(): ReactElement {
   useEffect(() => setConnectionProbe(async () => {
     const answer = await fetch(`${base}/api/product`, { credentials: 'same-origin', cache: 'no-store' });
     if (answer.ok) reportOnline();
+    else if (answer.status === 503) reportOffline('starting');
+    else if (answer.status === 502 || answer.status === 504) reportOffline();
     else if (answer.status >= 500) throw new Error(`the server answered ${String(answer.status)}`);
   }), [base]);
 
@@ -146,10 +151,6 @@ export function App(): ReactElement {
     lastGeneration.current = connection.generation;
     void loadBootstrap();
   }, [connection.generation, loadBootstrap]);
-
-  // A publication moves the graph: the same event that refreshes the problems count refreshes the frame's navigation, so
-  // a run that published its kinds shows them in the sidebar without a page reload.
-  useChangeStream(base, () => { problems.reload(); void loadBootstrap(); });
 
   // The bootstrap and the navigation are read once per structure and language: what they hold changes only with the
   // product's files or the reader's language.
@@ -195,6 +196,7 @@ export function App(): ReactElement {
       return;
     }
     setFailure(null);
+    setLastDataAt(Date.now());
     setLoaded({ composition, variables, data: splitResponse(composition, answer.data ?? {}) });
   }, [address, base, bootstrap, language, loadBootstrap, role]);
 
@@ -247,6 +249,10 @@ export function App(): ReactElement {
     void ask(loaded.composition, merged);
   }, [ask, loaded]);
 
+  // A publication moves the graph: the same event that refreshes the problems count refreshes the frame's navigation, so
+  // a run that published its kinds shows them in the sidebar without a page reload.
+  useChangeStream(base, () => { problems.reload(); void loadBootstrap(); });
+
   const productName = identity.data?.name ?? navigation?.product ?? null;
   const applyRole = useCallback((next: string): void => { setRole(next); keepRole(next); }, []);
   const chooseRole = useCallback((next: string): void => { applyRole(next); void saveReaderRole(base, next).catch(() => undefined); }, [applyRole, base]);
@@ -265,7 +271,7 @@ export function App(): ReactElement {
     return (
       <ShellError>
         {connection.offline
-          ? <Paragraph role="status" data-testid="wiki-offline">{t('connection.offline')}</Paragraph>
+          ? <ConnectionBanner lastDataAt={lastDataAt} />
           : <Paragraph role="alert" data-testid="wiki-error">{failure}</Paragraph>}
       </ShellError>
     );
@@ -323,19 +329,17 @@ export function App(): ReactElement {
             <ShellScroll data-testid="shell-content">
               <ShellDocument>
                 <main data-testid="wiki-main">
-                  {connection.offline ? (
-                    <Alert variant="problem" className="mb-4" role="status" data-testid="wiki-offline">
-                      <AlertDescription>{t('connection.offline')}</AlertDescription>
-                    </Alert>
-                  ) : null}
+                  <ConnectionBanner lastDataAt={lastDataAt} />
                   {failure === null ? null : (
                     <Alert variant="problem" className="mb-4" data-testid="wiki-error">
                       <AlertDescription>{failure}</AlertDescription>
                     </Alert>
                   )}
-                  {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
-                  {page}
-                  {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                  <Stack className={connection.offline ? 'opacity-60 transition-opacity' : 'transition-opacity'} data-testid="page-content" data-stale={connection.offline ? 'true' : 'false'}>
+                    {section === null ? null : <PageBreadcrumb label={t('knowledge.breadcrumb')} items={[{ label: frameWord(section, t) }]} />}
+                    {page}
+                    {loaded === null ? null : <PageView composition={loaded.composition} data={loaded.data} runtime={runtime} />}
+                  </Stack>
                 </main>
               </ShellDocument>
             </ShellScroll>

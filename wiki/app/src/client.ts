@@ -99,7 +99,11 @@ export async function postQuery<T>(base: string, query: string, variables: Recor
   }
   // A proxy in front of the server answers these when the server behind it is not there; the link, not the graph, is
   // what failed.
-  if (response.status === 502 || response.status === 503 || response.status === 504) {
+  if (response.status === 503) {
+    reportOffline('starting');
+    return { errors: [], offline: true };
+  }
+  if (response.status === 502 || response.status === 504) {
     reportOffline();
     return { errors: [], offline: true };
   }

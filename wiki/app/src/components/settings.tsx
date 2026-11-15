@@ -15,13 +15,13 @@ import { FieldLabel, ListItem, Paragraph, PlainList, Stack, Text } from './ui/ty
 import { SegmentedChoice } from './ui/segmented-choice.js';
 import { Select } from './ui/select.js';
 import {
-  chooseAgent, chooseModelRole, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
+  chooseAgent, chooseModelRole, isOffline, readAgentChoices, readAgents, readProductSettings, readReaderSettings, saveProductSettings, saveReaderRole,
   useChangeStream, useCommandRead,
   type AgentChoice, type AgentChoicesAnswer, type AgentOffer, type AgentsAnswer, type ProductSettingsAnswer, type ReaderSettingsAnswer, type ResolvedModelRole,
 } from './command.js';
 import type { SectionContext } from './types.js';
 
-const message = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure);
+const message = (failure: unknown): string | null => isOffline(failure) ? null : failure instanceof Error ? failure.message : String(failure);
 
 /** One card of the page. */
 function Section({ id, title, intro, children }: { readonly id: string; readonly title: string; readonly intro?: string; readonly children: ReactNode }): ReactElement {

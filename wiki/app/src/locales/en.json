@@ -4,7 +4,14 @@
     "count": "Entities"
   },
   "connection": {
-    "offline": "No connection to the madarch server. Trying again…"
+    "offline": "No connection to the madarch server — reconnecting…",
+    "starting": "The server is starting…",
+    "restored": "Connection restored",
+    "retryIn": "next attempt in {{seconds}} s",
+    "checking": "checking the connection…",
+    "retryNow": "Retry now",
+    "dataAsOf": "data as of {{time}}",
+    "actionsDisabled": "The server cannot be reached. This action will be available when the connection returns."
   },
   "facts": {
     "loading": "Reading facts…",

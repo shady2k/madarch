@@ -228,19 +228,69 @@ test('a server that cannot be reached shows one calm state and comes back by its
   window.history.pushState({}, '', '/');
   const page = await render();
   try {
-    expect(page.container.querySelector('[data-testid="wiki-offline"]')?.textContent).toContain('No connection to the madarch server. Trying again…');
+    expect(page.container.querySelector('[data-testid="connection-banner"]')?.textContent).toContain('No connection to the madarch server — reconnecting…');
+    expect(page.container.querySelector('[data-testid="connection-countdown"]')?.textContent).toMatch(/next attempt in|checking the connection/);
+    expect(page.container.querySelector('[data-testid="connection-retry"]')).not.toBeNull();
     expect(page.container.textContent).not.toContain('Failed to fetch');
+    // «Повторить сейчас» probes at once.
+    const beforeRetry = failures;
+    await act(async () => { (page.container.querySelector('[data-testid="connection-retry"]') as HTMLButtonElement | null)?.click(); await new Promise((resolve) => setTimeout(resolve, 60)); });
+    expect(failures).toBeGreaterThan(beforeRetry);
     const before = failures;
     // The probe comes by itself, at the first backoff step, and fails again while the server is down.
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 800)); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_200)); });
     expect(failures).toBeGreaterThan(before);
     reachable = true;
-    // The next probe lifts the calm state, and the frame reads the page again.
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_500)); });
+    // «Повторить сейчас» lifts the calm state; the frame says so for two seconds, then the line goes.
+    await act(async () => { (page.container.querySelector('[data-testid="connection-retry"]') as HTMLButtonElement | null)?.click(); await new Promise((resolve) => setTimeout(resolve, 120)); });
     await settle();
-    expect(page.container.querySelector('[data-testid="wiki-offline"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="connection-banner"]')?.getAttribute('data-state')).toBe('restored');
+    expect(page.container.textContent).toContain('Connection restored');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_200)); });
+    await settle();
+    expect(page.container.querySelector('[data-testid="connection-banner"]')).toBeNull();
     expect(page.container.querySelector('[data-testid="wiki-app"]')).not.toBeNull();
     expect(page.container.textContent).not.toContain('Failed to fetch');
+  } finally {
+    await page.close();
+  }
+}, 10_000);
+
+test('a 503 while the server starts reads as the server starting, not a block error', async () => {
+  globalThis.fetch = (async () => new Response(JSON.stringify({ message: 'the graph answered 503' }), { status: 503, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  window.history.pushState({}, '', '/');
+  const page = await render();
+  try {
+    expect(page.container.querySelector('[data-testid="connection-banner"]')?.getAttribute('data-state')).toBe('starting');
+    expect(page.container.textContent).toContain('The server is starting…');
+    expect(page.container.textContent).not.toContain('the graph answered 503');
+    expect(page.container.querySelector('[data-testid="wiki-error"]')).toBeNull();
+  } finally {
+    await page.close();
+  }
+}, 10_000);
+
+test('a lost connection keeps the last page data, dimmed, with its time', async () => {
+  const frameFetch = globalThis.fetch;
+  let lost = false;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (lost) throw new TypeError('Failed to fetch');
+    return await (frameFetch as typeof fetch)(input, init);
+  }) as typeof fetch;
+  window.history.pushState({}, '', `/e/catalogue/${ID}`);
+  const page = await render();
+  try {
+    expect(page.container.querySelector('h1')?.textContent).toBe('A kind');
+    lost = true;
+    await act(async () => {
+      window.history.pushState({}, '', '/e/catalogue/00000000-0000-0000-0000-00000000beef');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await settle();
+    expect(page.container.querySelector('[data-testid="connection-banner"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="page-content"]')?.getAttribute('data-stale')).toBe('true');
+    expect(page.container.querySelector('[data-testid="connection-data-as-of"]')?.textContent).toContain('data as of');
+    expect(page.container.querySelector('h1')?.textContent).toBe('A kind');
   } finally {
     await page.close();
   }
@@ -250,11 +300,11 @@ test('a change event refreshes the navigation and asks the current page again', 
   class FakeSource {
     static last: FakeSource | undefined;
     static readonly all: FakeSource[] = [];
-    private readonly listeners: (() => void)[] = [];
+    private readonly listeners: ((event: MessageEvent<string>) => void)[] = [];
     constructor() { FakeSource.last = this; FakeSource.all.push(this); }
-    addEventListener(type: string, listener: () => void): void { if (type === 'change') this.listeners.push(listener); (FakeSource as unknown as { registered: number }).registered = ((FakeSource as unknown as { registered: number }).registered ?? 0) + 1; }
+    addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void { if (type === 'change') this.listeners.push(listener); (FakeSource as unknown as { registered: number }).registered = ((FakeSource as unknown as { registered: number }).registered ?? 0) + 1; }
     close(): void { /* closed by the app */ }
-    emit(): void { for (const listener of this.listeners) listener(); }
+    emit(data = ''): void { for (const listener of this.listeners) listener({ data } as MessageEvent<string>); }
   }
   (globalThis as { EventSource?: unknown }).EventSource = FakeSource as unknown as typeof EventSource;
   expect(globalThis.EventSource).toBe(FakeSource as unknown as typeof EventSource);
@@ -284,7 +334,7 @@ test('a change event refreshes the navigation and asks the current page again', 
     await settle();
     expect(bootstraps).toBe(1);
     expect(pages).toBe(1);
-    await act(async () => { for (const source of FakeSource.all) source.emit(); });
+    await act(async () => { for (const source of FakeSource.all) source.emit(JSON.stringify({ revision: '2', structure: true })); });
     await settle();
     expect(bootstraps).toBe(2);
     expect(pages).toBe(2);

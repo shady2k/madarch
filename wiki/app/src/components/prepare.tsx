@@ -17,8 +17,10 @@ import { Select } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
+import { OfflineAction } from './ui/offline-action.js';
+import { useConnection } from '../connection.js';
 import {
-  CommandError, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
+  CommandError, isOffline, readAgentChoices, readAgents, readFillPlan, readFillStatus, readProduct, startFillSelection, useCommandRead,
   type AgentChoicesAnswer, type AgentsAnswer, type FillPlanNeed, type FillPlanView, type FillStatusAnswer,
 } from './command.js';
 import { fieldLabel, filledBy, planKindOf } from './plan-words.js';
@@ -35,6 +37,7 @@ function unfilledWords(needs: readonly FillPlanNeed[], navigation: Navigation | 
 
 export function PrepareSection({ context, inline = false }: { readonly context: SectionContext; readonly inline?: boolean }): ReactElement {
   const { t, i18n } = useTranslation();
+  const connection = useConnection();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
   const navigation = context.navigation;
   const base = context.base;
@@ -114,7 +117,7 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
       (error: unknown) => {
         setBusy(false);
         const code = error instanceof CommandError ? error.code : undefined;
-        setFailure(code === 'fill/agent-required' ? t('prepare.agentRequired') : code === 'fill/token-cap' ? t('prepare.capRequired') : error instanceof Error ? error.message : String(error));
+        setFailure(isOffline(error) ? null : code === 'fill/agent-required' ? t('prepare.agentRequired') : code === 'fill/token-cap' ? t('prepare.capRequired') : error instanceof Error ? error.message : String(error));
       },
     );
   };
@@ -233,9 +236,11 @@ export function PrepareSection({ context, inline = false }: { readonly context: 
           {errors.map((error) => <Alert key={error.kind} variant="problem" className="mt-3" data-testid="prepare-plan-error"><AlertDescription>{t('prepare.planError', { kind: labelOf(navigation, error.kind), message: error.plugin === undefined ? error.message : t('prepare.missingPlugin', { plugin: error.plugin }) })}</AlertDescription></Alert>)}
           {failure === null ? null : <Alert variant="problem" className="mt-3"><AlertDescription>{failure}</AlertDescription></Alert>}
           <Stack className="mt-4 flex flex-wrap items-center gap-3">
-            <Button variant="default" size="default" disabled={busy || planRead.busy || errors.length > 0 || missingAgent || !validCap || !runnable} onClick={run} data-testid="prepare-run">
-              {t(busy ? 'prepare.starting' : 'prepare.run')}
-            </Button>
+            <OfflineAction offline={connection.offline}>
+              <Button variant="default" size="default" disabled={connection.offline || busy || planRead.busy || errors.length > 0 || missingAgent || !validCap || !runnable} onClick={run} data-testid="prepare-run">
+                {t(busy ? 'prepare.starting' : 'prepare.run')}
+              </Button>
+            </OfflineAction>
             {runnable ? <Text className="text-small text-muted">{t('prepare.onePress')}</Text> : <Text className="text-small text-muted" data-testid="prepare-nothing">{t('prepare.nothingToRun')}</Text>}
           </Stack>
         </CardContent>

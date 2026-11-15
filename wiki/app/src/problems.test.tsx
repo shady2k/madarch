@@ -81,7 +81,7 @@ for (const mode of ['graphql', 'network', 'missing'] as const) {
     try {
       if (mode === 'network') {
         // A server that cannot be reached is the frame's one calm line, never the request's own words.
-        expect(page.container.querySelector('[data-testid="wiki-offline"]')?.textContent).toContain('No connection to the madarch server. Trying again…');
+        expect(page.container.querySelector('[data-testid="connection-banner"]')?.textContent).toContain('No connection to the madarch server — reconnecting…');
         expect(page.container.textContent).not.toContain('Network unavailable');
       } else {
         expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(
