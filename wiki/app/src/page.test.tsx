@@ -343,3 +343,45 @@ test('a pressed node opens the page the server named for it', () => {
   expect(linkOfNode({ n1: '/e/a.b/1' }, { id: 'other', modelRef: 'n1' })).toBe('/e/a.b/1');
   expect(linkOfNode({}, { id: 'n9' })).toBeUndefined();
 });
+
+test('the details block states every field, marks a disputed one and names the place its value rests on', async () => {
+  const page = await renderPage([section('details', 'details', { path: 'details' })], {
+    details: { details: [
+      { name: 'lines', type: 'integer', key: false, value: 12, contested: false, opinions: [{ producer: 'code-index', statedAt: '2026-01-01T00:00:00Z', evidence: [{ type: 'file', repository: 'r1', path: 'src/a.ts', lineStart: 4 }] }] },
+      { name: 'url', type: 'text', key: false, value: null, contested: true, opinions: [{ producer: 'one', statedAt: '2026-01-01T00:00:00Z', evidence: [] }] },
+      { name: 'path', type: 'text', key: true, value: 'src/a.ts', contested: false, opinions: [] },
+    ] },
+  });
+  try {
+    expect(page.container.querySelectorAll('[data-testid="detail-value"]')).toHaveLength(3);
+    expect(page.container.textContent).toContain('12');
+    expect(page.container.querySelector('[data-testid="detail-key"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-testid="contested"]')).not.toBeNull();
+    const source = page.container.querySelector('[data-testid="detail-source"]')?.textContent ?? '';
+    expect(source).toContain('code-index');
+    expect(source).toContain('r1/src/a.ts:4');
+  } finally { await page.close(); }
+});
+
+test('the breadcrumb walks the containers the graph answered, each one a link into its page', async () => {
+  const page = await renderPage([section('header', 'header', { titlePath: 'label', chainPath: 'trail' })], {
+    header: { id: '9', kind: 'a.file', label: 'a.ts', trail: [{ id: '1', kind: 'a.repository', label: 'r1' }, { id: '2', kind: 'a.directory', label: 'src' }] },
+  });
+  try {
+    const links = [...page.container.querySelectorAll('nav a, [data-testid="page-header"] a')].map((one) => one.getAttribute('href'));
+    expect(links).toContain('/e/a.repository/1');
+    expect(links).toContain('/e/a.directory/2');
+  } finally { await page.close(); }
+});
+
+test('a template finding is listed above the page, which still stands', async () => {
+  const page = await renderPage([section('header', 'header', { titlePath: 'label' })], { header: { label: 'Write' } }, {
+    findings: [{ file: 'templates/entity.yaml', line: 12, path: 'sections.diagram.params.depth', message: 'depth is 3; the schema takes one of 1, 2' }],
+  });
+  try {
+    expect(page.container.querySelector('[data-testid="page-title"]')?.textContent).toBe('Write');
+    const findings = page.container.querySelector('[data-testid="template-findings"]')?.textContent ?? '';
+    expect(findings).toContain('templates/entity.yaml:12');
+    expect(findings).toContain('depth is 3');
+  } finally { await page.close(); }
+});

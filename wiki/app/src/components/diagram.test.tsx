@@ -42,21 +42,24 @@ function context(id: string, depth = 1, aggregateAbove = 12, language = 'en'): S
     await settle();
   };
   try {
+    const asked = (format: string): string[] => requests.filter((one) => one.includes(`format=${format}`));
     await show(context('old'));
     await show(context('new'));
-    expect(requests).toHaveLength(2);
+    // A renderer that fails hands the picture to the next one, and the failed address stays failed for this page.
+    expect(asked('likec4')).toHaveLength(2);
+    expect(asked('mermaid')).toHaveLength(1);
     await act(async () => { finishOld?.(new Response(JSON.stringify({ message: 'obsolete answer' }), { status: 400 })); });
     await settle();
     expect(container.textContent).not.toContain('obsolete answer');
     await show(context('third'));
-    expect(requests).toHaveLength(3);
+    expect(asked('likec4')).toHaveLength(3);
     await show(context('third', 2));
-    expect(requests).toHaveLength(4);
+    expect(asked('likec4')).toHaveLength(4);
     await show(context('third', 2, 8));
-    expect(requests).toHaveLength(5);
+    expect(asked('likec4')).toHaveLength(5);
     await show(context('third', 2, 8, 'ru'));
-    expect(requests).toHaveLength(6);
-    expect(requests[5]).toContain('lang=ru&format=likec4');
+    expect(asked('likec4')).toHaveLength(6);
+    expect(asked('likec4')[5]).toContain('lang=ru&format=likec4');
   } finally {
     await act(async () => { root.unmount(); });
     container.remove();
@@ -66,4 +69,48 @@ function context(id: string, depth = 1, aggregateAbove = 12, language = 'en'): S
 test('the LikeC4 palette is the kit tokens, not its own blue', () => {
   expect(LIKE_C4_THEME_CSS).toContain('--likec4-palette-fill: var(--surface-active)');
   expect(LIKE_C4_THEME_CSS).toContain('--likec4-palette-stroke: var(--border)');
+});
+
+test('a failed LikeC4 picture hands the picture to Mermaid, and the page names the one that drew it', async () => {
+  const requests: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    requests.push(String(url));
+    if (String(url).includes('format=likec4')) return new Response(JSON.stringify({ code: 'FAILED' }), { status: 500 });
+    return new Response(JSON.stringify({ format: 'mermaid', entity: { id: 'uid', kind: 'a.file', label: 'a.ts' }, depth: 1, folded: 0, truncated: false, source: 'flowchart LR\n  n1[a.ts]' }), { status: 200 });
+  }) as unknown as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(createElement(DiagramSection, { context: context('uid') })); });
+    await settle();
+    expect(requests.some((one) => one.includes('format=mermaid'))).toBe(true);
+    expect(container.querySelector('[data-testid="diagram-fallback"]')?.textContent).toContain('Mermaid');
+    expect(container.textContent).not.toContain('The diagram could not be built.');
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+  }
+});
+
+test('a picture fills the window on a press, and the same figure lets a reader leave it', async () => {
+  globalThis.fetch = (async () => new Response(JSON.stringify({ code: 'FAILED' }), { status: 500 })) as unknown as typeof fetch;
+  try { window.localStorage.removeItem('madarch-wiki-diagram'); } catch { /* no storage */ }
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(createElement(DiagramSection, { context: context('uid') })); });
+    await settle();
+    const press = container.querySelector('[data-testid="diagram-fullscreen"]');
+    expect(press).not.toBeNull();
+    await act(async () => { press?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await Promise.resolve(); });
+    expect(document.querySelector('[data-testid="diagram-fullscreen-body"]')).not.toBeNull();
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await Promise.resolve(); });
+    expect(document.querySelector('[data-testid="diagram-fullscreen-body"]')).toBeNull();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+  }
 });

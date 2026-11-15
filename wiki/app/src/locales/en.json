@@ -1284,6 +1284,14 @@
     "yes": "Yes",
     "no": "No",
     "contested": "disputed",
+    "details": {
+      "empty": "The graph states no field of it yet",
+      "unstated": "No opinion holds it",
+      "key": "key",
+      "stated": "Stated by {{producer}}",
+      "place": "at {{place}}",
+      "opinions": "{{count}} opinions"
+    },
     "bucket": {
       "under": "under {{to}} days",
       "between": "{{from}}–{{to}} days",
@@ -1313,6 +1321,9 @@
     "diagramTooLarge": "The diagram is too large to show.",
     "diagramBadRequest": "The server refused the diagram request.",
     "diagramRenderer": "Renderer",
+    "templateFindings": "Template findings",
+    "fullScreen": "Full screen",
+    "diagramFellBack": "Drawn by {{renderer}}: {{failed}} did not answer its picture",
     "diagramFit": "Fit",
     "diagramZoomIn": "Zoom in",
     "diagramZoomOut": "Zoom out"

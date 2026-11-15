@@ -11,9 +11,47 @@ sections:
       kind
       label
       template
+      provenance
+      trail {
+        id
+        kind
+        label
+      }
     params:
       titlePath: label
       kindPath: kind
+      chainPath: trail
+      provenancePath: provenance
+  # Every field the kind declares, with the value its producers agreed and the place each opinion rests on: the page a
+  # template has not described still says what the graph knows of it (madarch-64o5.134).
+  - id: details
+    component: details
+    after: header
+    title: { en: Details, ru: Подробности }
+    query: |
+      details {
+        name
+        type
+        key
+        value
+        contested
+        opinions {
+          producer
+          version
+          statedAt
+          value
+          evidence {
+            type
+            repository
+            path
+            lineStart
+            lineEnd
+            url
+          }
+        }
+      }
+    params:
+      path: details
   # The picture is drawn by the server (decision 0036, sections 7 and 8): the section names the entity and how far around
   # it reads; no relation is asked here, because the renderer reads the neighbourhood through the graph read layer.
   - id: diagram
@@ -22,14 +60,15 @@ sections:
     query: |
       id
     params:
-      depth: 1
+      depth: 2
       aggregateAbove: 12
   - id: outgoing
     component: relations
     title: { en: Leads to, ru: Ведёт к }
     query: |
-      outgoing(first: 50) {
+      outgoing(first: $outgoing_first, after: $outgoing_after) {
         edges {
+          cursor
           node {
             relation
             label
@@ -42,6 +81,10 @@ sections:
             }
           }
         }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
         totalCount
       }
     params:
@@ -52,8 +95,9 @@ sections:
     component: relations
     title: { en: Linked from, ru: Ссылаются }
     query: |
-      backlinks(first: 50) {
+      backlinks(first: $backlinks_first, after: $backlinks_after) {
         edges {
+          cursor
           node {
             relation
             label
@@ -65,6 +109,10 @@ sections:
               label
             }
           }
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
         }
         totalCount
       }

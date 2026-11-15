@@ -1,17 +1,54 @@
 /** The graph's Markdown, drawn in the reading column (decision 0036, section 7). */
 import type { ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { marked } from 'marked';
+import { marked, type Tokens } from 'marked';
 import { ReadingContent } from './ui/reading-content.js';
 import { Paragraph } from './ui/typography.js';
 import { at, localized } from './format.js';
 import type { SectionContext } from './types.js';
 
+/** The text a heading or a link is shown by, as the document wrote it. */
+function inlineOf(this: { parser: { parseInline: (tokens: Tokens.Generic[]) => string } }, tokens: Tokens.Generic[]): string {
+  return this.parser.parseInline(tokens);
+}
+
+/** The anchor a heading answers to: its letters and digits, the spaces between words as one hyphen. */
+function anchorOf(text: string): string {
+  const kept: string[] = [];
+  let gap = false;
+  for (const character of text.toLowerCase()) {
+    if (/[\p{L}\p{N}]/u.test(character)) {
+      kept.push(character);
+      gap = false;
+    } else if (!gap) {
+      kept.push('-');
+      gap = true;
+    }
+  }
+  return kept.join('').replace(/^-+|-+$/gu, '');
+}
+
 marked.use({
   gfm: true,
   breaks: false,
   // The product's own text is Markdown: a raw HTML block in it would be markup the page did not promise to draw.
-  renderer: { html: () => '' },
+  renderer: {
+    html: () => '',
+    // Every heading answers to an anchor, so a link to `#section` from the text or from another page finds it.
+    heading(this: { parser: { parseInline: (tokens: Tokens.Generic[]) => string } }, token: Tokens.Heading): string {
+      const shown = inlineOf.call(this, token.tokens);
+      const anchor = anchorOf(token.text);
+      return `<h${String(token.depth)} id="${anchor}">${shown}</h${String(token.depth)}>\n`;
+    },
+    // A link out of the product opens a new tab: the reader keeps the page they were reading.
+    link(this: { parser: { parseInline: (tokens: Tokens.Generic[]) => string } }, token: Tokens.Link): string {
+      const shown = inlineOf.call(this, token.tokens);
+      const title = token.title === null ? '' : ` title="${token.title}"`;
+      const outside = token.href.startsWith('http://') || token.href.startsWith('https://');
+      const target = outside ? ' target="_blank" rel="noreferrer"' : '';
+      return `<a href="${token.href}"${title}${target}>${shown}</a>`;
+    },
+  },
 });
 
 export function TextSection({ context }: { readonly context: SectionContext }): ReactElement {

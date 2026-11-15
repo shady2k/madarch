@@ -12,7 +12,8 @@ import { Alert, AlertDescription } from './ui/alert.js';
 import { Button } from './ui/button.js';
 import { InlineGroup } from './ui/typography.js';
 import { SegmentedChoice } from './ui/segmented-choice.js';
-import { Paragraph, Stack } from './ui/typography.js';
+import { Metadata, Paragraph, Stack } from './ui/typography.js';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from './ui/dialog.js';
 import { LikeC4Pane } from './diagram-panes/likec4-pane.js';
 import { MermaidPane } from './diagram-panes/mermaid-pane.js';
 import { ArchifyPane } from './diagram-panes/archify-pane.js';
@@ -26,6 +27,14 @@ const TABS: readonly { readonly id: Tab; readonly label: string }[] = [
   { id: 'mermaid', label: 'Mermaid' },
   { id: 'archify', label: 'archify' },
 ];
+
+/**
+ * The format a failed one falls back to: LikeC4's runtime hands the picture to Mermaid's renderer, which either draws it
+ * or reports its own failure. archify answers no failure of its own, so it is never a fallback (madarch-64o5.134).
+ */
+function nextFormat(format: Tab): Tab | undefined {
+  return format === 'likec4' ? 'mermaid' : undefined;
+}
 
 /** The format the reader opened last; the first visit draws the server's own LikeC4 picture until the reader picks another. */
 const PREFERRED_KEY = 'madarch-wiki-diagram';
@@ -46,6 +55,9 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
   const depth = typeof context.section.params['depth'] === 'number' ? context.section.params['depth'] : 1;
   const aggregateAbove = typeof context.section.params['aggregateAbove'] === 'number' ? context.section.params['aggregateAbove'] : 12;
   const [tab, setTab] = useState<Tab>(() => preferredTab() ?? 'likec4');
+  // A renderer that fails hands the picture to the next one, and the page says which one drew it (madarch-64o5.134).
+  const [fallbackTo, setFallbackTo] = useState<Readonly<Record<string, Tab>>>({});
+  const [full, setFull] = useState(false);
   const [answers, setAnswers] = useState<Record<string, LikeC4Answer | MermaidAnswer | { failed: string }>>({});
   const [root, setRoot] = useState<HTMLElement | null>(null);
   useEffect(() => { setRoot(document.getElementById('root')); }, []);
@@ -82,41 +94,69 @@ export function DiagramSection({ context }: { readonly context: SectionContext }
     }
   }, [address, answers, id, failure, t]);
   useEffect(() => { void ask(tab); }, [tab, ask]);
-  const held = answers[address(tab)];
+  // The renderer whose answer the picture shows: the reader's choice, or the one it fell back to for this address.
+  const took = fallbackTo[address(tab)] ?? tab;
+  const held = answers[address(took)];
+  useEffect(() => {
+    if (held === undefined || !('failed' in held) || took !== tab) return;
+    const next = nextFormat(tab);
+    if (next === undefined) return;
+    setFallbackTo((current) => ({ ...current, [address(tab)]: next }));
+    void ask(next);
+  }, [held, tab, took, ask]);
   // One picture, one place: the renderers are a choice inside the figure, not three tabs beside each other — the page's
   // own tabs stay for the page's sections (madarch-64o5.83).
+  const label = (format: Tab): string => TABS.find((one) => one.id === format)?.label ?? format;
+  const note = took !== tab && held !== undefined && !('failed' in held)
+    ? <Metadata data-testid="diagram-fallback">{t('knowledge.diagramFellBack', { renderer: label(took), failed: label(tab) })}</Metadata>
+    : null;
+  const picture = (
+    <div data-testid="diagram-picture">
+      {took === 'archify' ? (
+        <ArchifyPane src={address('archify')} root={root} open={context.open} />
+      ) : held === undefined ? (
+        <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
+      ) : 'failed' in held ? (
+        <Stack>
+          <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
+          <InlineGroup>
+            <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
+              setAnswers((current) => { const next = { ...current }; delete next[address(took)]; return next; });
+              setFallbackTo((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
+              void ask(took);
+            }}>{t('knowledge.retry')}</Button>
+          </InlineGroup>
+        </Stack>
+      ) : took === 'likec4' ? (
+        <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
+      ) : (
+        <MermaidPane answer={held as MermaidAnswer} open={(path) => { context.open(path); }} />
+      )}
+    </div>
+  );
+  // One picture, one place: the renderers are a choice inside the figure, not three tabs beside each other — the page's
+  // own tabs stay for the page's sections (madarch-64o5.83). The same figure fills the window on a press, and Escape
+  // closes it (madarch-64o5.134).
   return (
     <Stack>
-      <SegmentedChoice
-        label={t('knowledge.diagramRenderer')}
-        testId="diagram-renderer"
-        value={tab}
-        options={TABS.map((one) => ({ value: one.id, label: one.label, testId: `diagram-renderer-${one.id}` }))}
-        onChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}
-      />
-      {(
-        <div>
-          {tab === 'archify' ? (
-            <ArchifyPane src={address('archify')} root={root} open={context.open} />
-          ) : held === undefined ? (
-            <Paragraph>{t('knowledge.loadingPicture')}</Paragraph>
-          ) : 'failed' in held ? (
-            <Stack>
-              <Alert variant="problem"><AlertDescription>{held.failed}</AlertDescription></Alert>
-              <InlineGroup>
-                <Button variant="default" size="sm" data-testid="diagram-retry" onClick={() => {
-                  setAnswers((current) => { const next = { ...current }; delete next[address(tab)]; return next; });
-                  void ask(tab);
-                }}>{t('knowledge.retry')}</Button>
-              </InlineGroup>
-            </Stack>
-          ) : tab === 'likec4' ? (
-            <LikeC4Pane answer={held as LikeC4Answer} open={(path) => { context.open(path); }} />
-          ) : (
-            <MermaidPane answer={held as MermaidAnswer} open={(path) => { context.open(path); }} />
-          )}
-        </div>
-      )}
+      <InlineGroup>
+        <SegmentedChoice
+          label={t('knowledge.diagramRenderer')}
+          testId="diagram-renderer"
+          value={tab}
+          options={TABS.map((one) => ({ value: one.id, label: one.label, testId: `diagram-renderer-${one.id}` }))}
+          onChange={(next) => { const chosen = next as Tab; setTab(chosen); try { window.localStorage.setItem(PREFERRED_KEY, chosen); } catch { /* no storage */ } }}
+        />
+        <Button size="sm" data-testid="diagram-fullscreen" onClick={() => { setFull(true); }}>{t('knowledge.fullScreen')}</Button>
+      </InlineGroup>
+      {note}
+      {full ? null : picture}
+      <Dialog open={full} onOpenChange={setFull}>
+        <DialogContent size="window" closeLabel={t('knowledge.close')}>
+          <DialogHeader><DialogTitle>{t('knowledge.fullScreen')}</DialogTitle></DialogHeader>
+          <DialogBody data-testid="diagram-fullscreen-body">{full ? picture : null}</DialogBody>
+        </DialogContent>
+      </Dialog>
     </Stack>
   );
 }

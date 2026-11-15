@@ -60,6 +60,9 @@ type CatalogueEntity implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  provenance: String
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String!
@@ -112,6 +115,9 @@ type DemoAuthor implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  provenance: String
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
@@ -165,6 +171,9 @@ type DemoCommit implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  provenance: String
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   hash: String
@@ -225,6 +234,9 @@ type DemoFile implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  provenance: String
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   repository: DemoRepository
@@ -275,6 +287,9 @@ type DemoRepository implements Entity {
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  provenance: String
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
@@ -356,12 +371,24 @@ type DemoTouchedEdge {
   node: Entity!
 }
 
+type Detail {
+  name: String!
+  type: String!
+  key: Boolean!
+  value: JSON
+  contested: Boolean!
+  opinions: [Opinion!]!
+}
+
 interface Entity {
   id: ID!
   kind: String!
   label: String!
   template: String!
   contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  provenance: String
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
   mentions(first: Int, after: String): MentionsConnection!

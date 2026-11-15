@@ -208,6 +208,36 @@ describe('the GraphQL executor', () => {
     expect(repository.urlOpinions.map((one: any) => one.producer).sort()).toEqual(['one', 'two']);
   });
 
+  test('details answer every declared field with its value, its mark and the opinions that hold it', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { details { name type key value contested opinions { producer value } } } }`, { id: repositoryId });
+    const details = (data['entity'] as Record<string, any>).details as Record<string, any>[];
+    expect(details.map((one: Record<string, any>) => one.name)).toEqual(['archived', 'description', 'name', 'size', 'url']);
+    const url = details.find((one: Record<string, any>) => one.name === 'url')!;
+    expect(url.contested).toBe(true);
+    expect(url.value).toBeNull();
+    expect(url.opinions.map((one: Record<string, any>) => one.producer).sort()).toEqual(['one', 'two']);
+    const size = details.find((one: Record<string, any>) => one.name === 'size')!;
+    expect(size).toMatchObject({ type: 'integer', key: false, value: 2, contested: false });
+    const key = details.find((one: Record<string, any>) => one.name === 'name')!;
+    expect(key.key).toBe(true);
+    expect(key.value).toBe('r1');
+    expect(key.opinions).toEqual([]);
+  });
+
+  test('trail names the containers outermost first', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { label trail { id kind label } } }`, { id: fileA });
+    const trail = (data['entity'] as Record<string, any>).trail as Record<string, any>[];
+    expect(trail.map((one) => one.label)).toEqual(['r1']);
+    expect(trail[0]!.kind).toBe('demo.repository');
+    const repository = await graphql(`query ($id: ID!) { entity(id: $id) { trail { id } } }`, { id: repositoryId });
+    expect((repository['entity'] as Record<string, any>).trail).toEqual([]);
+  });
+
+  test('provenance names the place the newest opinion rests on', async () => {
+    const data = await graphql(`query ($id: ID!) { entity(id: $id) { provenance } }`, { id: repositoryId });
+    expect((data['entity'] as Record<string, any>).provenance).toBeNull();
+  });
+
   test('a list filters, orders and pages with a cursor', async () => {
     const first = await graphql(`{ allDemoFile(where: { path: { _contains: "." } }, orderBy: [{ field: path, direction: DESC }], first: 1) { totalCount pageInfo { hasNextPage endCursor } edges { node { path } } } }`);
     const page = first['allDemoFile'] as Record<string, any>;

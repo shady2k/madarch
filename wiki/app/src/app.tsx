@@ -68,6 +68,8 @@ interface Loaded {
   readonly composition: PageComposition;
   readonly variables: Record<string, unknown>;
   readonly data: Record<string, unknown>;
+  /** What the composition refused, when it still names the page: the page says it above its sections. */
+  readonly findings?: PageComposition['findings'];
 }
 
 export function App(): ReactElement {
@@ -239,9 +241,11 @@ export function App(): ReactElement {
       return;
     }
     const composition = composePage(bootstrap, { ...address.page, lang: language, role });
+    // A template the product's files could not be read as is: the page still stands, and names what its template's
+    // findings are instead of being replaced by them (madarch-64o5.134).
     if (composition.findings.length > 0) {
-      setFailure(composition.findings.map((finding) => `${finding.file}:${String(finding.line)}: ${finding.message}`).join('\n'));
-      setLoaded(null);
+      setFailure(null);
+      setLoaded({ composition, variables: composition.variables, data: {}, findings: composition.findings });
       return;
     }
     // A page whose sections ask the graph nothing (`fill`, `run`) is drawn from the command reads alone: it sends no
@@ -303,7 +307,7 @@ export function App(): ReactElement {
   const section: FramePage | null = address.frame;
   // The page's own name when the address names a frame page or a template page; an entity's page trails its kind.
   const pageName = address.home ? t('knowledge.home') : section !== null ? frameWord(section, t) : templateTask(address.page.template, t);
-  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds };
+  const runtime: PageRuntime = { base, language, busy, variables: loaded?.variables ?? {}, product: productName, navigation, pageName, open, reload, onRole: applyRole, changedKinds, ...(loaded?.findings === undefined ? {} : { findings: loaded.findings }) };
   const here = `/${path.split('?')[0] ?? ''}`;
   const tasks = { home: address.home, frame: section };
   const navigationPanel = (after: () => void): ReactElement => (

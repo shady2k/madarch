@@ -18,10 +18,10 @@ export const DialogOverlay = forwardRef<HTMLDivElement, ComponentProps<typeof Di
   return <DialogPrimitive.Overlay ref={ref} className={cn('fixed inset-0 wiki-modal-layer bg-ink/40', className)} {...props} />;
 });
 
-export const DialogContent = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string; showCloseButton?: boolean; closeDisabled?: boolean }>(function DialogContent({ className, children, closeLabel = 'Close', showCloseButton = true, closeDisabled = false, ...props }, ref) {
+export const DialogContent = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string; showCloseButton?: boolean; closeDisabled?: boolean; size?: 'default' | 'window' }>(function DialogContent({ className, children, closeLabel = 'Close', showCloseButton = true, closeDisabled = false, size = 'default', ...props }, ref) {
   return <DialogPortal>
     <DialogOverlay />
-    <DialogPrimitive.Content ref={ref} className={cn(dialogSurface, 'fixed left-1/2 top-1/2 wiki-modal-layer max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 outline-none', className)} {...props}>
+    <DialogPrimitive.Content ref={ref} className={cn(dialogSurface, 'fixed left-1/2 top-1/2 wiki-modal-layer max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 outline-none', size === 'window' ? 'h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)]' : 'w-[calc(100%-2rem)] max-w-lg', className)} {...props}>
       <CloseContext.Provider value={{ label: closeLabel, show: showCloseButton, disabled: closeDisabled }}>{children}</CloseContext.Provider>
     </DialogPrimitive.Content>
   </DialogPortal>;

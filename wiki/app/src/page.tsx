@@ -4,11 +4,14 @@
  */
 import type { ReactElement } from 'react';
 import { titleIn, type ComposedSection, type PageComposition } from '../../../src/page-contract/index.js';
-import { PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
+import { useTranslation } from 'react-i18next';
+import { BulletList, ListItem, PageArticle, PageSection, SectionTitle } from './components/ui/typography.js';
+import { Alert, AlertDescription, AlertTitle } from './components/ui/alert.js';
 import { HeaderSection } from './components/header.js';
 import { at } from './components/format.js';
 import { edgesOf } from './components/connection.js';
 import { FactsSection } from './components/facts.js';
+import { DetailsSection } from './components/details.js';
 import { TextSection } from './components/text.js';
 import { RelationsSection } from './components/relations.js';
 import { TableSection } from './components/table.js';
@@ -49,10 +52,13 @@ export interface PageRuntime {
   readonly pageName: string | null;
   /** Kinds a unit publication just changed: a page that shows them may highlight them. */
   readonly changedKinds?: ReadonlySet<string>;
+  /** The template findings the page's template answered: listed above the page's sections, not drawn instead of them. */
+  readonly findings?: PageComposition['findings'];
 }
 
 /** The whole page: its sections in order, the ones a tab groups left to the tab. */
 export function PageView({ composition, data, runtime }: { readonly composition: PageComposition; readonly data: Record<string, unknown>; readonly runtime: PageRuntime }): ReactElement {
+  const { t } = useTranslation();
   const tabbed = new Set<string>();
   for (const section of composition.sections) {
     if (section.component !== 'tabs') continue;
@@ -94,13 +100,29 @@ export function PageView({ composition, data, runtime }: { readonly composition:
       </PageSection>
     );
   };
-  return <PageArticle data-testid="page">{composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}</PageArticle>;
+  const findings = runtime.findings ?? [];
+  return (
+    <PageArticle data-testid="page">
+      {findings.length === 0 ? null : (
+        <Alert variant="problem" data-testid="template-findings">
+          <AlertTitle>{t('knowledge.templateFindings')}</AlertTitle>
+          <AlertDescription>
+            <BulletList>
+              {findings.map((finding) => <ListItem key={`${finding.file}:${String(finding.line)}:${finding.path}`}>{`${finding.file}:${String(finding.line)}: ${finding.message}`}</ListItem>)}
+            </BulletList>
+          </AlertDescription>
+        </Alert>
+      )}
+      {composition.sections.filter((section) => !tabbed.has(section.id)).map(render)}
+    </PageArticle>
+  );
 }
 
 function componentOf(section: ComposedSection, context: SectionContext, sections: readonly ComposedSection[]): ReactElement {
   switch (section.component) {
     case 'header': return <HeaderSection context={context} />;
     case 'facts': return <FactsSection context={context} />;
+    case 'details': return <DetailsSection context={context} />;
     case 'text': return <TextSection context={context} />;
     case 'relations': return <RelationsSection context={context} />;
     case 'table': return <TableSection context={context} />;
