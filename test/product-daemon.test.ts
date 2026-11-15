@@ -9,9 +9,9 @@ import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { ensureVertex, journalFor, publishOpinion, writeJournal } from '../src/graph/write.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/product/store.js';
-import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, answersAsDaemon, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
-import { createServer as netServer } from 'node:net';
+import { createServer as netServer, type Socket as Sock } from 'node:net';
 
 import { withStorePreparationOwner } from '../src/product/store-preparation.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
@@ -408,6 +408,87 @@ test('daemon start treats --port 0 as a free port, records the real one, and sta
   expect(stopDaemon({ home })).toBe(0);
   expect(existsSync(join(home, '.madarch-daemon.json'))).toBe(false);
 });
+
+test('another HTTP server on the picked port is no readiness: only the child\'s own proof counts (madarch-64o5.80)', async () => {
+  // The pid and the token prove the child exists, not that it answers on the port: a foreign HTTP server that took the
+  // port answers any 2xx, and the start must not read that as its own server being up.
+  const { createServer } = await import('node:http');
+  const foreign = createServer((request, response) => {
+    if (request.url?.startsWith('/api/daemon')) { response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ proof: 'forged' })); return; }
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<!doctype html><title>not madarch</title>');
+  });
+  const port = await freePort();
+  await new Promise<void>((listening, failed) => { foreign.once('error', failed); foreign.listen(port, '127.0.0.1', () => listening()); });
+  try {
+    expect(await answersAsDaemon(port, 'the-child-token')).toBe(false);
+  } finally {
+    await new Promise<void>((closed) => foreign.close(() => closed()));
+  }
+});
+
+test('a start that asked for a free port picks again when another process takes the one it picked', async () => {
+  // A free port is free only for the moment it is picked: another process can
+  // take it before the child binds it, and the child then ends with its address
+  // refused (madarch-64o5.80). This test holds the port the start picks and lets
+  // the start's own look answer "free" once, so the child that tries to bind the
+  // held port is the one that fails, as in the run this task came from; the start
+  // must pick another free port and report the one it really took.
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-port-race-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  previousAppDist = process.env.MADARCH_APP_DIST;
+  previousApp = process.env.MADARCH_APP;
+  process.env.MADARCH_APP_DIST = appDist(root);
+  process.env.MADARCH_APP = appFolderAround(process.env.MADARCH_APP_DIST, root);
+  previousMadarchHome = process.env.MADARCH_HOME;
+  process.env.MADARCH_HOME = root;
+  daemonHome = home;
+  const takenPort = await freePort();
+  const holder = netServer();
+  // Every connection the holder is given, so its close does not wait for one.
+  const held: Sock[] = [];
+  holder.on('connection', (sock) => held.push(sock));
+  await new Promise<void>((listening, failed) => { holder.once('error', failed); holder.listen(takenPort, '127.0.0.1', () => listening()); });
+  const picks: number[] = [];
+  let blind = true;
+  try {
+    const started = await ensureDaemon({
+      home,
+      port: 0,
+      print: () => undefined,
+      // The first pick is the port another process holds; every later one is the
+      // real free-port pick, as a second attempt at the start sees it.
+      pickPort: async () => { const port = picks.length === 0 ? takenPort : await freePort(); picks.push(port); return port; },
+      // The port is free between the pick and the child's bind, and another
+      // process takes it there: the look before the spawn answers "free" for the
+      // held port once, and every look after it tells the truth.
+      addressHeld: async (port) => { if (port === takenPort && blind) { blind = false; return false; } return port === takenPort; },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    daemonPid = started.pid;
+    expect(picks).toHaveLength(2);
+    expect(started.requestedPort).toBe(0);
+    expect(started.port).not.toBe(takenPort);
+    // The child that lost the port said so in the log the start keeps.
+    expect(readFileSync(join(home, '.madarch-daemon.log'), 'utf8')).toContain(String(takenPort));
+    const state = JSON.parse(readFileSync(join(home, '.madarch-daemon.json'), 'utf8')) as { pid: number; port: number };
+    expect(state.port).toBe(started.port);
+    // Status reports the address the server really holds, never the one the race lost.
+    const status = spawnSync('bun', ['scripts/madarch.ts', 'status', '--home', home], { encoding: 'utf8', env: process.env });
+    expect(status.status).toBe(0);
+    expect(status.stdout).toContain(`running: http://127.0.0.1:${started.port}`);
+    const answer = await fetch(`http://127.0.0.1:${started.port}/products/alpha/api/product`);
+    expect((await answer.json() as { id: string }).id).toBe('alpha-id');
+    expect(stopDaemon({ home })).toBe(0);
+  } finally {
+    // The start's readiness probe connected to this listener and was cut off by
+    // its own end; a close waits for the connections it kept, so they are ended here.
+    for (const sock of held) sock.destroy();
+    await new Promise<void>((closed) => holder.close(() => closed()));
+  }
+}, 60_000);
 
 test("a start goes on through the read of a child that has not exec'd yet", async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-preexec-'));

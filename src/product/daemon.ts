@@ -16,6 +16,7 @@ import { existsSync, openSync, readFileSync, unlinkSync, mkdirSync, writeFileSyn
 import { connect as netConnect, createServer as netServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHmac, randomUUID } from 'node:crypto';
 import { productsHome, type DraftEnv } from './home.js';
 import { listProducts } from './list.js';
 import { ensureBuilt } from '../product-wiki/app.js';
@@ -37,6 +38,21 @@ const LOG_FILE = '.madarch-daemon.log';
 const LOCK_FILE = '.madarch-daemon.lock';
 /** How long a start waits for the child's listener to answer before it reads the start as failed. */
 const READY_TIMEOUT_MS = 8000;
+/**
+ * How many free ports a start that asked for port 0 may try: the one it picked
+ * first and two more picked when another process took the port before the
+ * child bound it. A start of a machine under load loses a race now and then;
+ * three ports in a row lost to other processes is not that race any more, and
+ * the start says what happened instead of trying forever.
+ */
+const FREE_PORT_ATTEMPTS = 3;
+/**
+ * How long one readiness probe waits for an answer. A port another process
+ * holds can accept the connection and never answer, so a probe without its own
+ * end would hold the start's whole wait: the pass ends, the wait's deadline
+ * runs, and the start reads the child it started.
+ */
+const PROBE_TIMEOUT_MS = 1000;
 
 const processEnv = process.env as DraftEnv;
 function homePath(home?: string): string { return resolve(productsHome(processEnv, home)); }
@@ -277,6 +293,12 @@ async function stopProcess(state: DaemonState, reads: ChildReadings = childReadi
   return !daemonIsAlive(state, reads);
 }
 
+/** A free port on 127.0.0.1, or undefined when none can be had. */
+type FreePortPicker = () => Promise<number | undefined>;
+
+/** The look at whether another process holds an address; a test injects one to hold the chosen port for the child's bind alone. */
+type AddressLook = (port: number) => Promise<boolean>;
+
 /** Whether something already listens on the port: a TCP connect is answered, or refused. */
 function portOccupied(port: number): Promise<boolean> {
   return new Promise((answer) => {
@@ -362,17 +384,24 @@ export type DaemonStart =
  * server, not to one command: it is fixed when the server starts, and a
  * caller that names another while the server runs is told so (see
  * `ensureDaemonUnderLock`), never served on a port it did not ask for
- * silently.
+ * silently. A start that asked for a free port (0) picks another one when
+ * another process takes the port it picked before the child binds it; a port
+ * the caller named, and the default, are never moved.
  */
-export async function ensureDaemon(options: { home?: string; port?: number; appFolder?: string; buildCommand?: string; env?: ServeEnv; print?: (line: string) => void; readings?: ChildReadings }): Promise<DaemonStart> {
+export async function ensureDaemon(options: { home?: string; port?: number; appFolder?: string; buildCommand?: string; env?: ServeEnv; print?: (line: string) => void; readings?: ChildReadings; pickPort?: FreePortPicker; addressHeld?: AddressLook }): Promise<DaemonStart> {
   const print = options.print ?? ((line: string) => console.log(line));
   // Port 0 names a free port the way the foreground serve reads it: the
   // daemon's state and readiness probe need the real port, so it is found
-  // before the child is spawned.
+  // before the child is spawned. The picker and the look at the address are
+  // injectable because a port that is free at the pick can be another
+  // process's by the bind, and only a caller that names the port it chose can
+  // put that race in front of a test.
   const asked = options.port;
+  const pickPort = options.pickPort ?? freePort;
+  const addressHeld = options.addressHeld ?? portOccupied;
   let port = asked ?? 4180;
   if (port === 0) {
-    const found = await freePort();
+    const found = await pickPort();
     if (found === undefined) return { ok: false, message: 'the daemon could not find a free port on 127.0.0.1; name another --port' };
     port = found;
   }
@@ -385,7 +414,7 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
   try { lock = acquireLock(home); }
   catch (error) { return { ok: false, message: `the daemon state under ${home} cannot be locked: ${(error as Error).message}` }; }
   if (lock === undefined) return { ok: false, message: `another madarch lifecycle operation is active or left a lock at ${join(home, LOCK_FILE)}; inspect and remove a stale lock before retrying` };
-  try { return await ensureDaemonUnderLock(home, port, asked, built.dist, options.readings ?? childReadings); }
+  try { return await ensureDaemonUnderLock(home, port, asked, built.dist, options.readings ?? childReadings, asked === 0 ? pickPort : undefined, addressHeld); }
   finally { releaseLock(home, lock); }
 }
 
@@ -397,7 +426,7 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
  * caller that named no port (or 0, a free one) is told nothing, since it asked
  * for no particular port.
  */
-async function ensureDaemonUnderLock(home: string, port: number, asked: number | undefined, appDist: string, reads: ChildReadings): Promise<DaemonStart> {
+async function ensureDaemonUnderLock(home: string, port: number, asked: number | undefined, appDist: string, reads: ChildReadings, pick: FreePortPicker | undefined, addressHeld: AddressLook): Promise<DaemonStart> {
   const existing = readState(home);
   // A server of another version keeps running the code it started with, so a binary of this version ends it and starts its own.
   let replaced: string | undefined;
@@ -426,12 +455,59 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
     };
   }
   if (existsSync(statePath(home))) clearState(home);
-  if (await portOccupied(port)) {
-    return { ok: false, message: `the daemon did not start: port ${port} on 127.0.0.1 is already held by another process — name another --port, or stop what holds this one` };
+  // A free port (asked 0) is free only for the moment it is picked: another
+  // process can take it before this child binds it, and the child then ends
+  // with its address refused. A start that asked for a free port picks again
+  // and starts once more, a bounded number of times, and reports the port it
+  // really took. A port the caller named, and the default 4180, keep the
+  // refusal: whoever goes to that address is meant to find this home's server.
+  let started = await startChild(home, port, appDist, reads, addressHeld);
+  for (let attempt = 1; !started.ok && started.taken && pick !== undefined && attempt < FREE_PORT_ATTEMPTS; attempt++) {
+    const next = await pick();
+    if (next === undefined) break;
+    port = next;
+    started = await startChild(home, port, appDist, reads, addressHeld);
+  }
+  if (!started.ok) return { ok: false, message: started.message };
+  // The facts name the port the caller asked for (0 meaning a free one) beside
+  // the one the server took, the way the reused path does.
+  return { ok: true, url: `http://127.0.0.1:${started.port}`, pid: started.pid, port: started.port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }), ...(replaced === undefined ? {} : { note: replaced }) };
+}
+
+
+/**
+ * Whether the server answering on a port is the daemon child this record started: the child answers an HMAC of a fresh
+ * nonce with the token its environment carries, and no other server on the port can. An answer that is not that proof —
+ * a 2xx from a stranger, a 404, a wrong proof — is not this child.
+ */
+export async function answersAsDaemon(port: number, token: string): Promise<boolean> {
+  const nonce = randomUUID();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/daemon?nonce=${encodeURIComponent(nonce)}`, { redirect: 'manual', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    if (!response.ok) return false;
+    const body = (await response.json().catch(() => null)) as { proof?: unknown } | null;
+    if (body === null || typeof body.proof !== 'string') return false;
+    return body.proof === createHmac('sha256', token).update(nonce).digest('hex');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawns one daemon on one port and waits for its listener, and answers what it
+ * took or why that failed. `taken` marks the one failure a start that asked for
+ * a free port may try again on another port: the address was another process's
+ * — it answered before the child was spawned, or it answers now that the child
+ * has ended. A child that could not be stopped keeps its port question open and
+ * is never read as taken.
+ */
+async function startChild(home: string, port: number, appDist: string, reads: ChildReadings, addressHeld: AddressLook): Promise<{ ok: true; pid: number; port: number } | { ok: false; taken: boolean; message: string }> {
+  if (await addressHeld(port)) {
+    return { ok: false, taken: true, message: `the daemon did not start: port ${port} on 127.0.0.1 is already held by another process — name another --port, or stop what holds this one` };
   }
   let log: number;
   try { log = openSync(logPath(home), 'a'); }
-  catch (error) { return { ok: false, message: `the daemon log at ${logPath(home)} cannot be written: ${(error as Error).message}` }; }
+  catch (error) { return { ok: false, taken: false, message: `the daemon log at ${logPath(home)} cannot be written: ${(error as Error).message}` }; }
   const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const child = daemonCommand(home, port);
   const env: NodeJS.ProcessEnv = { ...process.env, MADARCH_DAEMON_TOKEN: token, MADARCH_APP_DIST: appDist };
@@ -447,7 +523,7 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   try { saveState(home, state); } catch (error) {
     await stopProcess(state, reads);
     clearState(home);
-    return { ok: false, message: `could not save the daemon state at ${statePath(home)}: ${(error as Error).message}` };
+    return { ok: false, taken: false, message: `could not save the daemon state at ${statePath(home)}: ${(error as Error).message}` };
   }
   // The child is ready when its listener answers, not merely when the
   // process exists: the answer waits for the port, and a child that dies or
@@ -469,31 +545,27 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
     // record's token; one that is merely `starting` has nothing to check yet.
     if (seen.reading !== 'daemon') return false;
     if (!daemonTokenMatches(state)) { tokenMissed = true; return false; }
-    try {
-      // The root redirects to a product; listener readiness must not wait for that product's first acquisition.
-      const response = await fetch(`http://127.0.0.1:${port}/`, { redirect: 'manual' });
-      if (response.ok || response.status === 302) { answered = true; return true; }
-    } catch { /* the listener is still binding */ }
+    // Only the child's own answer counts: a server that took this port answers every 2xx, so the probe asks for the
+    // proof the child alone can give (an HMAC of a fresh nonce with the token this record holds). Another server on the
+    // port is the port being taken, and a start that asked for a free one picks again (madarch-64o5.80).
+    if (await answersAsDaemon(port, state.token)) { answered = true; return true; }
     return false;
   }, READY_TIMEOUT_MS);
-  if (ready && answered && daemonIsAlive(state, reads)) {
-    // The facts name the port the caller asked for (0 meaning a free one)
-    // beside the one the server took, the way the reused path does.
-    return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }), ...(replaced === undefined ? {} : { note: replaced }) };
-  }
+  if (ready && answered && daemonIsAlive(state, reads)) return { ok: true, pid: state.pid, port };
   await stopProcess(state, reads);
   const current = readState(home);
   const survived = daemonIsAlive(state, reads);
   // A record for a daemon that is really gone goes; a record whose process
   // could not be stopped stays, so `stop` can still find and end it.
   if (!survived && current !== undefined && current.pid === state.pid && current.token === state.token) clearState(home);
-  if (childFault.message !== undefined) return { ok: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
+  if (childFault.message !== undefined) return { ok: false, taken: false, message: `the daemon did not start on port ${port}: ${childFault.message}` };
   const why = startFailureWhy(state.pid, port, seen, { answered, tokenMissed });
   let diagnostic = '';
   try { diagnostic = `\n${readFileSync(logPath(home), 'utf8')}`; } catch { /* the child may have failed before writing */ }
+  const taken = !survived && !answered && await addressHeld(port);
   return survived
-    ? { ok: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
-    : { ok: false, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause${diagnostic}` };
+    ? { ok: false, taken: false, message: `the daemon did not start on port ${port} and could not be stopped (pid ${state.pid}): ${why}; check ${logPath(home)} before retrying` }
+    : { ok: false, taken, message: `the daemon did not start on port ${port}: ${why}; read ${logPath(home)} for its cause${diagnostic}` };
 }
 
 export async function startDaemon(options: { home?: string; port?: number }): Promise<number> {

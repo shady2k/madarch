@@ -40,6 +40,7 @@ import { setPriority } from 'node:os';
 import { dirname, join as joinPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
+import { createHmac } from 'node:crypto';
 import type { Clock } from '../history-types.js';
 import type { AsyncQueryDatabase } from '../query-types.js';
 import type { CompiledModel } from '../model/compile.js';
@@ -485,6 +486,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     // The fill's unit tools answer for the process, not for one served product: a unit's own MCP server
     // posts to the root path whether the server serves a home of products or one product (madarch-tzte.22.2).
     if (url.pathname === UNIT_TOOL_PATH) return handle(request);
+    // The daemon's own proof answers for the process, not for one product: a start asks it of the home's own port
+    // (madarch-64o5.80).
+    if (url.pathname === '/api/daemon') return handle(request);
     const match = /^\/products\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
     if (match === null) return notServed(`this server serves a products home: the products are listed at ${new URL('/', url).href}, and each product's wiki answers under /products/<folder>/`);
     let name: string;
@@ -646,6 +650,20 @@ export function createHandler(dependencies: {
     // A unit's own MCP server forwards its tool calls here (madarch-tzte.22.2): the background server owns
     // the database and is its only writer, and the route stands only when this process serves the fill.
     ...(dependencies.unitTool === undefined ? [] : ([{ method: 'POST', path: UNIT_TOOL_PATH, handle: (request) => unitToolCall(request) }] as Route[])),
+    // The daemon's own proof (madarch-64o5.80): a start proves that the process answering on its port is the child it
+    // spawned, without the token itself ever crossing the socket — the child answers an HMAC of the start's nonce with
+    // the token it was given. A server that is not this child cannot answer it. A standalone serve carries no token and
+    // answers that it is no daemon.
+    {
+      method: 'GET',
+      path: '/api/daemon',
+      handle: (request: Request): Handled => {
+        const token = process.env['MADARCH_DAEMON_TOKEN'];
+        if (token === undefined || token === '') return { response: makeJson(404, { daemon: false }) };
+        const nonce = new URL(request.url).searchParams.get('nonce') ?? '';
+        return { response: makeJson(200, { pid: process.pid, proof: createHmac('sha256', token).update(nonce).digest('hex') }) };
+      },
+    },
     ...(sources !== undefined
       ? ([
           { method: 'POST', path: '/models', handle: (request) => serializeState(() => storeModel(request)) },
