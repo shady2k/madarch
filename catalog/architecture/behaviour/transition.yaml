@@ -45,9 +45,9 @@ fields:
   type: json
   schema:
     $schema: https://json-schema.org/draft/2020-12/schema
-    $ref: urn:madarch:value-type:key-event:v1
+    $ref: urn:madarch:value-type:key-state-event:v1
   nullable: true
-  reference: event
+  reference: state-event
   binding:
     agent: The event that causes the move, where the machine names one.
 - name: guard

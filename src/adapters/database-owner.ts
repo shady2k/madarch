@@ -35,10 +35,17 @@ import { types } from 'pg';
 import { withSpan } from '../obs/trace.js';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history-types.js';
-import type { SqlTransactionKind } from '../sql-driver.js';
+import type { SqlExecutor, SqlTransactionKind } from '../sql-driver.js';
 import { clusterEndpoint, clusterPaths, clusterQuery, openCluster, CLUSTER_ADMIN_DATABASE, CLUSTER_PORT, CLUSTER_USER, type RunningCluster } from './postgres-cluster.js';
 
 export type { OuterTransaction };
+
+const EXECUTOR_OWNER = new WeakMap<object, DatabaseOwner>();
+
+/** The host owner of an executor; arbitrary query objects carry no write authority. */
+export function databaseOwnerOf(executor: SqlExecutor): DatabaseOwner | undefined {
+  return EXECUTOR_OWNER.get(executor);
+}
 
 /**
  * A `bigint` column read as a number. The store's bigint columns are epoch
@@ -280,6 +287,7 @@ class PostgresOwner implements DatabaseOwner {
             return answer;
           },
         };
+        EXECUTOR_OWNER.set(counted, this);
         const held = await this.ownWork.run(true, () => work(counted));
         if (kind === 'write') await refuseAborted(client, this.location);
         await this.named(async () => await client.query('COMMIT'));
@@ -315,6 +323,7 @@ class PostgresOwner implements DatabaseOwner {
         return { rows: result.rows as Row[] };
       },
     };
+    EXECUTOR_OWNER.set(executor, this);
     return await withSpan('db.run', { 'db.system': 'postgres' }, async () => await this.ownWork.run(true, () => work(executor)));
   }
 
@@ -419,11 +428,17 @@ class ServerStoreOwner implements DatabaseOwner {
   }
 
   transaction<T>(kind: SqlTransactionKind, work: (transaction: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.inner.transaction<T>(kind, work);
+    return this.inner.transaction<T>(kind, async tx => {
+      EXECUTOR_OWNER.set(tx, this);
+      return await work(tx);
+    });
   }
 
   run<T>(work: (executor: OuterTransaction) => Promise<T>): Promise<T> {
-    return this.inner.run(work);
+    return this.inner.run(async tx => {
+      EXECUTOR_OWNER.set(tx, this);
+      return await work(tx);
+    });
   }
 
   exec<Row extends object = Record<string, unknown>>(text: string): Promise<{ rows: Row[] }[]> {

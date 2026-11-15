@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 /**
  * A source read follows a fill another process published (decision 0036, section 8: `/api/source` answers the text of the
  * filled commit). The api instance may have answered before the fill landed; the text it reads is the store's, so the
@@ -86,11 +87,12 @@ async function publishSource(path: string, text: string, commit: string): Promis
   const contract = graphContractOf(read.manifest);
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRootOf(home))), connectOnly: true });
   try {
+    const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('fixture@1');
-      const node = await ensureVertex(tx, contract, { kind: 'source', key: { repository: 'code', path } }, 1, journal);
-      await publishOpinion(tx, contract, { kind: 'source', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1',
-        values: { source_text: text, commit } }, 1, journal);
+      const node = await ensureVertex(tx, contract, { kind: 'fixture.source', key: { repository: 'code', path } }, 1, journal, binding);
+      await publishOpinion(tx, contract, { kind: 'fixture.source', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1',
+        values: { source_text: text, commit } }, 1, journal, binding);
       await writeJournal(tx, journal);
     });
   } finally { await owner.close(); }
@@ -109,8 +111,8 @@ beforeAll(async () => {
   // The fixture declares the source-text kind it writes: the starter catalogue's own source kind became part of code.file
   // (madarch-64o5.109), and the read is generic over a kind that declares `source_text`, so the product declares one.
   mkdirSync(join(folder, 'madarch/kinds/common/attachment'), { recursive: true });
-  writeFileSync(join(folder, 'madarch/kinds/common/attachment/source.yaml'), SOURCE_KIND);
-  useFixturePlugins(folder, ['disk', 'git'], ['source']);
+  writeFileSync(join(folder, 'madarch/kinds/common/attachment/fixture.source.yaml'), SOURCE_KIND);
+  useFixturePlugins(folder, ['disk', 'git'], ['fixture.source']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(folder, 'add', '-A');
   git(folder, 'commit', '-qm', 'the product and its one repository');

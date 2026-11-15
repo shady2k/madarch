@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { readFolderManifestText, starterManifestText, writeFolderManifest } from './catalog-folder-fixture.js';
 import { useFixturePlugins, useRepositoryPlugins } from './enabled-plugins-fixture.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
@@ -115,7 +116,7 @@ problems:
   useRepositoryPlugins(folder);
   const declared = parseDocument(readFolderManifestText(folder));
   const starter = parseDocument(starterManifestText()).toJS();
-  for (const section of ['catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
+  for (const section of ['value-types', 'catalog', 'properties', 'groups', 'purposes', 'roles']) declared.set(section, starter[section]);
   for (const name of ['code.repository', 'code.directory', 'code.file', 'code.gitlink', 'code.commit', 'code.author']) declared.setIn(['kinds', name], starter.kinds[name]);
   declared.setIn(['kinds', 'probe.referrer'], {
     source: 'graph', key: ['repository', 'path'],
@@ -209,10 +210,10 @@ describe('a declared fixture plugin reads consistency records through the host',
     const read = readKinds(product);
     if (!read.present) throw new Error('manifest absent');
     const contract = graphContractOf(read.manifest);
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    await testHostBinding(owner!, contract, 'plugin-consistency', '1.0.0').then(binding0 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' }],
       removals: [],
-    }, 1));
+    }, 1, { binding: binding0 })));
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
     const preparedOwner = owner;
     const run = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'], targets: { kinds: ['probe.finding'] }, runId: 'unevidenced', home: join(root, 'home'), prepareContract: async (contract) => { await prepareStore(preparedOwner, { contract }); } });
@@ -237,17 +238,17 @@ describe('a declared fixture plugin reads consistency records through the host',
         WHERE k.name = 'code.contains' AND n.key->>'path' = 'src/a.ts'`));
     expect(damaged.rows).toHaveLength(1);
     for (const producer of ['disk', 'git']) {
-      expect(await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, producer }, 1))).toBe(true);
+      expect(await testHostBinding(owner!, contract, producer, '1').then(binding1 => owner!.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, producer }, 1, undefined, binding1)))).toBe(true);
     }
     await owner.transaction('write', async (tx) => {
       const edge = damaged.rows[0]!;
       await tx.query('INSERT INTO edge (entity_id, from_node, to_node, discriminator, context_id) VALUES ($1::bigint, $2::bigint, $3::bigint, $4, $5::bigint)',
         [edge.entity_id, edge.from_node, edge.to_node, edge.discriminator, edge.context_id]);
     });
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    await testHostBinding(owner!, contract, 'test', '1').then(binding2 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' }],
       removals: [],
-    }, 1));
+    }, 1, { binding: binding2 })));
     expect((await unresolvedReferences(owner, { limit: 10 })).rows.map((one) => one.edge === undefined ? 'key' : 'edge')).toEqual(['key']);
     expect((await removedEdgeEnds(owner, { limit: 10 })).rows.map((one) => one.edge.kind)).toEqual(['code.contains']);
     await prepareStore(owner, { contract: await readPinnedGraphContract(product) });
@@ -268,13 +269,13 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(statements.every((write) => write.value.producer === 'plugin-consistency' && typeof write.value.producerVersion === 'string')).toBe(true);
 
     // The fix: the repository the file names stands, the file is declared again, and the tree publishes the removed file.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    await testHostBinding(owner!, contract, 'test', '1').then(binding3 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'code.repository', key: { name: 'ghost' }, values: { url: null }, producer: 'test', producerVersion: '1' },
         { kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name: 'ghost' } }, path: 'ghost.ts' }, values: {}, producer: 'test', producerVersion: '1' },
       ],
       removals: [],
-    }, 1));
+    }, 1, { binding: binding3 })));
     writeFileSync(join(repositoryFolder, 'src', 'a.ts'), 'export const a = 2;\n');
     git(repositoryFolder, 'add', '-A');
     git(repositoryFolder, '-c', 'user.name=F', '-c', 'user.email=f@example.invalid', 'commit', '-qm', 'two');
@@ -295,11 +296,11 @@ describe('a declared fixture plugin reads consistency records through the host',
     expect(unchanged.ok).toBe(true);
     if (unchanged.ok) expect(unchanged.units).toEqual([]);
     // Give the remaining check input its missing evidence, then run the scripted producer again.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    await testHostBinding(owner!, contract, 'plugin-consistency', '1.0.0').then(binding4 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'probe.opinion', key: { id: 'one' }, values: { first: 'a', second: 'b' },
         evidence: [{ repository: 'repo', path: 'docs/glossary.md', commit: 'evidenced-input', lineStart: 1, lineEnd: 1 }],
         producer: 'plugin-consistency', producerVersion: '1.0.0' }], removals: [],
-    }, 1));
+    }, 1, { binding: binding4 })));
     const clean = await runFill({ product, database: owner, releaseHashes: [...RELEASE_CLOSURE_HASHES, fixtureClosure], steps: ['plugin-turns'],
       targets: { kinds: ['probe.finding'] }, runId: 'zero-problems', home: join(root, 'home'),
       prepareContract: async (held) => { await prepareStore(preparedOwner, { contract: held }); } });
@@ -328,14 +329,14 @@ describe('a declared fixture plugin reads consistency records through the host',
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
     const fileVertex = (name: string) => ({ kind: 'probe.referrer', key: { repository: { kind: 'code.repository', key: { name } }, path: `${name}.ts` }, values: {}, producer: 'test', producerVersion: '1' });
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [fileVertex('page-a'), fileVertex('page-b')], removals: [] }, 1));
+    await testHostBinding(owner!, contract, 'test', '1').then(binding5 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [fileVertex('page-a'), fileVertex('page-b')], removals: [] }, 1, { binding: binding5 })));
     const first = await unresolvedReferences(owner, { limit: 1 });
     expect(first.rows).toHaveLength(1);
     expect(first.next).toBeDefined();
     const second = await unresolvedReferences(owner, { after: first.next, limit: 1 });
     expect(second.rows).toHaveLength(1);
     // The target stands now: the row the writer kept is no longer a problem, while the other still is.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'code.repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1));
+    await testHostBinding(owner!, contract, 'test', '1').then(binding6 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'code.repository', key: { name: 'page-a' }, values: { url: null }, producer: 'test', producerVersion: '1' }], removals: [] }, 1, { binding: binding6 })));
     const after = await unresolvedReferences(owner, { limit: 10 });
     expect(after.rows.filter((one) => one.target.label.startsWith('page-')).map((one) => one.target.label)).toEqual(['page-b']);
     await owner.transaction('write', async (tx) => {
@@ -352,14 +353,8 @@ describe('a declared fixture plugin reads consistency records through the host',
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
     const key = { repository: { kind: 'code.repository', key: { name: 'withdrawn-ghost' } }, path: 'withdrawn.ts' };
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
-      vertices: [
-        { kind: 'probe.referrer', key, values: {}, producer: 'test', producerVersion: '1' },
-        { kind: 'probe.referrer', key, values: {}, producer: 'other', producerVersion: '1' },
-      ],
-      removals: [],
-    }, 1));
-    await owner.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'probe.referrer', key, producer: 'test' }, 1));
+    await testHostBinding(owner!, contract, 'test', '1').then(binding7 => testHostBinding(owner!, contract, 'other', '1').then(binding8 => owner!.transaction('write', async (tx) => { await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'probe.referrer', key, values: {}, producer: 'test', producerVersion: '1' }], removals: [] }, 1, { binding: binding7 }); await publishGraphDrafts(tx, contract, { vertices: [{ kind: 'probe.referrer', key, values: {}, producer: 'other', producerVersion: '1' }], removals: [] }, 1, { binding: binding8 }); })));
+    await testHostBinding(owner!, contract, 'test', '1').then(binding9 => owner!.transaction('write', async (tx) => await removeEntity(tx, contract, { kind: 'probe.referrer', key, producer: 'test' }, 1, undefined, binding9)));
     const found = await unresolvedReferences(owner, { limit: 20 });
     expect(found.rows.filter((one) => one.target.label === 'withdrawn-ghost').map((one) => one.producer)).toEqual(['other@1']);
     await owner.transaction('write', async (tx) => {
@@ -381,7 +376,7 @@ describe('a declared fixture plugin reads consistency records through the host',
       discriminator,
       producer: 'test', producerVersion: '1',
     });
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [], edges: [edge('d1'), edge('d2')], removals: [] }, 1));
+    await testHostBinding(owner!, contract, 'test', '1').then(binding10 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [], edges: [edge('d1'), edge('d2')], removals: [] }, 1, { binding: binding10 })));
     const found = (await unresolvedReferences(owner, { limit: 20 })).rows.filter((one) => one.edge?.kind === 'code.contains' && one.target.key['repository'] === 'edge-ghost');
     expect(found.map((one) => one.edge?.discriminator).sort()).toEqual(['d1', 'd2']);
     expect(new Set(found.map((one) => one.id)).size).toBe(2);
@@ -393,13 +388,13 @@ describe('a declared fixture plugin reads consistency records through the host',
     const read = readKinds(product);
     if (!read.present) return;
     const contract = graphContractOf(read.manifest);
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
+    await testHostBinding(owner!, contract, 'plugin-consistency', '1.0.0').then(binding11 => owner!.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'probe.opinion', key: { id: 'paged' }, values: { first: 'a', second: 'b' }, producer: 'plugin-consistency', producerVersion: '1.0.0' },
         { kind: 'probe.keyed', key: { id: 'keyed', title: 'the title' }, values: {}, producer: 'plugin-consistency', producerVersion: '1.0.0' },
       ],
       removals: [],
-    }, 1));
+    }, 1, { binding: binding11 })));
     const opinion = { kind: 'probe.opinion', table: generatedTableName('probe.opinion', 'vertex'), producer: 'plugin-consistency', fields: ['first', 'second'], key: ['id'] };
     const first = await unevidencedOpinions(owner, [opinion], { limit: 1 });
     expect(first.rows.map((one) => one.field)).toEqual(['first']);

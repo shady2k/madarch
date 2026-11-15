@@ -3,6 +3,7 @@ import type { DatabaseOwner, OuterTransaction } from '../database-owner.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../schema-lock.js';
 import { byCodePoint } from '../../model/order.js';
 import { EMPTY_CONTRACT, type GraphContract } from '../../graph/contract.js';
+import { SYSTEM_CONTRACT, withSystemContract, installSystemSources } from '../../graph/system-installation.js';
 import { createContractTablesIn } from './graph-contract.js';
 import { SCHEMA, SCHEMA_REVISION, graphSchemaStamp } from './graph-definition.js';
 
@@ -61,7 +62,7 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
     // A journal row written before stage 2 may carry no default for its id; the writer names none, so the database does.
     await tx.query(`ALTER TABLE operation ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
   }
-  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', 'file_entry', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
+  for (const table of ['evidence', 'claim', 'unresolved_reference', 'gap', 'layer_entry', 'knowledge_fill', 'file_entry', 'operation_assertion_receipt', ...generated.sort(byCodePoint), 'edge', 'node', 'kind', 'entity']) {
     await tx.query(`DROP TABLE IF EXISTS "${table}"`);
   }
 }
@@ -72,7 +73,8 @@ async function resetGraph(tx: OuterTransaction): Promise<void> {
  * whether the graph was reset, which is the store saying it needs a fill.
  */
 export async function prepareGraphSchema(owner: DatabaseOwner, contract: GraphContract = EMPTY_CONTRACT): Promise<{ reset: boolean }> {
-  return await owner.transaction('write', async (tx) => {
+  contract = withSystemContract(contract);
+  const result = await owner.transaction('write', async (tx) => {
     await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
     await tx.query(`CREATE SCHEMA IF NOT EXISTS ${META_SCHEMA}`);
     await tx.query(STAMP_SQL);
@@ -133,4 +135,16 @@ export async function prepareGraphSchema(owner: DatabaseOwner, contract: GraphCo
     if (reset) await tx.query(`INSERT INTO ${META_SCHEMA}.schema_stamp (name, stamp) VALUES ('graph-reset', now()::text) ON CONFLICT (name) DO UPDATE SET stamp = now()::text, created_at = now()`);
     return { reset };
   });
+  await installSystemSources(owner, contract);
+  return result;
+}
+
+/** Additive prerequisites also run when startup has not loaded a product contract yet. */
+export async function prepareGraphPrerequisites(owner: DatabaseOwner): Promise<void> {
+  await owner.transaction('write', async (tx) => {
+    await tx.query(SCHEMA_LOCK_SQL, [storeSchemaLockKey()]);
+    for (const statement of SCHEMA) await tx.query(statement);
+    await createContractTablesIn(tx, SYSTEM_CONTRACT);
+  });
+  await installSystemSources(owner, SYSTEM_CONTRACT);
 }

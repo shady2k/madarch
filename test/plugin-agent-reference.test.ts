@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { expect, test } from 'bun:test';
 import type { AcpConnection, AcpSession } from '../src/fill/acp.js';
 import { PluginAgentBridge } from '../src/plugin/agent.js';
@@ -21,10 +22,11 @@ test('agent natural-key references survive validation and real graph publication
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
     const result = await bridge.run('unit', {});
+    const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, { vertices: [
       { kind: 'repository', key: { name: 'repo' }, producer: 'fixture', producerVersion: '1' },
       ...result.vertices!.map((vertex) => ({ ...vertex, producer: 'fixture', producerVersion: '1', evidence: [] })),
-    ], removals: [] }));
+    ], removals: [] }, 1, { binding }));
     const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ key: unknown }>("SELECT key FROM node WHERE entity_id = (SELECT id FROM entity WHERE name = 'summary')"));
     expect(rows.rows).toEqual([{ key: { repository: { kind: 'repository', key: { name: 'repo' } }, name: 'A' } }]);
     const unresolved = await owner.transaction('snapshot', async (tx) => await tx.query('SELECT * FROM unresolved_reference'));

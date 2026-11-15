@@ -16,15 +16,17 @@ relation-constraints:
   - holds
   - refines
 template-policy: page
+extends: system:role
 source: graph
 fields:
 - name: name
   type: text
+  nullable: true
   labels:
     en: Name
     ru: Имя
   binding:
-    agent: The name the product gives this role, such as product, developer or tester; it is the role's key.
+    agent: The name the product gives this role, such as product, developer or tester.
 - name: purpose
   type: text
   nullable: true
@@ -35,8 +37,6 @@ fields:
   nullable: true
   binding:
     agent: What the role answers for, in one sentence, from the entities the role owns and the problems escalated to it in the graph.
-key:
-- name
 labels:
   en:
     one: Role

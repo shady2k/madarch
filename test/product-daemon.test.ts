@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -72,11 +73,12 @@ async function publishDocument(home: string, folder: string, markdown: string): 
   const contract = graphContractOf(read.manifest);
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(home))), connectOnly: true });
   try {
+    const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('fixture@1');
-      const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: `${folder} vision` } }, 1, journal);
+      const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: `${folder} vision` } }, 1, journal, binding);
       await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1',
-        values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } }, 1, journal);
+        values: { path: 'docs/vision.md', markdown, anchors: {}, links: [] } }, 1, journal, binding);
       await writeJournal(tx, journal);
     });
   } finally { await owner.close(); }

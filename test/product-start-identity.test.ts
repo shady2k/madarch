@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestDatabaseOwner } from './test-database.js';
+import { testAgentBinding, testHostBinding } from './host-binding-fixture.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { validateProductManifests, publishValidatedManifests } from '../src/graph/manifest-publication.js';
 import { writeContractOf, putEntityOpinion } from '../src/graph/graph-writes.js';
@@ -40,11 +41,12 @@ test.each([false, true])('startup keeps stable identity and current home while p
   try {
     writeFileSync(join(folder, 'repos/library/README.md'), '# Old heading\n');
     // Stores written before stable identity can hold several heading or revision identities.
+    const startBinding = await testHostBinding(owner, writeContractOf(manifest), 'start', '0');
     await owner.transaction('write', (tx) => publishGraphDrafts(tx, writeContractOf(manifest), {
-      vertices: ['old-heading', 'old-heading-at-revision'].map((slug) => ({ kind: 'product', key: { slug }, values: { title: 'Old heading' }, producer: 'start', producerVersion: '0', evidence })), removals: [],
-    }));
+      vertices: ['old-heading', 'old-heading-at-revision'].map((slug) => ({ kind: 'product', key: { slug }, values: { title: 'Old heading' }, producer: startBinding.producer, producerVersion: startBinding.version, evidence })), removals: [],
+    }, 1, { binding: startBinding }));
     await publishValidatedManifests(owner, read.value);
-    if (personOpinion) await putEntityOpinion(owner, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'old-heading' }, values: { title: 'Person title' }, evidence });
+    if (personOpinion) await putEntityOpinion(owner, await testAgentBinding(owner, writeContractOf(manifest)), { kind: 'product', key: { slug: 'old-heading' }, values: { title: 'Person title' }, evidence });
     writeFileSync(join(folder, 'repos/library/README.md'), '# New heading\n');
     await owner.close();
     owner = await createTestDatabaseOwner(options);
@@ -92,7 +94,7 @@ test('renaming the product keeps one node, updates its label, and keeps a person
   const evidence = [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, commit: 'a'.repeat(40) }];
   try {
     await publishValidatedManifests(owner, read.value);
-    await putEntityOpinion(owner, { producer: 'person', version: '1' }, { kind: 'product', key: { slug: 'stable-product-id' }, values: { body: 'Person description' }, evidence });
+    await putEntityOpinion(owner, await testAgentBinding(owner, writeContractOf(manifest)), { kind: 'product', key: { slug: 'stable-product-id' }, values: { body: 'Person description' }, evidence });
     writeFileSync(join(folder, 'workspace.yaml'), 'schemaVersion: 1\nid: stable-product-id\nname: second-name\n');
     await owner.close();
     owner = await createTestDatabaseOwner(options);

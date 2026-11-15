@@ -6,6 +6,7 @@
  */
 import { pluginAgentOptions } from './agents.js';
 import { requestStorePreparation } from '../product/store-preparation.js';
+import { readPinnedPluginInstallations } from '../product/preparation-contract.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readProduct } from '../product/manifest.js';
@@ -220,7 +221,7 @@ async function runOne(options: FillRoleOptions, state: RoleState, held: Watched,
       ...(data.agent === undefined ? {} : { pluginAgent: data.agent === null ? null : pluginAgentOptions(data.agent, process.env, join(held.storeFolder, 'agent-runs'), { ...(data.model === undefined ? {} : { model: data.model }), ...(data.reasoning === undefined ? {} : { reasoning: data.reasoning }) }) }),
       ...(data.tokenCap === undefined ? {} : { tokenCap: data.tokenCap }),
       database: owner,
-      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract),
+      prepareContract: async (contract) => await requestStorePreparation(join(held.storeFolder, 'graph'), contract, await readPinnedPluginInstallations(productFolder)),
       // The language the press named, as `madarch fill --language` names it: a run that asks for another language
       // translates the pages it writes (madarch-8bdc.12).
       ...(data.language === undefined ? {} : { language: data.language }),

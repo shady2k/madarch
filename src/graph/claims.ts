@@ -12,6 +12,7 @@
  * publication rolls back with it.
  */
 import { expandPartitionWrites } from './plugin-turns.js';
+import type { ProducerBinding } from './producer-binding.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { GraphContract, VertexDraft, VertexRemovalDraft } from './contract.js';
 import { publishGraphDrafts, type EdgeDraft, type EdgeRemovalDraft, type JournalRead } from './write.js';
@@ -29,18 +30,18 @@ export interface DraftWriteLike {
  * transaction, and answers how many rows were written (a rerun of the same
  * answer writes none).
  */
-export async function publishGraphWrites(executor: SqlExecutor, contract: GraphContract, writes: readonly DraftWriteLike[]): Promise<number> {
+export async function publishGraphWrites(executor: SqlExecutor, contract: GraphContract, writes: readonly DraftWriteLike[], binding: ProducerBinding): Promise<number> {
   writes = await expandPartitionWrites(executor, writes);
   const vertices = writes.filter((write) => write.kind === 'vertex').map((write) => write.value as VertexDraft);
   const edges = writes.filter((write) => write.kind === 'edge').map((write) => write.value as EdgeDraft);
   const removals = writes.filter((write) => write.kind === 'vertex-removal').map((write) => write.value as VertexRemovalDraft);
   const edgeRemovals = writes.filter((write) => write.kind === 'edge-removal').map((write) => write.value as EdgeRemovalDraft);
-  // A plugin's turn states its entry's author and the requests it made (under the debug setting) as its own draft; a
-  // publication without one is named by its first vertex's producer.
+  // Debug reads are draft data; authorship comes only from the host capability, not the journal's author string.
   const journal = writes.find((write) => write.kind === 'journal')?.value as { author: string; reads?: readonly JournalRead[] } | undefined;
   if (vertices.length === 0 && edges.length === 0 && removals.length === 0 && edgeRemovals.length === 0 && (journal?.reads ?? []).length === 0) return 0;
   return await publishGraphDrafts(executor, contract, { vertices, edges, removals, edgeRemovals }, 1, {
-    ...(journal === undefined ? {} : { author: journal.author }),
+    binding,
+    author: `${binding.producer}@${binding.version}`,
     ...(journal?.reads === undefined ? {} : { reads: journal.reads }),
   });
 }

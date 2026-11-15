@@ -62,18 +62,6 @@ const REFUSALS: Readonly<Record<ProblemTaskRefusal, Readonly<Record<'en' | 'ru',
 /** The sentence a reader sees for a refusal of «Создать задачу», in the language the pages are written in. */
 export const problemTaskRefusal = (language: 'en' | 'ru', refusal: ProblemTaskRefusal): string => REFUSALS[refusal][language];
 
-/** A part of a write's source with the '@' that joins a producer and its version escaped: that one stays the joiner. */
-const escapeSourcePart = (text: string): string => text.replaceAll('@', '%40');
-
-/**
- * The write's source: the person, whose producer starts with `person:` — so the product knows a person wrote in it and its
- * start-over is refused — and whose name and address carry no '@' of their own, since that one joins them in `said_by`.
- */
-export const problemTaskSource = (person: { readonly name: string; readonly email: string }): { readonly producer: string; readonly version: string } => ({
-  producer: `person:${escapeSourcePart(person.name)}`,
-  version: escapeSourcePart(person.email),
-});
-
 /** The rule's own name in the reader's language, when the product's manifest declares one. */
 export type RuleName = Readonly<Partial<Record<'en' | 'ru', string>>>;
 

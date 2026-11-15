@@ -1,4 +1,5 @@
 import { writeFolderManifest } from './catalog-folder-fixture.js';
+import { personBinding } from '../src/graph/system-installation.js';
 import { authoredEntity } from '../src/graph/authored.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
 import { readPinnedGraphContract } from '../src/product/fill-stages.js';
@@ -110,9 +111,10 @@ describe('a product that is only a tracker', () => {
       expect(unimported.kinds.map(({ kind, count }) => ({ kind, count })).sort((a, b) => byCodePoint(a.kind, b.kind))).toEqual([{ kind: 'idea', count: 0 }, { kind: 'task', count: 0 }]);
       const manifest = readKinds(product);
       if (!manifest.present) throw new Error('the tracker manifest is absent');
+      const person = await personBinding(owner, graphContractOf(manifest.manifest));
       const made = await owner.transaction('write', async (tx) => {
-        const idea = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
-        const task = await authoredEntity(tx, manifest.manifest, 'tracker', 'Fixture reader', 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
+        const idea = await authoredEntity(tx, manifest.manifest, 'tracker', person, 'create', 'idea', { values: { title: 'One idea' }, words: 'An idea.' });
+        const task = await authoredEntity(tx, manifest.manifest, 'tracker', person, 'create', 'task', { values: { title: 'One task' }, words: 'A task.' });
         return { idea: idea.entity!, task: task.entity! };
       });
       expect(made.idea.values).toEqual({ title: 'One idea' });

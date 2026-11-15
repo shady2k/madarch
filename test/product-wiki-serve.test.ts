@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -118,10 +119,11 @@ describe('serveWiki with a product or a manifestless directory', () => {
     const contract = graphContractOf(read.manifest);
     const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(product, knowledgeRootOf(base))), connectOnly: true });
     try {
-      await owner.transaction('write', async (tx) => {
+      const binding = await testHostBinding(owner, contract, 'fixture');
+    await owner.transaction('write', async (tx) => {
         const journal = journalFor('fixture@1');
-        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: 'Linked source' } }, 1, journal);
-        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }, 1, journal);
+        const node = await ensureVertex(tx, contract, { kind: 'document', key: { title: 'Linked source' } }, 1, journal, binding);
+        await publishOpinion(tx, contract, { kind: 'document', nodeId: node.nodeId, producer: 'fixture', producerVersion: '1', values: { repository: 'source', path: 'README.md', markdown: '# Linked source\n', source_text: '# Linked source\n', anchors: {}, links: [] } }, 1, journal, binding);
         await writeJournal(tx, journal);
       });
     } finally { await owner.close(); }

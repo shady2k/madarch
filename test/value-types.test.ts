@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { expect, test } from 'bun:test';
 import { CATALOG_FILES } from '../src/knowledge/catalog-assets.js';
 import { stringify } from 'yaml';
@@ -6,7 +7,7 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
-import type { SqlExecutor } from '../src/sql-driver.js';
+import { createTestDatabaseOwner } from './test-database.js';
 
 const types: ValueTypes = {
   email: { storage: 'text', schema: { $schema: JSON_DIALECT, $id: 'urn:test:email:1', type: 'string', format: 'email' } },
@@ -50,14 +51,21 @@ test('0039: field type and JSON schema refusal retain source location', () => {
 
 test('0039: invalid vertex, key and edge values fail before any SQL', async () => {
   let calls = 0;
-  const executor = { query: async () => { calls++; throw new Error('SQL must not run'); } } as unknown as SqlExecutor;
   const contract: GraphContract = { valueTypes: types, vertex: [{ name: 'sample', table: generatedTableName('sample', 'vertex'), key: ['email'], fields: [{ name: 'email', type: 'text', valueType: 'email' }, { name: 'data', type: 'json', schema }], capability: 'test' }], edge: [{ name: 'link', capability: 'test', from: ['sample'], to: ['sample'], repeats: false, fields: [{ name: 'email', type: 'text', valueType: 'email' }] }], dictionary: [] };
-  const base = { kind: 'sample', key: { email: 'person@example.org' }, producer: 'test', producerVersion: '1' };
-  for (const draft of [{ ...base, key: { email: 'bad' } }, { ...base, values: { data: { email: 'bad' } } }]) {
-    await expect(publishGraphDrafts(executor, contract, { vertices: [draft], removals: [] })).rejects.toThrow('VALUE_TYPE_MISMATCH');
-  }
-  await expect(publishGraphDrafts(executor, contract, { vertices: [], edges: [{ kind: 'link', from: { kind: 'sample', key: base.key }, to: { kind: 'sample', key: base.key }, values: { email: 'bad' }, producer: 'test', producerVersion: '1' }], removals: [] })).rejects.toThrow('VALUE_TYPE_MISMATCH');
-  expect(calls).toBe(0);
+  const owner = await createTestDatabaseOwner({ graphContract: contract });
+  try {
+    const binding = await testHostBinding(owner, contract, 'test');
+    await owner.transaction('write', async tx => {
+      const executor = tx;
+      executor.query = async () => { calls++; throw new Error('SQL must not run'); };
+      const base = { kind: 'sample', key: { email: 'person@example.org' }, producer: 'test', producerVersion: '1' };
+      for (const draft of [{ ...base, key: { email: 'bad' } }, { ...base, values: { data: { email: 'bad' } } }]) {
+        await expect(publishGraphDrafts(executor, contract, { vertices: [draft], removals: [] }, 1, { binding })).rejects.toThrow('VALUE_TYPE_MISMATCH');
+      }
+      await expect(publishGraphDrafts(executor, contract, { vertices: [], edges: [{ kind: 'link', from: { kind: 'sample', key: base.key }, to: { kind: 'sample', key: base.key }, values: { email: 'bad' }, producer: 'test', producerVersion: '1' }], removals: [] }, 1, { binding })).rejects.toThrow('VALUE_TYPE_MISMATCH');
+      expect(calls).toBe(0);
+    });
+  } finally { await owner.close(); }
 });
 
 test('0039: catalogue formats and JSON structures are executable, not labels', () => {

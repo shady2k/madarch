@@ -774,11 +774,11 @@ value-types:
       - key
       - kind
       unevaluatedProperties: false
-  key-event:
+  key-state-event:
     storage: json
     schema:
       $schema: https://json-schema.org/draft/2020-12/schema
-      $id: urn:madarch:value-type:key-event:v1
+      $id: urn:madarch:value-type:key-state-event:v1
       type: object
       properties:
         key:
@@ -791,7 +791,7 @@ value-types:
           unevaluatedProperties: false
         kind:
           type: string
-          const: event
+          const: state-event
       required:
       - key
       - kind

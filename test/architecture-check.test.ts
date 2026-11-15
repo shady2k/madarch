@@ -106,6 +106,58 @@ async function acceptWhatIsFound(root: string, rules: readonly ArchitectureRule[
 }
 
 describe('the architecture check', () => {
+  test('I/O in a span callback retains its enclosing function through SWC argument wrappers', async () => {
+    const root = fixtureProject();
+    writeModule(root, 'src/callbacks.ts', [
+      'export async function spanned(tx: any): Promise<unknown> {',
+      "  return await withSpan('read', {}, async () => await tx.query('SELECT 1'));",
+      '}',
+      'export async function unspanned(tx: any): Promise<unknown> {',
+      "  return await unrelated('read', {}, async () => await tx.query('SELECT 1'));",
+      '}',
+    ]);
+    expect((await architectureCheck({ root, rules: ['io-spans'] })).found).toEqual([
+      { rule: 'io-spans', file: 'src/callbacks.ts', line: 5, symbol: 'query()' },
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('system kinds and explicit protocol declarations are engine vocabulary, not arbitrary implementation literals', async () => {
+    const root = fixtureProject();
+    const words = ['event', 'role', 'question', 'identity', 'scope', 'merge', 'blob', 'repository', 'target', 'snapshot', 'catalogue-only', 'arbitrary-array', 'private-type', 'unrelated-type'];
+    writeModule(root, 'catalog/work/execution/example.yaml', ['fields:', ...words.flatMap(name => [`  - name: ${name}`, '    type: text'])]);
+    writeModule(root, 'src/graph/system-contract.ts', [
+      "const OPERATIONAL_KINDS = ['event', 'role', 'question'] as const;",
+      "const IDENTITY_KINDS = ['person'];",
+      "function identityKind(): VertexContract { return { fields: [{ name: 'identity' }] }; }",
+      "export const SYSTEM_CONTRACT = { vertex: [{ name: 'scope' }] };",
+      "const diagnostic = { name: 'catalogue-only' };",
+      "const UNRELATED_KINDS = ['arbitrary-array'];",
+    ]);
+    writeModule(root, 'src/graph/producer-binding.ts', [
+      "export type ProducerAction = 'assert' | 'merge';",
+      "type Private = 'private-type';",
+      "export type Unrelated = 'unrelated-type';",
+    ]);
+    writeModule(root, 'src/graph/evidence-targets.ts', [
+      "export interface EvidenceTargetKinds { readonly repository: string; }",
+      "export type EvidenceLocatorDraft = { readonly type: 'blob' };",
+      "export type EvidenceTarget = { readonly target: string };",
+    ]);
+    writeModule(root, 'src/sql-driver.ts', ["export type SqlTransactionKind = 'snapshot' | 'write';"]);
+    writeModule(root, 'src/protocol-use.ts', words.map(word => `consume('${word}');`));
+    const report = await architectureCheck({ root, rules: ['no-product-data'] });
+    expect(report.found.filter(one => one.file === 'src/protocol-use.ts')).toEqual([
+      { rule: 'no-product-data', file: 'src/protocol-use.ts', line: 12, symbol: 'arbitrary-array' },
+      { rule: 'no-product-data', file: 'src/protocol-use.ts', line: 11, symbol: 'catalogue-only' },
+      { rule: 'no-product-data', file: 'src/protocol-use.ts', line: 13, symbol: 'private-type' },
+      { rule: 'no-product-data', file: 'src/protocol-use.ts', line: 14, symbol: 'unrelated-type' },
+    ]);
+    expect(report.found.some(one => one.file === 'src/graph/system-contract.ts' && one.symbol === 'catalogue-only')).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+
   test('a second writer of the graph fails with the rule, the file and the line, and passes when the plant is removed', async () => {
     const root = fixtureProject();
     await acceptWhatIsFound(root, ['graph-single-writer']);

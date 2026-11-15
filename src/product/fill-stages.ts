@@ -26,7 +26,7 @@ import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
-import { answerPluginGraphQuery, pluginGraphAnswerer } from '../fill/plugin-turns.js';
+import { answerPluginGraphQuery, pluginGraphAnswerer, pluginTurnBinding, planPluginTurns, PLUGIN_TURN_STAGE_ID } from '../fill/plugin-turns.js';
 import type { OuterTransaction } from '../history-types.js';
 import { recordAgentUsage, type AgentUsageRecord } from '../adapters/agent-usage.js';
 import type { AgentRunBudget } from '../fill/agent-meter.js';
@@ -129,6 +129,22 @@ export async function readPinnedGraphContract(product: string): Promise<import('
   return withManifestContract(kinds.present ? graphContractOf(kinds.manifest) : EMPTY_CONTRACT);
 }
 
+/** Every approved installation in the pinned product, including plugins no selected fill unit runs. */
+export async function readPinnedPluginInstallations(product: string): Promise<readonly { readonly id: string; readonly version: string }[]> {
+  const folder = resolve(product);
+  if (headCommitOf(folder) === undefined) {
+    if (!existsSync(resolve(folder, 'madarch/plugins.lock'))) return [];
+    throw new Error(`${folder}/madarch/plugins.lock:1: installed plugins require an approved lock in a committed product`);
+  }
+  const read = fillFolderIdentity(folder);
+  const pins = pinsOf(read.identity, read.product).pins;
+  const snapshots = createGitSnapshotSource(() => pins);
+  const own = await snapshots.open(productRepositoryId(read.identity));
+  const { lockRead } = await readFillManifests(own, folder);
+  if (!lockRead.ok) throw new Error(`${folder}/${lockRead.file}:${String(lockRead.line)}: ${lockRead.message}`);
+  return lockRead.entries.map(({ id, version }) => ({ id, version }));
+}
+
 export async function createStagesFill(options: StagesFillOptions): Promise<StagesFill> {
   const folder = resolve(options.product);
   const read = await withSpan('fill.identity', { 'madarch.product': folder }, async () => fillFolderIdentity(folder));
@@ -190,6 +206,14 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   if (options.prepareContract !== undefined) await options.prepareContract(withManifestContract(contract));
   await createOneGraphSchema(options.database, withManifestContract(contract));
   if (metadata?.ok && metadata.value !== undefined) await publishValidatedManifests(options.database, metadata.value, withManifestContract(contract));
+  const pluginWiring = kindsRead.present ? { owner: options.database, manifest: kindsRead.manifest, contract, locks, productFolder: folder, ...(options.targets === undefined ? {} : { targets: options.targets }), ...(options.pluginAgent === undefined ? {} : { agent: options.pluginAgent }) } : undefined;
+  // Retained sources and opaque capabilities are resolved before a publication opens its transaction.
+  const pluginBindings = new Map<string, Awaited<ReturnType<typeof pluginTurnBinding>>>();
+  if (pluginWiring !== undefined) {
+    for (const unit of await planPluginTurns(pluginWiring)) {
+      pluginBindings.set(unit.id, await pluginTurnBinding(pluginWiring, unit.id));
+    }
+  }
   // Building the registry loads the stages' own modules and their parsers: one span names what that cost.
   const registry = await withSpan('fill.registry', { 'madarch.product': identity.name }, async (span) => {
     const held = createStageRegistry({
@@ -224,7 +248,15 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
     },
     source: (): SnapshotSource => snapshots,
     // A plugin's answer publishes as the graph's claims inside the publication's own transaction (decision 0035, item 6).
-    facts: { apply: async ({ executor, writes }) => await publishGraphWrites(executor, contract, writes) },
+    facts: { apply: async ({ executor, plan, writes }) => {
+      if (writes.length === 0) return 0;
+      if (!kindsRead.present || plan.stageId !== PLUGIN_TURN_STAGE_ID) {
+        throw new Error(`${folder}/madarch/kinds.yaml:1: graph publication requires a host-bound installed plugin unit`);
+      }
+      const binding = pluginBindings.get(plan.stageUnitId.split('#')[0]!);
+      if (binding === undefined) throw new Error(`${folder}/madarch/plugins.lock:1: publication unit ${JSON.stringify(plan.stageUnitId)} has no installed host source binding`);
+      return await publishGraphWrites(executor, contract, writes, binding);
+    } },
     inputs: (ref) => inputsOf(registry, pins(), ref),
   };
   return { product, registry, wiring, kinds, unread: () => unread };

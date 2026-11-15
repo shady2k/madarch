@@ -51,6 +51,7 @@ import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.j
 import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
 import { byCodePoint } from '../../model/order.js';
+import { SYSTEM_CONTRACT } from '../../graph/system-contract.js';
 import { checkValueTypes, compileValueSchema, JSON_DIALECT, type JsonSchema, type ValueTypes } from '../../graph/value-types.js';
 
 /** The manifest's place in the product repository. */
@@ -308,6 +309,8 @@ export interface PurposeDecl {
 }
 
 export interface KindDecl {
+  /** Explicit inheritance of an engine-owned contract; never inferred from a kind name. */
+  readonly systemBase?: { readonly name: string };
   purpose?: string;
   audience?: readonly string[];
   facts?: readonly FactDecl[];
@@ -1619,7 +1622,26 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       findings.push({ file, line, message: `kind "${name}": the declaration is a mapping with a template and a source` });
       continue;
     }
-    const decl = value as Record<string, unknown>;
+    const raw = value as Record<string, unknown>;
+    let decl = raw;
+    const inherited = raw['extends'];
+    const base = inherited === undefined ? undefined : SYSTEM_CONTRACT.vertex.find((kind) => inherited === `system:${kind.name}` && kind.name === name);
+    if (inherited !== undefined) {
+      const start = findings.length;
+      if (base === undefined) { problem(['extends'], 'a system extension names the same engine-owned kind as its declaration'); continue; }
+      for (const field of ['key', 'capability'] as const) if (raw[field] !== undefined) problem([field], `a system extension cannot replace its inherited ${field}`);
+      if (raw['source'] !== undefined && raw['source'] !== 'graph') problem(['source'], 'a system extension has source graph');
+      const additions = raw['fields'];
+      if (additions !== undefined && !Array.isArray(additions)) problem(['fields'], 'a system extension adds a list of nullable fields');
+      if (Array.isArray(additions)) for (const [index, field] of additions.entries()) {
+        if (!isRecord(field)) continue;
+        if (base.fields.some((held) => held.name === field['name'])) problem(['fields', index, 'name'], `field "${String(field['name'])}" is inherited and cannot be replaced`);
+        if (field['nullable'] !== true) problem(['fields', index, ...(field['nullable'] === undefined ? [] : ['nullable'])], 'an added system field must be nullable so engine-owned entities need not fill it');
+      }
+      if (findings.length !== start) continue;
+      const { extends: _inherited, ...overlay } = raw;
+      decl = { source: 'graph', ...overlay };
+    }
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${KIND_FIELDS.join(', ')}`);
     // The catalog's row of the kind: its place, its meaning, its sources, its acquisition, the relations it may carry
@@ -1860,7 +1882,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       }
       return { kind: 'agent', description };
     };
-    const fields = parseFields(decl['fields'], 'fields');
+    const fields: FieldDecl[] = [...parseFields(decl['fields'], 'fields'), ...(base?.fields.map((field) => ({ ...field, producers: ['system'] })) ?? [])];
     const facts: FactDecl[] = [];
     const rawFacts = decl['facts'];
     if (rawFacts !== undefined && !Array.isArray(rawFacts)) problem(['facts'], 'facts is a list of declared aggregates');
@@ -2010,6 +2032,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     if (findings.length > before) continue;
     kinds.set(name, {
       name,
+      ...(base === undefined ? {} : { systemBase: { name: base.name } }),
       source: source as 'graph' | 'markdown' | 'document',
       ...(typeof group === 'string' ? { group } : {}),
       ...(typeof origin === 'string' ? { origin: origin as Origin } : {}),

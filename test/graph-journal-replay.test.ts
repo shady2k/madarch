@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
  * The journal is the history (decision 0034, A6): rows hold the present, and history is a snapshot plus the journal's
@@ -91,18 +92,22 @@ async function nodeOf(tx: { query(text: string, params?: unknown[]): Promise<{ r
 
 /** One step, applied to the source store in its own transaction (or transactions), as a producer's turn does. */
 async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
+  const linguist = await testHostBinding(owner, repositoryContract, 'linguist', '9.5.0');
+  const translator = await testHostBinding(owner, repositoryContract, 'translator', '2');
+  const git = await testHostBinding(owner, repositoryContract, 'git', '1');
+  const binding = 'producer' in step ? await testHostBinding(owner, repositoryContract, step.producer, step.producer === 'linguist' ? '9.5.0' : '1') : linguist;
   if (step.kind === 'opinion' || step.kind === 'translation') {
     await owner.transaction('write', async (tx) => {
       const journal = journalFor('linguist@9.5.0');
       journalOn(tx, journal);
-      const made = await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(step.path) });
+      const made = await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(step.path) }, 1, undefined, binding);
       const stated = opinion(step.path, step.producer, step.language, step.line);
       if (step.kind === 'translation') {
         // A translation states the opinion it came from and its source's digest: the columns a replay must carry whole.
         const source = await tx.query<{ id: string }>(`SELECT id::text AS id FROM ${GIT_TABLES.file} WHERE node_id = $1::bigint AND state = 'open' AND split_part(said_by, '@', 1) = 'linguist' ORDER BY id DESC LIMIT 1`, [made.nodeId]);
-        await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated, producer: 'translator', producerVersion: '2', lang: 'ru', values: { mode: '100644', language: step.language }, translatedFrom: source.rows[0]?.id ?? '1', sourceDigest: 'sha256:9f2c' });
+        await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated, producer: 'translator', producerVersion: '2', lang: 'ru', values: { mode: '100644', language: step.language }, translatedFrom: source.rows[0]?.id ?? '1', sourceDigest: 'sha256:9f2c' }, 1, undefined, translator);
       } else {
-        await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated });
+        await publishOpinion(tx, repositoryContract, { kind: GIT_KINDS.file, nodeId: made.nodeId, ...stated }, 1, undefined, binding);
       }
       await writeJournal(tx, journal);
     });
@@ -113,7 +118,7 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
       // The writer's own withdrawal: it closes the producer's opinions and journals the removal only where it happens.
       const journal = journalFor('linguist@9.5.0');
       journalOn(tx, journal);
-      await removeEntity(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(step.path), producer: step.producer }, 1, journal);
+      await removeEntity(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(step.path), producer: step.producer }, 1, journal, binding);
       await writeJournal(tx, journal);
     });
     return;
@@ -144,7 +149,7 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
       const journal = journalFor('pass@1');
       journalOn(tx, journal);
       const held = await tx.query<{ id: string }>('SELECT id::text AS id FROM edge ORDER BY id LIMIT 1');
-      if (held.rows[0] !== undefined) await withdrawEdge(tx, repositoryContract, GIT_KINDS.renamedFrom, held.rows[0].id, 'git');
+      if (held.rows[0] !== undefined) await withdrawEdge(tx, repositoryContract, GIT_KINDS.renamedFrom, held.rows[0].id, 'git', undefined, git);
       await writeJournal(tx, journal);
     });
     return;
@@ -155,14 +160,14 @@ async function applyStep(owner: DatabaseOwner, step: Step): Promise<void> {
     journalOn(tx, journal);
     const drafts: Parameters<typeof publishOpinion>[2][] = [];
     for (const path of ['src/d.ts', 'src/e.ts']) {
-      const made = await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(path) });
+      const made = await ensureVertex(tx, repositoryContract, { kind: GIT_KINDS.file, key: keyOf(path) }, 1, undefined, linguist);
       drafts.push({ kind: GIT_KINDS.file, nodeId: made.nodeId, ...opinion(path, 'linguist', 'TypeScript', 2) });
       if (journal.count() >= 2) {
         await writeJournal(tx, journal);
         journal.drain();
       }
     }
-    for (const draft of drafts) await publishOpinion(tx, repositoryContract, draft);
+    for (const draft of drafts) await publishOpinion(tx, repositoryContract, draft, 1, undefined, linguist);
     await writeJournal(tx, journal);
   });
 }
@@ -179,10 +184,10 @@ function tablesOf(): { entity: string; table: string; owner: 'node_id' | 'edge_i
 async function snapshot(owner: DatabaseOwner): Promise<Record<string, unknown>> {
   return await owner.transaction('snapshot', async (tx) => {
     const contexts = await tx.query<Record<string, unknown>>('SELECT id::text AS id, parent::text AS parent, ref FROM context ORDER BY id');
-    const vertices = await tx.query<Record<string, unknown>>(`SELECT n.uid::text AS uid, e.name AS entity, n.key, n.removed FROM node n JOIN entity e ON e.id = n.entity_id ORDER BY n.uid`);
+    const vertices = await tx.query<Record<string, unknown>>(`SELECT n.uid::text AS uid, e.name AS entity, n.key, n.removed FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name LIKE 'code.%' ORDER BY n.uid`);
     const edges = await tx.query<Record<string, unknown>>(
       `SELECT en.name AS entity, fn.uid::text AS "from", tn.uid::text AS "to", ed.discriminator, ed.context_id::text AS context_id
-       FROM edge ed JOIN entity en ON en.id = ed.entity_id JOIN node fn ON fn.id = ed.from_node JOIN node tn ON tn.id = ed.to_node ORDER BY en.name, "from", "to", ed.discriminator, ed.context_id`,
+       FROM edge ed JOIN entity en ON en.id = ed.entity_id JOIN node fn ON fn.id = ed.from_node JOIN node tn ON tn.id = ed.to_node WHERE en.name LIKE 'code.%' ORDER BY en.name, "from", "to", ed.discriminator, ed.context_id`,
     );
     const opinions: Record<string, unknown>[] = [];
     for (const one of tablesOf()) {
@@ -304,9 +309,9 @@ describe('a replay over the journal answers the store', () => {
         for (const step of steps) {
           await applyStep(source, step);
           states.push({ ...(await snapshot(source)), reader: await readerView(source) });
-          rowsAfter.push(Number((await source.transaction('snapshot', async (tx) => await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM operation'))).rows[0]?.n ?? '0'));
+          rowsAfter.push(Number((await source.transaction('snapshot', async (tx) => await tx.query<{ n: string }>("SELECT count(*)::text AS n FROM operation WHERE author <> 'system@1'"))).rows[0]?.n ?? '0'));
         }
-        const entries = await source.transaction('snapshot', async (tx) => await tx.query<{ change: Record<string, any>; seq: string }>('SELECT change, seq::text AS seq FROM operation ORDER BY operation.seq'));
+        const entries = await source.transaction('snapshot', async (tx) => await tx.query<{ change: Record<string, any>; seq: string }>("SELECT change, seq::text AS seq FROM operation WHERE author <> 'system@1' ORDER BY operation.seq"));
         expect(entries.rows).toHaveLength(rowsAfter[rowsAfter.length - 1]!);
         // The order is the column's, and it is total: every row has its own number.
         expect(new Set(entries.rows.map((row) => row.seq)).size).toBe(entries.rows.length);

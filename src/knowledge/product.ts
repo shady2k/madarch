@@ -24,6 +24,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { requestStorePreparation, requestStoreReset } from '../product/store-preparation.js';
+import { readPinnedPluginInstallations } from '../product/preparation-contract.js';
 import { createDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { openPreparedDatabaseOwner } from '../adapters/store-readiness.js';
 import { SCHEMA_LOCK_SQL, storeSchemaLockKey } from '../adapters/schema-lock.js';
@@ -84,11 +85,12 @@ import { WikiReadError } from './read-error.js';
 import { sourcesListing, type SourceRepository, type SourcesListing } from './sources.js';
 import { productStoreFolder, storeDatabasePath } from '../product/store.js';
 import { writeProblemDismissal } from '../loop/problem-files.js';
-import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskSource, problemTaskUid } from '../loop/problem-task.js';
+import { PROBLEM_TASK_KIND, problemTaskLanguage, problemTaskRecord, problemTaskRefusal, problemTaskUid } from '../loop/problem-task.js';
 import type { Author } from '../loop/entities.js';
 import type { ProblemLink } from '../problems/types.js';
 import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
+import { personBinding } from '../graph/system-installation.js';
 import { authoredEntity } from '../graph/authored.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
@@ -104,7 +106,9 @@ import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgre
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readProductTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, writeContractOf } from '../graph/graph-writes.js';
+import { bindGraphProducer, type ProducerBinding } from '../graph/producer-binding.js';
+import { installAgentSession } from '../graph/system-installation.js';
 
 /**
  * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
@@ -308,7 +312,7 @@ export class KnowledgeProduct {
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
       const writing = action === 'create' || action === 'update' || action === 'delete';
       const by = writing ? await localIdentity(this.folder, { ...process.env, ...this.options.env }) : undefined;
-      const person = by === undefined ? '' : `person:${by.name} <${by.email}>`;
+      const person = writing ? await personBinding(owner, graphContractOf(read.manifest), by) : undefined;
       const answer = await owner.transaction(writing ? 'write' : 'snapshot', async (tx) => await authoredEntity(tx, read.manifest, identity.name, person, action === 'show' ? 'read' : action === 'update' ? 'edit' : action, kind, args));
       if (writing) {
         this.generation += 1;
@@ -332,7 +336,7 @@ export class KnowledgeProduct {
       const identity = this.product();
       if ('message' in identity) throw new LoopRefusal(409, identity.message);
       const by = await localIdentity(this.folder, { ...process.env, ...this.options.env });
-      const result = await importAuthored(this.folder, owner, read.manifest, identity.name, `person:${by.name} <${by.email}>`);
+      const result = await importAuthored(this.folder, owner, read.manifest, identity.name, await personBinding(owner, graphContractOf(read.manifest), by));
       this.generation += 1;
       if (this.reader !== undefined) this.reader.seq = this.generation;
       this.filesMemo = undefined;
@@ -399,7 +403,7 @@ export class KnowledgeProduct {
       if (manifests !== undefined) {
         if (!manifests.ok) throw new Error(manifests.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
         publicationContract = manifests.value === undefined ? EMPTY_CONTRACT : graphContractOf(manifests.value.manifest);
-        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(publicationContract));
+        await requestStorePreparation(storeDatabasePath(this.storeFolder()), withManifestContract(publicationContract), await readPinnedPluginInstallations(this.folder));
       }
       const owner = await this.openStore();
       try {
@@ -557,22 +561,43 @@ export class KnowledgeProduct {
     });
   }
 
+  /** Assigns the host's retained agent source; a session is activity, never an independent source. */
+  async registerMcpSession(session: string): Promise<ProducerBinding> {
+    const owner = await this.open();
+    await this.followStoreFill();
+    const manifest = await owner.transaction('snapshot', (tx) => readPublishedManifest(tx));
+    if (manifest === undefined) throw new WriteRefusal('the graph holds no published manifest: open the product once so its catalogue is published');
+    const contract = writeContractOf(manifest);
+    const source = await installAgentSession(owner, contract, session);
+    const vertices: Record<string, readonly string[]> = {};
+    for (const [name, kind] of manifest.kinds) {
+      const fields = (kind.fields ?? []).filter((field) => field.producers?.includes('agent')).map((field) => field.name);
+      if (fields.length > 0) vertices[name] = fields;
+    }
+    const edges: Record<string, readonly string[]> = {};
+    for (const [name, edge] of manifest.edges ?? []) {
+      const fields = edge.fields.filter((field) => field.producers?.includes('agent')).map((field) => field.name);
+      if (edge.fields.length === 0 || fields.length > 0) edges[name] = fields;
+    }
+    return bindGraphProducer(owner, contract, { principal: source.principal, vertices, edges });
+  }
+
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */
-  async putEntity(source: WriteSource, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; key?: Record<string, unknown>; uid?: string; written?: number }> {
+  async putEntity(source: ProducerBinding, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; key?: Record<string, unknown>; uid?: string; written?: number }> {
     const owner = await this.open();
     await this.followStoreFill();
     return await putEntityOpinion(owner, source, input);
   }
 
   /** The agent's opinion of an edge and its attributes. */
-  async putEdge(source: WriteSource, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; written?: number; retracted?: boolean }> {
+  async putEdge(source: ProducerBinding, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; written?: number; retracted?: boolean }> {
     const owner = await this.open();
     await this.followStoreFill();
     return await putEdgeOpinion(owner, source, input);
   }
 
   /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */
-  async retract(source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
+  async retract(source: ProducerBinding, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; retracted?: boolean; written?: number }> {
     const owner = await this.open();
     await this.followStoreFill();
     return await retractOpinion(owner, source, input);
@@ -1041,7 +1066,7 @@ export class KnowledgeProduct {
         env: this.env,
         ...(asked.agent === undefined ? {} : { pluginAgent: asked.agent === null ? null : pluginAgentOptions(asked.agent, this.env, join(storeFolder, 'agent-runs'), { ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }) }) }),
         ...(asked.tokenCap === undefined ? {} : { tokenCap: asked.tokenCap }),
-        prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract),
+        prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(storeFolder), contract, await readPinnedPluginInstallations(product.folder)),
         ...(asked.targets === undefined ? {} : { targets: asked.targets }),
         onPublish: () => { void this.published(undefined).catch(() => undefined); },
       });
@@ -2536,10 +2561,10 @@ export class KnowledgeProduct {
     // The press is what the write rests on: the problem and the finding's own words, said by the person. The evidence
     // carries no moment of its own, so two presses of one problem write the same thing once — the journal states when.
     const evidence = [{ type: 'conversation', id: `problem:${problem.rule}`, speaker: by.name, words: record.statement }];
-    // The source is the person: the graph joins a producer and its version with '@', so neither part holds one — a name of
-    // `Alice@work` is written `Alice%40work` — and the author starts with `person:`: the product then knows a person wrote
-    // in it, and its start-over is refused.
-    const source = problemTaskSource(by);
+    // Git identity is descriptive only. The host binds this press to its retained local person vertex.
+    const owner = await this.open();
+    if (!read.present) throw new LoopRefusal(409, problemTaskRefusal(language, 'write-refused'));
+    const source = await personBinding(owner, writeContractOf(read.manifest), by);
     let written: Awaited<ReturnType<KnowledgeProduct['putEntity']>>;
     try {
       written = await this.putEntity(source, {

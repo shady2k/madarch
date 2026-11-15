@@ -10,6 +10,8 @@
  * manifest's data, and a product that declares no plugin-filled kind plans no unit and runs no
  * process.
  */
+import { bindGraphProducer, type ProducerBinding } from '../graph/producer-binding.js';
+import { registerSystemSource, withSystemContract } from '../graph/system-installation.js';
 import type { AgentUsageRecord } from '../adapters/agent-usage.js';
 import { AgentMeter, type AgentRunBudget, type AgentUsageStop } from './agent-meter.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -119,13 +121,13 @@ export function pluginTurnUnitId(plugin: string, kind: string, vertex?: string):
 }
 
 /** A vertex selector scopes only its own kind, never the prerequisite units it needs. */
-function selectedVertex(wiring: PluginTurnWiring, kind: string): string | undefined {
+function selectedVertex(wiring: Pick<PluginTurnWiring, 'targets'>, kind: string): string | undefined {
   const vertex = wiring.targets?.vertex;
   return vertex !== undefined && vertex.slice(0, vertex.indexOf(':')) === kind ? vertex : undefined;
 }
 
 /** One unit per selected output kind of every declared producer. Missing locks refuse the plan. */
-export async function planPluginTurns(wiring: PluginTurnWiring): Promise<PluginTurnUnit[]> {
+export async function planPluginTurns(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract' | 'locks' | 'productFolder' | 'targets' | 'agent'>): Promise<PluginTurnUnit[]> {
   const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const units: PluginTurnUnit[] = [];
   for (const name of plan.order) {
@@ -164,7 +166,7 @@ function evidenceDeclarations(manifest: KindsManifest): EvidenceDeclaration[] {
 }
 
 /** The unit a worker re-derives from its id, against the manifest it reads itself. */
-function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
+function unitOf(wiring: Pick<PluginTurnWiring, 'manifest' | 'locks'>, id: string): PluginTurnUnit {
   const cut = id.indexOf(':');
   if (cut < 0) throw new Error(`src/fill/plugin-turns.ts:1: the unit id ${JSON.stringify(id)} is no plugin turn: it is <plugin>:<kind>`);
   const rest = id.slice(cut + 1).split('#')[0]!;
@@ -178,6 +180,27 @@ function unitOf(wiring: PluginTurnWiring, id: string): PluginTurnUnit {
     throw new Error(`src/fill/plugin-turns.ts:1: the unit ${JSON.stringify(id)} names a plugin or a kind the manifest no longer declares, or a plugin the lock no longer holds`);
   }
   return { id, plugin, kind, lock, patterns };
+}
+
+/** Bind a trusted planned unit to its installed source, never to a draft's producer (0039, item 26). */
+export async function pluginTurnBinding(wiring: Pick<PluginTurnWiring, 'owner' | 'manifest' | 'contract' | 'locks' | 'productFolder' | 'targets' | 'agent'>, id: string): Promise<ProducerBinding> {
+  const unit = unitOf(wiring, id);
+  const source = await registerSystemSource(wiring.owner, withSystemContract(wiring.contract), {
+    type: 'plugin', installationKey: unit.plugin.id, scope: wiring.owner.location, version: unit.lock.version,
+  });
+  const principal = source.principal;
+  const plan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
+  const fields = plan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
+  const order = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
+  const edges: Record<string, readonly string[]> = {};
+  for (const edge of unit.plugin.contract?.edges ?? []) {
+    const from = typeof edge.from === 'string' ? [edge.from] : edge.from;
+    const to = typeof edge.to === 'string' ? [edge.to] : edge.to;
+    if (from.some((left) => to.some((right) => (order.filter((kind) => kind === left || kind === right).at(-1) ?? order.at(-1)) === unit.kind.name))) {
+      edges[edge.kind] = edge.fields.map((field) => field.name);
+    }
+  }
+  return bindGraphProducer(wiring.owner, wiring.contract, { principal, vertices: { [unit.kind.name]: fields }, edges, actions: ['assert', 'retract-own'] });
 }
 
 /** One evidence of a plugin's answer as the graph's writer states it: `commitOrDigest` is the commit or digest. */
@@ -341,8 +364,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   if (closure.hash !== unit.lock.closure) {
     throw new Error(`src/fill/plugin-turns.ts:1: the plugin ${unit.plugin.id} at ${pluginFolder} hashes to ${closure.hash}, and madarch/plugins.lock locks ${unit.lock.closure}: a fill runs exactly the closure the lock names, and a changed closure needs a person's approval`);
   }
+  const binding = await pluginTurnBinding(wiring, id);
   const requests: RequestLog | undefined = wiring.debug === true ? new PluginRequestLog() : undefined;
-  let agentReport: PluginAgentReport | undefined;
   const declarationPlan = planManifestFill(wiring.manifest, wiring.productFolder, wiring.targets?.kinds, wiring.agent !== undefined, wiring.targets?.requested, wiring.targets?.pluginsOnly === true);
   const allowedFields = declarationPlan.outputs.get(unit.plugin.id)?.get(unit.kind.name) ?? [];
   const outputOrder = outputKindsOf(wiring.manifest, unit.plugin).map((kind) => kind.name);
@@ -415,7 +438,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   // 2026-11-15 — the run's token cap is the other bound, and the host's minute-a-unit would stop every agent).
   const agentMinutes = unit.plugin.bounds?.minutes;
   const host = new PluginHost({
-    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
+    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
     repository: wiring.productFolder,
@@ -505,7 +528,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         return;
       }
       if (partialReason !== undefined) progress?.(`the plugin ${unit.plugin.id} answered partly and published what it held (${String(producedEntries)}): ${partialReason}`);
-      const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
+      const producerVersion = unit.lock.version;
       draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? 'empty' : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) } });
       const only = selectedVertex(wiring, unit.kind.name);
       // Publish this kind's unit; other declared results belong to their own units.
@@ -530,7 +553,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           selectedFields: allowedFields,
           ...(vertex.values === undefined ? {} : { values: vertex.values }),
           ...(draftEvidence(vertex.evidence) === undefined ? {} : { evidence: [draftEvidence(vertex.evidence)!] }),
-          producer: unit.plugin.id,
+          producer: binding.producer,
           producerVersion,
         } });
       }
@@ -546,7 +569,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
           ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }),
           ...(edge.values === undefined ? {} : { values: edge.values }),
           ...(draftEvidence(edge.evidence) === undefined ? {} : { evidence: [draftEvidence(edge.evidence)!] }),
-          producer: unit.plugin.id,
+          producer: binding.producer,
           producerVersion,
         } });
       }
@@ -560,21 +583,21 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
         const removalKinds = [...vertexKinds].filter((kind) => selectedKinds.has(kind)).sort(byCodePoint);
         for (const kind of removalKinds) {
           const held = answered.get(kind) ?? new Set<string>();
-          for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
+          for (const entity of await producerEntities(wiring.owner, wiring.contract, kind, binding.producer)) {
             if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
             if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(entity.key))) continue;
             if (held.has(canonicalKey(entity.key))) continue;
-            draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: unit.plugin.id, selectedFields: allowedFields } });
+            draft.write({ kind: 'vertex-removal', evidence: kind, value: { kind, key: entity.key, producer: binding.producer, selectedFields: allowedFields } });
           }
         }
         for (const kind of [...unitEdges].sort(byCodePoint)) {
           if (!wiring.contract.edge.some((edge) => edge.name === kind)) continue;
-          for (const edge of await producerEdges(wiring.owner, wiring.contract, kind, unit.plugin.id)) {
+          for (const edge of await producerEdges(wiring.owner, wiring.contract, kind, binding.producer)) {
             if (!ownsEdge(edge)) continue;
             if (partitionKeys !== undefined && !partitionKeys.has(canonicalKey(edge.from.kind === unit.kind.name ? edge.from.key : edge.to.key))) continue;
             if (wiring.paths !== undefined && ![edge.from.key, edge.to.key].some((key) => wiring.paths!.some((path) => typeof key.path === 'string' && (key.path === path || key.path.startsWith(`${path.replace(/\/$/, '')}/`))))) continue;
             if (answeredEdges.has(edgeIdentity(kind, edge.from, edge.to, edge.discriminator))) continue;
-            draft.write({ kind: 'edge-removal', evidence: kind, value: { kind, from: edge.from, to: edge.to, ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: unit.plugin.id } });
+            draft.write({ kind: 'edge-removal', evidence: kind, value: { kind, from: edge.from, to: edge.to, ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }), producer: binding.producer } });
           }
         }
       }
@@ -665,6 +688,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         throw new Error(declarationPlan.errors.find((error) => error.kind === kind)?.message ?? `${wiring.manifest.file}:1: kind "${kind}" has no producer`);
       }
       const selected = unitOf(wiring, unit.id);
+      const binding = await pluginTurnBinding(wiring, unit.id);
       const partitioned = selected.plugin.declaration?.produces.some((output) => (output.kind === selected.kind.name || output.kind === '*') && output.partition === 'key') === true;
       if (!partitioned) {
         await runPluginTurn(wiring, unit.id, context.draft, context.progress, context.signal, trackedPluginAnswerer(context.graph), context.runId);
@@ -710,7 +734,7 @@ export function createPluginTurnStage(wiring: PluginTurnWiring): FillStage {
         return { keys };
       }).filter((partition) => partition.keys.length > 0);
       // Prior identities remain work even when enumeration is empty: missing keys retract only their own scoped fields.
-      for (const entity of await producerEntities(wiring.owner, wiring.contract, selected.kind.name, selected.plugin.id)) {
+      for (const entity of await producerEntities(wiring.owner, wiring.contract, selected.kind.name, binding.producer)) {
         if (wiring.paths !== undefined && !wiring.paths.some((path) => typeof entity.key.path === 'string' && (entity.key.path === path || entity.key.path.startsWith(`${path.replace(/\/$/, '')}/`)))) continue;
         if (selectedVertex(wiring, selected.kind.name) !== undefined && entityIdOf(wiring, selected.kind.name, entity.key) !== selectedVertex(wiring, selected.kind.name)) continue;
         if (!seen.has(canonicalKey(entity.key))) { seen.add(canonicalKey(entity.key)); partitions.push({ keys: [entity.key] }); }

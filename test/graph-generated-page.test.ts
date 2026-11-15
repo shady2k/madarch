@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { expect, test } from 'bun:test';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { publishGraphDrafts } from '../src/graph/write.js';
@@ -14,10 +15,11 @@ const generated = new Map([['fixture.page', { kind: 'fixture.page', table, key: 
 test('generated pages count before the cursor, preserve empty totals, and read page membership in one statement', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
+    const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
       vertices: ['Alpha', 'Beta', 'Zulu', 'removed'].map((slug) => ({ kind: 'fixture.page', key: { slug }, values: { body: `body ${slug}` }, producer: 'fixture', producerVersion: '1' })),
       removals: [],
-    }));
+    }, 1, { binding }));
     await owner.exec("UPDATE node SET removed = true WHERE key->>'slug' = 'removed'");
     await owner.transaction('snapshot', async (tx) => {
       const statements: string[] = [];

@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 /** Canonical identity and source presentation come from ordinary declared keys and opinion evidence. */
 import { expect, test } from 'bun:test';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
@@ -22,19 +23,22 @@ const generated = new Map<string, GeneratedKindRead>([
 test('ordinary declarations preserve canonical keys across producers and present each opinion source', async () => {
   const owner = await createTestDatabaseOwner({ graphContract: contract });
   try {
+    const bindings = new Map(await Promise.all(['disk', 'linguist', 'glossary'].map(async producer => [producer, await testHostBinding(owner, contract, producer)] as const)));
     await owner.transaction('write', async (tx) => {
+      for (const producer of ['disk', 'linguist']) {
       await publishGraphDrafts(tx, contract, {
-        vertices: ['disk', 'linguist'].map((producer) => ({
+        vertices: [{
           kind: 'code.file', key: { repository: 'repo', path: 'src/a.ts' }, values: { language: 'TypeScript' }, producer, producerVersion: '1',
           evidence: [{ type: 'file' as const, repository: 'repo', path: 'src/a.ts', commit_or_digest: 'c0ffee', line_start: 2, line_end: 4 }],
-        })), removals: [],
-      });
+        }], removals: [],
+      }, 1, { binding: bindings.get(producer)! });
+      }
       await publishGraphDrafts(tx, contract, {
         vertices: [
           { kind: 'doc.term', key: { name: 'ordinary' }, values: { definition: 'Declared values' }, producer: 'glossary', producerVersion: '1', evidence: [{ type: 'file', repository: 'repo', path: 'docs/terms.md', commit_or_digest: 'c0ffee', line_start: 3, line_end: 5 }] },
           { kind: 'doc.term', key: { name: 'unplaced' }, values: { definition: 'No source place' }, producer: 'glossary', producerVersion: '1' },
         ], removals: [],
-      });
+      }, 1, { binding: bindings.get('glossary')! });
     });
     const reader = new GraphReader(owner, () => 'now', undefined, undefined, undefined, generated);
     const files = await reader.find('code.file:repo/src/a.ts');

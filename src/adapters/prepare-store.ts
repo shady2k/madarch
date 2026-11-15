@@ -2,7 +2,8 @@
 import type { DatabaseOwner } from './database-owner.js';
 import type { GraphContract } from '../graph/contract.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
-import { prepareGraphSchema } from './schemas/graph.js';
+import { withSystemContract } from '../graph/system-contract.js';
+import { prepareGraphSchema, prepareGraphPrerequisites } from './schemas/graph.js';
 import { fillStateSchema } from './schemas/fill-state.js';
 import { orchestratorSchema } from './schemas/orchestrator.js';
 import { agentUsageSchema } from './schemas/agent-usage.js';
@@ -25,6 +26,7 @@ export interface PrepareStoreOptions {
 }
 /** Called before publishing a store or changed contract to any client. */
 export async function prepareStore(owner: DatabaseOwner, options: PrepareStoreOptions = {}): Promise<{ reset: boolean }> {
+  if (options.historyOnly !== true && options.contract !== undefined) withSystemContract(options.contract);
   await owner.ready;
   if (options.reset === true) {
     await owner.transaction('write', async (tx) => {
@@ -51,7 +53,7 @@ export async function prepareStore(owner: DatabaseOwner, options: PrepareStoreOp
   const held = await owner.transaction('snapshot', async (tx) => await tx.query("SELECT 1 FROM madarch_meta.schema_stamp WHERE name = 'one-graph'"));
   const graph = options.contract !== undefined || held.rows.length === 0
     ? await prepareGraphSchema(owner, options.contract ?? EMPTY_CONTRACT)
-    : { reset: false };
+    : (await prepareGraphPrerequisites(owner), { reset: false });
   for (const schema of [...MODULE_SCHEMAS, ...(options.modules ?? [])]) await schema.prepare(owner);
   await prepareQueueSchema(owner, options.queue);
   return graph;

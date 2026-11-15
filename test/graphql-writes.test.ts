@@ -13,10 +13,10 @@ import { publishGraphDrafts } from '../src/graph/write.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { publishValidatedManifests, validateProductManifests } from '../src/graph/manifest-publication.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../src/graph/graph-writes.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal } from '../src/graph/graph-writes.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { executeGraphql, type MessageBody } from '../src/graph/graphql-execute.js';
-import { agentSource, callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
+import { callProductTool, PRODUCT_TOOLS } from '../src/mcp/authored.js';
 import { answerUnitMcpMessage } from '../src/fill/unit-mcp.js';
 import { readKinds, type KindsManifest } from '../src/product/manifest/kinds.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -28,7 +28,11 @@ let folder = '';
 let owner: DatabaseOwner;
 let manifest: KindsManifest;
 let contract: ReturnType<typeof graphContractOf>;
-const agent: WriteSource = { producer: 'agent:codex', version: 'session-1' };
+let agent: ProducerBinding;
+let disk: ProducerBinding;
+import { bindGraphProducer, graphProducerOf, type ProducerBinding } from '../src/graph/producer-binding.js';
+import { testAgentBinding, testHostBinding } from './host-binding-fixture.js';
+import { installAgentSession } from '../src/graph/system-installation.js';
 
 /** The operation's answer, with any error thrown rather than read as a smaller result. */
 async function graphql(query: string, variables?: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -63,6 +67,8 @@ beforeAll(async () => {
   const validation = validateProductManifests(folder);
   if (!validation.ok) throw new Error(validation.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
   if (validation.value !== undefined) await publishValidatedManifests(owner, validation.value);
+  agent = await testAgentBinding(owner, contract);
+  disk = await testHostBinding(owner, contract, 'disk');
 }, 120_000);
 
 afterAll(async () => {
@@ -71,6 +77,37 @@ afterAll(async () => {
 });
 
 describe('the agent writes the graph', () => {
+  test('sessions retain one assigned source instead of adding independent opinions', async () => {
+    const second = await testAgentBinding(owner, contract, 'another-session');
+    expect(second.sourceUid).toBe(agent.sourceUid);
+    expect(agent.sessionUid).toBeDefined();
+    expect(second.sessionUid).toBeDefined();
+    expect(second.sessionUid).not.toBe(agent.sessionUid);
+    expect(graphProducerOf(second).producer).toBe(graphProducerOf(agent).producer);
+    const held = await owner.run((tx) => tx.query<{ sessions: string }>(`SELECT count(*)::text AS sessions FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'agent-session' AND NOT n.removed`));
+    expect(Number(held.rows[0]!.sessions)).toBeGreaterThanOrEqual(2);
+  });
+
+  test('an edge grant for only some attributes cannot replace the whole edge opinion', async () => {
+    const installed = await installAgentSession(owner, contract, 'limited-edge-session');
+    const limited = bindGraphProducer(owner, contract, { principal: installed.principal, vertices: {}, edges: { 'demo.contains': [] } });
+    await expect(putEdgeOpinion(owner, limited, {
+      kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'not-needed' } },
+      to: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'not-needed' } }, path: 'x' } },
+      evidence: [{ type: 'url', url: 'https://example.test', at: '2026-11-13T12:00:00Z' }],
+    })).rejects.toThrow('source cannot write property demo.contains.position');
+  });
+
+  test('every explicit writer refuses a missing or forged source capability before storage', async () => {
+    const evidence = [{ type: 'url', url: 'https://example.test', at: '2026-11-13T12:00:00Z' }];
+    for (const forged of [undefined, { producer: 'agent:trusted', version: 'session-1' }, { ...agent }]) {
+      const binding = forged as unknown as ProducerBinding;
+      await expect(putEntityOpinion(owner, binding, { kind: 'demo.repository', key: { name: 'forged' }, values: { description: 'x' }, evidence })).rejects.toThrow('host-issued');
+      await expect(putEdgeOpinion(owner, binding, { kind: 'demo.related', from: {}, to: {}, evidence })).rejects.toThrow('host-issued');
+      await expect(retractOpinion(owner, binding, { entity: { kind: 'demo.repository', key: { name: 'forged' } }, evidence })).rejects.toThrow('host-issued');
+    }
+  });
+
   test('put_entity states a term with conversation evidence, read back over graph_query', async () => {
     const written = await putEntityOpinion(owner, agent, {
       kind: 'doc.term',
@@ -79,7 +116,7 @@ describe('the agent writes the graph', () => {
       words: 'the owner asked for the term Kind',
     });
     const journal = await owner.run(async (tx) => (await tx.query<{ author: string; words: string }>('SELECT author, words FROM operation ORDER BY seq DESC LIMIT 1')).rows[0]);
-    expect(journal?.author).toBe('agent:codex@session-1');
+    expect(journal?.author).toBe(`${graphProducerOf(agent).producer}@${graphProducerOf(agent).version}`);
     expect(journal?.words).toBe('the owner asked for the term Kind');
     expect(written.uid).toBeDefined();
     const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind ... on DocTerm { title body titleOpinions { producer version evidence { type id at words } } } } }`, { id: written.uid });
@@ -87,8 +124,8 @@ describe('the agent writes the graph', () => {
     expect(term.kind).toBe('doc.term');
     expect(term.title).toBe('Kind');
     expect(term.body).toBe('A kind is a concept the product names.');
-    expect(term.titleOpinions[0].producer).toBe('agent:codex');
-    expect(term.titleOpinions[0].version).toBe('session-1');
+    expect(term.titleOpinions[0].producer).toBe(graphProducerOf(agent).producer);
+    expect(term.titleOpinions[0].version).toBe(graphProducerOf(agent).version);
     expect(term.titleOpinions[0].evidence[0]).toMatchObject({ type: 'conversation', id: 'conversation-7', at: '2026-11-13T12:00:00Z', words: 'A kind is a concept the product names.' });
   });
 
@@ -96,9 +133,9 @@ describe('the agent writes the graph', () => {
     // A plugin's opinion of a repository's description, written through the same one writer.
     await owner.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, contract, {
-        vertices: [{ kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'the plugin says this' }, producer: 'disk', producerVersion: '1' }],
+        vertices: [{ kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'the plugin says this' }, producer: disk.producer, producerVersion: disk.version }],
         removals: [],
-      }, 1, { author: 'disk@1' });
+      }, 1, { binding: disk, author: `${disk.producer}@${disk.version}` });
     });
     await putEntityOpinion(owner, agent, {
       kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'the agent says that' },
@@ -108,7 +145,7 @@ describe('the agent writes the graph', () => {
     const node = (data['allCodeRepository'] as Record<string, any>).edges[0].node;
     expect(node.description).toBeNull();
     expect(node.contested).toContain('description');
-    expect(node.descriptionOpinions.map((one: any) => one.producer).sort()).toEqual(['agent:codex', 'disk']);
+    expect(node.descriptionOpinions.map((one: any) => one.producer).sort()).toEqual([graphProducerOf(agent).producer, disk.producer].sort());
   });
 
   test('retract closes only the agent\'s own open opinions', async () => {
@@ -118,7 +155,7 @@ describe('the agent writes the graph', () => {
     const node = (data['allDemoRepository'] as Record<string, any>).edges[0].node;
     expect(node.description).toBe('the plugin says this');
     expect(node.contested).not.toContain('description');
-    expect(node.descriptionOpinions.map((one: any) => one.producer)).toEqual(['disk']);
+    expect(node.descriptionOpinions.map((one: any) => one.producer)).toEqual([disk.producer]);
   });
 
   test('put_edge states an edge, and graph_query reads its record', async () => {
@@ -139,7 +176,7 @@ describe('the agent writes the graph', () => {
     const data = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(first: 5) { edges { node { position opinions { producer evidence { type path } } } } } } } }`, { id });
     const edge = ((data['entity'] as Record<string, any>).demoContains.edges[0].node);
     expect(edge.position).toBe(1);
-    expect(edge.opinions.map((one: any) => one.producer)).toContain('agent:codex');
+    expect(edge.opinions.map((one: any) => one.producer)).toContain(graphProducerOf(agent).producer);
     expect(edge.opinions[0].evidence[0]).toMatchObject({ type: 'file', path: 'a.ts' });
   });
 
@@ -152,8 +189,7 @@ describe('the agent writes the graph', () => {
     expect(noEvidence).toBeInstanceOf(WriteRefusal);
     expect((noEvidence as WriteRefusal).message).toContain('evidence is required');
   });
-  test('the MCP client name and the session become the producer, and initialize reports the client', async () => {
-    expect(agentSource('Claude Code', 'session-9')).toEqual({ producer: 'agent:Claude-Code', version: 'session-9' });
+  test('initialize reports client metadata without assigning writer identity', async () => {
     let heard: { name: string; version?: string } | undefined;
     await answerUnitMcpMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', clientInfo: { name: 'codex-cli', version: '1.2' } } }, {
       tools: [], onClientInfo: (client) => { heard = client; }, call: async () => ({ answer: {}, isError: false }),
@@ -161,15 +197,26 @@ describe('the agent writes the graph', () => {
     expect(heard).toEqual({ name: 'codex-cli', version: '1.2' });
   });
 
+  test('MCP writes cannot present a serialized source identity as authority', async () => {
+    let writes = 0;
+    const stub = { putEntity: async () => { writes++; return { kind: 'demo.repository' }; } } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
+    for (const forged of [undefined, { producer: 'agent:trusted', version: '1' }, { ...agent }]) {
+      const answer = await callProductTool(stub, forged as ProducerBinding | undefined, 'put_entity', { kind: 'demo.repository', values: {}, evidence: [] });
+      expect(answer.isError).toBe(true);
+      expect(JSON.stringify(answer.answer)).toContain('host-issued');
+    }
+    expect(writes).toBe(0);
+  });
+
   test('the tool layer passes the agent source and refuses an unknown tool', async () => {
-    let seen: WriteSource | undefined;
+    let seen: ProducerBinding | undefined;
     const stub = {
-      putEntity: async (source: WriteSource) => { seen = source; return { kind: 'doc.term', uid: 'uid-1' }; },
+      putEntity: async (source: ProducerBinding) => { seen = source; return { kind: 'doc.term', uid: 'uid-1' }; },
     } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
-    const answer = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: { title: 'Kind' }, evidence: [{ type: 'url', url: 'https://example.test', at: '2026-11-13T12:00:00Z' }] });
+    const answer = await callProductTool(stub, agent, 'put_entity', { kind: 'doc.term', values: { title: 'Kind' }, evidence: [{ type: 'url', url: 'https://example.test', at: '2026-11-13T12:00:00Z' }] });
     expect(answer.isError).toBe(false);
-    expect(seen).toEqual({ producer: 'agent:codex', version: 's1' });
-    const refused = await callProductTool(stub, agentSource('codex', 's1'), 'write_anything', {});
+    expect(seen).toBe(agent);
+    const refused = await callProductTool(stub, agent, 'write_anything', {});
     expect(refused.isError).toBe(true);
     expect((refused.answer as Record<string, any>).error.message).toContain('is no tool');
   });
@@ -179,10 +226,10 @@ describe('the agent writes the graph', () => {
       graphqlSchema: async () => 'scalar BigInt\ntype Query { bootstrap: String }',
       graphql: async (operation: { query: string }) => ({ status: 200, body: { data: { echoed: operation.query } } }),
     } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
-    const schema = await callProductTool(stub, agentSource('codex', 's1'), 'graph_schema', {});
+    const schema = await callProductTool(stub, agent, 'graph_schema', {});
     expect(schema.isError).toBe(false);
     expect((schema.answer as Record<string, unknown>)['schema']).toContain('scalar BigInt');
-    const query = await callProductTool(stub, agentSource('codex', 's1'), 'graph_query', { query: '{ bootstrap }' });
+    const query = await callProductTool(stub, agent, 'graph_query', { query: '{ bootstrap }' });
     expect(query.isError).toBe(false);
     expect(query.answer).toEqual({ data: { echoed: '{ bootstrap }' } });
   });
@@ -286,7 +333,7 @@ describe('the agent writes the graph', () => {
   });
 
   test('a retraction names its evidence, and the journal keeps why', async () => {
-    const missing = await retractOpinion(owner, agent as WriteSource, { entity: { kind: 'demo.repository', key: { name: 'u1' }, fields: ['description'] }, evidence: [] }).catch((error: unknown) => error);
+    const missing = await retractOpinion(owner, agent as ProducerBinding, { entity: { kind: 'demo.repository', key: { name: 'u1' }, fields: ['description'] }, evidence: [] }).catch((error: unknown) => error);
     expect(missing).toBeInstanceOf(WriteRefusal);
     expect((missing as WriteRefusal).message).toContain('evidence is required');
     const done = await retractOpinion(owner, agent, { entity: { kind: 'demo.repository', key: { name: 'u1' }, fields: ['description'] }, evidence: [{ type: 'conversation', id: 'conversation-11', at: '2026-11-13T12:00:00Z', words: 'withdraw it' }] });
@@ -300,9 +347,9 @@ describe('the agent writes the graph', () => {
     await owner.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, contract, {
         vertices: [],
-        edges: [{ kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } }, values: { position: 7 }, producer: 'disk', producerVersion: '1' }],
+        edges: [{ kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } }, values: { position: 7 }, producer: disk.producer, producerVersion: disk.version }],
         removals: [],
-      }, 1, { author: 'disk@1' });
+      }, 1, { binding: disk, author: `${disk.producer}@${disk.version}` });
     });
     const fileKey = { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } };
     await putEdgeOpinion(owner, agent, {
@@ -319,7 +366,7 @@ describe('the agent writes the graph', () => {
     const edges = ((data['entity'] as Record<string, any>).demoContains.edges).map((one: any) => one.node);
     const kept = edges.find((one: any) => one.position === 7);
     expect(kept).toBeDefined();
-    expect(kept.opinions.map((one: any) => one.producer)).toEqual(['disk']);
+    expect(kept.opinions.map((one: any) => one.producer)).toEqual([disk.producer]);
   });
 
   test('an entity retraction keeps an incident edge another producer states', async () => {
@@ -330,9 +377,9 @@ describe('the agent writes the graph', () => {
     await owner.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, contract, {
         vertices: [],
-        edges: [{ kind: 'demo.contains', from: { kind: 'demo.repository', key: repoKey }, to: { kind: 'demo.file', key: fileKey }, values: { position: 1 }, producer: 'disk', producerVersion: '1' }],
+        edges: [{ kind: 'demo.contains', from: { kind: 'demo.repository', key: repoKey }, to: { kind: 'demo.file', key: fileKey }, values: { position: 1 }, producer: disk.producer, producerVersion: disk.version }],
         removals: [],
-      }, 1, { author: 'disk@1' });
+      }, 1, { binding: disk, author: `${disk.producer}@${disk.version}` });
     });
     const retracted = await retractOpinion(owner, agent, { entity: { kind: 'demo.repository', key: repoKey }, evidence: [{ type: 'url', url: 'https://example.test/withdraw', at: '2026-11-13T12:00:00Z' }] });
     expect(retracted.retracted).toBe(true);
@@ -342,7 +389,7 @@ describe('the agent writes the graph', () => {
     expect(node.demoContains.totalCount).toBe(1);
     const detail = await graphql(`query ($id: ID!) { entity(id: $id) { ... on DemoRepository { demoContains(first: 5) { edges { node { opinions { producer } } } } } } }`, { id: node.id });
     const edges = (detail['entity'] as Record<string, any>).demoContains.edges;
-    expect(edges[0].node.opinions.map((one: any) => one.producer)).toEqual(['disk']);
+    expect(edges[0].node.opinions.map((one: any) => one.producer)).toEqual([disk.producer]);
   });
 
   test('a catalogue identity a read returns is accepted as an edge end', async () => {
@@ -361,10 +408,10 @@ describe('the agent writes the graph', () => {
 
   test('an unknown tool argument and non-text words are refused at the tool boundary', async () => {
     const stub = { putEntity: async () => ({ kind: 'doc.term' }) } as unknown as import('../src/knowledge/product.js').KnowledgeProduct;
-    const unknown = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], valuess: 1 });
+    const unknown = await callProductTool(stub, agent, 'put_entity', { kind: 'doc.term', values: {}, evidence: [], valuess: 1 });
     expect(unknown.isError).toBe(true);
     expect((unknown.answer as Record<string, any>).error.message).toContain('valuess');
-    const words = await callProductTool(stub, agentSource('codex', 's1'), 'put_entity', { kind: 'doc.term', values: {}, evidence: [], words: ['x'] });
+    const words = await callProductTool(stub, agent, 'put_entity', { kind: 'doc.term', values: {}, evidence: [], words: ['x'] });
     expect(words.isError).toBe(true);
     expect((words.answer as Record<string, any>).error.message).toContain('words');
   });

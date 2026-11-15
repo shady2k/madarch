@@ -43,8 +43,9 @@ function parseModule(file: string, text: string, tsx: boolean): GateModule {
       for (const child of Array.isArray(entry) ? entry : [entry]) {
         if (child === null || typeof child !== 'object') continue;
         const held = child as Record<string, unknown>;
-        if (typeof held['type'] !== 'string') continue;
         held['parent'] = node;
+        // SWC call arguments wrap expressions in untyped { spread, expression } objects.
+        // Keep those wrappers in the parent chain so callback bodies retain their enclosing functions.
         link(held);
       }
     }
@@ -243,9 +244,79 @@ export function manifestFormatWords(root: string): Set<string> {
   return words;
 }
 
+/**
+ * Vocabulary declared by the engine's system contract and its writer, evidence and transaction protocols.
+ * Read declarations, not arbitrary implementation literals: a diagnostic or a query cannot turn catalogue data
+ * into engine vocabulary. These are protocol boundaries, not modules exempt from the gate.
+ */
+function engineProtocolWords(modules: Map<string, GateModule>): Set<string> {
+  const words = new Set<string>();
+  const system = modules.get('src/graph/system-contract.ts');
+  if (system !== undefined) {
+    for (const node of nodesOf(system.tree)) {
+      if (node['type'] === 'VariableDeclarator') {
+        const id = node['id'] as Node | undefined;
+        if (id?.['type'] === 'Identifier' && ['OPERATIONAL_KINDS', 'IDENTITY_KINDS'].includes(String(id['value']))) {
+          const init = node['init'] as Node | undefined;
+          if (init === undefined) continue;
+          // System kind lists may carry a TypeScript `as const` wrapper.
+          const expression = init['type'] === 'TsConstAssertion' ? init['expression'] as Node : init;
+          if (expression['type'] !== 'ArrayExpression') continue;
+          for (const child of nodesOf(expression)) {
+            const word = stringValue(child);
+            if (word !== undefined) words.add(word);
+          }
+        }
+      }
+      const id = node['id'] as Node | undefined;
+      const annotation = node['returnType'] as Node | undefined;
+      const result = annotation?.['typeAnnotation'] as Node | undefined;
+      const typeName = result?.['typeName'] as Node | undefined;
+      if (!((node['type'] === 'VariableDeclarator' && id?.['value'] === 'SYSTEM_CONTRACT') ||
+        (node['type'] === 'FunctionDeclaration' && typeName?.['value'] === 'VertexContract'))) continue;
+      for (const property of nodesOf(node)) {
+        if (property['type'] !== 'KeyValueProperty') continue;
+        const key = property['key'] as Node | undefined;
+        const value = property['value'] as Node | undefined;
+        if (key?.['value'] !== 'name' || value === undefined) continue;
+        const word = stringValue(value);
+        if (word !== undefined) words.add(word);
+      }
+    }
+  }
+  const protocols: Readonly<Record<string, readonly string[]>> = {
+    'src/graph/producer-binding.ts': ['ProducerAction', 'GraphPrincipal', 'ProducerBinding'],
+    'src/graph/evidence-targets.ts': ['EvidenceTargetKinds', 'EvidenceLocatorDraft', 'EvidenceTarget'],
+    'src/sql-driver.ts': ['SqlTransactionKind'],
+  };
+  for (const [file, names] of Object.entries(protocols)) {
+    const module = modules.get(file);
+    if (module === undefined) continue;
+    for (const declaration of nodesOf(module.tree)) {
+      if (declaration['type'] !== 'ExportDeclaration') continue;
+      const declared = declaration['declaration'] as Node | undefined;
+      if (declared === undefined || !['TsInterfaceDeclaration', 'TsTypeAliasDeclaration'].includes(String(declared['type']))) continue;
+      const id = declared['id'] as Node | undefined;
+      if (id === undefined || !names.includes(String(id['value']))) continue;
+      for (const node of nodesOf(declared)) {
+        if (node['type'] === 'TsLiteralType') {
+          const literal = node['literal'] as Node | undefined;
+          const word = literal === undefined ? undefined : stringValue(literal);
+          if (word !== undefined) words.add(word);
+        }
+        if (node['type'] !== 'TsPropertySignature') continue;
+        const key = node['key'] as Node | undefined;
+        if (key !== undefined && typeof key['value'] === 'string') words.add(key['value']);
+      }
+    }
+  }
+  return words;
+}
+
 /** Gate 1: no string literal of the engine names a kind or a field the starter catalogue alone declares. */
 export function productDataViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
   const format = manifestFormatWords(root);
+  for (const word of engineProtocolWords(modules)) format.add(word);
   const names = new Set<string>();
   for (const kind of catalogueKinds(root)) {
     // A word the manifest format itself declares is the engine's vocabulary, not product data (`labels`, `definition`).

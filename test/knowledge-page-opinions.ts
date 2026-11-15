@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import type { KeyValueDraft } from '../src/graph/contract.js';
 import { ensureVertex, publishOpinion, journalFor, writeJournal } from '../src/graph/write.js';
@@ -17,11 +18,12 @@ export async function publishFixtureOpinions(folder: string, knowledgeRoot: stri
   const owner = await createDatabaseOwner({ store: storeDatabasePath(productStoreFolder(folder, knowledgeRoot)), connectOnly: true });
   try {
     await owner.ready;
+    const binding = await testHostBinding(owner, contract, 'fixture');
     for (const opinion of opinions) {
       await owner.transaction('write', async (tx) => {
         const journal = journalFor('fixture@1');
-        const node = await ensureVertex(tx, contract, { kind: opinion.kind, key: opinion.key }, 1, journal);
-        await publishOpinion(tx, contract, { kind: opinion.kind, nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1', values: opinion.values }, 1, journal);
+        const node = await ensureVertex(tx, contract, { kind: opinion.kind, key: opinion.key }, 1, journal, binding);
+        await publishOpinion(tx, contract, { kind: opinion.kind, nodeId: node.nodeId, uid: node.uid, producer: 'fixture', producerVersion: '1', values: opinion.values }, 1, journal, binding);
         await writeJournal(tx, journal);
       });
     }

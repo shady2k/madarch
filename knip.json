@@ -3,6 +3,7 @@
   "bun": false,
   "entry": [
     "src/plugin-sdk.ts",
+    "src/assertion-prerequisites.ts",
     "scripts/*.ts",
     "test/**/*.test.ts",
     "test/deadline.ts",

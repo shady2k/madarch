@@ -46,7 +46,7 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
     if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
     // A key field a declaration leaves out of its fields is stated as text: the table's first duty is its key.
     for (const name of keyFields) if (!fields.some((held) => held.name === name)) fields.push({ name, type: 'text' });
-    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: capability === '' ? 'agent' : capability });
+    vertex.push({ name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : 'system' });
   }
   return { vertex, edge: edgeContractsOf(manifest), dictionary: [], valueTypes: manifest.valueTypes };
 }

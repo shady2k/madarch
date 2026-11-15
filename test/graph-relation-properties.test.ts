@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { expect, test } from 'bun:test';
 import { publishGraphDrafts, type GraphDrafts } from '../src/graph/write.js';
@@ -23,7 +24,7 @@ test('relation properties are batched without mixing edges, producers, contexts 
       claims.push({ kind, from, to, values, producer: 'git', producerVersion: '1', ...(discriminator === undefined ? {} : { discriminator }) });
     };
     const repository = vertex('code.repository', { name: 'fixture' }, { url: 'file:///fixture' });
-    const heldCommit = vertex('code.commit', { hash }, { algorithm: 'sha1', subject: 'fixture', author_date: '2026-01-01T00:00:00', author_offset_min: 0, commit_date: '2026-01-01T00:00:00', commit_offset_min: 0 });
+    const heldCommit = vertex('code.commit', { hash }, { algorithm: 'sha1', subject: 'fixture', author_date: '2026-01-01T00:00:00Z', author_offset_min: 0, commit_date: '2026-01-01T00:00:00Z', commit_offset_min: 0 });
     const author = vertex('code.author', { name: 'Fixture', email: 'fixture@example.test' });
     edge('code.as-is', repository, heldCommit);
     edge('code.history', repository, heldCommit, { walk: 0 });
@@ -33,20 +34,25 @@ test('relation properties are batched without mixing edges, producers, contexts 
       edge('code.contains', repository, file);
       edge('code.touched', heldCommit, file, { change: 'added', added: at + 1, removed: 0 });
     });
-    await owner.transaction('write', tx => publishGraphDrafts(tx, repositoryContract, { vertices, edges: claims, removals: [] }));
+    const gitBinding = await testHostBinding(owner, repositoryContract, 'git');
+    const reviewBinding = await testHostBinding(owner, repositoryContract, 'review');
+    await owner.transaction('write', tx => publishGraphDrafts(tx, repositoryContract, { vertices, edges: claims, removals: [] }, 1, { binding: gitBinding }));
+    await owner.exec("INSERT INTO context (parent, ref) VALUES (1, 'review')");
+    const otherBinding = await testHostBinding(owner, repositoryContract, 'other-context', '1', 2);
     const touched = (path: string, producer: string, values: Record<string, unknown>) => ({
       kind: GIT_KINDS.touched, from: heldCommit, to: { kind: 'code.file', key: { repository: 'fixture', path } }, values, producer, producerVersion: '1',
     });
     await owner.transaction('write', async (tx) => {
-      await tx.query("INSERT INTO context (parent, ref) VALUES (1, 'review')");
       // Closing and replacing the first producer's value must not leak the old value into agreement.
       await publishGraphDrafts(tx, repositoryContract, { vertices: [], edges: [
         touched('a.txt', 'git', { change: 'modified', added: 9, removed: 2 }),
+      ], removals: [] }, 1, { binding: gitBinding });
+      await publishGraphDrafts(tx, repositoryContract, { vertices: [], edges: [
         touched('b.txt', 'review', { change: 'modified', added: 7, removed: 0 }),
-      ], removals: [] });
+      ], removals: [] }, 1, { binding: reviewBinding });
       await publishGraphDrafts(tx, repositoryContract, { vertices: [], edges: [
         touched('c.txt', 'other-context', { change: 'deleted', added: 99, removed: 99 }),
-      ], removals: [] }, 2);
+      ], removals: [] }, 2, { binding: otherBinding });
     });
     const reads: string[] = [];
     await owner.transaction('snapshot', async (tx) => {

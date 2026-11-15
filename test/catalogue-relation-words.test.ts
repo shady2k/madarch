@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 /**
  * Relation words are declared data (owner's decision, 2026-11-15): a starter product's domain page and its diagrams name
  * each relation in the words the catalogue declares, in Russian and in English, and never in the relation's key.
@@ -39,6 +40,7 @@ test("a starter product's domain page and diagram name relations in the declared
     const folderEntity = { kind: 'code.directory', key: { repository: 'app', path: 'src/payments' } };
     const term = { kind: 'doc.term', key: { name: 'Payment' } };
     const producer = { producer: 'fixture', producerVersion: '1' };
+    const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
         { ...domain, ...producer },
@@ -52,7 +54,7 @@ test("a starter product's domain page and diagram name relations in the declared
         { kind: 'domain.uses-term', from: domain, to: term, ...producer },
       ],
       removals: [],
-    }, 1, { author: 'person:fixture' }));
+    }, 1, { binding, author: 'fixture@1' }));
     const uid = (await owner.transaction('snapshot', async (tx) => await tx.query<{ uid: string }>(
       `SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'domain' AND n.key->>'name' = 'Payments' AND NOT n.removed`,
     ))).rows[0]!.uid;

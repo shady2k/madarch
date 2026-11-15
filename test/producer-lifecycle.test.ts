@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { afterAll, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -97,6 +98,7 @@ async extract(unit, context) {
     const table = generatedTableName('Problem', 'vertex');
     const problems = async () => (await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string; detail: string | null; said_by: string; evidence: unknown[] }>(`SELECT title, detail, said_by, evidence FROM ${table} WHERE state='open' ORDER BY title`))).rows;
     const first = await run('bad'); expect(first.ok).toBe(true); if (!first.ok) throw new Error(JSON.stringify(first));
+    if (first.state !== 'succeeded') throw new Error(`fill failed: ${JSON.stringify(first)} outcomes: ${JSON.stringify(await readProducerOutcomes(owner, { runId: 'bad' }))}`);
     expect(first.state).toBe('succeeded');
     expect(await problems()).toEqual([expect.objectContaining({ title: 'Bad document', detail: 'grounded', said_by: expect.stringContaining('lifecycle@'), evidence: expect.arrayContaining([expect.objectContaining({ path: 'source.md' })]) })]);
     const history = await readProducerOutcomes(owner, { runId: 'bad' });
@@ -106,20 +108,17 @@ async extract(unit, context) {
     const inherited = await successfulPluginSnapshot(owner, 'cached', 'lifecycle:Document');
     expect(inherited).toEqual(expect.objectContaining({ runId: 'bad' }));
     // A scoped replacement and omission keep another field of this producer and another producer's opinion.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [
-      { kind: 'Problem', key: { id: 'finding' }, values: { title: 'Scoped', detail: 'outside scope' }, producer: 'lifecycle', producerVersion: '1.0.0' },
-      { kind: 'Problem', key: { id: 'finding' }, values: { title: 'Other' }, producer: 'other', producerVersion: '1' },
-    ], removals: [] }));
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [
+    await testHostBinding(owner, graph, 'lifecycle', '1.0.0').then(binding0 => testHostBinding(owner, graph, 'other', '1').then(binding1 => owner.transaction('write', async (tx) => { await publishGraphDrafts(tx, graph, { vertices: [{ kind: 'Problem', key: { id: 'finding' }, values: { title: 'Scoped', detail: 'outside scope' }, producer: 'lifecycle', producerVersion: '1.0.0' }], removals: [] }, 1, { binding: binding0 }); await publishGraphDrafts(tx, graph, { vertices: [{ kind: 'Problem', key: { id: 'finding' }, values: { title: 'Other' }, producer: 'other', producerVersion: '1' }], removals: [] }, 1, { binding: binding1 }); })));
+    await testHostBinding(owner, graph, 'lifecycle', '2').then(binding2 => owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [
       { kind: 'Problem', key: { id: 'finding' }, values: { title: 'Replaced' }, selectedFields: ['title'], producer: 'lifecycle', producerVersion: '2' },
-    ], removals: [] }));
+    ], removals: [] }, 1, { binding: binding2 })));
     expect(await problems()).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'Replaced', detail: 'outside scope' }), expect.objectContaining({ title: 'Other' })]));
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [], removals: [
+    await testHostBinding(owner, graph, 'lifecycle', '2').then(binding3 => owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [], removals: [
       { kind: 'Problem', key: { id: 'finding' }, selectedFields: ['title'], producer: 'lifecycle' },
-    ] }));
+    ] }, 1, { binding: binding3 })));
     expect(await problems()).toEqual(expect.arrayContaining([expect.objectContaining({ title: null, detail: 'outside scope' }), expect.objectContaining({ title: 'Other' })]));
     // Remove the additional test producer; the actual check still owns its prior finding.
-    await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [], removals: [{ kind: 'Problem', key: { id: 'finding' }, producer: 'other' }] }));
+    await testHostBinding(owner, graph, 'other', '1').then(binding4 => owner.transaction('write', async (tx) => await publishGraphDrafts(tx, graph, { vertices: [], removals: [{ kind: 'Problem', key: { id: 'finding' }, producer: 'other' }] }, 1, { binding: binding4 })));
     release = configure('partial'); const partial = await run('partial'); expect(partial.ok).toBe(true);
     // The owner's rule (2026-11-15): a partial answer keeps every entry it holds, so the Problem it states is published
     // and the outcome names the cause; only an answer that holds nothing abstains.

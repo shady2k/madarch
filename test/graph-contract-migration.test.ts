@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 /**
  * A store that holds values for a field a contract no longer declares still opens (owner's rule, 2026-11-13): a page's
  * `mentions` values become `mentions` edges, and anything else closes with a journal entry. No store refuses to open.
@@ -27,6 +28,7 @@ describe('a populated field a contract removes', () => {
 
   test('its mentions become mentions edges, and another removed value closes with a journal entry', async () => {
     owner = await createTestDatabaseOwner({ graphContract: oldContract });
+    const agentBinding = await testHostBinding(owner, oldContract, 'agent', '1');
     await owner.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, oldContract, {
         vertices: [
@@ -34,14 +36,14 @@ describe('a populated field a contract removes', () => {
           { kind: 'demo.page', key: { title: 'source' }, values: { legacy: { note: 'old value' } }, producer: 'agent', producerVersion: '1' },
         ],
         removals: [],
-      }, 1, { author: 'agent@1' });
+      }, 1, { author: 'agent@1', binding: agentBinding });
     });
     const target = await owner.run(async (tx) => (await tx.query<{ uid: string }>(`SELECT n.uid::text AS uid FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'demo.page' AND n.key->>'title' = 'target'`)).rows[0]!.uid);
     await owner.transaction('write', async (tx) => {
       await publishGraphDrafts(tx, oldContract, {
         vertices: [{ kind: 'demo.page', key: { title: 'source' }, values: { mentions: [target] }, producer: 'agent', producerVersion: '1' }],
         removals: [],
-      }, 1, { author: 'agent@1' });
+      }, 1, { author: 'agent@1', binding: agentBinding });
     });
     await prepareGraphSchema(owner, newContract);
     const columns = await owner.run(async (tx) => (await tx.query<{ column_name: string }>(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1`, [table])).rows.map((row) => row.column_name));
@@ -70,22 +72,24 @@ describe('removing derived kinds with populated edge opinions', () => {
   test('removing a plugin vertex kind refuses to delete an incident edge with person-authored history', async () => {
     const owner = await createTestDatabaseOwner({ graphContract: graph });
     try {
+      const fixtureBinding = await testHostBinding(owner, graph, 'fixture', '1');
+      const personBinding = await testHostBinding(owner, graph, 'person:reader', '1');
       await owner.transaction('write', async (tx) => {
         await publishGraphDrafts(tx, graph, {
           vertices: ['left', 'right'].map((title) => ({ kind: 'record', key: { title }, values: {}, producer: 'fixture', producerVersion: '1' })),
           removals: [],
-        }, 1, { author: 'fixture@1' });
+        }, 1, { author: 'fixture@1', binding: fixtureBinding });
         await publishGraphDrafts(tx, graph, {
           vertices: [],
           edges: [{ kind: 'links', from: { kind: 'record', key: { title: 'left' } }, to: { kind: 'record', key: { title: 'right' } }, producer: 'person:reader', producerVersion: '1' }],
           removals: [],
-        }, 1, { author: 'person:reader', words: 'Keep this link' });
+        }, 1, { author: 'person:reader@1', words: 'Keep this link', binding: personBinding });
       });
       const snapshot = async () => await owner.run(async (tx) => ({
         nodes: (await tx.query('SELECT * FROM node ORDER BY id')).rows,
         edges: (await tx.query('SELECT * FROM edge ORDER BY id')).rows,
         opinions: (await tx.query(`SELECT * FROM ${edgeTable} ORDER BY id`)).rows,
-        history: (await tx.query("SELECT * FROM operation WHERE author = 'person:reader' ORDER BY seq")).rows,
+        history: (await tx.query("SELECT * FROM operation WHERE author = 'person:reader@1' ORDER BY seq")).rows,
       }));
       const before = await snapshot();
       expect(before.opinions).toHaveLength(1);
@@ -100,21 +104,22 @@ describe('removing derived kinds with populated edge opinions', () => {
     test(`removing the ${removed} kind clears dependent opinions before graph identities`, async () => {
       const owner = await createTestDatabaseOwner({ graphContract: graph });
       try {
+        const fixtureBinding = await testHostBinding(owner, graph, 'fixture', '1');
         await owner.transaction('write', async (tx) => {
           await publishGraphDrafts(tx, graph, {
             vertices: ['left', 'right'].map((title) => ({ kind: 'record', key: { title }, values: {}, producer: 'fixture', producerVersion: '1' })),
             edges: [{ kind: 'links', from: { kind: 'record', key: { title: 'left' } }, to: { kind: 'record', key: { title: 'right' } }, producer: 'fixture', producerVersion: '1' }],
             removals: [],
-          });
+          }, 1, { binding: fixtureBinding });
         });
         await prepareGraphSchema(owner, { ...graph, [removed]: [] });
         const edges = await owner.run((tx) => tx.query('SELECT id FROM edge'));
         expect(edges.rows).toHaveLength(0);
         if (removed === 'vertex') {
           expect((await owner.run((tx) => tx.query(`SELECT id FROM ${edgeTable}`))).rows).toHaveLength(0);
-          expect((await owner.run((tx) => tx.query('SELECT id FROM node'))).rows).toHaveLength(0);
+          expect((await owner.run((tx) => tx.query("SELECT id FROM node WHERE entity_id = (SELECT id FROM entity WHERE name = 'record')"))).rows).toHaveLength(0);
         } else {
-          expect((await owner.run((tx) => tx.query('SELECT id FROM node'))).rows).toHaveLength(2);
+          expect((await owner.run((tx) => tx.query("SELECT id FROM node WHERE entity_id = (SELECT id FROM entity WHERE name = 'record')"))).rows).toHaveLength(2);
         }
       } finally { await owner.close(); }
     });

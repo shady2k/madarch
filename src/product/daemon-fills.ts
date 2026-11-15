@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { requestStorePreparation } from './store-preparation.js';
+import { readPinnedGraphContract, readPinnedPluginInstallations } from './preparation-contract.js';
 import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from './store.js';
 import { readProduct } from './manifest.js';
 import { openFillDatabase, fillProgressOf, type FillActivity, type FillOrchestratorService, type FillProduct, type FillProgressAnswer, type FillRunControl, type FillRunControlAnswer, type FillRunRequest, type FillRunResult, type RefusedFillRun } from '../fill/orchestrator-host.js';
@@ -55,14 +56,14 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
   /** The store of one product, by the one function every caller resolves it with. */
   const storeFolderOfProduct = (productFolder: string): string => productStoreFolder(productFolder, knowledgeRoot);
   /** Opens one store's owner, or answers the opening already under way for it: one owner per store, whichever asks. */
-  const openStore = async (storeFolder: string): Promise<HeldStore> => {
+  const openStore = async (storeFolder: string, productFolder: string): Promise<HeldStore> => {
     const held = stores.get(storeFolder);
     if (held !== undefined) return held;
     const pending = opening.get(storeFolder);
     if (pending !== undefined) return await pending;
     const made = (async (): Promise<HeldStore> => {
       mkdirSync(dirname(storeDatabasePath(storeFolder)), { recursive: true });
-      await requestStorePreparation(storeDatabasePath(storeFolder));
+      await requestStorePreparation(storeDatabasePath(storeFolder), await readPinnedGraphContract(productFolder), await readPinnedPluginInstallations(productFolder));
       const owner = await openFillDatabase(storeDatabasePath(storeFolder));
       await owner.ready;
       const one: HeldStore = { storeFolder, owner };
@@ -81,12 +82,12 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     if (stopped) throw new Error("the daemon's fills were stopped, so they read no store (src/product/daemon.ts)");
     const storeFolder = storeFolderOfProduct(productFolder);
     if (!existsSync(storeDatabasePath(storeFolder)) && !opening.has(storeFolder)) return undefined;
-    return await openStore(storeFolder);
+    return await openStore(storeFolder, productFolder);
   };
   /** The store a run writes: opened here, because a run writes what a read may not create. */
   const store = async (productFolder: string): Promise<HeldStore> => {
     if (stopped) throw new Error("the daemon's fills were stopped, so a run opens no store (src/product/daemon.ts)");
-    return await openStore(storeFolderOfProduct(productFolder));
+    return await openStore(storeFolderOfProduct(productFolder), productFolder);
   };
   const withService = async <T>(productFolder: string, work: (service: FillOrchestratorService) => Promise<T>): Promise<T | undefined> => {
     const held = await opened(productFolder);
@@ -105,7 +106,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
     const result = await runFill({
       product: request.product.folder,
       database: held.owner,
-      prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(held.storeFolder), contract),
+      prepareContract: async (contract) => await requestStorePreparation(storeDatabasePath(held.storeFolder), contract, await readPinnedPluginInstallations(request.product.folder)),
       runId: request.runId,
       home: held.storeFolder,
       store: held.storeFolder,
@@ -136,7 +137,7 @@ export function daemonFills(home: string, options: { readonly log?: (line: strin
       const { publishValidatedManifests } = await import('../graph/manifest-publication.js');
       const folder = storeFolderOfProduct(validated.folder);
       const contract = graphContractOf(validated.manifest);
-      await requestStorePreparation(storeDatabasePath(folder), contract);
+      await requestStorePreparation(storeDatabasePath(folder), contract, await readPinnedPluginInstallations(validated.folder));
       const held = await store(validated.folder);
       await createFillStateSchema(held.owner);
       await createOrchestratorSchema(held.owner);

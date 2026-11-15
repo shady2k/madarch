@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { contentsOf } from '../src/plugin/stored-text.js';
 /**
  * The ordinary repository plugins (madarch-8bdc.2.5, step 1's items 1 and 2): the tables
@@ -57,6 +58,7 @@ async function fillRepository(folder = repository, name = 'fixture') {
   if (folder !== repository && !existsSync(fixture)) makeProduct(fixture, folder, name);
   const result = await runFill({ product: fixture, database: owner, home: join(root, 'home'), runId: `records-${++runSequence}`, prepareContract: async contract => { await prepareStore(owner!, { contract }); } });
   if (!result.ok) throw new Error(`fill refused: ${result.reason}`);
+  if (result.state !== 'succeeded') throw new Error(`fill failed: ${JSON.stringify(result)}`);
   expect(result.state).toBe('succeeded');
   return result;
 }
@@ -128,15 +130,15 @@ test('file-only facts need no repository entity or history, and a missing file i
   } });
   try {
     const blob = 'b'.repeat(40);
-    await files.transaction('write', async (tx) => {
+    await testHostBinding(files, GIT_CONTRACT, 'disk', '1').then(binding0 => testHostBinding(files, GIT_CONTRACT, 'disk', '1').then(binding1 => files.transaction('write', async (tx) => {
       const journal = journalFor('disk@1');
-      const node = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'files-only', path: 'src/one.ts' } }, 1, journal);
+      const node = await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'files-only', path: 'src/one.ts' } }, 1, journal, binding0);
       await publishOpinion(tx, GIT_CONTRACT, {
         kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '1',
         values: { mode: '100644', blob, bytes: 20, form: 'text', lines: 1, content: 'export const n = 1;\n', language: 'TypeScript', languages: ['TypeScript'] },
-      }, 1, journal);
+      }, 1, journal, binding1);
       await writeJournal(tx, journal);
-    });
+    })));
     const repositories = await files.run((tx) => tx.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = $1',
       [GIT_KINDS.repository],
@@ -257,15 +259,15 @@ describe('the two passes over one fixture', () => {
        WHERE o."state" = 'open' AND (n.key->>'path') = 'src/a.ts' AND split_part(o."said_by", '@', 1) = 'disk'`,
     ));
     expect(stored.rows).toEqual([{ lang: null, language: 'TypeScript', languages: ['TypeScript', 'XML'] }]);
-    const node = await owner.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }));
+    const node = await testHostBinding(owner!, GIT_CONTRACT, 'disk', '9.5.0').then(binding2 => owner!.transaction('write', async (tx) => await ensureVertex(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, key: { repository: 'fixture', path: 'src/a.ts' } }, 1, undefined, binding2)));
     // The producer states one language, then another: a changed value closes the opinion it supersedes, so one open
     // opinion of the producer is left. Before the move both rows matched on the producer and stayed open.
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }));
+    await testHostBinding(owner!, GIT_CONTRACT, 'disk', '9.5.0').then(binding3 => owner!.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'TypeScript', languages: ['TypeScript', 'XML'] }, lang: null }, 1, undefined, binding3)));
     const first = await owner.transaction('snapshot', async (tx) => await tx.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND "state" = 'open' AND split_part("said_by", '@', 1) = 'disk'`, [node.nodeId],
     ));
     expect(first.rows[0]?.n).toBe('1');
-    await owner.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }));
+    await testHostBinding(owner!, GIT_CONTRACT, 'disk', '9.5.0').then(binding4 => owner!.transaction('write', async (tx) => await publishOpinion(tx, GIT_CONTRACT, { kind: GIT_KINDS.file, nodeId: node.nodeId, producer: 'disk', producerVersion: '9.5.0', values: { language: 'JavaScript', languages: ['JavaScript'] }, lang: null }, 1, undefined, binding4)));
     const states = await owner.transaction('snapshot', async (tx) => await tx.query<{ state: string; language: string | null; lang: string | null }>(
       `SELECT "state", "language", "lang" FROM ${GIT_TABLES.file} WHERE "node_id" = $1::bigint AND split_part("said_by", '@', 1) = 'disk' ORDER BY "id"`, [node.nodeId],
     ));

@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestDatabaseOwner } from './test-database.js';
+import { testAgentBinding } from './host-binding-fixture.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
@@ -42,7 +43,7 @@ test('the declared value sets are published as entities, and a field points at a
     const closed = await owner.run((tx) => tx.query<{ set: Record<string, unknown> }>(`SELECT n.key->'set' AS set FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = 'value-set-entry' AND n.key->>'value' = 'closed' AND NOT n.removed`));
     expect(closed.rows[0]!.set).toEqual({ kind: 'value-set', key: { name: 'task-status' } });
     // A work entity's field points at the entry, and the entry's page reaches it back through that reference.
-    await putEntityOpinion(owner, { producer: 'test', version: '1' }, {
+    await putEntityOpinion(owner, await testAgentBinding(owner, withManifestContract(graphContractOf(read.value.manifest))), {
       kind: 'task', key: { tracker: 'test', key: 'T-1' }, values: { title: 'A task', description: 'body', status: { kind: 'value-set-entry', key: { set: { kind: 'value-set', key: { name: 'task-status' } }, value: 'closed' } } },
       evidence: [{ type: 'conversation', id: 'test', words: 'A task with a status.' }],
     });

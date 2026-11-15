@@ -28,10 +28,12 @@
 import { randomUUID } from 'node:crypto';
 import { withSpan } from '../obs/trace.js';
 import type { SqlExecutor } from '../sql-driver.js';
+import { databaseOwnerOf } from '../adapters/database-owner.js';
 import { fitsValueSchema } from './value-types.js';
 import { type EdgeDraft, type EdgeRemovalDraft, type EntityRefDraft, type EvidenceDraft, type EvidenceEntry, type FieldContract, type GraphContract, type KeyValueDraft, type VertexContract, type VertexDraft, type VertexRemovalDraft } from './contract.js';
 export type { EdgeDraft, EdgeRemovalDraft } from './contract.js';
 import { keyUid } from './uid.js';
+import { issueSystemBootstrapBinding, requirePublicationBinding, requireProducerAction, requireProducerBinding, type ProducerBinding } from './producer-binding.js';
 
 /** Where a refusal stands: the module, and a line this file cannot name for a statement built at run time. */
 const WHERE = import.meta.path;
@@ -385,7 +387,8 @@ function liftedReferences(contract: GraphContract, vertex: VertexContract | unde
  * find it, the review of stage 1, finding 7), live again where a removal had marked it. A keyless kind's vertex is
  * its own uid alone.
  */
-export async function ensureVertex(executor: SqlExecutor, contract: GraphContract, draft: Pick<VertexDraft, 'kind' | 'key'>, contextId = 1, journal?: Journal): Promise<{ nodeId: string; uid: string; created: boolean; revived: boolean }> {
+export async function ensureVertex(executor: SqlExecutor, contract: GraphContract, draft: Pick<VertexDraft, 'kind' | 'key'>, contextId = 1, journal?: Journal, binding?: ProducerBinding): Promise<{ nodeId: string; uid: string; created: boolean; revived: boolean }> {
+  requireProducerBinding(executor, contract, binding, contextId, 'vertex', draft.kind);
   journal = heldJournal(executor, journal);
   const vertex = vertexOf(contract, draft.kind);
   const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
@@ -627,8 +630,11 @@ async function stateOpinions(executor: SqlExecutor, entity: string, table: strin
  * One opinion of one vertex's fields, stated by a producer against a node the caller already holds. Answers whether it
  * wrote, so a rerun of the same answer writes nothing.
  */
-export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly selectedFields?: readonly string[]; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal): Promise<boolean> {
+export async function publishOpinion(executor: SqlExecutor, contract: GraphContract, draft: { readonly kind: string; readonly nodeId: string; readonly uid?: string; readonly selectedFields?: readonly string[]; readonly values?: Readonly<Record<string, unknown>>; readonly evidence?: readonly EvidenceDraft[]; readonly lang?: string | null; readonly translatedFrom?: string; readonly sourceDigest?: string; readonly producer: string; readonly producerVersion: string }, contextId = 1, journal?: Journal, binding?: ProducerBinding): Promise<boolean> {
+  requireProducerBinding(executor, contract, binding, contextId, 'vertex', draft.kind, [...Object.keys(draft.values ?? {}), ...(draft.selectedFields ?? vertexOf(contract, draft.kind).fields.filter(field => !vertexOf(contract, draft.kind).key.includes(field.name)).map(field => field.name))], draft.producer, draft.producerVersion);
   const vertex = vertexOf(contract, draft.kind);
+  const node = await executor.query(`SELECT n.id FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.id = $1::bigint AND e.name = $2 AND n.context_id = $3::bigint AND NOT n.removed`, [draft.nodeId, draft.kind, String(contextId)]);
+  if (node.rows.length !== 1) throw new Error(`${WHERE}:1: opinion target does not stand in its bound kind and context`);
   const values = valuesOf(contract, vertex, draft);
   const fields = vertex.fields.filter((field) => !vertex.key.includes(field.name)).map((field) => field.name);
   return await stateOpinion(executor, vertex.name, vertex.table, 'node_id', draft.nodeId, `${draft.producer}@${draft.producerVersion}`, values, fields, evidenceList(draft), draft.lang ?? null, contextId, heldJournal(executor, journal), draft.uid, undefined, { ...(draft.translatedFrom === undefined ? {} : { translatedFrom: draft.translatedFrom }), ...(draft.sourceDigest === undefined ? {} : { sourceDigest: draft.sourceDigest }) }, draft.selectedFields);
@@ -641,7 +647,8 @@ export async function publishOpinion(executor: SqlExecutor, contract: GraphContr
  * item 5; 0035, item 2). A retraction naming an edge the store does not hold, or one this producer holds no open
  * opinion of, writes nothing.
  */
-export async function withdrawEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, producer: string, journal?: Journal): Promise<boolean> {
+export async function withdrawEdge(executor: SqlExecutor, contract: GraphContract, kindName: string, edgeId: string, producer: string, journal?: Journal, binding?: ProducerBinding): Promise<boolean> {
+  requireProducerBinding(executor, contract, binding, binding?.contextId ?? 1, 'edge', kindName, contract.edge.find(kind => kind.name === kindName)?.fields.map(field => field.name) ?? [], producer, undefined, 'retract-own');
   journal = heldJournal(executor, journal);
   const kind = edgeOfKind(contract, kindName);
   const held = await executor.query<{ from_uid: string; to_uid: string; discriminator: string; context_id: string }>(
@@ -649,6 +656,7 @@ export async function withdrawEdge(executor: SqlExecutor, contract: GraphContrac
      FROM edge e JOIN node fn ON fn.id = e.from_node JOIN node tn ON tn.id = e.to_node WHERE e.id = $1::bigint FOR UPDATE OF e`, [edgeId]);
   const row = held.rows[0];
   if (row === undefined) return false;
+  if (Number(row.context_id) !== binding?.contextId) throw new Error(`${WHERE}:1: edge target belongs to another context`);
   const closed = await executor.query<{ id: string; said_by: string; lang: string | null }>(
     `UPDATE ${kind.table} SET "state" = 'closed' WHERE "edge_id" = $1::bigint AND split_part("said_by", '@', 1) = $2 AND "state" = 'open' AND "context_id" = $3::bigint RETURNING "id"::text AS id, "said_by", "lang"`,
     [edgeId, producer, row.context_id],
@@ -673,7 +681,9 @@ export async function withdrawEdge(executor: SqlExecutor, contract: GraphContrac
  * when no open opinion of any producer remains (the review of stage 1, finding 3). A later opinion of any producer
  * brings it back.
  */
-export async function removeEntity(executor: SqlExecutor, contract: GraphContract, draft: VertexRemovalDraft, contextId = 1, journal?: Journal): Promise<boolean> {
+export async function removeEntity(executor: SqlExecutor, contract: GraphContract, draft: VertexRemovalDraft, contextId = 1, journal?: Journal, binding?: ProducerBinding): Promise<boolean> {
+  requireProducerBinding(executor, contract, binding, contextId, 'vertex', draft.kind, draft.selectedFields ?? vertexOf(contract, draft.kind).fields.filter(field => !vertexOf(contract, draft.kind).key.includes(field.name)).map(field => field.name), draft.producer, undefined, 'retract-own');
+  if (draft.withdrawAll === true) requireProducerBinding(executor, contract, binding, contextId, 'vertex', draft.kind, [], draft.producer, undefined, 'merge');
   journal = heldJournal(executor, journal);
   const vertex = vertexOf(contract, draft.kind);
   const key = canonicalKeyOf(contract, vertex, draft.key, `an entity of the kind ${JSON.stringify(vertex.name)}`);
@@ -718,7 +728,7 @@ export async function removeEntity(executor: SqlExecutor, contract: GraphContrac
   );
   let blocked = false;
   for (const edge of incident.rows) {
-    await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal);
+    await withdrawEdge(executor, contract, edge.kind, edge.id, draft.producer, journal, binding);
     const table = contract.edge.find((one) => one.name === edge.kind)?.table;
     if (table === undefined) continue;
     const stillOpen = await executor.query<{ n: string }>(`SELECT count(*)::text AS n FROM "${table}" WHERE "edge_id" = $1::bigint AND "state" IN ('open', 'confirmed') AND "context_id" = $2::bigint`, [edge.id, String(contextId)]);
@@ -795,24 +805,13 @@ export interface GraphDrafts {
   readonly edgeRemovals?: readonly EdgeRemovalDraft[];
 }
 
-/** The producer an entry's author falls back to: the first draft's producer, whichever kind of draft it is. */
-function producerOf(drafts: GraphDrafts): string | undefined {
-  const vertex = drafts.vertices[0];
-  if (vertex !== undefined) return `${vertex.producer}@${vertex.producerVersion}`;
-  const edge = (drafts.edges ?? [])[0];
-  if (edge !== undefined) return `${edge.producer}@${edge.producerVersion}`;
-  const removal = drafts.removals[0];
-  if (removal !== undefined) return removal.producer;
-  return drafts.edgeRemovals?.[0]?.producer;
-}
-
 /**
  * One edge a producer withdraws: its ends are found the way a declaration's are (by uid of the kind and key), the edge
  * row between them by its discriminator, and the producer's own open opinions of it close (decision 0034, item 5; 0035,
  * item 2). A removal that names an edge the store does not hold, or one the producer holds no open opinion of, writes
  * nothing — a rerun of the same answer and an edge never made are the same silence.
  */
-async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, draft: EdgeRemovalDraft, contextId: number, journal?: Journal): Promise<boolean> {
+async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, draft: EdgeRemovalDraft, contextId: number, journal?: Journal, binding?: ProducerBinding): Promise<boolean> {
   const declared = contract.edge.find((held) => held.name === draft.kind);
   if (declared === undefined || declared.table === undefined) return false;
   const from = await referencedNodeOf(executor, contract, draft.from, `the from of the removed edge ${JSON.stringify(draft.kind)}`);
@@ -825,7 +824,7 @@ async function removeEdgeDraft(executor: SqlExecutor, contract: GraphContract, d
   );
   const id = found.rows[0]?.id;
   if (id === undefined) return false;
-  return await withdrawEdge(executor, contract, draft.kind, id, draft.producer, journal);
+  return await withdrawEdge(executor, contract, draft.kind, id, draft.producer, journal, binding);
 }
 
 /** A declaration's node, and where each vertex's key names its references. */
@@ -944,7 +943,19 @@ async function publishEdges(executor: SqlExecutor, contract: GraphContract, draf
   return written;
 }
 
-export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[]; readonly withdrawal?: JournalWithdrawal } = {}): Promise<number> {
+export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: GraphDrafts, contextId = 1, options: { readonly binding?: ProducerBinding; readonly author?: string; readonly words?: string; readonly machine?: string; readonly session?: string; readonly reads?: readonly JournalRead[]; readonly withdrawal?: JournalWithdrawal } = {}): Promise<number> {
+  const verifiedBinding = requirePublicationBinding(executor, contract, options.binding, contextId);
+  const boundAuthor = `${verifiedBinding.producer}@${verifiedBinding.version}`;
+  if (drafts.vertices.length === 0 && (drafts.edges?.length ?? 0) === 0 && drafts.removals.length === 0 && (drafts.edgeRemovals?.length ?? 0) === 0) requireProducerAction(verifiedBinding, options.withdrawal === undefined ? 'assert' : 'retract-own');
+
+  if (verifiedBinding.sessionUid !== undefined && options.session !== undefined && options.session !== verifiedBinding.sessionUid) throw new Error(`${WHERE}:1: journal session differs from the host-issued source binding`);
+  if (options.author !== undefined && options.author !== boundAuthor) throw new Error(`${WHERE}:1: journal author differs from the host-issued source binding`);
+  for (const draft of drafts.vertices) requireProducerBinding(executor, contract, options.binding, contextId, 'vertex', draft.kind, [...Object.keys(draft.values ?? {}), ...(draft.selectedFields ?? vertexOf(contract, draft.kind).fields.filter(field => !vertexOf(contract, draft.kind).key.includes(field.name)).map(field => field.name))], draft.producer, draft.producerVersion);
+  for (const draft of drafts.edges ?? []) requireProducerBinding(executor, contract, options.binding, contextId, 'edge', draft.kind, [...Object.keys(draft.values ?? {}), ...(contract.edge.find(kind => kind.name === draft.kind)?.fields.map(field => field.name) ?? [])], draft.producer, draft.producerVersion);
+  for (const draft of drafts.removals) requireProducerBinding(executor, contract, options.binding, contextId, 'vertex', draft.kind, draft.selectedFields ?? vertexOf(contract, draft.kind).fields.filter(field => !vertexOf(contract, draft.kind).key.includes(field.name)).map(field => field.name), draft.producer, undefined, 'retract-own');
+  for (const draft of drafts.removals) if (draft.withdrawAll === true) requireProducerBinding(executor, contract, options.binding, contextId, 'vertex', draft.kind, [], draft.producer, undefined, 'merge');
+  for (const draft of drafts.edgeRemovals ?? []) requireProducerBinding(executor, contract, options.binding, contextId, 'edge', draft.kind, contract.edge.find(kind => kind.name === draft.kind)?.fields.map(field => field.name) ?? [], draft.producer, undefined, 'retract-own');
+  if (options.binding === undefined) throw new Error(`${WHERE}:1: a graph write requires a host-issued source binding`);
   // Validate the complete publication before its first SQL statement.
   for (const draft of drafts.vertices ?? []) {
     const kind = vertexOf(contract, draft.kind);
@@ -969,17 +980,17 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   // for an operation; without one named, the drafts' own producers name it — a removal-only or edge-only publication
   // included. A publication with no author at all is refused: every change stands in the journal (A5; codex, stage 2
   // review, item 1).
-  const author = options.author ?? producerOf(drafts);
+  const author = boundAuthor;
   if (author === undefined || author === '') {
     throw new Error(`${WHERE}:1: a publication names its author — a producer and its version, "agent", or "person:<uid>" — and this one states a change with none: every change stands in the journal`);
   }
-  const journal = journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...(options.session === undefined ? {} : { session: options.session }) });
+  const journal = journalFor(author, { ...(options.words === undefined ? {} : { words: options.words }), ...(options.machine === undefined ? {} : { machine: options.machine }), ...((verifiedBinding.sessionUid ?? options.session) === undefined ? {} : { session: (verifiedBinding.sessionUid ?? options.session)! }) });
   journalOn(executor, journal);
   for (const record of options.reads ?? []) journal.read(record);
   if (options.withdrawal !== undefined) journal.withdrew(options.withdrawal);
   // Removals first: a removal states what its producer no longer holds, and the rest of the publication is what it does.
-  for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal)) written += 1;
-  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal)) written += 1;
+  for (const draft of drafts.removals) if (await removeEntity(executor, contract, draft, contextId, journal, options.binding)) written += 1;
+  for (const draft of drafts.edgeRemovals ?? []) if (await removeEdgeDraft(executor, contract, draft, contextId, journal, options.binding)) written += 1;
   const beforeDeclarations = journal.vertices.length;
   const declared = await declareVertices(executor, contract, drafts.vertices, contextId, journal);
   written += journal.vertices.length - beforeDeclarations;
@@ -1003,3 +1014,11 @@ export async function publishGraphDrafts(executor: SqlExecutor, contract: GraphC
   return written;
 }
 
+
+/** The system installer alone bootstraps engine-owned graph identities through this writer. */
+export async function installSystemGraphDrafts(executor: SqlExecutor, contract: GraphContract, drafts: { readonly vertices?: readonly VertexDraft[]; readonly edges?: readonly EdgeDraft[] }): Promise<number> {
+  const owner = databaseOwnerOf(executor);
+  if (owner === undefined) throw new Error(`${WHERE}:1: system installation requires a host database owner`);
+  const binding = issueSystemBootstrapBinding(owner, contract);
+  return await publishGraphDrafts(executor, contract, { vertices: drafts.vertices ?? [], edges: drafts.edges ?? [], removals: [] }, 1, { binding });
+}

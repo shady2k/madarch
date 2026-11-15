@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { prepareStore } from '../src/adapters/prepare-store.js';
 /**
@@ -52,13 +53,11 @@ function counted(owner: DatabaseOwner): { readonly owner: DatabaseOwner; readonl
   const wrapped = new Proxy(owner, {
     get(target, key) {
       if (key === 'transaction') {
-        return async (kind: string, work: (tx: never) => Promise<unknown>) => await target.transaction(kind as never, async (tx) => work(new Proxy(tx, {
-          get(txTarget, txKey) {
-            if (txKey === 'query') return async (...args: unknown[]) => { queries += 1; return await (txTarget.query as (...one: unknown[]) => Promise<unknown>)(...args); };
-            const value = Reflect.get(txTarget, txKey);
-            return typeof value === 'function' ? value.bind(txTarget) : value;
-          },
-        }) as never));
+        return async (kind: string, work: (tx: never) => Promise<unknown>) => await target.transaction(kind as never, async (tx) => {
+          const query = tx.query.bind(tx);
+          tx.query = async (...args) => { queries += 1; return await query(...args); };
+          return await work(tx as never);
+        });
       }
       const value = Reflect.get(target, key);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -73,6 +72,7 @@ describe('a store reopened after its contract gained a nullable field', () => {
     const first = await createDatabaseOwner({ store });
     try {
       expect(await prepareStore(first, { contract: contractBefore() })).toEqual({ reset: true });
+      const binding = await testHostBinding(first, contractBefore(), 'fixture');
       await first.transaction('write', async (tx) => await publishGraphDrafts(tx, contractBefore(), {
         vertices: [
           { kind: 'fixture.table', key: { name: 'a' }, values: { label: 'first' }, producer: 'fixture', producerVersion: '1' },
@@ -80,7 +80,7 @@ describe('a store reopened after its contract gained a nullable field', () => {
         ],
         edges: [{ kind: 'fixture.edge', from: { kind: 'fixture.table', key: { name: 'a' } }, to: { kind: 'fixture.table', key: { name: 'b' } }, discriminator: 'one', values: { weight: 2 }, producer: 'fixture', producerVersion: '1' }],
         removals: [],
-      }, 1));
+      }, 1, { binding }));
     } finally { await first.close(); }
 
     const changed = await createDatabaseOwner({ store });
@@ -88,11 +88,12 @@ describe('a store reopened after its contract gained a nullable field', () => {
     try {
       expect(await prepareStore(changedCount.owner, { contract: contractAfter() })).toEqual({ reset: false });
       // The next publication writes the new vertex and edge columns; the old opinions stand.
+      const binding = await testHostBinding(changed, contractAfter(), 'fixture-2');
       await changed.transaction('write', async (tx) => await publishGraphDrafts(tx, contractAfter(), {
         vertices: [{ kind: 'fixture.table', key: { name: 'a' }, values: { unsupported: false }, producer: 'fixture-2', producerVersion: '1' }],
         edges: [{ kind: 'fixture.edge', from: { kind: 'fixture.table', key: { name: 'a' } }, to: { kind: 'fixture.table', key: { name: 'b' } }, discriminator: 'one', values: { note: 'n' }, producer: 'fixture-2', producerVersion: '1' }],
         removals: [],
-      }, 1));
+      }, 1, { binding }));
       const reader = new GraphReader(changed, () => 'now', undefined, undefined, undefined, new Map([['fixture.table', {
         kind: 'fixture.table', table, columns: ['label', 'unsupported'], types: { label: 'text', unsupported: 'boolean' }, key: ['name'],
       }]]));

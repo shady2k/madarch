@@ -57,9 +57,18 @@ test('publishes complete metadata and declaration evidence without repository co
     expect(rows.rows[0]!.evidence[0]!.line_start).toBe(1);
     expect(rows.rows[0]!.evidence[0]!.commit_or_digest).toHaveLength(40);
     let queries = 0;
-    const counted = { ...owner, transaction: async <T>(kind: Parameters<typeof owner.transaction>[0], work: Parameters<typeof owner.transaction<T>>[1]): Promise<T> => owner.transaction(kind, async (tx) => work({ ...tx, query: async (...args: Parameters<typeof tx.query>) => { queries++; return tx.query(...args); } } as typeof tx)) };
-    expect(await publishValidatedManifests(counted, read.value)).toBe(0);
-    expect(queries).toBeLessThan(10);
+    const transaction = owner.transaction;
+    const runTransaction = owner.transaction.bind(owner);
+    owner.transaction = async (kind, work) => await runTransaction(kind, async (tx) => {
+      const query = tx.query;
+      tx.query = async (...args) => { queries++; return await query(...args); };
+      return await work(tx);
+    });
+    try {
+      expect(await publishValidatedManifests(owner, read.value)).toBe(0);
+      expect(queries).toBeLessThan(10);
+    } finally { owner.transaction = transaction; }
+
     const regrounded = { ...read.value, vertices: read.value.vertices.map((one) => ({ ...one, evidence: [{ repository: folder, path: 'madarch/catalog.yaml', lineStart: 9, lineEnd: 9, commit: 'b'.repeat(40) }] })) };
     expect(await publishValidatedManifests(owner, regrounded)).toBeGreaterThan(0);
     const grounds = await owner.run((tx) => tx.query<{ evidence: { line_start: number; commit_or_digest: string }[] }>(`SELECT evidence FROM "${generatedTableName('manifest.kind', 'vertex')}" WHERE state = 'open'`));

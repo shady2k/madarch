@@ -1,6 +1,7 @@
 /** Validate a product's declarations once, then publish only metadata through the graph writer. */
 import { isAbsolute, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { builtinBinding } from './system-installation.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { SqlExecutor } from '../sql-driver.js';
 import type { EdgeDraft, EdgeRemovalDraft, GraphContract, VertexDraft, VertexRemovalDraft } from '../graph/contract.js';
@@ -196,6 +197,9 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 
 /** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
+  const manifestBinding = await builtinBinding(owner, MANIFEST_CONTRACT, 'manifest');
+  const valueContract = authored ?? graphContractOf(validated.manifest);
+  const valueBinding = await builtinBinding(owner, valueContract, 'manifest');
   return await owner.transaction('write', async (tx) => {
     const identity = (kind: string, key: unknown): string => JSON.stringify([kind, key]);
     const held = await tx.query<{ kind: string; key: Record<string, string> }>(`SELECT e.name AS kind, n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE e.name = ANY($1::text[]) AND NOT n.removed`, [`{${MANIFEST_CONTRACT.vertex.map((one) => one.name).join(',')}}`]);
@@ -240,11 +244,10 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       const held = currentEdges.get(key);
       return held === undefined || !isDeepStrictEqual(held.values, one.values) || !isDeepStrictEqual(held.evidence, evidenceList(one));
     }).map(([, one]) => one);
-    let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges, removals, edgeRemovals }, 1, { author: 'manifest' });
-    const valueContract = authored ?? graphContractOf(validated.manifest);
+    let written = await publishGraphDrafts(tx, MANIFEST_CONTRACT, { vertices, edges, removals, edgeRemovals }, 1, { binding: manifestBinding });
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
     if (valueKinds.size > 0 && [...valueKinds].every((kind) => valueContract.vertex.some((vertex) => vertex.name === kind))) {
-      written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+      written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { binding: valueBinding });
     }
     return written;
   });

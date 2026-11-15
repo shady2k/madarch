@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { commitAuthoredImport } from '../adapters/authored-import.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
+import type { ProducerBinding } from '../graph/producer-binding.js';
 import { authoredEntity } from '../graph/authored.js';
 import { type Finding, type KindsManifest } from '../product/manifest/kinds.js';
 import { authoredImportCandidates, readAuthoredImport, archiveAuthoredImport } from '../plugin/authored-import-source.js';
@@ -17,7 +18,7 @@ export interface AuthoredImportResult { imported: string[]; archived: string[]; 
  * Imports each item atomically, keeping failures in place. A committed journal receipt survives an interrupted archive,
  * so retrying never creates a second keyless entity. Original bytes live in the journal, encoded without text loss.
  */
-export async function importAuthored(productFolder: string, owner: Parameters<typeof commitAuthoredImport>[0], manifest: KindsManifest, prefix: string, person: string): Promise<AuthoredImportResult> {
+export async function importAuthored(productFolder: string, owner: Parameters<typeof commitAuthoredImport>[0], manifest: KindsManifest, prefix: string, binding: ProducerBinding): Promise<AuthoredImportResult> {
   return await withSpan('authored.import', {}, async () => {
   const result: AuthoredImportResult = { imported: [], archived: [], errors: [] };
   const root = resolve(productFolder);
@@ -43,7 +44,7 @@ export async function importAuthored(productFolder: string, owner: Parameters<ty
           else if (field.name in entity.front) values[field.name] = entity.front[field.name];
         }
         const imported = await commitAuthoredImport(owner, identity, words, async (tx, uid) => {
-          await authoredEntity(tx, manifest, prefix, person, uid === undefined ? 'create' : 'edit', decl.name, { values, words, ...(uid === undefined ? {} : { uid, recordUnchanged: true }) });
+          await authoredEntity(tx, manifest, prefix, binding, uid === undefined ? 'create' : 'edit', decl.name, { values, words, ...(uid === undefined ? {} : { uid, recordUnchanged: true }) });
         });
         if (imported) result.imported.push(file);
         archiveAuthoredImport(root, file, digest, bytes, AUTHORED_ARCHIVE);

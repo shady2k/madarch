@@ -4,9 +4,8 @@
  * create/update/delete surface: `put_entity` states the agent's opinion of an entity's fields, `put_edge` its opinion of
  * an edge, and `retract` closes only this agent's own open opinions.
  *
- * The producer is `agent:<client>@<session>`: the client's own name from `initialize` (`clientInfo`) and this server
- * process's session. It is written like a plugin's producer, so on one field the agent's and the plugins' opinions
- * meet by decision 0036, section 2 — an agreed value stands, a disagreement is null and contested.
+ * The host assigns a retained agent source to the local principal and product scope. A session records activity,
+ * not a new independent opinion. Client metadata never grants a writer identity.
  */
 import { randomUUID } from 'node:crypto';
 import { KnowledgeProduct } from '../knowledge/product.js';
@@ -15,15 +14,10 @@ import { serveUnitMcp } from '../fill/unit-mcp.js';
 import { runningVersion } from '../product/version.js';
 import { knowledgeRootOf } from '../product/store.js';
 import { productsHome, type DraftEnv } from '../product/home.js';
-import { WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { WriteRefusal } from '../graph/graph-writes.js';
+import { graphProducerOf, type ProducerBinding } from '../graph/producer-binding.js';
 import { renderDiagram } from '../render/diagram-render.js';
 import type { McpToolDefinition, UnitToolAnswer } from './types.js';
-
-/** The producer a client's writes carry: `agent:<client>`, its session as the producer's version. */
-export function agentSource(client: string, session: string): WriteSource {
-  const name = client.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 64) || 'mcp-client';
-  return { producer: `agent:${name}`, version: session };
-}
 
 const object = (properties: Record<string, unknown>, required: readonly string[]): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
 
@@ -117,8 +111,8 @@ const WRITE_TOOLS: readonly McpToolDefinition[] = [
 export const PRODUCT_TOOLS: readonly McpToolDefinition[] = [...READ_TOOLS, ...WRITE_TOOLS];
 
 /** One tool call of the product session, its refusal answered as the tool's own content. */
-export async function callProductTool(product: KnowledgeProduct, source: WriteSource, name: string, input: unknown): Promise<UnitToolAnswer> {
-  return await withSpan('mcp.product', { 'mcp.tool': name, 'mcp.producer': source.producer }, async () => {
+export async function callProductTool(product: KnowledgeProduct, source: ProducerBinding | undefined, name: string, input: unknown): Promise<UnitToolAnswer> {
+  return await withSpan('mcp.product', { 'mcp.tool': name }, async () => {
     try {
       if (!PRODUCT_TOOLS.some((tool) => tool.name === name)) throw new WriteRefusal(`${JSON.stringify(name)} is no tool of this server: the tools are ${PRODUCT_TOOLS.map((tool) => tool.name).join(', ')}`);
       if (input !== null && (typeof input !== 'object' || Array.isArray(input))) throw new WriteRefusal('the arguments are one object');
@@ -169,6 +163,8 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
         if ('html' in answer) return { answer: { format: 'archify', html: answer.html }, isError: false };
         return { answer: answer.body, isError: false };
       }
+      if (source === undefined) throw new WriteRefusal('a graph write requires a host-issued source binding');
+      graphProducerOf(source);
       if (name === 'put_entity') {
         const answer = await product.putEntity(source, {
           kind: String(args['kind'] ?? ''),
@@ -207,7 +203,7 @@ export async function callProductTool(product: KnowledgeProduct, source: WriteSo
   });
 }
 
-/** Serves the product's graph writes over MCP: the agent's producer is its `clientInfo` name and this session. */
+/** Serves MCP with one host-issued retained source binding; initialize metadata cannot change it. */
 export async function serveProductMcp(options: {
   productFolder: string; home?: string; env?: DraftEnv;
   input?: AsyncIterable<string | Uint8Array>; output?: { write(text: string): void };
@@ -215,13 +211,12 @@ export async function serveProductMcp(options: {
   const env = options.env ?? process.env;
   const product = new KnowledgeProduct({ productFolder: options.productFolder, storeRoot: knowledgeRootOf(productsHome(env, options.home)), env });
   const session = randomUUID();
-  let client = 'mcp-client';
   try {
+    const source = await product.registerMcpSession(session);
     await serveUnitMcp({
       tools: PRODUCT_TOOLS,
       info: { name: 'madarch', version: runningVersion() },
-      onClientInfo: (info) => { client = info.name; },
-      call: (name, args) => callProductTool(product, agentSource(client, session), name, args),
+      call: (name, args) => callProductTool(product, source, name, args),
       streams: { input: options.input ?? process.stdin, write: (text) => { (options.output ?? process.stdout).write(text); } },
     });
     return 0;

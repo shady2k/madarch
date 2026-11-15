@@ -1,4 +1,5 @@
 /** Pure graph schema definition and fingerprint, shared by preparation and connection. */
+import { withSystemContract } from '../../graph/system-contract.js';
 import { sha256Hex } from '../../graph/digest.js';
 import type { GraphContract } from '../../graph/contract.js';
 
@@ -39,6 +40,43 @@ export const SCHEMA: readonly string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS context_base ON context (ref) WHERE parent IS NULL`,
   `CREATE UNIQUE INDEX IF NOT EXISTS context_child ON context (parent, ref) WHERE parent IS NOT NULL`,
+  // This order is shared by future assertions and context fences. A pin consumes a sequence number, not a clock.
+  `CREATE SEQUENCE IF NOT EXISTS graph_recorded_seq MINVALUE 1`,
+  `ALTER TABLE context ADD COLUMN IF NOT EXISTS parent_recorded_seq bigint`,
+  // Legacy contexts predate recorded assertions: zero is their explicit migration boundary, not today's time.
+  `UPDATE context SET parent_recorded_seq = 0 WHERE parent IS NOT NULL AND parent_recorded_seq IS NULL`,
+  `DO $$ BEGIN
+     IF EXISTS (WITH RECURSIVE ancestry AS (
+       SELECT id, parent, ARRAY[id] AS path, false AS cycle FROM context
+       UNION ALL SELECT a.id, c.parent, a.path || c.id, c.id = ANY(a.path)
+       FROM ancestry a JOIN context c ON c.id = a.parent WHERE NOT a.cycle
+     ) SELECT 1 FROM ancestry WHERE cycle) THEN
+       RAISE EXCEPTION 'context ancestry contains a cycle';
+     END IF;
+   END $$`,
+  `CREATE OR REPLACE FUNCTION context_pin_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+     IF TG_OP = 'DELETE' THEN
+       RAISE EXCEPTION 'context identity and parent pin are immutable';
+     ELSIF TG_OP = 'UPDATE' THEN
+       IF NEW.parent IS DISTINCT FROM OLD.parent OR NEW.ref IS DISTINCT FROM OLD.ref
+          OR NEW.parent_recorded_seq IS DISTINCT FROM OLD.parent_recorded_seq THEN
+         RAISE EXCEPTION 'context identity and parent pin are immutable';
+       END IF;
+     ELSIF NEW.parent IS NOT NULL THEN
+       IF NEW.parent_recorded_seq IS NOT NULL THEN
+         RAISE EXCEPTION 'context parent pin is assigned by the database';
+       END IF;
+       PERFORM pg_advisory_xact_lock(739141, 1);
+       NEW.parent_recorded_seq := nextval('graph_recorded_seq');
+     END IF;
+     IF (NEW.parent IS NULL) <> (NEW.parent_recorded_seq IS NULL)
+        OR NEW.parent_recorded_seq < 0 THEN
+       RAISE EXCEPTION 'context parent pin does not match its parent';
+     END IF;
+     RETURN NEW;
+   END $$`,
+  `CREATE OR REPLACE TRIGGER context_pin_guard BEFORE INSERT OR UPDATE OR DELETE ON context
+     FOR EACH ROW EXECUTE FUNCTION context_pin_guard()`,
   // A vertex is identity and key: the key belongs to the vertex, never to an opinion, in one canonical encoding
   // (fields in the contract's key order, values normalised) and is the same on every machine (A2 of the amendment).
   `CREATE TABLE IF NOT EXISTS node (
@@ -49,6 +87,19 @@ export const SCHEMA: readonly string[] = [
     context_id bigint NOT NULL DEFAULT 1 REFERENCES context (id),
     removed boolean NOT NULL DEFAULT false
   )`,
+  // Retry metadata only: the operation is a graph vertex; the future assertion vertex reuses this uid.
+  `CREATE TABLE IF NOT EXISTS operation_assertion_receipt (
+    operation_node bigint NOT NULL REFERENCES node (id),
+    slot text NOT NULL CHECK (slot <> ''),
+    assertion_uid uuid NOT NULL UNIQUE,
+    intent_digest text NOT NULL CHECK (intent_digest <> ''),
+    PRIMARY KEY (operation_node, slot)
+  )`,
+  `CREATE OR REPLACE FUNCTION operation_receipt_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+     RAISE EXCEPTION 'operation assertion receipts are immutable';
+   END $$`,
+  `CREATE OR REPLACE TRIGGER operation_receipt_guard BEFORE UPDATE OR DELETE ON operation_assertion_receipt
+     FOR EACH ROW EXECUTE FUNCTION operation_receipt_guard()`,
   // A keyless vertex (a kind with no natural key) is keyed by nothing: it stands by its uid alone.
   `CREATE UNIQUE INDEX IF NOT EXISTS node_key_context ON node (entity_id, key, context_id) WHERE key <> '{}'::jsonb`,
   `CREATE INDEX IF NOT EXISTS node_key_lookup ON node USING gin (key jsonb_path_ops)`,
@@ -116,6 +167,7 @@ export const SCHEMA: readonly string[] = [
 
 /** Every declared property participates; object property insertion order does not change a contract. */
 export function graphSchemaStamp(contract: GraphContract): string {
+  contract = withSystemContract(contract);
   const declaration = JSON.stringify(contract, (_key, value: unknown) => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
     const object = value as Record<string, unknown>;

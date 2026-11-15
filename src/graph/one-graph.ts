@@ -1,4 +1,5 @@
 /** Connects to a prepared graph without changing its schema. */
+import { withSystemContract } from './system-contract.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { requireSchema } from '../adapters/store-readiness.js';
 import { graphSchemaStamp } from '../adapters/schemas/graph-definition.js';
@@ -6,6 +7,7 @@ import { EMPTY_CONTRACT, generatedTableName, type GraphContract } from './contra
 
 /** Requires the graph prepared for this contract; reset and reconciliation belong to store preparation. */
 export async function createOneGraphSchema(owner: DatabaseOwner, contract: GraphContract = EMPTY_CONTRACT): Promise<{ reset: boolean }> {
+  contract = withSystemContract(contract);
   await requireSchema(owner, 'one-graph', graphSchemaStamp(contract));
   const tables = ['entity', 'context', 'node', 'edge', 'operation', 'unresolved_reference',
     ...contract.vertex.map((kind) => generatedTableName(kind.name, 'vertex')),

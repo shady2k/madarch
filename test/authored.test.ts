@@ -2,12 +2,16 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createOneGraphSchema } from '../src/graph/one-graph.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
+import { bindGraphProducer, producerIdentityOf, type ProducerBinding } from '../src/graph/producer-binding.js';
+import { installAgentSession, personBinding } from '../src/graph/system-installation.js';
 import { AuthoredRefusal, authoredEntity, shortestUid } from '../src/graph/authored.js';
 import type { KindsManifest } from '../src/product/manifest/kinds.js';
 import { parseKinds } from '../src/product/manifest/kinds.js';
+import { withSystemContract } from '../src/graph/system-contract.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
 let owner: DatabaseOwner;
+let person: ProducerBinding;
 const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/catalog.yaml', '/tmp'), kinds: new Map([
   ['note', { name: 'note', template: 'note.liquid', source: 'graph', origin: 'person', title: 'title', relations: [], line: 1, fields: [
     { name: 'title', type: 'text' }, { name: 'count', type: 'integer', nullable: true }, { name: 'flag', type: 'boolean', nullable: true },
@@ -17,8 +21,8 @@ const manifest: KindsManifest = { ...parseKinds('kinds: {}', 'madarch/catalog.ya
     fields: [{ name: 'target', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { kind: { const: 'note' }, key: { type: 'object', additionalProperties: false } }, required: ['kind', 'key'], additionalProperties: false }, reference: 'note' }],
   }],
 ]) };
-const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader <reader@example.invalid>', action, 'note', args));
-beforeAll(async () => { owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest) }); await createOneGraphSchema(owner, graphContractOf(manifest)); });
+const call = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6] = {}) => owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, action, 'note', args));
+beforeAll(async () => { owner = await createTestDatabaseOwner({ graphContract: graphContractOf(manifest) }); await createOneGraphSchema(owner, graphContractOf(manifest)); person = await personBinding(owner, graphContractOf(manifest)); });
 afterAll(async () => { await owner.close(); });
 
 test('random authored identities preserve opinions, exact words and withdrawal history', async () => {
@@ -30,14 +34,15 @@ test('random authored identities preserve opinions, exact words and withdrawal h
   expect(edited.uid).toBe(made.uid);
   expect(made.id).toMatch(/^fixture-[0-9a-f]+$/u);
   expect(edited.values).toEqual({ title: 'Changed', count: 3, flag: true });
-  await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Other reader', 'delete', 'note', { uid: made.uid, words: 'withdraw precisely' }));
+  await owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, 'delete', 'note', { uid: made.uid, words: 'withdraw precisely' }));
   expect((await call('list')).entities).toEqual([]);
   await expect(call('read', { uid: made.uid })).rejects.toThrow('entity not found');
   const operations = await owner.run((tx) => tx.query<{ author: string; words: string }>('SELECT author, words FROM operation ORDER BY seq'));
-  expect(operations.rows).toEqual([
-    { author: 'Reader <reader@example.invalid>', words },
-    { author: 'Reader <reader@example.invalid>', words: 'edit precisely' },
-    { author: 'Other reader', words: 'withdraw precisely' },
+  const source = producerIdentityOf(person);
+  expect(operations.rows.filter((row) => row.words !== '')).toEqual([
+    { author: `${source.producer}@${source.version}`, words },
+    { author: `${source.producer}@${source.version}`, words: 'edit precisely' },
+    { author: `${source.producer}@${source.version}`, words: 'withdraw precisely' },
   ]);
   const history = await owner.run((tx) => tx.query<{ removed: boolean }>('SELECT removed FROM node WHERE uid = $1::uuid', [made.uid]));
   expect(history.rows[0]!.removed).toBe(true);
@@ -47,13 +52,13 @@ test('fields reject missing, undeclared and incorrectly typed values without pub
   for (const [values, message] of [[{}, 'title'], [{ title: 3 }, 'text'], [{ title: 'OK', count: 1.5 }, 'integer'], [{ title: 'OK', flag: 'yes' }, 'boolean'], [{ title: 'OK', extra: true }, 'extra']] as const) {
     await expect(call('create', { values })).rejects.toThrow(message);
   }
-  await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, '', 'Reader', 'create', 'derived', { values: {} }))).rejects.toThrow('does not let a person author');
+  await expect(owner.transaction('write', async (tx) => authoredEntity(tx, manifest, '', person, 'create', 'derived', { values: {} }))).rejects.toThrow('does not let a person author');
   expect((await call('list')).entities).toEqual([]);
 });
 
 test('another person clears a nullable value while retaining the displayed fields', async () => {
   const made = (await call('create', { values: { title: 'Keep the title', count: 9 } })).entity!;
-  const changed = await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'person:another-reader', 'edit', 'note', { uid: made.uid, values: { count: null }, words: 'Clear the count' }));
+  const changed = await owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, 'edit', 'note', { uid: made.uid, values: { count: null }, words: 'Clear the count' }));
   expect(changed.entity!.values).toEqual({ title: 'Keep the title', count: null, flag: null });
   expect((await call('read', { uid: made.uid })).entity!.values).toEqual(changed.entity!.values);
   await call('delete', { uid: made.uid });
@@ -82,7 +87,7 @@ test('withdrawn identities keep old prefixes ambiguous within their kind', async
 });
 
 test('reference fields require the declared kind and an object key on create and edit', async () => {
-  const link = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6]) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader', action, 'link', args));
+  const link = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6]) => owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, action, 'link', args));
   const made = (await link('create', { values: { target: { kind: 'note', key: {} } } })).entity!;
   for (const target of [{ kind: 'wrong', key: {} }, { kind: 'note', key: null }, { kind: 'note', key: [] }, { kind: 'note', key: 'bad' }]) {
     await expect(link('create', { values: { target } })).rejects.toThrow('field "target": expected a reference to note');
@@ -95,7 +100,7 @@ test('revision rejects changed fields but merges unchanged fields against comple
   expect(made.revision).toMatch(/^[0-9]+$/u);
   const changed = (await call('edit', { uid: made.uid, values: { title: 'Changed by first reader' }, ifRevision: made.revision })).entity!;
   expect(BigInt(changed.revision)).toBeGreaterThan(BigInt(made.revision));
-  const merged = (await owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Second reader', 'edit', 'note', {
+  const merged = (await owner.transaction('write', async (tx) => authoredEntity(tx, manifest, 'fixture', person, 'edit', 'note', {
     uid: made.uid, values: { count: 2 }, ifRevision: made.revision,
   }))).entity!;
   expect(merged.values).toEqual({ title: 'Changed by first reader', count: 2, flag: null });
@@ -106,7 +111,7 @@ test('revision rejects changed fields but merges unchanged fields against comple
     expect(error).toBeInstanceOf(AuthoredRefusal);
     const refusal = error as AuthoredRefusal;
     expect(refusal.status).toBe(412);
-    expect(refusal.conflict).toEqual({ field: 'title', current: 'Changed by first reader', author: 'Reader <reader@example.invalid>' });
+    expect(refusal.conflict).toEqual({ field: 'title', current: 'Changed by first reader', author: decodeURIComponent(producerIdentityOf(person).producer) });
   }
   await call('edit', { uid: made.uid, values: { title: 'Baseline' }, ifRevision: merged.revision });
   await expect(call('edit', { uid: made.uid, values: { title: 'Stale after restoration' }, ifRevision: made.revision })).rejects.toThrow('changed since revision');
@@ -143,4 +148,18 @@ test('conditional deletes reject every intervening change and invalid revisions 
   expect((await call('delete', { uid: made.uid, ifRevision: current.revision })).entity!.uid).toBe(made.uid);
   await expect(call('read', { uid: made.uid })).rejects.toThrow('entity was deleted');
   await call('delete', { uid: unrelated.uid });
+});
+
+
+test('authored mutations reject absent, forged and non-person host bindings', async () => {
+  const before = await owner.run((tx) => tx.query('SELECT * FROM operation ORDER BY seq'));
+  for (const binding of [undefined, { producer: 'person:forged', version: '1' } as ProducerBinding]) {
+    await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', binding, 'create', 'note', { values: { title: 'Refused' } }))).rejects.toThrow('host-issued');
+  }
+  expect((await owner.run((tx) => tx.query('SELECT * FROM operation ORDER BY seq'))).rows).toEqual(before.rows);
+  const contract = graphContractOf(manifest);
+  const installed = await installAgentSession(owner, withSystemContract(contract), 'authored-refusal');
+  const agent = bindGraphProducer(owner, contract, { principal: installed.principal, vertices: { note: ['title', 'count', 'flag'] }, edges: {} });
+  await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', agent, 'create', 'note', { values: { title: 'Refused' } }))).rejects.toThrow('person principal');
+  expect((await owner.transaction('snapshot', (tx) => authoredEntity(tx, manifest, 'fixture', undefined, 'schema', 'note'))).kind).toBe('note');
 });

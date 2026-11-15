@@ -3,6 +3,7 @@
  * manifest, so the home page opens on the product itself and not on an empty graph. Its description and every other
  * value are the graph's, written by an agent or a person; the start copies no README or vision text into them.
  */
+import { builtinBinding } from './system-installation.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { entityDraft, evidenceOf, writeContractOf } from './graph-writes.js';
 import { readPublishedManifest } from './manifest-publication.js';
@@ -13,10 +14,11 @@ import type { ProductEntity } from '../product/manifest.js';
 /** States the product's own page: its name, as the manifest states it now. */
 export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEntity | undefined): Promise<void> {
   if (entity === undefined) return;
+  const manifest = await owner.transaction('snapshot', readPublishedManifest);
+  if (manifest === undefined) throw new Error('the startup page requires a published manifest');
+  const contract = writeContractOf(manifest);
+  const binding = await builtinBinding(owner, contract, 'start');
   await owner.transaction('write', async (tx) => {
-    const manifest = await readPublishedManifest(tx);
-    if (manifest === undefined) throw new Error('the startup page requires a published manifest');
-    const contract = writeContractOf(manifest);
     const { draft, vertex } = entityDraft(contract, entity, { producer: 'start', version: '1' }, evidenceOf(entity.evidence));
     // Older starts keyed the product by a heading (and older revisions by a revision identity). Withdraw only their
     // start opinions; another producer's opinion is not startup's to retire.
@@ -28,6 +30,6 @@ export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEn
       [entity.kind, JSON.stringify(entity.key)],
     );
     const removals: VertexRemovalDraft[] = held.rows.map((one) => ({ kind: entity.kind, key: one.key, uid: one.uid, producer: 'start' }));
-    await publishGraphDrafts(tx, contract, { vertices: [draft], removals }, 1, { author: 'start@1' });
+    await publishGraphDrafts(tx, contract, { vertices: [draft], removals }, 1, { author: 'start@1', binding });
   });
 }

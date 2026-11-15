@@ -1,5 +1,6 @@
 /** The manifest producer's graph kinds: declarations, not repository content. */
 import { JSON_DIALECT } from './value-types.js';
+import { withSystemContract } from './system-contract.js';
 import { generatedTableName, type GraphContract, type VertexContract } from './contract.js';
 
 export const MANIFEST_CATEGORIES = ['catalogue', 'kind', 'field', 'relation', 'workflow', 'dependency'] as const;
@@ -22,6 +23,6 @@ export const MANIFEST_CONTRACT: GraphContract = {
 
 /** Catalogue metadata survives a fill replacing the product's entity contract. */
 export function withManifestContract(contract: GraphContract): GraphContract {
-  return { ...contract, vertex: [...contract.vertex.filter((one) => !MANIFEST_CONTRACT.vertex.some((held) => held.name === one.name)), ...MANIFEST_CONTRACT.vertex],
-    edge: [...contract.edge.filter((one) => !MANIFEST_CONTRACT.edge.some((held) => held.name === one.name)), ...MANIFEST_CONTRACT.edge] };
+  return withSystemContract({ ...contract, vertex: [...contract.vertex.filter((one) => !MANIFEST_CONTRACT.vertex.some((held) => held.name === one.name)), ...MANIFEST_CONTRACT.vertex],
+    edge: [...contract.edge.filter((one) => !MANIFEST_CONTRACT.edge.some((held) => held.name === one.name)), ...MANIFEST_CONTRACT.edge] });
 }

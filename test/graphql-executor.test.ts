@@ -1,3 +1,4 @@
+import { testHostBinding } from './host-binding-fixture.js';
 /**
  * The GraphQL executor on a real store (decision 0036, sections 2 to 5): one fixture product, one prepared graph, and
  * the operations a page and an agent ask: a field, an edge both ways, a backlink, a contested value, a filtered and
@@ -34,6 +35,7 @@ let repository2Id = '';
 let repository3Id = '';
 let fileA = '';
 let fileB = '';
+const bindings = new Map<string, Awaited<ReturnType<typeof testHostBinding>>>();
 
 /** The operation's answer, with any error thrown rather than read as a smaller result. */
 async function graphql(query: string, variables?: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -96,6 +98,9 @@ beforeAll(async () => {
   const repository = (name: string) => ({ kind: 'demo.repository', key: { name } });
   const file = (path: string) => ({ kind: 'demo.file', key: { repository: repository('r1'), path } });
   const big = 'x'.repeat(2_200_000);
+  for (const producer of ['one', 'two', 'neutral', 'english', 'russian', 'three', 'bulk', 'budget', 'search', ...Array.from({ length: 51 }, (_, at) => `many-${String(at)}`)]) {
+    bindings.set(producer, await testHostBinding(owner, contract, producer));
+  }
   await owner.transaction('write', async (tx) => {
     await publishGraphDrafts(tx, contract, {
       vertices: [
@@ -113,7 +118,7 @@ beforeAll(async () => {
         { kind: 'demo.touched', from: file('a.ts'), to: file('c.ts'), discriminator: 'w10', values: { weight: 10, changed_at: '2026-02-01T00:00:00Z' }, producer: 'one', producerVersion: '1' },
       ],
       removals: [],
-    }, 1, { author: 'one@1' });
+    }, 1, { binding: bindings.get('one')!, author: 'one@1' });
     await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'demo.repository', key: { name: 'r1' }, values: { url: 'https://two.test' }, producer: 'two', producerVersion: '1' },
@@ -121,25 +126,24 @@ beforeAll(async () => {
         { kind: 'demo.file', key: file('b.ts').key, values: { primary: repository('r2') }, producer: 'two', producerVersion: '1' },
       ],
       removals: [],
-    }, 1, { author: 'two@1' });
+    }, 1, { binding: bindings.get('two')!, author: 'two@1' });
     await publishGraphDrafts(tx, contract, {
       vertices: [{ kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'B' }, producer: 'neutral', producerVersion: '1' }],
       removals: [],
-    }, 1, { author: 'neutral@1' });
-    await publishGraphDrafts(tx, contract, {
-      vertices: [
-        { kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'Hello' }, lang: 'en', producer: 'english', producerVersion: '1' },
-        { kind: 'demo.repository', key: { name: 'r1' }, values: { description: 'Привет' }, lang: 'ru', producer: 'russian', producerVersion: '1' },
-      ],
-      removals: [],
-    }, 1, { author: 'translated@1' });
+    }, 1, { binding: bindings.get('neutral')!, author: 'neutral@1' });
+    for (const [producer, lang, description] of [['english', 'en', 'Hello'], ['russian', 'ru', 'Привет']] as const) {
+      await publishGraphDrafts(tx, contract, {
+        vertices: [{ kind: 'demo.repository', key: { name: 'r1' }, values: { description }, lang, producer, producerVersion: '1' }],
+        removals: [],
+      }, 1, { binding: bindings.get(producer)!, author: `${producer}@1` });
+    }
     await publishGraphDrafts(tx, contract, {
       vertices: [
         { kind: 'demo.repository', key: { name: 'r2' }, values: { description: 'Second' }, producer: 'three', producerVersion: '1' },
         { kind: 'demo.repository', key: { name: 'r3' }, values: { description: big }, producer: 'three', producerVersion: '1' },
       ],
       removals: [],
-    }, 1, { author: 'three@1' });
+    }, 1, { binding: bindings.get('three')!, author: 'three@1' });
   });
   const validation = validateProductManifests(folder);
   if (!validation.ok) throw new Error(validation.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
@@ -253,7 +257,7 @@ describe('the GraphQL executor', () => {
         vertices: many.map((one) => ({ ...one, producer: 'bulk', producerVersion: '1' })),
         edges: edges.map((one) => ({ ...one, producer: 'bulk', producerVersion: '1' })),
         removals: [],
-      }, 1, { author: 'bulk@1' });
+      }, 1, { binding: bindings.get('bulk')!, author: 'bulk@1' });
     });
     const counted = countingOwner();
     const answer = await executeGraphql(counted.owner, { manifest, folder }, {
@@ -449,11 +453,13 @@ describe('the GraphQL executor', () => {
     expect(file.demoRelated.edges[0].node.opinions.map((one: any) => one.producer)).toEqual(['one']);
     // Fifty-one producers on one edge: the list is the 50 newest, never every opinion the graph holds.
     await owner.transaction('write', async (tx) => {
+      for (let at = 0; at < 51; at++) {
       await publishGraphDrafts(tx, contract, {
         vertices: [],
-        edges: Array.from({ length: 51 }, (_, at) => ({ kind: 'demo.related', from: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } }, to: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'b.ts' } }, producer: `many-${String(at)}`, producerVersion: '1' })),
+        edges: [{ kind: 'demo.related', from: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'a.ts' } }, to: { kind: 'demo.file', key: { repository: { kind: 'demo.repository', key: { name: 'r1' } }, path: 'b.ts' } }, producer: `many-${String(at)}`, producerVersion: '1' }],
         removals: [],
-      }, 1, { author: 'many@1' });
+      }, 1, { binding: bindings.get(`many-${String(at)}`)!, author: `many-${String(at)}@1` });
+      }
     });
     const bounded = await graphql(`query ($file: ID!) { entity(id: $file) { ... on DemoFile { demoRelated(first: 5) { edges { node { opinions { producer } } } } } } }`, { file: fileA });
     const related = (bounded['entity'] as Record<string, any>).demoRelated.edges[0].node.opinions;
@@ -539,7 +545,7 @@ describe('the GraphQL executor', () => {
         vertices: [{ ...repository, values: {}, producer: 'budget', producerVersion: '1' }, ...files.map((file) => ({ ...file, values: {}, producer: 'budget', producerVersion: '1' }))],
         edges: files.map((file) => ({ kind: 'demo.contains', from: repository, to: file, values: {}, producer: 'budget', producerVersion: '1' })),
         removals: [],
-      }, 1, { author: 'budget@1' });
+      }, 1, { binding: bindings.get('budget')!, author: 'budget@1' });
     });
     const data = await graphql(`{ allDemoRepository(where: { name: { _eq: "diagram-budget" } }) { edges { node { id } } } }`);
     const id = (data['allDemoRepository'] as { edges: { node: { id: string } }[] }).edges[0]!.node.id;
@@ -566,7 +572,7 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   const repository = { kind: 'demo.repository', key: { name: 'search-bound' } };
   await owner.transaction('write', (tx) => publishGraphDrafts(tx, contract, {
     vertices: [{ ...repository, values: {}, producer: 'search', producerVersion: '1' }, ...Array.from({ length: 60 }, (_, at) => ({ kind: 'demo.file', key: { repository, path: `search-bound-${String(at)}.ts` }, values: {}, producer: 'search', producerVersion: '1' }))], edges: [], removals: [],
-  }, 1, { author: 'search@1' }));
+  }, 1, { binding: bindings.get('search')!, author: 'search@1' }));
   const transferred: number[] = [];
   const wrapped: DatabaseOwner = { ...owner, transaction: (kind, work) => owner.transaction(kind, (tx) => work({ ...tx, query: async (sql: string, values?: readonly unknown[]) => {
     const answer = await tx.query(sql, values);

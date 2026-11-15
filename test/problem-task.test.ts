@@ -17,11 +17,14 @@ import { knowledgeRootOf, productStoreFolder, storeDatabasePath } from '../src/p
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { generatedTableName } from '../src/graph/contract.js';
 import { LoopRefusal } from '../src/loop/answer.js';
-import { problemTaskRecord, problemTaskSource, problemTaskUid } from '../src/loop/problem-task.js';
+import { problemTaskRecord, problemTaskUid } from '../src/loop/problem-task.js';
 import type { Problem } from '../src/loop/views.js';
 import { writeFolderManifest } from './catalog-folder-fixture.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
+import { testAgentBinding } from './host-binding-fixture.js';
+import { readPublishedManifest } from '../src/graph/manifest-publication.js';
+import { writeContractOf } from '../src/graph/graph-writes.js';
 
 const root = mkdtempSync(join(tmpdir(), 'madarch-problem-task-'));
 const env = gitEnv(SAMPLE_IDENTITY);
@@ -57,14 +60,14 @@ function fixtureCatalogue(product: string): void {
       },
     },
     edges: [
-      { name: 'code.contains', from: ['code.repository'], to: ['code.file'], capability: 'disk' },
-      { name: 'code.flows-into', from: ['code.input', 'code.sql-build'], to: ['code.sql-build', 'code.sql-sink'], capability: 'analysis' },
+      { name: 'code.contains', from: ['code.repository'], to: ['code.file'], capability: 'disk', labels: { en: { out: 'contains', in: 'is in' }, ru: { out: 'содержит', in: 'входит в' } } },
+      { name: 'code.flows-into', from: ['code.input', 'code.sql-build'], to: ['code.sql-build', 'code.sql-sink'], capability: 'analysis', labels: { en: { out: 'flows into', in: 'receives' }, ru: { out: 'передаёт', in: 'получает' } } },
     ],
     kinds: {
       task: kind([
         { name: 'title', type: 'text', producers: ['person'] },
         { name: 'body', type: 'text', nullable: true, producers: ['person'] },
-        { name: 'front', type: 'json', nullable: true, producers: ['person'] },
+        { name: 'front', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: true }, nullable: true, producers: ['person'] },
       ]),
       'code.repository': kind([
         { name: 'name', type: 'text', producers: ['disk'] },
@@ -82,7 +85,7 @@ function fixtureCatalogue(product: string): void {
         { name: 'lines', type: 'bigint', nullable: true, producers: ['disk'] },
         { name: 'content', type: 'text', nullable: true, producers: ['disk'] },
         { name: 'language', type: 'text', nullable: true, producers: ['disk'] },
-        { name: 'languages', type: 'json', nullable: true, producers: ['disk'] },
+        { name: 'languages', type: 'json', schema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: true }, nullable: true, producers: ['disk'] },
         { name: 'class', type: 'text', nullable: true, producers: ['disk'] },
       ], ['repository', 'path']),
       'code.input': kind([
@@ -113,29 +116,33 @@ beforeAll(async () => {
   try {
     // One 731-line file in the graph, as a fill would leave it: the large-file problem stands on the page.
     await product.problems();
-    await product.putEntity({ producer: 'fixture', version: '1' }, {
+    const fixtureOwner = await (product as unknown as { open(): ReturnType<typeof storeOf> }).open();
+    const published = await fixtureOwner.transaction('snapshot', readPublishedManifest);
+    if (published === undefined) throw new Error('fixture manifest missing');
+    const source = await testAgentBinding(fixtureOwner, writeContractOf(published), 'problem-fixture');
+    await product.putEntity(source, {
       kind: 'code.repository', key: { name: 'product' }, values: { url: 'https://example.test/product' }, evidence,
     });
-    await product.putEntity({ producer: 'fixture', version: '1' }, {
+    await product.putEntity(source, {
       kind: 'code.file', key: { repository: 'product', path: 'src/big.ts' }, values: { lines: 731 }, evidence,
     });
     for (const [path, lines] of [['src/huge.ts', 700], ['src/third.ts', 640]] as const) {
-      await product.putEntity({ producer: 'fixture', version: '1' }, { kind: 'code.file', key: { repository: 'product', path }, values: { lines }, evidence });
+      await product.putEntity(source, { kind: 'code.file', key: { repository: 'product', path }, values: { lines }, evidence });
     }
     for (const path of ['src/big.ts', 'src/huge.ts', 'src/third.ts']) {
-      await product.putEdge({ producer: 'fixture', version: '1' }, {
+      await product.putEdge(source, {
         kind: 'code.contains', from: { kind: 'code.repository', key: { name: 'product' } }, to: { kind: 'code.file', key: { repository: 'product', path } }, evidence,
       });
     }
     // An input reaching a builder reaching a sink: the finding whose identity names two of them.
-    const write = async (kind: string, name: string) => await product.putEntity({ producer: 'fixture', version: '1' }, {
+    const write = async (kind: string, name: string) => await product.putEntity(source, {
       kind, key: { name }, values: { source_text: `${name} text` }, evidence: [place],
     });
     const input = await write('code.input', 'search text');
     const build = await write('code.sql-build', 'checkout query');
     const sink = await write('code.sql-sink', 'checkout execute');
     for (const [from, to] of [[input, build], [build, sink]] as const) {
-      await product.putEdge({ producer: 'fixture', version: '1' }, { kind: 'code.flows-into', from: { kind: from.kind, id: from.uid }, to: { kind: to.kind, id: to.uid }, evidence: [place] });
+      await product.putEdge(source, { kind: 'code.flows-into', from: { kind: from.kind, id: from.uid }, to: { kind: to.kind, id: to.uid }, evidence: [place] });
     }
     const listing = await product.problems();
     const large = listing.problems.filter((candidate) => candidate.rule === 'large-file');
@@ -179,14 +186,14 @@ test('a problem becomes one task with the person as its source and the page link
       `SELECT said_by, title, body, front FROM "${generatedTableName('task', 'vertex')}" WHERE state = 'open' AND front->>'file' = 'src/big.ts'`,
     ));
     expect(opinions.rows).toHaveLength(1);
-    expect(opinions.rows[0]!.said_by.split('@')[0]).toBe('person:Fixture');
+    expect(opinions.rows[0]!.said_by).toMatch(/^person:[0-9a-f-]+@1$/u);
     expect(opinions.rows[0]!.title).toBe('Fix: Large file — src/big.ts:1');
     expect(opinions.rows[0]!.front).toEqual({
       rule: 'large-file', identity: ['code.file:product/src/big.ts'], file: 'src/big.ts', line: 1,
       statement: '731 lines, over the 600-line threshold.', scope: { type: 'file', path: 'src/big.ts' },
     });
     const journal = await owner.run((tx) => tx.query<{ author: string; words: string }>("SELECT author, words FROM operation WHERE words = 'Create a task' ORDER BY seq DESC LIMIT 1"));
-    expect(journal.rows[0]!.author).toBe('person:Fixture@fixture%40example.test');
+    expect(journal.rows[0]!.author).toBe(opinions.rows[0]!.said_by);
     expect(journal.rows[0]!.words).toBe('Create a task');
 
     // The listing the page draws links the problem to its task, and a second press opens that same task.
@@ -248,12 +255,7 @@ test('a problem whose identity holds the store\'s separator still gets its task,
   }
 }, 30_000);
 
-test('a person whose name holds @ is written with it escaped, so two presses of one problem write once', async () => {
-  // The graph joins a write's producer and its version with '@': the name's own '@' is escaped, and read back the same way.
-  const source = problemTaskSource({ name: 'Alice@work', email: 'fixture@example.test' });
-  expect(source).toEqual({ producer: 'person:Alice%40work', version: 'fixture%40example.test' });
-  const personOf = (part: string): string => part.replaceAll('%40', '@');
-  expect(personOf('person:Alice%40work')).toBe('person:Alice@work');
+test('a descriptive git name does not become the host person identity, and two presses write once', async () => {
   const product = new KnowledgeProduct({ productFolder: folder, storeRoot: knowledgeRootOf(home), env: gitEnv({ ...SAMPLE_IDENTITY, GIT_AUTHOR_NAME: 'Alice@work' }) });
   let owner: Awaited<ReturnType<typeof storeOf>> | undefined;
   try {
@@ -263,9 +265,7 @@ test('a person whose name holds @ is written with it escaped, so two presses of 
     expect(new Set(answers.map((answer) => answer.task.href)).size).toBe(1);
     const rows = await owner.run((tx) => tx.query<{ said_by: string }>(`SELECT said_by FROM "${generatedTableName('task', 'vertex')}" WHERE state = 'open' AND front->>'file' = 'src/third.ts'`));
     expect(rows.rows).toHaveLength(1);
-    // One '@' joins producer and version: the name's own is escaped, and the producer reads back to `person:Alice@work`.
-    expect(rows.rows[0]!.said_by).toBe('person:Alice%40work@fixture%40example.test');
-    expect(personOf(rows.rows[0]!.said_by.split('@')[0]!)).toBe('person:Alice@work');
+    expect(rows.rows[0]!.said_by).toMatch(/^person:[0-9a-f-]+@1$/u);
     const after = await owner.run((tx) => tx.query<{ n: string }>("SELECT count(*)::text AS n FROM operation WHERE words = 'Create a task'"));
     expect(Number(after.rows[0]!.n) - Number(before.rows[0]!.n)).toBe(1);
   } finally {

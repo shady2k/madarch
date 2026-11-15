@@ -13,6 +13,7 @@ import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import { withManifestContract } from './manifest-contract.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { publishGraphDrafts } from './write.js';
+import { graphProducerOf, type ProducerBinding } from './producer-binding.js';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 
@@ -21,7 +22,7 @@ export class WriteRefusal extends Error {
   constructor(message: string, readonly field?: string, readonly status = 400) { super(message); }
 }
 
-/** The agent one write is made for: a stable producer name and the session it runs in, as the journal states them. */
+/** Display fields used by pure draft builders. Production writers require a host-issued ProducerBinding. */
 export interface WriteSource {
   readonly producer: string;
   readonly version: string;
@@ -265,7 +266,8 @@ async function nodeUidOfKey(tx: Parameters<Parameters<DatabaseOwner['transaction
 }
 
 /** Puts the agent's opinion of an entity's fields, creating the entity when its key names none. */
-export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+export async function putEntityOpinion(owner: DatabaseOwner, binding: ProducerBinding, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+  const source = graphProducerOf(binding);
   const evidence = evidenceOf(input.evidence);
   return await owner.transaction('write', async (tx) => {
     const manifest = await manifestOf(tx);
@@ -308,7 +310,7 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
     // A keyless creation names its uid here, so the answer is always the entity this write made or restated.
     if (vertex.key.length === 0 && writeUid === undefined) writeUid = randomUUID();
     const { draft } = entityDraft(contract, { kind: input.kind, key, values: input.values, ...(writeUid === undefined ? {} : { uid: writeUid }) }, source, evidence);
-    const written = await publishGraphDrafts(tx, contract, { vertices: [draft], removals: [] }, 1, { author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
+    const written = await publishGraphDrafts(tx, contract, { vertices: [draft], removals: [] }, 1, { binding, author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
     const uid = writeUid ?? await nodeUidOfKey(tx, vertex, draft.key as Record<string, unknown>);
     return { kind: input.kind, key: draft.key as Record<string, unknown>, ...(uid === undefined ? {} : { uid }), written };
   });
@@ -334,7 +336,8 @@ async function edgeEndOf(tx: Parameters<Parameters<DatabaseOwner['transaction']>
 }
 
 /** Puts the agent's opinion of an edge and its attributes. */
-export async function putEdgeOpinion(owner: DatabaseOwner, source: WriteSource, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+export async function putEdgeOpinion(owner: DatabaseOwner, binding: ProducerBinding, input: { readonly kind: string; readonly from: unknown; readonly to: unknown; readonly discriminator?: string; readonly values?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+  const source = graphProducerOf(binding);
   const evidence = evidenceOf(input.evidence);
   return await owner.transaction('write', async (tx) => {
     const manifest = await manifestOf(tx);
@@ -344,13 +347,14 @@ export async function putEdgeOpinion(owner: DatabaseOwner, source: WriteSource, 
     const from = await edgeEndOf(tx, contract, 'from', input.from);
     const to = await edgeEndOf(tx, contract, 'to', input.to);
     const draft = edgeDraft(contract, { kind: input.kind, from, to, ...(input.discriminator === undefined ? {} : { discriminator: input.discriminator }), ...(input.values === undefined ? {} : { values: input.values }) }, source, evidence);
-    const written = await publishGraphDrafts(tx, contract, { vertices: [], edges: [draft], removals: [] }, 1, { author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
+    const written = await publishGraphDrafts(tx, contract, { vertices: [], edges: [draft], removals: [] }, 1, { binding, author: `${source.producer}@${source.version}`, ...(input.words === undefined ? {} : { words: input.words }) });
     return { kind: input.kind, written };
   });
 }
 
 /** Closes only this agent's own open opinions of an entity, of the fields it names, or of an edge. */
-export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+export async function retractOpinion(owner: DatabaseOwner, binding: ProducerBinding, input: { readonly entity?: unknown; readonly edge?: unknown; readonly evidence: unknown; readonly words?: string }): Promise<WriteAnswer> {
+  const source = graphProducerOf(binding);
   // Why it is withdrawn is evidence too: a withdrawal names its grounds like every other write.
   const evidence = evidenceOf(input.evidence);
   return await owner.transaction('write', async (tx) => {
@@ -381,7 +385,7 @@ export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, 
       const fields = Array.isArray(held['fields']) ? held['fields'].filter((one): one is string => typeof one === 'string') : undefined;
       if (held['fields'] !== undefined && (fields === undefined || fields.length !== (held['fields'] as unknown[]).length)) throw new WriteRefusal('retract.entity.fields is a list of field names', 'fields');
       const draft = entityRetraction(vertex, key, fields, source, uid);
-      const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [draft] }, 1, { author, ...(input.words === undefined ? {} : { words: input.words }), withdrawal: { entity: String(held['kind']), ...(fields === undefined ? {} : { fields }), evidence } });
+      const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [draft] }, 1, { binding, author, ...(input.words === undefined ? {} : { words: input.words }), withdrawal: { entity: String(held['kind']), ...(fields === undefined ? {} : { fields }), evidence } });
       return { kind: held['kind'], retracted: written > 0 };
     }
     if (input.edge === null || typeof input.edge !== 'object' || Array.isArray(input.edge)) throw new WriteRefusal('retract.edge is {kind, from, to, discriminator?}', 'edge');
@@ -390,7 +394,7 @@ export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, 
     const from = await edgeEndOf(tx, contract, 'from', held['from']);
     const to = await edgeEndOf(tx, contract, 'to', held['to']);
     const removal = edgeRetraction(contract, { kind: held['kind'], from, to, ...(typeof held['discriminator'] === 'string' ? { discriminator: held['discriminator'] } : {}) }, source);
-    const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edgeRemovals: [removal] }, 1, { author, ...(input.words === undefined ? {} : { words: input.words }), withdrawal: { edge: held['kind'], evidence } });
+    const written = await publishGraphDrafts(tx, contract, { vertices: [], removals: [], edgeRemovals: [removal] }, 1, { binding, author, ...(input.words === undefined ? {} : { words: input.words }), withdrawal: { edge: held['kind'], evidence } });
     return { kind: held['kind'], retracted: written > 0 };
   });
 }
