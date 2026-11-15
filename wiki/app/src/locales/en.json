@@ -129,43 +129,43 @@
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
       "phase": {
-      "queued": "Queued",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped",
-      "skipped": "Skipped",
-      "waiting": "Waiting",
-      "done": "Published",
-      "cancelled": "Cancelled",
-      "skippedBecause": "Skipped because {{unit}} failed",
-      "skippedBecauseRunEnded": "Skipped because the run ended"
-    },
-    "final": {
-      "succeeded": "Every required unit published.",
-      "partial": "The run ended, but some units did not publish.",
-      "failed": "The run ended with a failure.",
-      "stopped": "The run was stopped."
-    },
-    "next": {
-      "retry": "Fix the cause, then retry the fill.",
-      "retryAction": "Retry the fill"
-    },
-    "status": {
-      "queued": "Running",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped"
-    },
-    "endedAt": "ended {{time}}",
-    "attention": "The run did not finish completely",
-    "duration": "{{seconds}} s",
-    "event": {
+        "queued": "Queued",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped",
+        "skipped": "Skipped",
+        "waiting": "Waiting",
+        "done": "Published",
+        "cancelled": "Cancelled",
+        "skippedBecause": "Skipped because {{unit}} failed",
+        "skippedBecauseRunEnded": "Skipped because the run ended"
+      },
+      "final": {
+        "succeeded": "Every required unit published.",
+        "partial": "The run ended, but some units did not publish.",
+        "failed": "The run ended with a failure.",
+        "stopped": "The run was stopped."
+      },
+      "next": {
+        "retry": "Fix the cause, then retry the fill.",
+        "retryAction": "Retry the fill"
+      },
+      "status": {
+        "queued": "Running",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "endedAt": "ended {{time}}",
+      "attention": "The run did not finish completely",
+      "duration": "{{seconds}} s",
+      "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -243,7 +243,8 @@
       "progress": "A fill is running: {{published}} of {{planned}} units published.",
       "openFill": "Follow the fill",
       "failed": "The last fill failed.",
-      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})"
+      "failedAt": "The last fill failed: {{message}} ({{file}}:{{line}})",
+      "none": "No kind declares a dependency yet."
     },
     "files": {
       "area": "Area",

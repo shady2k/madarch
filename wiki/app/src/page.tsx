@@ -20,6 +20,7 @@ import { SearchSection } from './components/search.js';
 import { RunSection } from './components/run.js';
 import { KindsSection } from './components/kinds.js';
 import { CatalogueSection } from './components/catalogue.js';
+import { DependenciesSection } from './components/dependencies.js';
 import { PrepareSection } from './components/prepare.js';
 import { RunsSection } from './components/runs.js';
 import { FillKindSection } from './components/fill-kind.js';
@@ -111,6 +112,7 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'search': return <SearchSection context={context} />;
     case 'kinds': return <KindsSection context={context} />;
     case 'catalogue': return <CatalogueSection context={context} />;
+    case 'dependencies': return <DependenciesSection context={context} />;
     case 'prepare': return <PrepareSection context={context} />;
     case 'runs': return <RunsSection context={context} />;
     case 'first-run': return <FirstRunSection context={context} />;

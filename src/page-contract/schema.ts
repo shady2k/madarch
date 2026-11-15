@@ -21,7 +21,7 @@ export const LOCALIZED_TEXT_SCHEMA = {
 export const COMPONENT_NAMES = [
   'header', 'facts', 'text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
-  'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
+  'catalogue', 'dependencies', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
   'product-overview', 'repositories',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
@@ -166,6 +166,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   /** What the graph holds of each kind, the fullest first, each row opening the kind's catalogue page. */
   kinds: { parameters: {}, required: [] },
   catalogue: { parameters: {}, required: [] },
+  dependencies: { parameters: { focus: { type: 'boolean' } }, required: [] },
   prepare: { parameters: {}, required: [] },
   runs: { parameters: {}, required: [] },
   'first-run': { parameters: {}, required: [] },

@@ -69,3 +69,19 @@ sections:
       pageSize: 50
       columns:
         - { label: { en: Label, ru: Название }, path: node.label }
+
+  - id: dependencies
+    component: dependencies
+    after: facts
+    title: { en: Dependency graph, ru: Граф зависимостей }
+    params:
+      focus: true
+    query: |
+      name
+      label
+      derivesFrom(first: 20, lang: $lang) {
+        edges { node { id name label } }
+      }
+      derivedBy(first: 20, lang: $lang) {
+        edges { node { id name label } }
+      }
