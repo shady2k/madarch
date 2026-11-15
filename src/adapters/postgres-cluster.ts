@@ -510,6 +510,51 @@ function initdbWhole(dataDir: string): boolean {
   return existsSync(join(dataDir, 'PG_VERSION')) && existsSync(join(dataDir, 'global', 'pg_control')) && existsSync(join(dataDir, 'base', '1'));
 }
 
+/**
+ * The name a pid's process answers with: `initdb` for the program our record names. Windows reads it from the process
+ * table, and a pid nothing answers for is a pid that ended; undefined means the listing itself could not be read.
+ */
+function processNameOf(pid: number): string | undefined {
+  if (process.platform !== 'win32') {
+    try { return readFileSync(`/proc/${String(pid)}/comm`, 'utf8').trim().replace(/\.exe$/i, '').toLowerCase(); } catch { return undefined; }
+  }
+  const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${String(pid)} -ErrorAction SilentlyContinue).ProcessName`], { encoding: 'utf8', timeout: 15_000 });
+  if (answer.error !== undefined || answer.status !== 0) return undefined;
+  const name = (answer.stdout ?? '').trim();
+  return name === '' ? '' : name.replace(/\.exe$/i, '').toLowerCase();
+}
+
+/**
+ * The processes that may still be writing a preparation's data folder: initdb's tree and PostgreSQL's own programs whose
+ * command line names it. A folder under one of them is never removed — the next open would prepare into files still
+ * being written (measured on Windows: an orphaned bootstrap `postgres.exe` wrote into the folder the open had just
+ * removed, and initdb refused the folder it made). undefined when the listing itself cannot be read.
+ */
+function preparationHolders(dataDir: string): { pid: number; name: string }[] | undefined {
+  if (process.platform === 'win32') {
+    const query = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+    const answer = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { encoding: 'utf8', timeout: 30_000 });
+    if (answer.error !== undefined || answer.status !== 0) return undefined;
+    try {
+      const value = JSON.parse(answer.stdout) as { ProcessId: number; Name: string; CommandLine?: string } | { ProcessId: number; Name: string; CommandLine?: string }[];
+      const all = Array.isArray(value) ? value : [value];
+      return all.filter((row) => /^(?:initdb|postgres|cmd)\.exe$/i.test(row.Name ?? '') && (row.CommandLine ?? '').toLowerCase().includes(dataDir.toLowerCase())).map((row) => ({ pid: row.ProcessId, name: row.Name }));
+    } catch { return undefined; }
+  }
+  const holders: { pid: number; name: string }[] = [];
+  try {
+    for (const id of readdirSync('/proc')) {
+      if (!/^\d+$/.test(id)) continue;
+      try {
+        const cmd = readFileSync(`/proc/${id}/cmdline`, 'utf8').split('\0').join(' ');
+        if (!/(?:^|\/)(?:initdb|postgres)(?: |$)/.test(cmd) || !cmd.includes(dataDir)) continue;
+        holders.push({ pid: Number(id), name: cmd.split(' ')[0]!.split('/').pop() ?? '' });
+      } catch { /* gone */ }
+    }
+  } catch { return undefined; }
+  return holders;
+}
+
 /** Whether a preparation madarch started is under way in this data directory: its record is there and no prepared one is. */
 export function preparationInProgress(dataDir: string): boolean {
   return existsSync(preparingPath(dataDir)) && !existsSync(preparedPath(dataDir));
@@ -527,9 +572,14 @@ function keepPrepared(dataDir: string): void {
  */
 function recordedInitdbMayLive(initdb: { readonly pid: number; readonly startTime?: string }): boolean {
   if (!alive(initdb.pid)) return false;
-  if (initdb.startTime === undefined) return true;
-  const now = processStartTime(initdb.pid);
-  return now === undefined || now === initdb.startTime;
+  if (initdb.startTime !== undefined) {
+    const now = processStartTime(initdb.pid);
+    if (now !== undefined) return now === initdb.startTime;
+  }
+  // Where no kernel start time answers (Windows), the name is the identity: a pid a stop freed is reused by whatever the
+  // machine starts next, and only an initdb can be the initdb our record named.
+  const name = processNameOf(initdb.pid);
+  return name === undefined || name === '' || name === 'initdb';
 }
 
 /**
@@ -566,6 +616,25 @@ function endInitdbTree(pid: number | undefined): void {
   }
   try { process.kill(-pid, 'SIGKILL'); }
   catch { try { process.kill(pid, 'SIGKILL'); } catch { /* gone between the check and the signal */ } }
+}
+
+/**
+ * Waits for what an ended initdb left of its tree to stop naming the folder, and refuses while it still does: a folder
+ * being written is never removed, however finished its records look.
+ */
+async function awaitPreparationGone(dataDir: string, waitMs: number): Promise<void> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const holders = preparationHolders(dataDir);
+    if (holders === undefined) {
+      throw new Error(`${dataDir}:1: the process list could not be read, so this folder is left as it stands and this store does not open: open the store again, or move ${dataDir} aside (src/adapters/postgres-cluster.ts)`);
+    }
+    if (holders.length === 0) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`${dataDir}:1: ${holders.map((one) => `${one.name} pid ${String(one.pid)}`).join(', ')} still name this folder after ${String(waitMs)} ms, so it is left as it stands and this store does not open: open the store again once they end, or move ${dataDir} aside (src/adapters/postgres-cluster.ts)`);
+    }
+    await Bun.sleep(200);
+  }
 }
 
 /** Runs `initdb`, naming the pid it spawned to `named` as soon as there is one, and throws with what initdb said when it fails. */
@@ -637,6 +706,9 @@ async function createDataDir(dataDir: string, bin: string, log: (line: string) =
       keepPrepared(dataDir);
       return;
     }
+    // Its tree can outlive initdb itself — a bootstrap `postgres.exe` a killed initdb left on Windows keeps writing the
+    // folder — so the folder is removed only when nothing names it any more.
+    await awaitPreparationGone(dataDir, waitMs);
   } else if (!empty && initdbWhole(dataDir)) {
     // A store prepared before these records existed: what initdb leaves when it ends is the proof, and the record follows.
     keepPrepared(dataDir);
