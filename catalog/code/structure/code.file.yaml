@@ -54,11 +54,12 @@ facts:
 template-policy: page
 source: graph
 # The paths this kind leaves out: a product's own declaration, so no engine list decides what a repository's
-# knowledge is. A dependency tree and a build output are not the product (madarch-64o5.83).
+# knowledge is. Only what is never a person's source by nature stands here — the dependency tree and the repository's
+# own folder; a build output can be a product's tracked code (a GitHub Action's bundle), so it is not excluded by
+# default and a product that wants it gone names it itself (madarch-64o5.83).
 exclude:
   - "**/node_modules/**"
   - "**/.git/**"
-  - "**/dist/**"
 fields:
 - name: state_machines
   type: json

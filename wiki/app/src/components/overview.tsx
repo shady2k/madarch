@@ -20,6 +20,11 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
   const runs = useCommandRead<{ runs: readonly FillRunDetail[] }>('overview-runs', (signal) => readFillRuns(context.base, signal));
   useChangeStream(context.base, () => { problems.reload(); runs.reload(); });
   const last: FillRunDetail | undefined = runs.data?.runs[0];
+  // A number stands only on a successful answer: a request that failed, or has not answered yet, is "not known" — never
+  // zero problems and never "no fill has run" said as fact (madarch-64o5.83, review P2).
+  const notKnown = t('overview.notKnown');
+  const problemsText = problems.error !== null || problems.data === null ? notKnown : t('overview.problems', { count: problems.data.open });
+  const fillState: 'known' | 'none' | 'unknown' = runs.error !== null || runs.data === null ? 'unknown' : last === undefined ? 'none' : 'known';
   return (
     <Card data-testid="product-overview">
       <CardHeader><CardTitle>{t('overview.title')}</CardTitle></CardHeader>
@@ -29,11 +34,11 @@ export function ProductOverviewSection({ context }: { readonly context: SectionC
           <Paragraph className="m-0 text-secondary" data-testid="overview-description">{t('overview.description')}</Paragraph>
           <InlineGroup>
             <TextLink href={context.base + '/p/problems'} onClick={(event) => { event.preventDefault(); context.open('/p/problems'); }} data-testid="overview-problems">
-              {t('overview.problems', { count: problems.data?.open ?? 0 })}
+              {problemsText}
             </TextLink>
-            {last === undefined ? <Paragraph className="m-0 text-muted" data-testid="overview-no-fill">{t('overview.noFill')}</Paragraph> : (
-              <TextLink href={context.base + runAddress(last.runId)} onClick={(event) => { event.preventDefault(); context.open(runAddress(last.runId)); }} data-testid="overview-last-fill">
-                {t('overview.lastFill', { when: momentWords(last.startedAt, language), count: last.units.length, duration: durationWords(last.elapsedMs, language) })}
+            {fillState === 'unknown' ? <Paragraph className="m-0 text-muted" data-testid="overview-fill-unknown">{t('overview.fillUnknown')}</Paragraph> : fillState === 'none' ? <Paragraph className="m-0 text-muted" data-testid="overview-no-fill">{t('overview.noFill')}</Paragraph> : (
+              <TextLink href={context.base + runAddress(last!.runId)} onClick={(event) => { event.preventDefault(); context.open(runAddress(last!.runId)); }} data-testid="overview-last-fill">
+                {t('overview.lastFill', { when: momentWords(last!.startedAt, language), count: last!.units.length, duration: durationWords(last!.elapsedMs, language) })}
               </TextLink>
             )}
           </InlineGroup>

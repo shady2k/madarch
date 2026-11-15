@@ -1843,6 +1843,8 @@
     "description": "What this product is for is written on its own page, by an agent or a person; until then, this is what the graph holds.",
     "problems": "{{count}} open problems in the code, the documents and the wiki",
     "noFill": "No fill has run yet.",
-    "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}"
+    "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
+    "notKnown": "Problems: not known right now",
+    "fillUnknown": "The last fill is not known right now"
   }
 }

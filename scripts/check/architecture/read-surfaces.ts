@@ -36,6 +36,10 @@ export const ALLOWED_ROUTES: readonly AllowedRoute[] = [
   // A rendered diagram (decision 0036, sections 7 and 8): a picture served to clients on request, built by the
   // renderer from the graph read layer — not a read surface of its own, and the same answer for the same revision.
   { method: '*', path: '/render/diagram' },
+  // The daemon's own proof (madarch-64o5.80): a start asks the process that answers on its port for an HMAC of a nonce,
+  // so a stranger's server on the port is not read as the child. It reads no graph at all — it is the process's own
+  // identity, like the product's identity and status beside it.
+  { method: '*', path: '/api/daemon' },
   { method: '*', path: '/api/events' },
   { method: '*', path: '/api/product' },
   { method: '*', path: '/api/products' },

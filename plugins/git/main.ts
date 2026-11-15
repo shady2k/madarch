@@ -128,11 +128,14 @@ export async function extract(unit: Unit, context: ExtractContext): Promise<Unit
       if (held.hash === pin.commit) edges.push({ kind: 'code.as-is', from: repository, to: commit, evidence });
       held.parents.forEach((hash, position) => edges.push({ kind: 'code.parent', from: commit, to: { kind: 'code.commit', key: { hash } }, values: { position }, evidence }));
       for (const touched of held.touched) {
+        // An edge whose end the product excludes has no vertex to point at, and the fill's partition planning refuses
+        // such an edge: a path the kind leaves out gets neither a vertex nor an edge (madarch-64o5.83).
+        if (leftOut(inputs.exclude, touched.path)) continue;
         const file = { kind: 'code.file', key: { repository: pin.repository, path: touched.path } };
         fileIdentity(pin.repository, touched.path, pin.commit, factsOf(touched.path));
-        if (touched.previousPath !== undefined) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
+        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) fileIdentity(pin.repository, touched.previousPath, pin.commit, factsOf(touched.previousPath));
         edges.push({ kind: 'code.touched', from: commit, to: file, values: { change: touched.change, added: touched.added, removed: touched.removed }, evidence: { ...evidence, commitOrDigest: held.hash, path: touched.path } });
-        if (touched.previousPath !== undefined) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
+        if (touched.previousPath !== undefined && !leftOut(inputs.exclude, touched.previousPath)) edges.push({ kind: 'code.renamed-from', from: file, to: { kind: 'code.file', key: { repository: pin.repository, path: touched.previousPath } }, discriminator: held.hash, evidence });
       }
     }
     for (const gap of history.gaps) problems.push(`${pin.repository}: ${gap.what}: ${gap.reason}`);

@@ -3,11 +3,12 @@
  * knowledge is. The parser keeps them and refuses a malformed list; the disk producer leaves the matching paths out.
  */
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readKinds } from '../src/product/manifest/kinds.js';
+import { parse } from 'yaml';
 import { excludedPath } from '../plugins/disk/reader.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY } from './knowledge-fixture.js';
@@ -89,4 +90,13 @@ test('a declared pattern leaves a dependency tree and a build output out, and ke
   expect(excludedPath('wiki/app/dist/app.js', patterns)).toBe(true);
   expect(excludedPath('src/knowledge/product.ts', patterns)).toBe(false);
   expect(excludedPath('docs/decisions/0020.md', patterns)).toBe(false);
+});
+
+test('the starter leaves out only what is never a person\'s source, so a tracked build output stays (madarch-64o5.83)', () => {
+  // A product may ship `dist/` on purpose (a GitHub Action's own bundle): a blanket default would drop tracked files
+  // (review P2). The starter names the dependency tree and the repository's own folder, and a product may add more.
+  for (const file of ['catalog/code/structure/code.file.yaml', 'catalog/code/structure/code.directory.yaml']) {
+    const declaration = parse(readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')) as { exclude?: string[] };
+    expect({ file, patterns: declaration.exclude }).toEqual({ file, patterns: ['**/node_modules/**', '**/.git/**'] });
+  }
 });
