@@ -127,6 +127,7 @@
 .shell-document {
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-block-size: 100%;
   /* The trail opens the page a token below the bar, and the title follows it a token later: the work area's own top
      gap is the kit's, not the reading rhythm's. */
@@ -139,6 +140,8 @@
 
 .shell-document > main,
 .ui-kit-page {
+  min-width: 0;
+  max-width: 100%;
   max-inline-size: var(--work-max);
   margin-inline: auto;
 }
@@ -398,6 +401,8 @@ main blockquote + * {
 /* 4.3 Inline code: the code pair on its grey ground. */
 main :not(pre) > code {
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 0.875em;
   padding: 0.1em 0.35em;
   border-radius: var(--radius-code);
@@ -2250,10 +2255,10 @@ a.graph-diagram-element-label:hover {
 /* ---- The Files page: the map, its switches, its legend and the table (madarch-j9ao.1) -------------- */
 /* The Files page's controls: one segmented choice per group, its label above the choice. */
 .dg-files-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 8px; }
-.dg-seg { display: inline-flex; flex-direction: column; gap: 4px; }
+.dg-seg { display: flex; min-width: 0; max-width: 100%; flex-direction: column; gap: 4px; }
 .dg-seg-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); }
-.dg-seg-options { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; background: var(--surface-page); }
-.dg-seg-option { min-height: 30px; padding: 0 8px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1; white-space: nowrap; cursor: pointer; }
+.dg-seg-options { display: flex; min-width: 0; max-width: 100%; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; background: var(--surface-page); }
+.dg-seg-option { min-height: 30px; min-width: 0; padding: 0 8px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
 .dg-seg-option:first-child { border-left: 0; }
 .dg-seg-option:hover { background: var(--surface-hover); color: var(--text); }
 .dg-seg-option:focus-visible { outline: 2px solid var(--ink, var(--text)); outline-offset: -2px; }
