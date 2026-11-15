@@ -1,124 +1,92 @@
 # The starter catalogue holds the owner's kinds, and no agent field reads a file
 
 Change: madarch-64o5.109
-Base: d60107d75581850ffec862234434a3224d844dd7
+Base: 1460a3b7dfeb14756a5cda0c017eab599b2837da
 Tasks: madarch-64o5.109, madarch-64o5.114, madarch-64o5.115
-Kind: request
+Kind: no-behavior
+
+## Intent
+The owner asked on 2026-11-15 whether the catalogue entities he agreed that morning exist, and they did
+not: `bun run check:catalog` read 526 kinds, but only 55 declared fields and 43 a natural key, 87
+agent-bound fields told the agent to read a file, a glob or a repository, the Markdown page format was
+still visible in `legacy_id`, `front`, `body`, `import-folder` and the slug key, and a third of the model
+families the owner agreed had no kind. The catalogue is now the greenfield model he described: 498 kinds,
+596 fields, 115 natural keys, 0 agent-bound fields that read a file, and the kinds for person, role,
+permission, the behaviour and data models, the proposed kind and the one decision kind.
+
+## Out of scope
+- The bundled plugins' contracts: `disk`, `git` and `db-schema` still emit text, so `code.file`,
+  `code.directory`, `code.gitlink`, `code.table.database`, `code.column.table` and `code.index.table`
+  keep the plugin's text key rather than a reference.
+- The reset path's remaining Markdown renderers for questions and corrections, which another change owns.
+- Filling the new kinds on madarch itself; this change settles what the kinds are, not the fill.
 
 ## Rationale
+The audit of 2026-11-15 (526 kinds, OK 409 / FIX 72 / MERGE 36 / REMOVE 9) is the reason for every edit,
+read with the owner's three decisions of that day: the greenfield rule R10 (no trace of an earlier
+format is migrated), the rule that the agent reads only the graph (a specialised plugin brings a document
+into it), and his merges (a component is a module, one role kind serves the diagrams and the reading). The
+fixes describe the thing, its natural key and its relations; the merges fold a second kind into the kind
+that is the same thing; the removals drop what is not a thing (a file facet, a reified link, a computed
+reservation). The six manifest constructs the audit called removals stay, because madarch-64o5.114 makes
+the engine's own concepts entities too.
 
-The owner asked on 2026-11-15 whether the catalogue entities he agreed that morning exist, and they did
-not. `bun run check:catalog` read 526 kinds, but only 55 declared fields and 43 a natural key — the rest
-could show a page and hold nothing. 92 agent-bound fields, 87 of them, told the agent to read a file, a
-glob or a repository, which his rule forbids: the agent reads only the graph, and a specialised plugin
-brings a document into it. The Markdown-page model was still visible in `legacy_id`, `front`, `body`,
-`import-folder` and the slug key; four code kinds carried state machines as JSON; the tracker's field set
-was copied onto kinds that are not tracker items; and a third of the model families the owner agreed
-(activity, class view, ER relationship, use-case step, scenario step, BPMN event and flow, one process
-kind, one state-machine family) had no kind.
-
-Three steps, each its own commit, in this order:
-
-1. R10, greenfield: every trace of an earlier format is deleted, not migrated — `legacy_id`, `title`,
-   `body`, the raw `front` JSON, the `import-folder` binding, the page field set and the `slug` key.
-2. The audit's fixes, merges and removals: 72 kinds get fields, keys and relations that describe the
-   thing; 36 are folded into the kind that is the same thing (with the greenfield corrections: a
-   component is a C4 component and merges into the module, and the role kinds merge into one role); 3
-   are removed as non-things (file facet, link, reservation) — the six manifest constructs the audit
-   called removals stay, because madarch-64o5.114 makes the engine's own concepts entities too.
-3. The missing kinds: person, role, permission, access role as their own kind, the behaviour and data
-   model kinds, the proposed kind, and one decision kind.
-
-## Where the catalogue stands
-
-| What | Before | After |
-|---|---|---|
-| Kinds (catalogue entities) | 526 | 498 |
-| Declared fields | 395 | 596 |
-| Kinds with a natural key | 28 | 115 |
-| Kinds with a page or a member row | 83 | 117 |
-| Agent-bound fields | 92 | 406 |
-| **Agent-bound fields that read a file, a glob or a repository** | **87** | **0** |
-| Relation constraints | 1161 | 1235 |
-
-Measured over `catalog/` by parsing each kind declaration at `d60107d7` and at this change's head. An
-agent field counts as reading a file when its instruction names a path, a glob or a read of a file,
-repository or document; an instruction that reads text the graph holds ("… read from the text of the
-files the folder holds in the graph") is not such a read, because the file content is a graph entity.
+## Changes to requirements
+None. The change realizes the existing `product-wiki` catalog requirement, whose text already holds the
+whole entity catalogue, its check and its refusals; the kinds, the fields and the natural keys are the
+code catching up with it.
 
 ## Preserved contracts
-
-- A kind still declares `id`, `group` (by its folder), `definition`, `sources`, `acquisition`,
-  `relation-constraints`, `template-policy`, `labels` and `description`; the manifest reader, the
-  catalogue check and the GraphQL schema read exactly those.
-- `audience` keeps naming declared reader roles. The roles are the natural keys of «Роль» entities: the
-  same names, now a kind of their own, so an audience is a set of role entities rather than free words.
-- The three starter value sets and the work kinds keep pointing at `value-set-entry`.
-- The starter GraphQL SDL is regenerated from the catalogue (`bun scripts/write-starter-graphql.ts`) and
-  still names every kind.
-- Bundled plugin-bound fields keep the type their plugin declares (the plugin contract states text; a
-  reference would refuse the plugin's own output).
-
-## What changed beside the catalogue
-
-- `src/product/manifest/kinds.ts`: the manifest reader refuses an agent binding that begins with a read
-  instruction or names a glob or `docs/` path — the owner's rule, now enforced where a binding is written.
-- `src/product/manifest.ts`: the product page takes its name into the kind's own title attribute
-  (`title: name`) and keys the product by its name, not by an id in a slug field.
-- `src/graph/graph-writes.ts`: a keyed entity may be stated by its key alone, so the product page exists
-  from its name.
-- `src/knowledge/reset.ts`: a reset reads every page opinion the graph holds instead of the two kinds the
-  engine named; the page kinds are the kinds that declare a body.
-- Test fixtures follow: a reduced product keeps the kinds its kinds name (resolved with the kept plugins'
-  kinds rather than dropped), and a test that needs a page kind or a source-text kind declares one, as a
-  product may.
+- product-wiki/catalog: the starter set still declares its areas, subgroups, concept ids, definitions, sources, acquisition, relation constraints and template policies, and the check still refuses a kind that leaves one out
+- product-wiki/extractor-mapping: every extractor kind and relation still names a catalog kind or relation, and the mapping is unchanged
+- fill-stages/configuration: a product still declares the kinds its fill reads, and the fill's plan still refuses a kind that names no producer
+- product-wiki/internationalization: every kind still names and describes itself in English and Russian, and the new kinds do too
 
 ## Coverage
-
-- `catalog/`: the whole starter catalogue, which `bun run check:catalog` reads as `madarch init` writes it.
-- The manifest reader's new refusal: `test/catalog-read.test.ts` plants a binding that sends the agent to
-  a file and to a glob, and each is one finding.
-- `bun run check`: tsc, the architecture check, the interface check, the catalogue check, the workflow
-  check and the quarantine check.
-- Catalogue and manifest tests: `catalog-check`, `catalog-read`, `catalog-descriptions`,
-  `catalog-folder-preservation`, `catalog-work-common`, `catalogue-kind-relations`, `catalogue-diagram`,
-  `catalogue-starter-kinds` (new), `work-kinds-cover-tracker`, `starter-value-sets`, `graphql-starter`,
-  `draft-starter-copy`, `manifest-contract`, `product-manifest`, `kind-agent-manifest`,
-  `manifest-kind-exclude`.
+- product-wiki/catalog: static test
+- product-wiki/extractor-mapping: static test
+- fill-stages/configuration: static test
+- product-wiki/internationalization: static test
 
 ## Where it is seen
+Kind: command
+Place: `bun run check:catalog` over the starter set, and the catalogue page of a product made with `madarch init --template everything`
 
-1. `madarch init` a product with the `everything` template; `bun run check:catalog --folder <product>`
-   prints `catalog: 28 areas, 106 subgroups, 498 kinds (117 with a page of their own or a member's row)`
-   and no finding.
-2. Open the product's catalogue page and read «Человек» («People»), «Роль» («Roles»), «Право»
-   («Permissions»), «Роль доступа» («Access roles»), «Активность», «Диаграмма классов», «Логическая
-   модель данных», «Шаг сценария использования», «Событие процесса», «Предложенный вид» and
-   «Решение» in the areas they stand in.
-3. `test/catalogue-starter-kinds.test.ts` performs exactly this walk: a draft product, its catalogue
-   published, `catalogueEntity(name: …)` for each new kind and its Russian label.
-4. Open a code kind's page: no field asks a reader to open a file; each agent field names the graph data
-   it rests on.
-
-## Kinds left unsettled, and why
-
-- `code.file`, `code.directory`, `code.gitlink` (repository, directory, `added_in`/`removed_in`,
-  `other_repository`, `commit_hash`), `code.table.database`, `code.column.table`, `code.index.table`:
-  the audit asks for references, but these fields are bound to the bundled `disk`, `git` and `db-schema`
-  plugins, whose contracts declare text and emit text. A reference makes the graph writer refuse the
-  plugin's own output (`fits()` demands `{kind, key}`), and changing the plugins' contracts and code is
-  outside this catalogue change. They stay text keys until that plugin change lands; the fields are
-  still the plugin's, not the agent's.
-- `code.foreign-key` (the ER relationship): settled as an edge with declared attributes (`target_column`,
-  `constraint`, `on_delete`, `on_update`), not as a vertex kind, because an edge is never a vertex
-  (ADR 0034 item 5) — the audit offered either. For the same reason BPMN and activity flows are declared
-  `flowsTo` edge kinds, not vertex kinds.
-- `person`, `role`: no `derives-from`. They are the roots of the access model, found in conversation and
-  the product's own settings; no other kind's discovery must finish first. Every other new kind derives
-  from the kinds it is read out of.
-- The 443 catalogue rows the audit marked OK and that still declare no fields are left as the audit found
-  them: it counted them OK, and the owner's rule is to add kinds and fields as they are met.
+1. Run `bun run check:catalog`: it prints `28 areas, 106 subgroups, 498 kinds (117 with a page of their own or a member's row)` and no finding.
+2. Make a product with `madarch init --template everything`, then run `bun run check:catalog --folder` on its folder: the same counts and no finding.
+3. Open the product's catalogue page and read «Человек», «Роль», «Право», «Роль доступа», «Активность», «Диаграмма классов», «Логическая модель данных», «Шаг сценария использования», «Событие процесса», «Предложенный вид» and «Решение».
+4. Read any code kind's page: no field asks the reader to open a file.
 
 ## Blocking questions
-
 None.
+
+## Design and decisions
+Counts before and after, measured over `catalog/` at `d60107d7` and at this branch's head: kinds 526 to
+498, declared fields 395 to 596, kinds with a natural key 28 to 115, kinds with a page or a member row
+83 to 117, agent-bound fields 92 to 406, of which the ones that read a file, a glob or a repository fall
+87 to 0. An agent field counts as a read when its instruction names a path, a glob or a read of a file,
+repository or document; "read from the text of the files the folder holds in the graph" is graph data,
+not a read.
+
+Kinds left unsettled, with the reason: the plugin-bound text keys named under Out of scope; the ER
+foreign key and the BPMN and activity flows, which are edges with declared attributes rather than vertex
+kinds because an edge is never a vertex (ADR 0034 item 5); `person` and `role`, which have no
+`derives-from` because they are the roots of the access model; and the 443 catalogue rows the audit marked
+OK and that still declare no fields.
+
+The manifest reader now refuses an agent binding that begins with a read instruction or names a glob or a
+`docs/` path, so the owner's rule is enforced where a binding is written, not only audited once.
+
+## Acceptance evidence
+Static: `bun run check` passed (tsc, architecture, UI, catalog, workflows, quarantine).
+Test: `bun run check:catalog` printed 28 areas, 106 subgroups, 498 kinds (117 page or member rows) and
+both templates clean; 32 catalogue, manifest and affected test files passed, 214 cases and one skip,
+including `test/catalogue-starter-kinds.test.ts`, which makes a starter product, publishes its catalogue
+and reads each new kind and its Russian label through `catalogueEntity`.
+Mutation: not made; filed per the stage rule.
+Review: pending; this record is for the review.
+
+## DONE WHEN
+`bun run check:catalog` reads the starter set with no finding and the counts above, a starter product's
+catalogue page lists the new kinds, and no agent binding in `catalog/` names a file, a glob or a
+repository.
