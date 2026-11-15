@@ -56,6 +56,16 @@ describe('the entry stylesheet', () => {
     }
   });
 
+  test('the LikeC4 diagram takes its accent from the kit tokens', () => {
+    const held = [...indexCss.matchAll(/\.dg-likec4-view\s*\{([^}]*)\}/gsu)].map((match) => match[1] ?? '').find((block) => block.includes('--colors-likec4-accent-5')) ?? '';
+    for (const shade of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      expect(held).toContain(`--colors-likec4-accent-${String(shade)}: var(--`);
+    }
+    expect(held).toContain('--colors-likec4-accent-5: var(--surface-active);');
+    expect(held).toContain('--likec4-palette-fill: var(--surface-active);');
+    expect(held).toContain('--likec4-palette-stroke: var(--border);');
+  });
+
   test('the reading rules carry the accepted selectors and the phone block', () => {
     for (const selector of ['main h1', 'main h2', 'main p', 'main ul,', 'main blockquote', 'main pre', 'main :not(pre) > code', 'main .table-wrap']) {
       expect(indexCss).toContain(selector);
