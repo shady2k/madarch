@@ -222,6 +222,68 @@ type BusinessProcessEdge {
   node: BusinessProcess!
 }
 
+type C4Component implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  container: CodeService
+  containerOpinions: [Opinion!]!
+  containerOpinionsCount: Int!
+  name: String
+  nameOpinions: [Opinion!]!
+  nameOpinionsCount: Int!
+  responsibility: String
+  responsibilityOpinions: [Opinion!]!
+  responsibilityOpinionsCount: Int!
+  c4ComponentContains(first: Int, after: String): C4ComponentContainsConnection!
+  c4ComponentContainsOf(first: Int, after: String): C4ComponentContainsConnection!
+  componentImplementedBy(first: Int, after: String): ComponentImplementedByConnection!
+  containerContainsComponentOf(first: Int, after: String): ContainerContainsComponentConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+}
+
+type C4ComponentConnection {
+  edges: [C4ComponentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type C4ComponentContainsConnection {
+  edges: [C4ComponentContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type C4ComponentContainsConnectionEdge {
+  cursor: String!
+  node: C4ComponentContainsEdge!
+}
+
+type C4ComponentContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
+type C4ComponentEdge {
+  cursor: String!
+  node: C4Component!
+}
+
 type CatalogueEntity implements Entity {
   id: ID!
   kind: String!
@@ -1050,6 +1112,8 @@ type CodeDirectory implements Entity {
   pathOpinionsCount: Int!
   codeContains(first: Int, after: String): CodeContainsConnection!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  codeDirectoryContains(first: Int, after: String): CodeDirectoryContainsConnection!
+  codeDirectoryContainsOf(first: Int, after: String): CodeDirectoryContainsConnection!
   domainCoversFolderOf(first: Int, after: String): DomainCoversFolderConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -1067,6 +1131,25 @@ type CodeDirectoryConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type CodeDirectoryContainsConnection {
+  edges: [CodeDirectoryContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeDirectoryContainsConnectionEdge {
+  cursor: String!
+  node: CodeDirectoryContainsEdge!
+}
+
+type CodeDirectoryContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type CodeDirectoryEdge {
@@ -2289,6 +2372,9 @@ type CodeModule implements Entity {
   responsibility: String
   responsibilityOpinions: [Opinion!]!
   responsibilityOpinionsCount: Int!
+  codeModuleContains(first: Int, after: String): CodeModuleContainsConnection!
+  codeModuleContainsOf(first: Int, after: String): CodeModuleContainsConnection!
+  componentImplementedByOf(first: Int, after: String): ComponentImplementedByConnection!
   domainCoversOf(first: Int, after: String): DomainCoversConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -2308,6 +2394,25 @@ type CodeModuleConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type CodeModuleContainsConnection {
+  edges: [CodeModuleContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeModuleContainsConnectionEdge {
+  cursor: String!
+  node: CodeModuleContainsEdge!
+}
+
+type CodeModuleContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type CodeModuleEdge {
@@ -2603,6 +2708,7 @@ type CodeRepository implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  productUsesRepositoryOf(first: Int, after: String): ProductUsesRepositoryConnection!
   repositoryOfCodeCiWorkflow(where: CodeCiWorkflowWhere, orderBy: [CodeCiWorkflowOrder!], first: Int, after: String): CodeCiWorkflowConnection!
   repositoryOfCodeContract(where: CodeContractWhere, orderBy: [CodeContractOrder!], first: Int, after: String): CodeContractConnection!
   repositoryOfCodeDebt(where: CodeDebtWhere, orderBy: [CodeDebtOrder!], first: Int, after: String): CodeDebtConnection!
@@ -2710,6 +2816,9 @@ type CodeService implements Entity {
   purpose: String
   purposeOpinions: [Opinion!]!
   purposeOpinionsCount: Int!
+  codeServiceContains(first: Int, after: String): CodeServiceContainsConnection!
+  codeServiceContainsOf(first: Int, after: String): CodeServiceContainsConnection!
+  containerContainsComponent(first: Int, after: String): ContainerContainsComponentConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -2718,6 +2827,7 @@ type CodeService implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  containerOfC4Component(where: C4ComponentWhere, orderBy: [C4ComponentOrder!], first: Int, after: String): C4ComponentConnection!
   fromServiceOfScenarioStep(where: ScenarioStepWhere, orderBy: [ScenarioStepOrder!], first: Int, after: String): ScenarioStepConnection!
   performedByOfProcessStep(where: ProcessStepWhere, orderBy: [ProcessStepOrder!], first: Int, after: String): ProcessStepConnection!
   serviceOfCodeDatabase(where: CodeDatabaseWhere, orderBy: [CodeDatabaseOrder!], first: Int, after: String): CodeDatabaseConnection!
@@ -2737,6 +2847,25 @@ type CodeServiceConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type CodeServiceContainsConnection {
+  edges: [CodeServiceContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeServiceContainsConnectionEdge {
+  cursor: String!
+  node: CodeServiceContainsEdge!
+}
+
+type CodeServiceContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type CodeServiceEdge {
@@ -3160,6 +3289,25 @@ type CommentEdge {
   node: Comment!
 }
 
+type ComponentImplementedByConnection {
+  edges: [ComponentImplementedByConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ComponentImplementedByConnectionEdge {
+  cursor: String!
+  node: ComponentImplementedByEdge!
+}
+
+type ComponentImplementedByEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
+}
+
 type Constitution implements Entity {
   id: ID!
   kind: String!
@@ -3200,6 +3348,25 @@ type ConstitutionConnection {
 type ConstitutionEdge {
   cursor: String!
   node: Constitution!
+}
+
+type ContainerContainsComponentConnection {
+  edges: [ContainerContainsComponentConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ContainerContainsComponentConnectionEdge {
+  cursor: String!
+  node: ContainerContainsComponentEdge!
+}
+
+type ContainerContainsComponentEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type ContainerHealthCheck implements Entity {
@@ -3457,6 +3624,12 @@ type Defect implements Entity {
   status: ValueSetEntry
   statusOpinions: [Opinion!]!
   statusOpinionsCount: Int!
+  priority: ValueSetEntry
+  priorityOpinions: [Opinion!]!
+  priorityOpinionsCount: Int!
+  queuePosition: Int
+  queuePositionOpinions: [Opinion!]!
+  queuePositionOpinionsCount: Int!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -3634,21 +3807,24 @@ type DocTerm implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  subject: Domain
+  subjectOpinions: [Opinion!]!
+  subjectOpinionsCount: Int!
+  identifier: String
+  identifierOpinions: [Opinion!]!
+  identifierOpinionsCount: Int!
   name: String
   nameOpinions: [Opinion!]!
   nameOpinionsCount: Int!
-  definition: String
-  definitionOpinions: [Opinion!]!
-  definitionOpinionsCount: Int!
-  alsoCalled: JSON
-  alsoCalledOpinions: [Opinion!]!
-  alsoCalledOpinionsCount: Int!
-  ambiguous: String
-  ambiguousOpinions: [Opinion!]!
-  ambiguousOpinionsCount: Int!
   synonyms: JSON
   synonymsOpinions: [Opinion!]!
   synonymsOpinionsCount: Int!
+  definition: String
+  definitionOpinions: [Opinion!]!
+  definitionOpinionsCount: Int!
+  ambiguous: String
+  ambiguousOpinions: [Opinion!]!
+  ambiguousOpinionsCount: Int!
   code: JSON
   codeOpinions: [Opinion!]!
   codeOpinionsCount: Int!
@@ -3664,6 +3840,7 @@ type DocTerm implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  termInDomain(first: Int, after: String): TermInDomainConnection!
 }
 
 type DocTermConnection {
@@ -3791,6 +3968,8 @@ type Domain implements Entity {
   type: String
   typeOpinions: [Opinion!]!
   typeOpinionsCount: Int!
+  domainContains(first: Int, after: String): DomainContainsConnection!
+  domainContainsOf(first: Int, after: String): DomainContainsConnection!
   domainCovers(first: Int, after: String): DomainCoversConnection!
   domainCoversFolder(first: Int, after: String): DomainCoversFolderConnection!
   domainUsesTerm(first: Int, after: String): DomainUsesTermConnection!
@@ -3802,8 +3981,10 @@ type Domain implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  termInDomainOf(first: Int, after: String): TermInDomainConnection!
   domainOfClassDiagram(where: ClassDiagramWhere, orderBy: [ClassDiagramOrder!], first: Int, after: String): ClassDiagramConnection!
   domainOfLogicalDataModel(where: LogicalDataModelWhere, orderBy: [LogicalDataModelOrder!], first: Int, after: String): LogicalDataModelConnection!
+  subjectOfDocTerm(where: DocTermWhere, orderBy: [DocTermOrder!], first: Int, after: String): DocTermConnection!
 }
 
 type DomainConnection {
@@ -3811,6 +3992,25 @@ type DomainConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type DomainContainsConnection {
+  edges: [DomainContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type DomainContainsConnectionEdge {
+  cursor: String!
+  node: DomainContainsEdge!
+}
+
+type DomainContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type DomainCoversConnection {
@@ -4007,6 +4207,11 @@ type Epic implements Entity {
   priority: ValueSetEntry
   priorityOpinions: [Opinion!]!
   priorityOpinionsCount: Int!
+  queuePosition: Int
+  queuePositionOpinions: [Opinion!]!
+  queuePositionOpinionsCount: Int!
+  epicContains(first: Int, after: String): EpicContainsConnection!
+  epicContainsOf(first: Int, after: String): EpicContainsConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -4022,6 +4227,25 @@ type EpicConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type EpicContainsConnection {
+  edges: [EpicContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type EpicContainsConnectionEdge {
+  cursor: String!
+  node: EpicContainsEdge!
+}
+
+type EpicContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type EpicEdge {
@@ -4099,6 +4323,14 @@ type Feature implements Entity {
   status: ValueSetEntry
   statusOpinions: [Opinion!]!
   statusOpinionsCount: Int!
+  priority: ValueSetEntry
+  priorityOpinions: [Opinion!]!
+  priorityOpinionsCount: Int!
+  queuePosition: Int
+  queuePositionOpinions: [Opinion!]!
+  queuePositionOpinionsCount: Int!
+  featureContains(first: Int, after: String): FeatureContainsConnection!
+  featureContainsOf(first: Int, after: String): FeatureContainsConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -4114,6 +4346,25 @@ type FeatureConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type FeatureContainsConnection {
+  edges: [FeatureContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type FeatureContainsConnectionEdge {
+  cursor: String!
+  node: FeatureContainsEdge!
+}
+
+type FeatureContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type FeatureEdge {
@@ -4298,6 +4549,69 @@ type IamRoleConnection {
 type IamRoleEdge {
   cursor: String!
   node: IamRole!
+}
+
+type Idea implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  identifier: String
+  identifierOpinions: [Opinion!]!
+  identifierOpinionsCount: Int!
+  title: String
+  titleOpinions: [Opinion!]!
+  titleOpinionsCount: Int!
+  status: String
+  statusOpinions: [Opinion!]!
+  statusOpinionsCount: Int!
+  deathReason: String
+  deathReasonOpinions: [Opinion!]!
+  deathReasonOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  ideaEvolvedInto(first: Int, after: String): IdeaEvolvedIntoConnection!
+  ideaEvolvedIntoOf(first: Int, after: String): IdeaEvolvedIntoConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+}
+
+type IdeaConnection {
+  edges: [IdeaEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type IdeaEdge {
+  cursor: String!
+  node: Idea!
+}
+
+type IdeaEvolvedIntoConnection {
+  edges: [IdeaEvolvedIntoConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type IdeaEvolvedIntoConnectionEdge {
+  cursor: String!
+  node: IdeaEvolvedIntoEdge!
+}
+
+type IdeaEvolvedIntoEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type Incident implements Entity {
@@ -5139,7 +5453,9 @@ type Product implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  productUsesRepository(first: Int, after: String): ProductUsesRepositoryConnection!
   productOfConstitution(where: ConstitutionWhere, orderBy: [ConstitutionOrder!], first: Int, after: String): ConstitutionConnection!
+  productOfProductProfile(where: ProductProfileWhere, orderBy: [ProductProfileOrder!], first: Int, after: String): ProductProfileConnection!
 }
 
 type ProductConnection {
@@ -5152,6 +5468,82 @@ type ProductConnection {
 type ProductEdge {
   cursor: String!
   node: Product!
+}
+
+type ProductProfile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  product: Product
+  productOpinions: [Opinion!]!
+  productOpinionsCount: Int!
+  deployment: JSON
+  deploymentOpinions: [Opinion!]!
+  deploymentOpinionsCount: Int!
+  dataStores: JSON
+  dataStoresOpinions: [Opinion!]!
+  dataStoresOpinionsCount: Int!
+  webUi: JSON
+  webUiOpinions: [Opinion!]!
+  webUiOpinionsCount: Int!
+  mobile: JSON
+  mobileOpinions: [Opinion!]!
+  mobileOpinionsCount: Int!
+  ml: JSON
+  mlOpinions: [Opinion!]!
+  mlOpinionsCount: Int!
+  messaging: JSON
+  messagingOpinions: [Opinion!]!
+  messagingOpinionsCount: Int!
+  languages: JSON
+  languagesOpinions: [Opinion!]!
+  languagesOpinionsCount: Int!
+  frameworks: JSON
+  frameworksOpinions: [Opinion!]!
+  frameworksOpinionsCount: Int!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+}
+
+type ProductProfileConnection {
+  edges: [ProductProfileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ProductProfileEdge {
+  cursor: String!
+  node: ProductProfile!
+}
+
+type ProductUsesRepositoryConnection {
+  edges: [ProductUsesRepositoryConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ProductUsesRepositoryConnectionEdge {
+  cursor: String!
+  node: ProductUsesRepositoryEdge!
+}
+
+type ProductUsesRepositoryEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type ProposedKind implements Entity {
@@ -5602,6 +5994,8 @@ type Stage implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  stageContains(first: Int, after: String): StageContainsConnection!
+  stageContainsOf(first: Int, after: String): StageContainsConnection!
 }
 
 type StageConnection {
@@ -5609,6 +6003,25 @@ type StageConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type StageContainsConnection {
+  edges: [StageContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type StageContainsConnectionEdge {
+  cursor: String!
+  node: StageContainsEdge!
+}
+
+type StageContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type StageEdge {
@@ -5790,6 +6203,9 @@ type Task implements Entity {
   labels: ValueSetEntry
   labelsOpinions: [Opinion!]!
   labelsOpinionsCount: Int!
+  queuePosition: Int
+  queuePositionOpinions: [Opinion!]!
+  queuePositionOpinionsCount: Int!
   fixedByOf(first: Int, after: String): FixedByConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -5799,6 +6215,8 @@ type Task implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  taskContains(first: Int, after: String): TaskContainsConnection!
+  taskContainsOf(first: Int, after: String): TaskContainsConnection!
   taskOfCodeTestQuarantine(where: CodeTestQuarantineWhere, orderBy: [CodeTestQuarantineOrder!], first: Int, after: String): CodeTestQuarantineConnection!
 }
 
@@ -5807,6 +6225,25 @@ type TaskConnection {
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
+}
+
+type TaskContainsConnection {
+  edges: [TaskContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type TaskContainsConnectionEdge {
+  cursor: String!
+  node: TaskContainsEdge!
+}
+
+type TaskContainsEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type TaskEdge {
@@ -5858,6 +6295,25 @@ type TemplateFinding {
   line: Int!
   path: String!
   message: String!
+}
+
+type TermInDomainConnection {
+  edges: [TermInDomainConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type TermInDomainConnectionEdge {
+  cursor: String!
+  node: TermInDomainEdge!
+}
+
+type TermInDomainEdge {
+  id: ID!
+  discriminator: String!
+  opinions: [Opinion!]!
+  node: Entity!
 }
 
 type TestResult implements Entity {
@@ -6081,8 +6537,10 @@ type ValueSetEntry implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   labelsOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
+  priorityOfDefect(where: DefectWhere, orderBy: [DefectOrder!], first: Int, after: String): DefectConnection!
   priorityOfDocRequirement(where: DocRequirementWhere, orderBy: [DocRequirementOrder!], first: Int, after: String): DocRequirementConnection!
   priorityOfEpic(where: EpicWhere, orderBy: [EpicOrder!], first: Int, after: String): EpicConnection!
+  priorityOfFeature(where: FeatureWhere, orderBy: [FeatureOrder!], first: Int, after: String): FeatureConnection!
   priorityOfTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String): TaskConnection!
   statusOfCodeConvention(where: CodeConventionWhere, orderBy: [CodeConventionOrder!], first: Int, after: String): CodeConventionConnection!
   statusOfConstitution(where: ConstitutionWhere, orderBy: [ConstitutionOrder!], first: Int, after: String): ConstitutionConnection!
@@ -6218,6 +6676,8 @@ type Query {
   allActivityNodeAggregate(where: ActivityNodeWhere, lang: String): Aggregate!
   allBusinessProcess(where: BusinessProcessWhere, orderBy: [BusinessProcessOrder!], first: Int, after: String, lang: String): BusinessProcessConnection!
   allBusinessProcessAggregate(where: BusinessProcessWhere, lang: String): Aggregate!
+  allC4Component(where: C4ComponentWhere, orderBy: [C4ComponentOrder!], first: Int, after: String, lang: String): C4ComponentConnection!
+  allC4ComponentAggregate(where: C4ComponentWhere, lang: String): Aggregate!
   allChaosExperiment(where: ChaosExperimentWhere, orderBy: [ChaosExperimentOrder!], first: Int, after: String, lang: String): ChaosExperimentConnection!
   allChaosExperimentAggregate(where: ChaosExperimentWhere, lang: String): Aggregate!
   allClassDiagram(where: ClassDiagramWhere, orderBy: [ClassDiagramOrder!], first: Int, after: String, lang: String): ClassDiagramConnection!
@@ -6372,6 +6832,8 @@ type Query {
   allGuideAggregate(where: GuideWhere, lang: String): Aggregate!
   allIamRole(where: IamRoleWhere, orderBy: [IamRoleOrder!], first: Int, after: String, lang: String): IamRoleConnection!
   allIamRoleAggregate(where: IamRoleWhere, lang: String): Aggregate!
+  allIdea(where: IdeaWhere, orderBy: [IdeaOrder!], first: Int, after: String, lang: String): IdeaConnection!
+  allIdeaAggregate(where: IdeaWhere, lang: String): Aggregate!
   allIncident(where: IncidentWhere, orderBy: [IncidentOrder!], first: Int, after: String, lang: String): IncidentConnection!
   allIncidentAggregate(where: IncidentWhere, lang: String): Aggregate!
   allJobRun(where: JobRunWhere, orderBy: [JobRunOrder!], first: Int, after: String, lang: String): JobRunConnection!
@@ -6402,6 +6864,8 @@ type Query {
   allProcessStepAggregate(where: ProcessStepWhere, lang: String): Aggregate!
   allProduct(where: ProductWhere, orderBy: [ProductOrder!], first: Int, after: String, lang: String): ProductConnection!
   allProductAggregate(where: ProductWhere, lang: String): Aggregate!
+  allProductProfile(where: ProductProfileWhere, orderBy: [ProductProfileOrder!], first: Int, after: String, lang: String): ProductProfileConnection!
+  allProductProfileAggregate(where: ProductProfileWhere, lang: String): Aggregate!
   allProposedKind(where: ProposedKindWhere, orderBy: [ProposedKindOrder!], first: Int, after: String, lang: String): ProposedKindConnection!
   allProposedKindAggregate(where: ProposedKindWhere, lang: String): Aggregate!
   allQuestion(where: QuestionWhere, orderBy: [QuestionOrder!], first: Int, after: String, lang: String): QuestionConnection!
@@ -6654,6 +7118,45 @@ input BusinessProcessWhere {
   name: BusinessProcessNameFilter
   goal: BusinessProcessGoalFilter
   trigger: BusinessProcessTriggerFilter
+}
+
+input C4ComponentNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input C4ComponentOrder {
+  field: C4ComponentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input C4ComponentResponsibilityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input C4ComponentWhere {
+  name: C4ComponentNameFilter
+  responsibility: C4ComponentResponsibilityFilter
 }
 
 input CatalogueEntityDefinitionFilter {
@@ -11045,6 +11548,18 @@ input DefectOrder {
   nulls: NullsOrder
 }
 
+input DefectQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input DefectSeverityFilter {
   _eq: String
   _neq: String
@@ -11079,6 +11594,7 @@ input DefectWhere {
   steps: DefectStepsFilter
   expected: DefectExpectedFilter
   actual: DefectActualFilter
+  queuePosition: DefectQueuePositionFilter
 }
 
 input DocDecisionConsequencesFilter {
@@ -11329,12 +11845,6 @@ input DocRuleWhere {
   rationale: DocRuleRationaleFilter
 }
 
-input DocTermAlsoCalledFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input DocTermAmbiguousFilter {
   _eq: String
   _neq: String
@@ -11356,6 +11866,20 @@ input DocTermCodeFilter {
 }
 
 input DocTermDefinitionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input DocTermIdentifierFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -11402,11 +11926,11 @@ input DocTermUsagesFilter {
 }
 
 input DocTermWhere {
+  identifier: DocTermIdentifierFilter
   name: DocTermNameFilter
-  definition: DocTermDefinitionFilter
-  alsoCalled: DocTermAlsoCalledFilter
-  ambiguous: DocTermAmbiguousFilter
   synonyms: DocTermSynonymsFilter
+  definition: DocTermDefinitionFilter
+  ambiguous: DocTermAmbiguousFilter
   code: DocTermCodeFilter
   usages: DocTermUsagesFilter
 }
@@ -11747,10 +12271,23 @@ input EpicOutcomeFilter {
   _is_null: Boolean
 }
 
+input EpicQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input EpicWhere {
   name: EpicNameFilter
   need: EpicNeedFilter
   outcome: EpicOutcomeFilter
+  queuePosition: EpicQueuePositionFilter
 }
 
 input EventDescriptionFilter {
@@ -11826,6 +12363,18 @@ input FeatureOrder {
   nulls: NullsOrder
 }
 
+input FeatureQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input FeatureValueFilter {
   _eq: String
   _neq: String
@@ -11844,6 +12393,7 @@ input FeatureWhere {
   name: FeatureNameFilter
   description: FeatureDescriptionFilter
   value: FeatureValueFilter
+  queuePosition: FeatureQueuePositionFilter
 }
 
 input FieldSetFieldsFilter {
@@ -11968,6 +12518,75 @@ input IamRoleWhere {
   name: IamRoleNameFilter
   description: IamRoleDescriptionFilter
   source: IamRoleSourceFilter
+}
+
+input IdeaDeathReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input IdeaIdentifierFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input IdeaOrder {
+  field: IdeaOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input IdeaStatusFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input IdeaTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input IdeaWhere {
+  identifier: IdeaIdentifierFilter
+  title: IdeaTitleFilter
+  status: IdeaStatusFilter
+  deathReason: IdeaDeathReasonFilter
 }
 
 input IncidentAcknowledgedAtFilter {
@@ -12930,6 +13549,71 @@ input ProductOrder {
   nulls: NullsOrder
 }
 
+input ProductProfileDataStoresFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileDeploymentFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileFrameworksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileLanguagesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileMessagingFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileMlFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileMobileFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileOrder {
+  field: ProductProfileOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ProductProfileWebUiFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input ProductProfileWhere {
+  deployment: ProductProfileDeploymentFilter
+  dataStores: ProductProfileDataStoresFilter
+  webUi: ProductProfileWebUiFilter
+  mobile: ProductProfileMobileFilter
+  ml: ProductProfileMlFilter
+  messaging: ProductProfileMessagingFilter
+  languages: ProductProfileLanguagesFilter
+  frameworks: ProductProfileFrameworksFilter
+}
+
 input ProductPurposeFilter {
   _eq: String
   _neq: String
@@ -13794,6 +14478,18 @@ input TaskOrder {
   nulls: NullsOrder
 }
 
+input TaskQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input TaskScopeFilter {
   _eq: String
   _neq: String
@@ -13843,6 +14539,7 @@ input TaskWhere {
   description: TaskDescriptionFilter
   scope: TaskScopeFilter
   doneCriterion: TaskDoneCriterionFilter
+  queuePosition: TaskQueuePositionFilter
 }
 
 input TechnologyNameFilter {
@@ -14381,6 +15078,11 @@ enum BusinessProcessOrderField {
   trigger
 }
 
+enum C4ComponentOrderField {
+  name
+  responsibility
+}
+
 enum CatalogueEntityOrderField {
   name
   title
@@ -14868,6 +15570,7 @@ enum DefectOrderField {
   steps
   expected
   actual
+  queuePosition
 }
 
 enum DocDecisionOrderField {
@@ -14895,11 +15598,11 @@ enum DocRuleOrderField {
 }
 
 enum DocTermOrderField {
+  identifier
   name
-  definition
-  alsoCalled
-  ambiguous
   synonyms
+  definition
+  ambiguous
   code
   usages
 }
@@ -14940,6 +15643,7 @@ enum EpicOrderField {
   name
   need
   outcome
+  queuePosition
 }
 
 enum EventOrderField {
@@ -14951,6 +15655,7 @@ enum FeatureOrderField {
   name
   description
   value
+  queuePosition
 }
 
 enum FieldSetOrderField {
@@ -14967,6 +15672,13 @@ enum IamRoleOrderField {
   name
   description
   source
+}
+
+enum IdeaOrderField {
+  identifier
+  title
+  status
+  deathReason
 }
 
 enum IncidentOrderField {
@@ -15092,6 +15804,17 @@ enum ProductOrderField {
   vision
 }
 
+enum ProductProfileOrderField {
+  deployment
+  dataStores
+  webUi
+  mobile
+  ml
+  messaging
+  languages
+  frameworks
+}
+
 enum ProposedKindOrderField {
   name
   definition
@@ -15182,6 +15905,7 @@ enum TaskOrderField {
   description
   scope
   doneCriterion
+  queuePosition
 }
 
 enum TechnologyOrderField {

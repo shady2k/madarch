@@ -161,6 +161,7 @@ kinds:
     title: path
 edges:
   - name: links-to
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.file]
 `);
@@ -178,6 +179,7 @@ kinds:
     title: name
 edges:
   - name: demo.contains
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.absent]
 `);

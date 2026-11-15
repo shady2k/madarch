@@ -8,7 +8,7 @@
  * because the reader asked for one value, not for the kind.
  */
 import { byCodePoint } from '../model/order.js';
-import { effectiveReadsOf, type FillDeclarationInput } from '../plugin/fill-declarations.js';
+import { effectiveReadsOf, fillKindsOf, type FillDeclarationInput } from '../plugin/fill-declarations.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 
 /** Why a kind is in the set: the person asked for it, it is a dependency of one asked for, or it depends on one asked for. */
@@ -52,13 +52,13 @@ function declared(manifest: KindsManifest): string[] {
  * plugin's reads is the source tie, so a selective fill names both and runs their producers first.
  */
 function dependenciesOf(manifest: KindsManifest, reads: (kind: string) => readonly string[], kind: string): string[] {
-  return [...new Set([...(manifest.kinds.get(kind)?.derivesFrom ?? []), ...reads(kind)])].sort(byCodePoint);
+  return [...new Set([...(manifest.kinds.get(kind)?.derivesFrom ?? manifest.catalog?.kinds.get(kind)?.derivesFrom ?? []), ...reads(kind)])].sort(byCodePoint);
 }
 
 /** The declarations a manifest hands the planner, so this listing reads the same gap coverage and reads it plans by. */
 function declarationsOf(manifest: KindsManifest): FillDeclarationInput {
   return {
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    kinds: fillKindsOf(manifest),
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, ...(plugin.declarationText === undefined ? {} : { text: plugin.declarationText }) }]),
   };
 }
@@ -102,7 +102,7 @@ export function fillTargets(manifest: KindsManifest, requested: readonly string[
     while (level.length > 0) {
       const next: string[] = [];
       for (const parent of level) {
-        for (const dependency of [...(manifest.kinds.get(parent)?.derivesFrom ?? [])].sort(byCodePoint)) {
+        for (const dependency of [...(manifest.kinds.get(parent)?.derivesFrom ?? manifest.catalog?.kinds.get(parent)?.derivesFrom ?? [])].sort(byCodePoint)) {
           if (reasons.has(dependency)) continue;
           reasons.set(dependency, { kind: dependency, reason: 'dependency', namedBy: parent });
           added.push(dependency);

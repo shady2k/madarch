@@ -14,8 +14,8 @@
  */
 import { generatedTableName, type EdgeContract, type FieldContract, type GraphContract, type VertexContract } from '../../graph/contract.js';
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
-import type { FieldDecl, KindsManifest } from '../../product/manifest/kinds.js';
-import { planFillDeclarations } from '../../plugin/fill-declarations.js';
+import { deferredEdgesOf, type FieldDecl, type KindsManifest } from '../../product/manifest/kinds.js';
+import { fillKindsOf, planFillDeclarations } from '../../plugin/fill-declarations.js';
 
 /** The field's type and where it takes a reference, as its declared producer states them or the manifest declares them. */
 function resolved(field: FieldDecl): { type: FieldContract['type']; reference?: string } {
@@ -58,7 +58,9 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
  */
 function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
   const edges: EdgeContract[] = [];
+  const deferred = new Set(deferredEdgesOf(manifest));
   for (const edge of [...(manifest.edges?.values() ?? [])].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
+    if (deferred.has(edge)) continue;
     // Every declared edge kind has its table (owner's rule, 2026-11-13): a plugin's contract supplies the attributes it
     // fills, and an edge no plugin fills keeps the attributes its own declaration names.
     const plugin = edge.capability === undefined ? undefined : manifest.plugins?.get(edge.capability);
@@ -90,7 +92,7 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
 export function declaredKindReads(manifest: KindsManifest): Map<string, GeneratedKindRead> {
   const reads = new Map<string, GeneratedKindRead>();
   const plan = planFillDeclarations({
-    kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: manifest.file, line: kind.line, derivesFrom: kind.derivesFrom })),
+    kinds: fillKindsOf(manifest),
     plugins: [...(manifest.plugins?.values() ?? [])].flatMap((plugin) => plugin.declaration === undefined ? [] : [{ manifest: plugin.declaration, file: plugin.declarationFile ?? manifest.file, text: plugin.declarationText }]),
     selectedKinds: [],
   });

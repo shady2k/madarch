@@ -91,6 +91,7 @@ export interface CatalogEntry {
   readonly relationsOut: readonly string[];
   readonly relationsIn: readonly string[];
   readonly templatePolicy: string;
+  readonly derivesFrom?: readonly string[];
   /**
    * The kind's name per interface language, as its declaration writes it. A language the declaration leaves out is a
    * finding of its own and stays absent here: the catalog keeps the kind and the catalogue page marks its name untranslated
@@ -303,6 +304,8 @@ export function readCatalogKind(
     sound = false;
     problem(path, message);
   };
+  const derivesFrom = decl['derives-from'];
+  if (derivesFrom !== undefined && (!Array.isArray(derivesFrom) || derivesFrom.some((entry) => typeof entry !== 'string' || entry.trim() === ''))) fail(['derives-from'], '"derives-from" is a list of the kinds whose discovery must finish first');
   const id = decl['id'];
   const words = readCatalogWords(decl, languages, wordsProblem);
   if (!isIdentifier(id)) fail(['id'], `"id" is the canonical concept id of the kind (one concept has one kind), such as "c4.container", got ${JSON.stringify(id)}`);
@@ -357,6 +360,7 @@ export function readCatalogKind(
     relationsOut: out,
     relationsIn: into,
     templatePolicy: policy as string,
+    ...(Array.isArray(derivesFrom) ? { derivesFrom: derivesFrom as string[] } : {}),
     labels: words.labels,
     descriptions: words.descriptions,
     line,

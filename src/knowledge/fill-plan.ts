@@ -44,6 +44,8 @@ export interface FillPlanView {
   readonly order: readonly string[];
   readonly units: readonly FillPlanUnit[];
   readonly kinds: readonly FillPlanKind[];
+  /** Catalogue-only prerequisites have no producer and remain empty; they do not block the walk. */
+  readonly emptyKinds: readonly { readonly kind: string; readonly state: 'no-producer-declared' }[];
   /** The kinds and fields the agent fills: such a plan runs only once an agent is chosen for it. */
   readonly needsAgent: readonly AgentNeed[];
   /** The kinds whose declaration names a plugin the manifest does not hold: a manifest error. */
@@ -90,6 +92,7 @@ export function fillPlanView(
     order: run.order,
     units,
     kinds,
+    emptyKinds: plan.emptyKinds,
     needsAgent: plan.agentNeeds,
     errors: plan.errors,
     pluginsOnly,

@@ -14,7 +14,7 @@ test('a selected catalogue keeps roles named by its kinds even when those roles 
     if (!read.present) throw new Error(`${folder}/madarch/catalog.yaml:1: missing selected catalogue`);
     const manifest = read.manifest;
     expect(manifest.findings).toEqual([]);
-    expect(manifest.kinds.size).toBe(3);
+    expect(manifest.kinds.size).toBe(6);
     for (const plugin of manifest.plugins?.values() ?? []) {
       expect(plugin.outputs.every((kind) => manifest.kinds.has(kind))).toBe(true);
     }

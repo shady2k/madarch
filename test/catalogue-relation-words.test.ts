@@ -37,7 +37,7 @@ test("a starter product's domain page and diagram name relations in the declared
     const domain = { kind: 'domain', key: { name: 'Payments' } };
     const module = { kind: 'code.module', key: { name: 'payments' } };
     const folderEntity = { kind: 'code.directory', key: { repository: 'app', path: 'src/payments' } };
-    const term = { kind: 'doc.term', key: { name: 'Payment' } };
+    const term = { kind: 'doc.term', key: { subject: domain, identifier: 'payment' } };
     const producer = { producer: 'fixture', producerVersion: '1' };
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [

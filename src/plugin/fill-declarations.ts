@@ -13,7 +13,17 @@ export interface FillKindDeclaration {
   readonly file: string;
   readonly line: number;
   readonly derivesFrom?: readonly string[];
+  readonly catalogueOnly?: boolean;
 }
+/** All declared prerequisites, including catalogue-only kinds that have no storage or producer. */
+export function fillKindsOf(manifest: KindsManifest): FillKindDeclaration[] {
+  return [
+    ...[...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+    ...[...(manifest.catalog?.kinds.values() ?? [])].filter((kind) => kind.templatePolicy === 'none')
+      .map((kind) => ({ name: kind.name, fields: [], file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom, catalogueOnly: true })),
+  ];
+}
+
 export interface FillPluginDeclaration {
   readonly manifest: PluginManifest;
   readonly file: string;
@@ -64,6 +74,7 @@ function forwardReads<T extends FillRead>(kinds: ReadonlyMap<string, { readonly 
  * rule the fill plans by, and the one a selective fill lists its added kinds by.
  */
 export function effectiveReadsOf(input: FillDeclarationInput, kind: string, asked?: ReadonlySet<string>): FillRead[] {
+  if (input.kinds.find((entry) => entry.name === kind)?.catalogueOnly) return [];
   const fieldsOf = (name: string): readonly string[] => input.kinds.find((entry) => entry.name === name)?.fields ?? [];
   const expanded: { declaration: FillPluginDeclaration['manifest']['produces'][number]; fields: readonly string[]; agent: boolean }[] = [];
   for (const plugin of input.plugins) {
@@ -119,10 +130,11 @@ export function planFillDeclarations(input: FillDeclarationInput) {
   for (const plugin of input.plugins) {
     if (plugin.manifest.produces.length === 0) refuse(plugin, ['produces'], `plugin ${plugin.manifest.name} declares no output; declare produces, including Problem records for checks`);
     for (const [index, declaration] of plugin.manifest.produces.entries()) {
-      const names = declaration.kind === '*' ? [...kinds.keys()] : [declaration.kind];
+      const names = declaration.kind === '*' ? [...kinds.values()].filter((kind) => !kind.catalogueOnly).map((kind) => kind.name) : [declaration.kind];
       for (const name of names) {
         const kind = kinds.get(name);
         if (kind === undefined) refuse(plugin, ['produces', index, 'kind'], `${name} is not a declared kind in produces, reads or derives-from`);
+        if (kind!.catalogueOnly) refuse(plugin, ['produces', index, 'kind'], `${name} is catalogue-only and declares no producer`);
         const declared = declaration.fields === '*' ? kind!.fields : declaration.fields;
         for (const field of declared) if (!kind!.fields.includes(field)) refuse(plugin, ['produces', index, 'fields'], `plugin ${plugin.manifest.name} names undeclared field ${name}.${field}`);
         // A deterministic claim states the kind's natural key with the vertex it makes, so the key is that producer's
@@ -300,6 +312,8 @@ export function planFillDeclarations(input: FillDeclarationInput) {
     unitPredecessors, readsFor, readVersions,
     reads: new Map([...readVersions].map(([name, output]) => [name, new Map([...output].map(([kind, reads]) => [kind, [...new Set(reads.map((read) => typeof read === 'string' ? read : read.kind))]]))])),
     selectedKinds: [...selected],
+    emptyKinds: [...selected].filter((name) => kinds.get(name)?.catalogueOnly).sort(byCodePoint)
+      .map((kind) => ({ kind, state: 'no-producer-declared' as const })),
     requiresAgent: agentNeeds.length > 0,
     agentNeeds, fieldProducers,
     order, outputs, refinements, concurrency, predecessors,
@@ -460,7 +474,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     return { ...plugin, manifest: { ...plugin.manifest, produces } };
   });
   const requested = selectedKinds ?? [...manifest.kinds.keys()];
-  const declared = [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom }));
+  const declared = fillKindsOf(manifest);
   // The declarations the plan hands the planner: one source of the reads a kind's turn takes.
   const input: FillDeclarationInput = { kinds: declared, plugins: executable };
   const askedKinds = new Set(requested);
@@ -469,7 +483,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   const collect = (name: string): void => {
     if (selected.has(name)) return;
     selected.add(name);
-    for (const prerequisite of manifest.kinds.get(name)?.derivesFrom ?? []) collect(prerequisite);
+    for (const prerequisite of declared.find((kind) => kind.name === name)?.derivesFrom ?? []) collect(prerequisite);
     for (const read of effectiveReadsOf(input, name, askedKinds)) collect(typeof read === 'string' ? read : read.kind);
   };
   for (const name of requested) collect(name);
@@ -526,7 +540,7 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
     const deterministic = new Set(deterministicPlugins.flatMap((plugin) => plugin.manifest.produces.flatMap((output) => output.kind === '*' ? [...manifest.kinds.keys()] : [output.kind])));
     const runSelected = requested.filter((name) => !unavailable.has(name) && !nothingToFill.has(name) && (deterministic.has(name) || !fielded(name)));
     const run = planFillDeclarations({
-      kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: (kind.fields ?? []).map((field) => field.name), key: kind.key, file: resolve(manifest.file), line: kind.line, derivesFrom: kind.derivesFrom })),
+      kinds: declared,
       plugins: deterministicPlugins,
       selectedKinds: runSelected,
       agentSelected: true,

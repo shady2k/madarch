@@ -109,6 +109,10 @@ describe('the catalog check over the starter set', () => {
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
     expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 500 kinds (120 with a page of their own or a member\'s row)');
+    expect(done.out).toContain('catalog: 5 edges waiting for a page kind');
+    for (const name of ['architecture.serves-domain', 'data-catalog.contains', 'organization.contains', 'software-system.contains', 'token-group.contains']) {
+      expect(done.out).toContain(`edge "${name}": waiting for a page kind`);
+    }
     expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 

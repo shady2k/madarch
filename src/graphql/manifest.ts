@@ -5,6 +5,7 @@
  * source; this module only merges the plugins' contracts into them and keeps the declaration order, so the
  * schema generator sees one complete declaration per kind and per edge and needs no other product file.
  */
+import { deferredEdgesOf } from '../product/manifest/kinds.js';
 import type { FieldType } from '../graph/contract.js';
 import type { EdgeDecl, FieldDecl, KindsManifest, KindDecl, PluginFieldDecl } from '../product/manifest/kinds.js';
 
@@ -119,9 +120,10 @@ function edgeFieldsOf(edge: EdgeDecl, manifest: KindsManifest): PublishedField[]
  * not take, so a plugin whose kinds the product holds none of adds nothing here.
  */
 export function publishedManifestOf(manifest: KindsManifest): PublishedManifest {
+  const deferred = new Set(deferredEdgesOf(manifest));
   return {
     kinds: [...manifest.kinds.values()].map((kind) => ({ name: kind.name, fields: fieldsOf(kind, manifest), key: keyOf(kind, manifest) })),
-    edges: [...(manifest.edges?.values() ?? [])].map((edge) => ({
+    edges: [...(manifest.edges?.values() ?? [])].filter((edge) => !deferred.has(edge)).map((edge) => ({
       name: edge.name,
       from: edge.from,
       to: edge.to,

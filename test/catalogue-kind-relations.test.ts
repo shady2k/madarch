@@ -35,8 +35,8 @@ test('the real File catalogue page shares dependency and declared-relation edges
     };
     const starter = validated();
     expect([...starter.manifest.kinds].filter(([, kind]) => kind.derivesFrom?.includes('code.file')).map(([name]) => name).sort())
-      .toEqual(['code.channel', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.migration', 'code.module', 'code.service', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-quarantine', 'document', 'domain', 'state-machine']);
-    // The bundled catalogue has 26 File dependents. Two product-owned kinds exercise a 28-kind backlink list.
+      .toEqual(['code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.metric', 'code.migration', 'code.package', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-case', 'code.test-quarantine']);
+    // Two product-owned kinds extend the bundled File dependents in the backlink list.
     const basePath = join(folder, 'madarch/kinds/testing/case/code.test-quarantine.yaml');
     const base = parse(readFileSync(basePath, 'utf8'));
     for (const field of base.fields) {
@@ -63,9 +63,9 @@ test('the real File catalogue page shares dependency and declared-relation edges
     } }`;
     const page = (await graphql(query))['catalogueEntity'];
     expect(page.label).toBe('Файл');
-    expect(page.derivesFrom.edges.map((edge: any) => edge.node.name).sort()).toEqual(['code.directory', 'code.repository']);
+    expect(page.derivesFrom.edges.map((edge: any) => edge.node.name).sort()).toEqual(['code.directory']);
     const dependents = page.derivedBy.edges.map((edge: any) => edge.node.name).sort();
-    expect(dependents).toEqual(['code.channel', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.migration', 'code.module', 'code.service', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-quarantine', 'document', 'domain', 'fixture.file-audit', 'fixture.file-review', 'state-machine']);
+    expect(dependents).toEqual(['asset', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.metric', 'code.migration', 'code.package', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-case', 'code.test-quarantine', 'finding', 'fixture.file-audit', 'fixture.file-review', 'review-finding', 'secret-reference', 'translation-file']);
     const id = String(page.id);
     const templates = readProductTemplates(folder);
     const read = async () => await owner!.transaction('snapshot', async tx => {
@@ -81,7 +81,6 @@ test('the real File catalogue page shares dependency and declared-relation edges
       from: idsByLabel.get(from)!, to: idsByLabel.get(to)!, label, both: false,
     });
     hasEdge('Файл', 'Папка', 'зависит от');
-    hasEdge('Файл', 'Репозиторий', 'зависит от');
     hasEdge('Папка', 'Файл', 'содержит');
     hasEdge('Коммит', 'Файл', 'затронул');
     hasEdge('Файл', 'Файл', 'импортирует');
@@ -112,6 +111,10 @@ test('the real File catalogue page shares dependency and declared-relation edges
     await publishValidatedManifests(owner, first);
     expect((await graphql(query))['catalogueEntity']).toEqual(page);
     const file = join(folder, 'madarch/kinds/code/structure/code.file.yaml');
+    const pluginFile = join(folder, 'plugins/agent-fill/plugin.json');
+    const plugin = JSON.parse(readFileSync(pluginFile, 'utf8'));
+    for (const output of plugin.produces) output.reads = [];
+    writeFileSync(pluginFile, JSON.stringify(plugin));
     const original = readFileSync(file, 'utf8');
     expect(original).toContain('derives-from:');
     writeFileSync(file, original.replace(/derives-from:\n(?:- [^\n]*\n)*/u, 'derives-from: [code.repository]\n'));
