@@ -19,7 +19,7 @@ import type { SectionContext } from './types.js';
 export function RunsSection({ context }: { readonly context: SectionContext }): ReactElement {
   const { t, i18n } = useTranslation();
   const language = (context.language !== undefined && context.language !== '' ? context.language : (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en');
-  const read = useCommandRead<{ runs: readonly FillRunDetail[] }>('runs', (signal) => readFillRuns(context.base, signal));
+  const read = useCommandRead<{ runs: readonly FillRunDetail[] }>('fill-runs', (signal) => readFillRuns(context.base, signal));
   useChangeStream(context.base, read.reload);
   const labelOf = (kind: string): string | undefined => context.navigation?.kinds.find((one) => one.kind === kind)?.many;
   const selection = (run: FillRunDetail): string => {
