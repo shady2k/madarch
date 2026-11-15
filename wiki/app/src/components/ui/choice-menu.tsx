@@ -7,6 +7,7 @@
 import type { ReactElement } from 'react';
 import { ChevronDownIcon } from 'lucide-react';
 import { Button } from './button.js';
+import { cn } from '@/lib/utils.js';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -25,17 +26,20 @@ export interface ChoiceMenuProps {
   readonly options: readonly ChoiceMenuOption[];
   readonly onChange: (value: string) => void;
   readonly testId?: string;
+  /** The trigger's own width and margins, for the page that places it. */
+  readonly className?: string;
+  readonly disabled?: boolean;
   /** Whether the menu stands open, for the kit's own review of its state. */
   readonly open?: boolean;
   readonly onOpenChange?: (open: boolean) => void;
 }
 
-export function ChoiceMenu({ label, value, options, onChange, testId, open, onOpenChange }: ChoiceMenuProps): ReactElement {
+export function ChoiceMenu({ label, value, options, onChange, testId, className, disabled, open, onOpenChange }: ChoiceMenuProps): ReactElement {
   const current = options.find((option) => option.value === value) ?? options[0];
   return (
     <DropdownMenu {...(open === undefined ? {} : { open })} {...(onOpenChange === undefined ? {} : { onOpenChange })}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="default" size="default" className="w-full min-w-0 justify-between gap-2 sm:w-48" aria-label={`${label}: ${current?.label ?? ''}`} data-testid={testId}>
+      <DropdownMenuTrigger asChild disabled={disabled === true}>
+        <Button variant="default" size="default" disabled={disabled === true} className={cn('w-full min-w-0 justify-between gap-2', className ?? 'sm:w-48')} aria-label={`${label}: ${current?.label ?? ''}`} data-testid={testId}>
           <Text className="min-w-0 truncate">{current?.label ?? ''}</Text>
           <ChevronDownIcon aria-hidden="true" size={15} className="shrink-0 text-muted" />
         </Button>

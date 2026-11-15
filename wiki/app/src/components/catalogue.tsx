@@ -8,14 +8,13 @@
  */
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDownIcon } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
 import { readFillPlan, useCommandRead, type FillPlanError, type FillPlanView } from './command.js';
@@ -66,7 +65,7 @@ function groupCheck(visible: readonly NavigationKind[], active: ReadonlySet<stri
   return { all: visible.length > 0 && on === visible.length, some: on > 0 && on < visible.length, count: visible.length };
 }
 
-/** One filter: a full-width native select with the kit's own chevron, on the same line as the other controls. */
+/** One filter: the kit's one-choice-of-several menu, on the same line as the other controls. */
 function FilterSelect({ label, value, options, onChange, testId }: {
   readonly label: string;
   readonly value: string;
@@ -77,10 +76,7 @@ function FilterSelect({ label, value, options, onChange, testId }: {
   return (
     <FieldLabel className="grid gap-1 text-small">
       {label}
-      <Stack className="relative">
-        <Select className="w-full appearance-none pr-8" value={value} onChange={(event) => onChange(event.target.value)} options={options} data-testid={testId} />
-        <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted" size={15} />
-      </Stack>
+      <ChoiceMenu label={label} value={value} options={options} onChange={onChange} testId={testId} />
     </FieldLabel>
   );
 }

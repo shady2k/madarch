@@ -55,7 +55,6 @@ import {
   SearchContainer, SearchGroupTitle, SearchResultLink, SearchResults,
 } from './components/ui/search-results.js';
 import { SegmentedChoice } from './components/ui/segmented-choice.js';
-import { Select } from './components/ui/select.js';
 import {
   ShellAnswersCount, ShellAnswersLink, ShellAnswersWords, ShellBreadcrumb, ShellBreadcrumbSeparator, ShellIconLink,
   ShellTab, ShellTabClose, ShellTabTrigger, ShellTabs,
@@ -151,7 +150,7 @@ export function KitPage(): ReactElement {
         <KitState label={state('default')}><Input aria-label={state('name')} placeholder={state('name')} /><Textarea aria-label={state('description')} placeholder={state('description')} /></KitState>
         <KitState label={state('disabled')}><Input aria-label={state('name')} defaultValue={state('sample')} disabled /><Textarea aria-label={state('description')} defaultValue={state('sample')} disabled /></KitState>
         <KitState label={state('error')}><Input aria-label={state('name')} aria-invalid="true" aria-describedby="kit-input-error" /><Alert variant="problem" id="kit-input-error"><AlertDescription>{state('required')}</AlertDescription></Alert></KitState>
-        <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel><Select aria-label={state('name')} options={[{ value: 'one', label: state('sample') }, { value: 'two', label: state('description') }]} /></Form></KitState>
+        <KitState label={state('name')}><Form><FieldLabel>{state('name')}<Input aria-label={state('name')} /></FieldLabel></Form></KitState>
       </KitSection>
 
       <KitSection title="Checkbox / Radio / Switch / Toggle">

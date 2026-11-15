@@ -231,20 +231,24 @@ test('a table with a next page draws its pager even when the page holds fewer ro
 test('a table offers a sort only when its query declares the order variable', async () => {
   const without = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] })], { rows: { totalCount: 0, edges: [] } });
   try {
-    expect(without.container.querySelector('select')).toBeNull();
+    expect(without.container.querySelector('[data-testid="table-sort"]')).toBeNull();
   } finally {
     await without.close();
   }
   const withOrder = await renderPage([section('rows', 'table', { path: 'rows', columns: [{ label: { en: 'A' }, path: 'node.label', sortField: 'label' }] }, { query: 'allX(orderBy: $rows_orderBy, after: $rows_after)' })], { rows: { totalCount: 0, edges: [] } });
   try {
-    const select = withOrder.container.querySelector('select');
-    expect(select).not.toBeNull();
+    // The sort is the kit's one-choice menu: the trigger is pressed and the choice is taken.
+    const trigger = withOrder.container.querySelector('[data-testid="table-sort"]') as HTMLElement | null;
+    expect(trigger).not.toBeNull();
     await act(async () => {
-      if (select !== null) {
-        select.value = 'label';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+      trigger!.click();
     });
+    for (let at = 0; at < 6; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    const item = document.querySelector('[data-testid="table-sort-label"]') as HTMLElement | null;
+    expect(item).not.toBeNull();
+    await act(async () => { item!.click(); });
+    for (let at = 0; at < 6; at += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
     expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'label', direction: 'ASC' }] }]);
   } finally {
     await withOrder.close();

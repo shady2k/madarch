@@ -158,6 +158,21 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
 }
 
+/** One choice of a kit menu: its trigger is pressed and its item is chosen. */
+async function choose(container: HTMLElement, menu: string, value: string): Promise<void> {
+  const trigger = container.querySelector(`[data-testid="${menu}"]`) as HTMLElement | null;
+  expect(trigger).not.toBeNull();
+  await act(async () => {
+    trigger!.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+    trigger!.click();
+  });
+  await settle();
+  const item = document.querySelector(`[data-testid="${menu}-${value}"]`) as HTMLElement | null;
+  expect(item).not.toBeNull();
+  await act(async () => { item!.click(); });
+  await settle();
+}
+
 /** A native value set, so React's value tracker sees the typed text. */
 function type(input: HTMLInputElement, value: string): void {
   const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ?? Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
@@ -235,9 +250,7 @@ test('the preparation panel states the final set, both fillers, the agent and th
     // Choose an agent instead: uncheck the box, choose one, cap it, and press once.
     await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
     await settle();
-    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
-    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    await settle();
+    await choose(page.container, 'prepare-agent', 'claude-code');
     // The server needs a positive cap for agent work: the form says so and holds the press until it has one.
     expect(page.container.querySelector('[data-testid="prepare-cap-required"]')).not.toBeNull();
     expect((page.container.querySelector('[data-testid="prepare-run"]') as HTMLButtonElement).disabled).toBe(true);
@@ -259,9 +272,7 @@ test('a server refusal is shown in the reader\'s language by its code', async ()
   try {
     await act(async () => { (page.container.querySelector('[data-testid="prepare-plugins-only"]') as HTMLInputElement).click(); });
     await settle();
-    const select = page.container.querySelector('[data-testid="prepare-agent"]') as HTMLSelectElement;
-    await act(async () => { select.value = 'claude-code'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    await settle();
+    await choose(page.container, 'prepare-agent', 'claude-code');
     const cap = page.container.querySelector('[data-testid="prepare-cap"]') as HTMLInputElement;
     await act(async () => { type(cap, '1000'); });
     fillSelectionFailure = { status: 409, body: { error: { message: 'this fill runs the agent claude-code, and a token cap is required', code: 'fill/token-cap' } } };

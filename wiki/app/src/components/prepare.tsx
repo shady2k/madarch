@@ -13,7 +13,7 @@ import { Button } from './ui/button.js';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { ChoiceMenu } from './ui/choice-menu.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, Stack, Text, TextLink } from './ui/typography.js';
 import { InlineCode } from './ui/inline-content.js';
@@ -201,7 +201,7 @@ export function PrepareSection({ context }: { readonly context: SectionContext }
           {!pluginsOnly && requiresAgent ? (
             <Stack className="flex flex-wrap items-end gap-4">
               <FieldLabel className="grid gap-1 text-small">{t('prepare.agent')}
-                <Select data-testid="prepare-agent" value={agent ?? ''} onChange={(event) => setAgent(event.target.value === '' ? null : event.target.value)} options={[{ value: '', label: t('prepare.chooseAgent') }, ...(agents.data?.agents ?? []).map((offer) => ({ value: offer.id, label: offer.label }))]} />
+                <ChoiceMenu label={t('prepare.agent')} testId="prepare-agent" value={agent ?? ''} onChange={(value) => setAgent(value === '' ? null : value)} options={[{ value: '', label: t('prepare.chooseAgent') }, ...(agents.data?.agents ?? []).map((offer) => ({ value: offer.id, label: offer.label }))]} />
               </FieldLabel>
               <FieldLabel className="grid gap-1 text-small">{t('prepare.cap')}
                 <Input data-testid="prepare-cap" type="number" min={1} step={1} value={cap} aria-invalid={!validCap} onInput={(event) => setCap(event.currentTarget.value)} />
