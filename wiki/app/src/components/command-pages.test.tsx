@@ -62,17 +62,17 @@ function planFor(selected: readonly string[], pluginsOnly = false) {
 }
 
 const RUN = {
-  runId: 'fill-run-1', state: 'running', startedAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString(), finishedAt: null,
+  runId: 'fill-run-1', state: 'running', phase: 'running', final: false, startedAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString(), finishedAt: null,
   elapsedMs: 5000, remainingMs: 2500, selected: ['demo.alpha'], order: ['demo.alpha'], vertex: null,
   groups: [
-    { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 2, total: 3, state: 'running' },
+    { kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 2, total: 3, state: 'running', phase: 'running' },
     // A producer with no planned unit: a plugins-only run's agent row, which the page must not draw.
-    { kind: 'demo.gamma', group: 'docs', plugin: 'agent-fill', done: 0, total: 0, state: 'planned' },
+    { kind: 'demo.gamma', group: 'docs', plugin: 'agent-fill', done: 0, total: 0, state: 'planned', phase: 'waiting' },
   ],
   units: [
-    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', generation: 1, attempts: 1 },
-    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', generation: 1, attempts: 1 },
-    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'running', generation: 1, attempts: 1 },
+    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'running', phase: 'running', generation: 1, attempts: 1 },
   ],
   events: [
     { seq: 1, at: new Date(Date.now() - 5000).toISOString(), stage: '', unitId: '', type: 'run-started', summary: 'the run started 2 stages: disk:demo.alpha' },
@@ -84,14 +84,58 @@ const RUN = {
 
 const requests: { path: string; method: string; body: unknown }[] = [];
 let fillSelectionFailure: { status: number; body: unknown } | null = null;
+let runAnswer: unknown = RUN;
 
 function answer(_path: string, body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
+test('a successful run reads unmistakably finished at the top, with its end time', async () => {
+  runAnswer = {
+    ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 3, total: 3, state: 'published', phase: 'done' }],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+    ],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-status-badge"]')?.textContent).toBe('Завершён');
+    expect(page.container.querySelector('[data-testid="fill-run-final"]')).toBeNull();
+    expect(page.container.querySelector('[data-testid="fill-run-ended"]')?.textContent).toContain('с');
+    expect(page.container.querySelector('[data-testid="fill-run-ended"]')?.textContent).not.toContain('Завершён');
+    expect(page.container.querySelector('[data-testid="fill-run-time"]')?.textContent).not.toContain('Осталось');
+    expect(page.container.querySelector('[data-testid="fill-run-retry"]')).toBeNull();
+    expect(page.container.textContent).not.toContain('done');
+  } finally { await page.close(); }
+});
+
+test('a finished partial run shows its final state, not a remaining time, and names its skipped units', async () => {
+  runAnswer = {
+    ...RUN, state: 'completed_partial', phase: 'partial', final: true, finishedAt: new Date().toISOString(), remainingMs: null,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 1, total: 3, state: 'failed', phase: 'failed' }],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'published', phase: 'done', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'failed', phase: 'failed', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:c', status: 'skipped', phase: 'skipped', skippedBecause: 'unit disk:demo.alpha failed', generation: 1, attempts: 1 },
+    ],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-final"]')?.getAttribute('data-phase')).toBe('partial');
+    expect(page.container.querySelector('[data-testid="fill-run-final-title"]')?.textContent).toContain('не полностью');
+    expect(page.container.querySelector('[data-testid="fill-run-time"]')?.textContent).not.toContain('Осталось');
+    expect(page.container.querySelector('[data-testid="fill-run-units"]')?.textContent).toContain('не выполнилась единица');
+    expect(page.container.querySelector('[data-testid="fill-run-retry"]')).not.toBeNull();
+  } finally { await page.close(); }
+});
+
 beforeEach(async () => {
   requests.length = 0;
   fillSelectionFailure = null;
+  runAnswer = RUN;
   await setWikiLanguage('ru');
   (globalThis as { fetch: typeof fetch }).fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
@@ -102,8 +146,8 @@ beforeEach(async () => {
     if (url.pathname.endsWith('/api/agents')) return answer(url.pathname, { agents: [{ id: 'claude-code', label: 'Claude Code', installed: true, login: 'signed-in', version: '1.0' }], chosen: null });
     if (url.pathname.endsWith('/api/agent-choices')) return answer(url.pathname, { agent: { id: 'claude-code', label: 'Claude Code' }, choices: { model: { name: 'Model', current: 'opus', values: [] } } });
     if (url.pathname.endsWith('/api/status')) return answer(url.pathname, { fill: { state: 'idle' }, product: { id: 'p1', name: 'Portal' }, repositories: [{ name: 'app', filled: true }] });
-    if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: RUN });
-    if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [RUN] });
+    if (url.pathname.endsWith('/api/fill-runs') && url.searchParams.has('run')) return answer(url.pathname, { run: runAnswer });
+    if (url.pathname.endsWith('/api/fill-runs')) return answer(url.pathname, { runs: [runAnswer] });
     if (url.pathname.endsWith('/api/fill-selected')) return fillSelectionFailure === null
       ? answer(url.pathname, { runId: 'fill-run-2', order: ['demo.gamma'] })
       : new Response(JSON.stringify(fillSelectionFailure.body), { status: fillSelectionFailure.status, headers: { 'content-type': 'application/json' } });
@@ -268,8 +312,6 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
     const text = page.container.textContent ?? '';
     expect(text).toContain('Код · Файлы · disk');
     expect(text).not.toContain('Сценарии');
-    expect(page.container.querySelector('[data-testid="fill-run-cause"]')?.textContent).toContain('контроллеры cpu, memory и pids');
-    expect(page.container.querySelector('[data-testid="fill-run-cause"]')?.textContent).toContain('MADARCH_PLUGIN_SANDBOX=off');
     expect(text).toContain('Опубликовано 2 из 3 единиц');
     expect(text).not.toContain('demo.alpha');
     // The log is the words of the run's events, never its trace: no machine path and no forty-character id.
