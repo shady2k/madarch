@@ -26,6 +26,7 @@ import { FillKindSection } from './components/fill-kind.js';
 import { FirstRunSection } from './components/first-run.js';
 import { ProblemsSection } from './components/problems.js';
 import { SourcesSection } from './components/sources.js';
+import { ProductOverviewSection } from './components/overview.js';
 import { SettingsSection } from './components/settings.js';
 import type { SectionContext } from './components/types.js';
 import type { Navigation } from './client.js';
@@ -114,5 +115,6 @@ function componentOf(section: ComposedSection, context: SectionContext, sections
     case 'problem-actions': return <ProblemsSection context={context} />;
     case 'settings-form': return <SettingsSection context={context} />;
     case 'sources': return <SourcesSection context={context} />;
+    case 'product-overview': return <ProductOverviewSection context={context} />;
   }
 }
