@@ -641,12 +641,29 @@ export function uiKitViolations(root: string, modules: Map<string, GateModule> =
 
 // ---- gate 9: every visible string through i18n -------------------------------------------------
 
-/** The props that are structure, not words a reader sees: a literal in one is not a missing translation. */
-const NON_TEXT_PROPS = new Set([
-  'className', 'style', 'id', 'role', 'type', 'name', 'value', 'href', 'to', 'src', 'key', 'ref', 'as', 'variant',
-  'size', 'slot', 'target', 'rel', 'htmlFor', 'tabIndex', 'method', 'action', 'dir', 'lang', 'form', 'autoComplete',
-  'inputMode', 'spellCheck', 'contentEditable', 'draggable', 'data-testid',
-]);
+/** The words a prop's name carries when a reader reads the prop: `title`, `label`, `alt` and their compounds. */
+const TEXT_PROP_WORDS = new Set(['title', 'label', 'alt', 'placeholder', 'description', 'summary', 'caption', 'legend', 'heading', 'text', 'message', 'note', 'hint', 'subtitle']);
+
+/**
+ * Whether a JSX attribute names words a reader reads (decision 0036, section 7): the attribute's own name says it —
+ * `title`, `label="…"`, `emptyText` — and a prop that names a test, a key or a style says it does not. Nothing here is
+ * a list of one product's strings: a name whose last word is a text word is text, every other name configures.
+ */
+function isTextProp(name: string): boolean {
+  if (name.startsWith('data-')) return false;
+  if (/Id$/u.test(name) || /Key$/u.test(name)) return false;
+  const words = name.split(/(?=[A-Z])|[-_]/u).map((one) => one.toLowerCase()).filter(Boolean);
+  const last = words.at(-1);
+  if (last === undefined) return false;
+  // `aria-label` is read aloud by a screen reader: its words are words a person hears.
+  return TEXT_PROP_WORDS.has(last) || name === 'aria-label';
+}
+
+/** Whether a text holds a word a person reads: a dash, a separator or a bracket is layout, never language. */
+function hasWords(text: string): boolean {
+  for (const character of text) if (/[\p{L}\p{N}]/u.test(character)) return true;
+  return false;
+}
 
 /** Gate 9: a JSX text or a literal in a visible prop is refused outside the locale files. */
 export function i18nViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
@@ -655,16 +672,18 @@ export function i18nViolations(root: string, modules: Map<string, GateModule> = 
     for (const node of nodesOf(module.tree)) {
       if (node['type'] === 'JSXText') {
         const text = typeof node['value'] === 'string' ? node['value'].trim() : '';
-        if (text !== '') found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: text.slice(0, 40) });
+        // An em dash standing for an empty value, a slash between two words: the page's layout, not a sentence.
+        if (text !== '' && hasWords(text)) found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: text.slice(0, 40) });
         continue;
       }
       if (node['type'] !== 'JSXAttribute') continue;
       const held = node['name'] as Node | undefined;
       const name = held?.['type'] === 'Identifier' ? String(held['value']) : undefined;
-      if (name === undefined || NON_TEXT_PROPS.has(name) || name.startsWith('data-') || name.startsWith('aria-')) continue;
+      if (name === undefined || !isTextProp(name)) continue;
       const value = node['value'] as Node | undefined;
       const literal = value?.['type'] === 'StringLiteral' && typeof value['value'] === 'string' ? value['value'] : undefined;
-      if (literal !== undefined && literal.trim() !== '') found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: `${name}: ${literal.slice(0, 40)}` });
+      // A literal the reader reads is refused: the sentence around it belongs to the interface's own catalogue.
+      if (literal !== undefined && hasWords(literal)) found.push({ rule: 'i18n-text', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: `${name}: ${literal.slice(0, 40)}` });
     }
   }
   return once(found);

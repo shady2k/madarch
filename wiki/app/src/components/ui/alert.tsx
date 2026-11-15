@@ -10,7 +10,7 @@ export type AlertVariant = 'default' | 'problem';
 
 const variants: Record<AlertVariant, string> = {
   default: 'border border-line bg-[var(--surface-soft)]',
-  problem: 'border border-dashed border-ink bg-[var(--surface-soft)]',
+  problem: 'border border-ink bg-[var(--surface-soft)]',
 };
 
 export const Alert = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { variant?: AlertVariant }>(function Alert({ className, variant = 'default', ...props }, ref) {

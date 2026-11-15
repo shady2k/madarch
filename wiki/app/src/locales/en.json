@@ -129,43 +129,43 @@
       "logEmpty": "Nothing has happened yet.",
       "failed": "The run failed.",
       "phase": {
-      "queued": "Queued",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped",
-      "skipped": "Skipped",
-      "waiting": "Waiting",
-      "done": "Published",
-      "cancelled": "Cancelled",
-      "skippedBecause": "Skipped because {{unit}} failed",
-      "skippedBecauseRunEnded": "Skipped because the run ended"
-    },
-    "final": {
-      "succeeded": "Every required unit published.",
-      "partial": "The run ended, but some units did not publish.",
-      "failed": "The run ended with a failure.",
-      "stopped": "The run was stopped."
-    },
-    "next": {
-      "retry": "Fix the cause, then retry the fill.",
-      "retryAction": "Retry the fill"
-    },
-    "status": {
-      "queued": "Running",
-      "running": "Running",
-      "paused": "Paused",
-      "succeeded": "Succeeded",
-      "partial": "Partly completed",
-      "failed": "Failed",
-      "stopped": "Stopped"
-    },
-    "endedAt": "ended {{time}}",
-    "attention": "The run did not finish completely",
-    "duration": "{{seconds}} s",
-    "event": {
+        "queued": "Queued",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped",
+        "skipped": "Skipped",
+        "waiting": "Waiting",
+        "done": "Published",
+        "cancelled": "Cancelled",
+        "skippedBecause": "Skipped because {{unit}} failed",
+        "skippedBecauseRunEnded": "Skipped because the run ended"
+      },
+      "final": {
+        "succeeded": "Every required unit published.",
+        "partial": "The run ended, but some units did not publish.",
+        "failed": "The run ended with a failure.",
+        "stopped": "The run was stopped."
+      },
+      "next": {
+        "retry": "Fix the cause, then retry the fill.",
+        "retryAction": "Retry the fill"
+      },
+      "status": {
+        "queued": "Running",
+        "running": "Running",
+        "paused": "Paused",
+        "succeeded": "Succeeded",
+        "partial": "Partly completed",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "endedAt": "ended {{time}}",
+      "attention": "The run did not finish completely",
+      "duration": "{{seconds}} s",
+      "event": {
         "planned": "The run was planned.",
         "started": "The run started.",
         "paused": "The run paused.",
@@ -1904,6 +1904,7 @@
     "noTemplateFindings": "No template findings."
   },
   "kit": {
+    "next": "next",
     "title": "UI kit",
     "intro": "One shared component set for the wiki. States are shown without requiring hover. Interactive overlays open from their buttons.",
     "approvalTitle": "Owner approval required",
@@ -1932,7 +1933,36 @@
     "empty": "Empty",
     "complete": "Complete",
     "indeterminate": "Indeterminate",
-    "typography": "Page structure and typography"
+    "typography": "Page structure and typography",
+    "fieldLabel": "Field label",
+    "charts": "Charts and hierarchies",
+    "chartsNote": "Six forms of the vendored diagrammatic and the activity calendar in its two shapes. Each is drawn from the kit's tokens only: no chart carries a colour of its own.",
+    "treemap": "Treemap",
+    "sunburst": "Sunburst",
+    "bar": "Bar",
+    "stackedBar": "Stacked bar",
+    "heatmap": "Heatmap",
+    "sparkline": "Sparkline",
+    "calendar": "Calendar (static)",
+    "activity": "Calendar (interactive)",
+    "data": "With data",
+    "folded": "Folded to the size budget",
+    "narrow": "390 px",
+    "darkCharts": "Dark: the figures take the page's scheme, its surface and its ink",
+    "noData": "No values to draw",
+    "activityTitle": "Fills per day",
+    "treeTitle": "Repository by bytes",
+    "foldedTitle": "Catalogue by kinds, folded to 6 entries",
+    "sunburstTitle": "Repository by bytes, as rings",
+    "barTitle": "Kinds by what the graph holds",
+    "stackedTitle": "Fill outcomes by day",
+    "heatmapTitle": "Fills by weekday and week",
+    "sparklineTitle": "Units a fill published",
+    "calendarTitle": "Fills in the last ninety days",
+    "calendarLess": "less",
+    "calendarMore": "more",
+    "foldedCount": "{{count}} folded",
+    "calendarSummary": "{{title}}: {{total}} in {{days}} days, {{from}} to {{to}}"
   },
   "overview": {
     "title": "Where this product stands",
@@ -1942,5 +1972,8 @@
     "lastFill": "Last fill {{when}} · {{count}} units · took {{duration}}",
     "notKnown": "Problems: not known right now",
     "fillUnknown": "The last fill is not known right now"
+  },
+  "charts": {
+    "missingValues": "No value: {{labels}}"
   }
 }

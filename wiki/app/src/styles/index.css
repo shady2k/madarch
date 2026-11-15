@@ -18,6 +18,7 @@
 @import "tailwindcss";
 @import "./fonts.css";
 @import "./tokens.css";
+@import "./charts.css";
 @plugin "@tailwindcss/typography";
 
 @theme {
@@ -2257,17 +2258,12 @@ a.graph-diagram-element-label:hover {
 .dg-files-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 8px; }
 .dg-seg { display: flex; min-width: 0; max-width: 100%; flex-direction: column; gap: 4px; }
 .dg-seg-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); }
-.dg-seg-options { display: flex; min-width: 0; max-width: 100%; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; background: var(--surface-page); }
-.dg-seg-option { min-height: 30px; min-width: 0; padding: 0 8px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
-.dg-seg-option:first-child { border-left: 0; }
-.dg-seg-option:hover { background: var(--surface-hover); color: var(--text); }
-.dg-seg-option:focus-visible { outline: 2px solid var(--ink, var(--text)); outline-offset: -2px; }
-.dg-seg-option[data-state='on'] { background: var(--surface-active); color: var(--text); font-weight: 600; }
+/* The kit's toggle group owns the choice's look: the group only wraps (madarch-64o5.82). */
+.dg-seg-options { display: flex; min-width: 0; max-width: 100%; flex-wrap: wrap; }
 .dg-legend-caption { font-weight: 600; color: var(--text-secondary); }
 @media (max-width: 700px) {
   .dg-files-controls { gap: 8px 14px; }
   .dg-seg-options { flex-wrap: wrap; }
-  .dg-seg-option { min-height: 32px; }
 }
 
 .dg-totals { margin: 0 0 8px; font-size: var(--fs-small); color: var(--text-secondary); }

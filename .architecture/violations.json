@@ -1201,168 +1201,8 @@
   },
   {
     "rule": "i18n-text",
-    "file": "wiki/app/src/app.tsx",
-    "symbol": "layout: navigation"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/app.tsx",
-    "symbol": "layout: shell"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/bars.tsx",
-    "symbol": "—"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/catalogue.tsx",
-    "symbol": "testId: catalogue-area"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/catalogue.tsx",
-    "symbol": "testId: catalogue-fill-filter"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/catalogue.tsx",
-    "symbol": "testId: catalogue-taken-filter"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
-    "symbol": "loading: lazy"
-  },
-  {
-    "rule": "i18n-text",
     "file": "wiki/app/src/components/diagram-panes/archify-pane.tsx",
     "symbol": "title: archify"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/diagram-panes/likec4-pane.tsx",
-    "symbol": "viewId: index"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
-    "symbol": "+"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/diagram-panes/mermaid-pane.tsx",
-    "symbol": "−"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/diagram.tsx",
-    "symbol": "testId: diagram-renderer"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/kinds.tsx",
-    "symbol": "—"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/overview.tsx",
-    "symbol": "align: baseline"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/plugin-names.tsx",
-    "symbol": ","
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/prepare.tsx",
-    "symbol": "."
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/prepare.tsx",
-    "symbol": "layout: reading"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/prepare.tsx",
-    "symbol": "·"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/problems.tsx",
-    "symbol": "«"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/problems.tsx",
-    "symbol": "·"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/problems.tsx",
-    "symbol": "»"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/relations.tsx",
-    "symbol": "←"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/relations.tsx",
-    "symbol": "→"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/run.tsx",
-    "symbol": "·"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/search.tsx",
-    "symbol": "testId: search-page-results"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/settings.tsx",
-    "symbol": ":"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/settings.tsx",
-    "symbol": "testId: settings-language"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/settings.tsx",
-    "symbol": "testId: settings-reader"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/source.tsx",
-    "symbol": "—"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/table.tsx",
-    "symbol": "←"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/components/table.tsx",
-    "symbol": "→"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/frame.tsx",
-    "symbol": "align: end"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/frame.tsx",
-    "symbol": "side: left"
   },
   {
     "rule": "i18n-text",
@@ -1382,37 +1222,7 @@
   {
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "activeId: kit-intro"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "background: var(--text)"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
     "symbol": "const value = 1;"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "d: M0 40 L120 0"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "d: M20 20 L180 80"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "defaultValue: one"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "display: bar"
   },
   {
     "rule": "i18n-text",
@@ -1423,11 +1233,6 @@
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "label: Card"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "label: Checkbox"
   },
   {
     "rule": "i18n-text",
@@ -1492,11 +1297,6 @@
   {
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "testId: kit-segmented"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
     "symbol": "title: Badge / Alert / Card / Skeleton"
   },
   {
@@ -1528,11 +1328,6 @@
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "title: FilterBar"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "title: Graph"
   },
   {
     "rule": "i18n-text",
@@ -1573,31 +1368,6 @@
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "title: Typography"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "width: 100%"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "width: lg"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "×"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/problems.tsx",
-    "symbol": ":"
-  },
-  {
-    "rule": "i18n-text",
-    "file": "wiki/app/src/problems.tsx",
-    "symbol": "—"
   },
   {
     "rule": "io-spans",
@@ -4566,11 +4336,6 @@
   },
   {
     "rule": "no-product-data",
-    "file": "wiki/app/src/components/ui/segmented-choice.tsx",
-    "symbol": "content"
-  },
-  {
-    "rule": "no-product-data",
     "file": "wiki/app/src/components/ui/shell.tsx",
     "symbol": "content"
   },
@@ -5897,11 +5662,6 @@
   {
     "rule": "ui-kit-only",
     "file": "wiki/app/src/components/catalogue.tsx",
-    "symbol": "className on <ChevronDownIcon>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/catalogue.tsx",
     "symbol": "className on <Disclosure>"
   },
   {
@@ -5943,11 +5703,6 @@
     "rule": "ui-kit-only",
     "file": "wiki/app/src/components/catalogue.tsx",
     "symbol": "className on <SectionTitle>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/catalogue.tsx",
-    "symbol": "className on <Select>"
   },
   {
     "rule": "ui-kit-only",
@@ -6317,11 +6072,6 @@
   {
     "rule": "ui-kit-only",
     "file": "wiki/app/src/components/settings.tsx",
-    "symbol": "className on <Select>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/components/settings.tsx",
     "symbol": "className on <Stack>"
   },
   {
@@ -6393,10 +6143,5 @@
     "rule": "ui-kit-only",
     "file": "wiki/app/src/kit-page.tsx",
     "symbol": "className on <Stack>"
-  },
-  {
-    "rule": "ui-kit-only",
-    "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "className on <Text>"
   }
 ]

@@ -26,6 +26,16 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      // The vendored chart forms (vendor/diagrammatic, task madarch-64o5.82) stand outside this app's folder, so their
+      // `react` imports would resolve against the repository's own node_modules, where the package has no types. These
+      // two entries give every file in the program the app's own @types/react, which is what this app's files already
+      // read; at build time Vite resolves the real package.
+      "react": [
+        "./node_modules/@types/react"
+      ],
+      "react/jsx-runtime": [
+        "./node_modules/@types/react/jsx-runtime"
       ]
     }
   },

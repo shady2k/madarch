@@ -8,14 +8,13 @@
  */
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDownIcon } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Disclosure, DisclosureSummary } from './ui/disclosure.js';
 import { Input } from './ui/input.js';
-import { Select } from './ui/select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select.js';
 import { Skeleton } from './ui/skeleton.js';
 import { FieldLabel, InlineGroup, ListItem, Paragraph, PlainList, SectionTitle, SmallTitle, Stack, Text, TextLink } from './ui/typography.js';
 import { readFillPlan, useCommandRead, type FillPlanError, type FillPlanView } from './command.js';
@@ -78,8 +77,10 @@ function FilterSelect({ label, value, options, onChange, testId }: {
     <FieldLabel className="grid gap-1 text-small">
       {label}
       <Stack className="relative">
-        <Select className="w-full appearance-none pr-8" value={value} onChange={(event) => onChange(event.target.value)} options={options} data-testid={testId} />
-        <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted" size={15} />
+        <Select value={value} onValueChange={onChange}>
+          <SelectTrigger aria-label={label} data-testid={testId}><SelectValue /></SelectTrigger>
+          <SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+        </Select>
       </Stack>
     </FieldLabel>
   );
@@ -183,10 +184,8 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
     return (
       <FieldLabel className="ml-auto flex items-center gap-2 text-small text-muted">
         <Checkbox
-          checked={box.all}
-          ref={(input) => { if (input !== null) input.indeterminate = box.some; }}
-          onClick={(event) => { event.stopPropagation(); }}
-          onChange={() => toggle(kinds.filter((kind) => !added.has(kind.kind)).map((kind) => kind.kind), !box.all)}
+          checked={box.all ? true : box.some ? 'indeterminate' : false}
+          onCheckedChange={() => toggle(kinds.filter((kind) => !added.has(kind.kind)).map((kind) => kind.kind), !box.all)}
           data-testid="catalogue-group-check"
         />
         {t('catalogue.selectGroup', { count: box.count })}
@@ -208,7 +207,7 @@ export function CatalogueSection({ context }: { readonly context: SectionContext
             <Checkbox
               checked={active.has(kind.kind)}
               disabled={needed !== undefined}
-              onChange={() => toggle([kind.kind], !selected.has(kind.kind))}
+              onCheckedChange={() => toggle([kind.kind], !selected.has(kind.kind))}
               aria-label={kind.many}
               data-testid={`catalogue-kind-check-${kind.kind}`}
             />
