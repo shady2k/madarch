@@ -4507,11 +4507,6 @@
   {
     "rule": "no-regex",
     "file": "src/graph/authored.ts",
-    "symbol": "/^-?\\d+$/"
-  },
-  {
-    "rule": "no-regex",
-    "file": "src/graph/authored.ts",
     "symbol": "/^[0-9a-f]+$/"
   },
   {

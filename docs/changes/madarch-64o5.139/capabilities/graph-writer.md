@@ -28,3 +28,25 @@ fit the storage type's range. JSON values shall contain no undefined members.
 - Given: an edge with a string in a declared integer attribute
 - When: the publication reaches the graph writer
 - Then: it is refused before any SQL is issued
+
+## Requirement: door-contracts — Catalogue fields close the request contract
+MCP value and key schemas shall be generated per kind from the published
+catalogue, with closed envelopes. The runtime shall refuse undeclared fields,
+wrong types and malformed read selectors with SCHEMA_INVALID arguments.
+HTTP command envelopes shall be validated before effects. The wiki shall format
+schema refusals in the reader's locale; MCP shall preserve their arguments.
+
+### Scenario: catalogue-door
+- Given: a declared integer field and a malformed MCP request carrying text
+- When: the request reaches the tool boundary
+- Then: no product write occurs and SCHEMA_INVALID names the value
+
+### Scenario: read-selector
+- Given: an unknown kind or malformed cursor in a graph read
+- When: the read executes
+- Then: a coded refusal is returned without partial data
+
+### Scenario: reader-refusal
+- Given: an English or Russian reader and a coded HTTP 400 GraphQL refusal
+- When: the wiki reads the answer
+- Then: it preserves the code and arguments and formats the reader-facing text

@@ -14,12 +14,15 @@ import { withManifestContract } from './manifest-contract.js';
 import { readPublishedManifest } from './manifest-publication.js';
 import { publishGraphDrafts } from './write.js';
 import { randomUUID } from 'node:crypto';
-import { fits } from './validation.js';
+import { fits, GraphRefusal } from './validation.js';
+import { catalogueRequests, parseRequest } from './door-contract.js';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 
 /** A refused write: the tool answers its message, naming the field when one is at fault. */
-export class WriteRefusal extends Error {
-  constructor(message: string, readonly field?: string, readonly status = 400) { super(message); }
+export class WriteRefusal extends GraphRefusal {
+  constructor(message: string, readonly field?: string, readonly status = 400) {
+    super(field === undefined ? '' : `/${field.replaceAll('~', '~0').replaceAll('/', '~1')}`, message, null);
+  }
 }
 
 /** The agent one write is made for: a stable producer name and the session it runs in, as the journal states them. */
@@ -253,6 +256,7 @@ export async function putEntityOpinion(owner: DatabaseOwner, source: WriteSource
     const manifest = await manifestOf(tx);
     if (!manifest.kinds.has(input.kind)) throw new WriteRefusal(`kind ${JSON.stringify(input.kind)}: the published manifest declares no such kind`, 'kind');
     const contract = writeContractOf(manifest);
+    parseRequest(catalogueRequests(contract).put_entity, input);
     const vertex = vertexOfKind(contract, input.kind);
     let key: Record<string, unknown>;
     let writeUid: string | undefined;
@@ -321,6 +325,7 @@ export async function putEdgeOpinion(owner: DatabaseOwner, source: WriteSource, 
   return await owner.transaction('write', async (tx) => {
     const manifest = await manifestOf(tx);
     const contract = writeContractOf(manifest);
+    parseRequest(catalogueRequests(contract).put_edge, input);
     const edge = contract.edge.find((one) => one.name === input.kind);
     if (edge === undefined) throw new WriteRefusal(`edge kind ${JSON.stringify(input.kind)}: the graph holds no table for it`, 'kind');
     const from = await edgeEndOf(tx, contract, 'from', input.from);
@@ -338,6 +343,7 @@ export async function retractOpinion(owner: DatabaseOwner, source: WriteSource, 
   return await owner.transaction('write', async (tx) => {
     const manifest = await manifestOf(tx);
     const contract = writeContractOf(manifest);
+    parseRequest(catalogueRequests(contract).retract, input);
     if ((input.entity === undefined) === (input.edge === undefined)) throw new WriteRefusal('retract names either an entity or an edge, and one of them', 'entity');
     const author = `${source.producer}@${source.version}`;
     if (input.entity !== undefined) {

@@ -90,6 +90,7 @@ import type { ProblemLink } from '../problems/types.js';
 import { entityPageAddress } from './addresses.js';
 import { readKindUsage, type KindUsageView } from '../adapters/agent-usage.js';
 import { authoredEntity } from '../graph/authored.js';
+import type { GraphContract } from '../graph/contract.js';
 import { importAuthored } from './import-authored.js';
 import { authoredHistoryPresent } from '../adapters/authored-import.js';
 import { publishValidatedManifests, validateProductManifests, readPublishedManifest } from '../graph/manifest-publication.js';
@@ -104,7 +105,7 @@ import { clusterEndpoint, clusterPaths, CLUSTER_USER } from '../adapters/postgre
 import { ReadContext, type DiagramNeighbourhood } from '../graph/graphql-read.js';
 import { readProductTemplates } from '../graph/product-templates.js';
 import { structureRevisionOf } from '../graph/graphql-execute.js';
-import { putEdgeOpinion, putEntityOpinion, retractOpinion, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
+import { putEdgeOpinion, putEntityOpinion, retractOpinion, writeContractOf, WriteRefusal, type WriteSource } from '../graph/graph-writes.js';
 
 /**
  * The token cap a fill runs under when nobody names one (madarch-64o5.90). The engine still sets no cap of its own;
@@ -558,6 +559,18 @@ export class KnowledgeProduct {
   }
 
   /** The agent's opinion of an entity's fields: the entity is created when its key names none. */
+  async requestContract(): Promise<GraphContract> {
+    return await withSpan('graph.request-contract', {}, async () => {
+      const owner = await this.open();
+      await this.followStoreFill();
+      return await owner.transaction('snapshot', async tx => {
+        const manifest = await readPublishedManifest(tx);
+        if (manifest === undefined) throw new WriteRefusal('the graph holds no published catalogue', 'kind', 409);
+        return writeContractOf(manifest);
+      });
+    });
+  }
+
   async putEntity(source: WriteSource, input: { readonly kind: string; readonly key?: unknown; readonly id?: string; readonly values: unknown; readonly evidence: unknown; readonly words?: string }): Promise<{ kind: string; key?: Record<string, unknown>; uid?: string; written?: number }> {
     const owner = await this.open();
     await this.followStoreFill();

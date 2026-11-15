@@ -592,3 +592,29 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   expect(transferred.pop()).toBeLessThanOrEqual(40);
 });
 
+
+
+describe('read selectors are validated without partial data', () => {
+  test.each([
+    ['{ search(text: "a", kinds: ["missing.kind"]) { totalCount } }', '/kinds/0'],
+    ['{ allDemoFile(first: -1) { totalCount } }', '/first'],
+    ['{ allDemoFile(after: "broken") { totalCount } }', '/after'],
+    ['{ allDemoFile(orderBy: [{field: missing}]) { totalCount } }', '/query'],
+    ['{ allDemoFileAggregate { groupBy(field: "missing") { count } } }', '/field'],
+  ])('refuses %s', async (query, path) => {
+    const answer = await executeGraphql(owner, { manifest, folder }, { query });
+    expect(answer.status).toBe(400);
+    expect(answer.body.data).toBeUndefined();
+    expect(answer.body.errors?.[0]?.extensions).toMatchObject({ code: 'SCHEMA_INVALID', path, retryable: false });
+    expect(answer.body.errors?.[0]?.extensions).toHaveProperty('actual');
+    expect(answer.body.errors?.[0]?.extensions).toHaveProperty('expected');
+  });
+});
+
+
+test('GraphQL variable coercion returns a coded refusal without partial data', async () => {
+  const answer = await executeGraphql(owner, { manifest, folder }, { query: 'query ($first: Int) { allDemoFile(first: $first) { totalCount } }', variables: { first: 'wrong' } });
+  expect(answer.status).toBe(400);
+  expect(answer.body.data).toBeUndefined();
+  expect(answer.body.errors?.[0]?.extensions).toMatchObject({ code: 'SCHEMA_INVALID', path: '/variables', actual: { first: 'wrong' }, retryable: false });
+});

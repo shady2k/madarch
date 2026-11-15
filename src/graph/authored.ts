@@ -6,6 +6,8 @@ import { graphContractOf } from '../fill/stages/plugin-contract.js';
 import type { KindsManifest } from '../product/manifest/kinds.js';
 import { withSpan } from '../obs/trace.js';
 import { byCodePoint } from '../model/order.js';
+import { catalogueRequests, parseRequest } from './door-contract.js';
+import { fits, GraphRefusal } from './validation.js';
 
 export type AuthoredAction = 'list' | 'read' | 'create' | 'edit' | 'delete' | 'schema';
 export interface AuthoredArguments {
@@ -30,7 +32,7 @@ export interface AuthoredResult {
 }
 export class AuthoredRefusal extends Error {
   readonly field: string | undefined;
-  constructor(readonly status: number, message: string, readonly conflict?: { readonly field: string; readonly current: unknown; readonly author: string }) {
+  constructor(readonly status: number, message: string, readonly conflict?: { readonly field: string; readonly current: unknown; readonly author: string }, readonly refusal?: GraphRefusal) {
     super(`${import.meta.path}:1: ${message}`);
     this.field = /^field "([^"]+)"/u.exec(message)?.[1];
   }
@@ -45,13 +47,7 @@ function validate(fields: readonly FieldContract[], values: Readonly<Record<stri
       if (field.nullable === true) continue;
       throw new AuthoredRefusal(400, `field ${JSON.stringify(field.name)}: a value is required`);
     }
-    const valid = field.reference !== undefined ? typeof value === 'object' && !Array.isArray(value) && 'kind' in value && value.kind === field.reference && 'key' in value && value.key !== null && typeof value.key === 'object' && !Array.isArray(value.key)
-      : field.type === 'text' ? typeof value === 'string'
-      : field.type === 'boolean' ? typeof value === 'boolean'
-      : field.type === 'integer' ? typeof value === 'number' && Number.isInteger(value) && value >= -2147483648 && value <= 2147483647
-      : field.type === 'bigint' ? (typeof value === 'number' && Number.isSafeInteger(value)) || (typeof value === 'string' && /^-?\d+$/u.test(value) && BigInt(value) >= -9223372036854775808n && BigInt(value) <= 9223372036854775807n)
-      : field.type === 'timestamp' ? typeof value === 'string' && Number.isFinite(Date.parse(value))
-      : (() => { try { return JSON.stringify(value) !== undefined; } catch { return false; } })();
+    const valid = fits(field, value);
     if (!valid) throw new AuthoredRefusal(400, `field ${JSON.stringify(field.name)}: expected ${field.reference === undefined ? field.type : `a reference to ${field.reference}`}`);
   }
 }
@@ -81,6 +77,11 @@ export async function authoredEntity(tx: OuterTransaction, manifest: KindsManife
   const contract = graphContractOf(manifest);
   const vertex = contract.vertex.find((held) => held.name === kind);
   if (vertex === undefined) throw new AuthoredRefusal(400, `kind ${JSON.stringify(kind)}: no field contract is declared`);
+  try { parseRequest(catalogueRequests(contract).authored(kind, action), args); }
+  catch (error) {
+    if (!(error instanceof GraphRefusal)) throw error;
+    throw new AuthoredRefusal(400, error.message, undefined, error);
+  }
   const result = { kind, fields: vertex.fields };
   if (action === 'schema') return result;
   const producer = encodeURIComponent(person);

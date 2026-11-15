@@ -4,6 +4,7 @@
  */
 import type { Bootstrap } from '../../../src/page-contract/index.js';
 import { reportOffline, reportOnline } from './connection.js';
+import { graphRefusalMessage } from './graph-refusal.js';
 
 /** One kind of the product's navigation: its names in the reader's language, its group and what the graph holds. */
 export interface NavigationKind {
@@ -78,7 +79,7 @@ export const NAVIGATION_QUERY = `query Navigation($lang: String) {
 
 export interface GraphqlError {
   readonly message: string;
-  readonly extensions?: { readonly code?: string };
+  readonly extensions?: { readonly code?: string; readonly path?: string; readonly expected?: string; readonly actual?: unknown; readonly retryable?: boolean };
 }
 
 export interface GraphqlAnswer<T> {
@@ -120,10 +121,16 @@ export async function postQuery<T>(base: string, query: string, variables: Recor
   }
   reportOnline();
   if (!response.ok) {
-    return { errors: [{ message: `the graph answered ${String(response.status)}` }] };
+    let body: { error?: unknown; errors?: GraphqlError[] } | undefined;
+    try { body = await response.json() as typeof body; } catch { /* A proxy may answer without JSON. */ }
+    if (Array.isArray(body?.errors)) {
+      return { errors: body.errors.map(error => ({ ...error, message: graphRefusalMessage(error.extensions) ?? error.message })) };
+    }
+    const refusal = graphRefusalMessage(body?.error);
+    return { errors: [{ message: refusal ?? `the graph answered ${String(response.status)}`, ...(refusal === undefined ? {} : { extensions: body?.error as NonNullable<GraphqlError['extensions']> }) }] };
   }
   const body = (await response.json()) as { data?: T; errors?: GraphqlError[] };
-  return { data: body.data, errors: body.errors ?? [] };
+  return { data: body.data, errors: (body.errors ?? []).map(error => ({ ...error, message: graphRefusalMessage(error.extensions) ?? error.message })) };
 }
 
 /** The bootstrap and the navigation, or the message the page shows when they could not be read. */

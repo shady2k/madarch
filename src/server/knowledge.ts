@@ -10,6 +10,9 @@
  * connection.
  */
 import { here } from '../model/raise.js';
+import { commandRequests, queryRequests } from './knowledge-contract.js';
+import { GraphRefusal } from '../graph/validation.js';
+import { parseRequest, readRequests } from '../graph/door-contract.js';
 import { AuthoredRefusal } from '../graph/authored.js';
 import type { ResetPlan } from '../knowledge/reset.js';
 import { LoopRefusal } from '../loop/answer.js';
@@ -138,8 +141,34 @@ export function createKnowledgePart(
         if (publication.status === 'pending') response.headers.set('retry-after', '1');
         return { response };
       }
+      const querySchema = queryRequests[what];
+      if (querySchema !== undefined && (request.method === 'GET' || what === 'pause the fill' || what === 'stop the fill')) {
+        const query = new URL(request.url).searchParams;
+        const values: Record<string, string> = {};
+        for (const [key, value] of query) {
+          if (key in values) throw new GraphRefusal(`/${key}`, 'one selector value', query.getAll(key));
+          values[key] = value;
+        }
+        parseRequest(querySchema, values);
+        if (values['kind'] !== undefined) {
+          const kinds = readKinds(product.folder);
+          if (kinds.present && !kinds.manifest.kinds.has(values['kind']) && !(what === 'read the graph verdicts' && kinds.manifest.edges?.has(values['kind']))) throw new GraphRefusal('/kind', 'declared kind', values['kind']);
+        }
+      }
+      const commandSchema = commandRequests[what];
+      if (commandSchema !== undefined && request.method !== 'GET') {
+        const raw = await request.clone().text();
+        let body: unknown = {};
+        if (raw !== '') {
+          try { body = JSON.parse(raw) as unknown; }
+          catch { throw new GraphRefusal('', 'JSON object', raw); }
+        }
+        parseRequest(commandSchema, body);
+      }
       return await work(request);
     } catch (error) {
+      if (error instanceof GraphRefusal) return { response: json(400, { error: error.toJSON() }) };
+      if (error instanceof AuthoredRefusal && error.refusal !== undefined) return { response: json(error.status, { error: error.refusal }) };
       if (error instanceof AuthoredRefusal) return refused(error.status, { message: error.message, ...(error.field === undefined ? {} : { field: error.field }), ...('conflict' in error && error.conflict !== undefined ? { conflict: error.conflict as { field: string; current: unknown; author: string } } : {}) });
       if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
       if (error instanceof WikiReadError) {
@@ -204,9 +233,9 @@ function fillRefusalCode(message: string): string | undefined {
       const plain = notJson(request);
       if (plain !== undefined) return refused(415, { message: `${import.meta.path}:1: ${plain}` });
       let body: unknown;
-      try { body = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON: { query, variables?, operationName?, lang? }` }); }
-      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: `${import.meta.path}:1: the body is { query, variables?, operationName?, lang? }` });
-      const held = body as Record<string, unknown>;
+      try { body = await request.json(); } catch { throw new GraphRefusal('', 'JSON operation envelope', null); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new GraphRefusal('', 'operation envelope', body);
+      const held = parseRequest(readRequests.graph_query, body) as Record<string, unknown>;
       if (typeof held['query'] !== 'string' || held['query'].trim() === '') return refused(400, { field: 'query', message: `${import.meta.path}:1: "query" is the GraphQL operation's text` });
       if (held['variables'] !== undefined && held['variables'] !== null && (typeof held['variables'] !== 'object' || Array.isArray(held['variables']))) return refused(400, { field: 'variables', message: `${import.meta.path}:1: "variables" is an object of the operation's variables` });
       if (held['operationName'] !== undefined && held['operationName'] !== null && typeof held['operationName'] !== 'string') return refused(400, { field: 'operationName', message: `${import.meta.path}:1: "operationName" is the name of the operation to run, or null` });
@@ -283,6 +312,7 @@ function fillRefusalCode(message: string): string | undefined {
       try { raw = await request.json(); } catch { return refused(400, { message: `${import.meta.path}:1: the request body must be JSON` }); }
       if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return refused(400, { message: `${import.meta.path}:1: the body is {values?, words?}` });
       const held = raw as Record<string, unknown>;
+      for (const key of Object.keys(held)) if (key !== 'values' && key !== 'words') throw new GraphRefusal(`/${key}`, 'values or words', held[key]);
       if (held['words'] !== undefined && typeof held['words'] !== 'string') return refused(422, { field: 'words', message: `${import.meta.path}:1: words must be text, kept verbatim` });
       if (held['values'] !== undefined && (held['values'] === null || typeof held['values'] !== 'object' || Array.isArray(held['values']))) return refused(422, { field: 'values', message: `${import.meta.path}:1: values must be an object keyed by field` });
       const body = { ...(held['words'] === undefined ? {} : { words: held['words'] as string }), ...(held['values'] === undefined ? {} : { values: held['values'] as Readonly<Record<string, unknown>> }) };

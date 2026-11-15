@@ -44,7 +44,7 @@ test('random authored identities preserve opinions, exact words and withdrawal h
 });
 
 test('fields reject missing, undeclared and incorrectly typed values without publishing', async () => {
-  for (const [values, message] of [[{}, 'title'], [{ title: 3 }, 'text'], [{ title: 'OK', count: 1.5 }, 'integer'], [{ title: 'OK', flag: 'yes' }, 'boolean'], [{ title: 'OK', extra: true }, 'extra']] as const) {
+  for (const [values, message] of [[{}, 'title'], [{ title: 3 }, 'string'], [{ title: 'OK', count: 1.5 }, '/values/count'], [{ title: 'OK', flag: 'yes' }, 'boolean'], [{ title: 'OK', extra: true }, 'extra']] as const) {
     await expect(call('create', { values })).rejects.toThrow(message);
   }
   await expect(owner.transaction('write', (tx) => authoredEntity(tx, manifest, '', 'Reader', 'create', 'derived', { values: {} }))).rejects.toThrow('does not let a person author');
@@ -85,8 +85,8 @@ test('reference fields require the declared kind and an object key on create and
   const link = (action: Parameters<typeof authoredEntity>[4], args: Parameters<typeof authoredEntity>[6]) => owner.transaction('write', (tx) => authoredEntity(tx, manifest, 'fixture', 'Reader', action, 'link', args));
   const made = (await link('create', { values: { target: { kind: 'note', key: {} } } })).entity!;
   for (const target of [{ kind: 'wrong', key: {} }, { kind: 'note', key: null }, { kind: 'note', key: [] }, { kind: 'note', key: 'bad' }]) {
-    await expect(link('create', { values: { target } })).rejects.toThrow('field "target": expected a reference to note');
-    await expect(link('edit', { uid: made.uid, values: { target } })).rejects.toThrow('field "target": expected a reference to note');
+    await expect(link('create', { values: { target } })).rejects.toThrow('/values/target');
+    await expect(link('edit', { uid: made.uid, values: { target } })).rejects.toThrow('/values/target');
   }
 });
 

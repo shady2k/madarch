@@ -20,8 +20,7 @@ storage. The schema reconciliation fixture now uses a typed reference, not a
 scalar pretending to be a reference. No new storage table is introduced.
 
 ## Out of scope
-Catalogue-generated input schemas at all MCP/API doors; closed read selectors;
-uniform errors and locale rendering; graph-dependent source, evidence, target
+Graph-dependent source, evidence, target
 and cardinality checks; assertion storage; immediate writes without unit drafts;
 mandatory JSON Schema and reusable catalogue value types. These remain required
 by the full task and depend in part on the new catalogue/assertion contracts.
@@ -29,12 +28,14 @@ This branch is not ready for task closure.
 
 ## Changes to requirements
 - graph-writer/field-types: add writer-boundary type validation for vertex and edge attributes.
+- graph-writer/door-contracts: generate closed catalogue requests, reject malformed reads, and format coded schema refusals.
 
 ## Preserved contracts
 None.
 
 ## Coverage
 - graph-writer/field-types: static, test, mutation, review
+- graph-writer/door-contracts: static, test, mutation, review
 
 ## Where it is seen
 Kind: internal
@@ -52,6 +53,47 @@ None.
 The base still has old opinion storage and reference representation. The full
 task remains unfinished; these are limitations of this increment, not an
 approval request to retain the old design.
+
+The follow-up is based on the coordinator's accepted writer increment 823c37ff.
+MCP advertises catalogue-generated, closed per-kind value/key contracts and parses
+calls with the same Zod declarations. HTTP workflow commands have closed typed
+protocol envelopes. Person-authored values use all declared fields, including
+natural keys. GraphQL validates declared fields, kind selectors, variables,
+cursors and bounds and returns no partial data for a schema refusal.
+
+SCHEMA_INVALID crosses HTTP and MCP with path, expected, actual and retryable
+arguments. The wiki formats that refusal in the reader's English or Russian
+locale, including GraphQL errors returned with HTTP 400. The expected argument
+retains schema vocabulary; this does not translate every legacy domain message.
+The fill answer still goes through the central writer preflight and shared fits.
+
+### Named TODOs after assertion storage lands
+- GRAPH-DEPENDENT-READ/WRITE-CHECKS: target existence, cardinality, owner/source
+  and evidence validity depend on foundation/madarch-64o5.74. No interim checks
+  were added for these properties.
+- LEGACY-DOMAIN-REFUSALS: non-schema domain/security/content-type/LoopRefusal
+  failures retain existing messages and some existing mappings. This increment
+  does not claim every old failure has locale-ready arguments.
+- SCHEMA-ERROR-PRECISION: static GraphQL failures use /query, variable coercion
+  uses /variables; they do not identify every nested argument position.
+- CROSS-FIELD-SCHEMA: standard JSON Schema cannot express a file evidence
+  lineEnd >= lineStart comparison. Runtime validates it. Generated schemas do
+  carry representable identity, revision, URL and decimal range constraints.
+
+### Follow-up evidence
+- Root bun run check: passed, architecture debt 1228 -> 1227 (obsolete authored
+  integer regex removed, no gained entry).
+- Focused writer/authored/door/GraphQL suites: 118 passed, 0 failed, eight files.
+- Wiki final run: 139 passed, 0 failed after HTTP 400 fix; check and build
+  passed (existing bundle-size warning).
+- Independent same-model review found keyed authored values, HTTP 400 GraphQL
+  handling and advertised constraints issues. All three were addressed with
+  regression tests and a scratch AJV 2020 parity walk (12 inputs).
+- Bounded manual mutation replacing the integer door type with unknown killed
+  two door tests; restored immediately, focused 118 tests passed. Not a full
+  Stryker run.
+- Existing numeric bounds were preserved. Over-bound selectors now refuse
+  instead of silently clamping. No new tables or screen layout changes.
 
 ## Acceptance evidence
 - Root bun run check: passed; architecture debt shrank from 1229 to 1228 entries.
