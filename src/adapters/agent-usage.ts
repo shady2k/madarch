@@ -37,6 +37,10 @@ export interface AgentUsageRecord {
   readonly model: string | null;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** The tokens the agent wrote into its cache: counted by a token cap beside input and output (owner's decision, 2026-11-15). */
+  readonly cachedWriteTokens: number;
+  /** The tokens the agent read back from its cache: shown, and never counted by a token cap. */
+  readonly cachedReadTokens: number;
   readonly totalTokens: number;
   /** The cost the agent reported for this row, or null when it reported none. */
   readonly cost: AgentUsageAmount | null;
@@ -73,13 +77,15 @@ export async function recordAgentUsage(owner: DatabaseOwner, rows: readonly Agen
   await owner.transaction('write', async (tx) => {
     for (const row of orderedRows) {
       await tx.query(
-        `INSERT INTO agent_usage (run_id, unit, plugin, plugin_version, kind, field, model, input_tokens, output_tokens, total_tokens, cost_amount, cost_currency, turns, reported, stopped, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
+        `INSERT INTO agent_usage (run_id, unit, plugin, plugin_version, kind, field, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, total_tokens, cost_amount, cost_currency, turns, reported, stopped, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
          ON CONFLICT (run_id, unit, kind, field, model) DO UPDATE SET
            plugin = EXCLUDED.plugin,
            plugin_version = EXCLUDED.plugin_version,
            input_tokens = EXCLUDED.input_tokens,
            output_tokens = EXCLUDED.output_tokens,
+           cache_write_tokens = EXCLUDED.cache_write_tokens,
+           cache_read_tokens = EXCLUDED.cache_read_tokens,
            total_tokens = EXCLUDED.total_tokens,
            cost_amount = EXCLUDED.cost_amount,
            cost_currency = EXCLUDED.cost_currency,
@@ -87,7 +93,7 @@ export async function recordAgentUsage(owner: DatabaseOwner, rows: readonly Agen
            reported = EXCLUDED.reported,
            stopped = EXCLUDED.stopped,
            updated_at = now()`,
-        [row.run, row.unit, row.plugin, row.pluginVersion, row.kind, row.field, row.model, row.inputTokens, row.outputTokens, row.totalTokens,
+        [row.run, row.unit, row.plugin, row.pluginVersion, row.kind, row.field, row.model, row.inputTokens, row.outputTokens, row.cachedWriteTokens, row.cachedReadTokens, row.totalTokens,
           row.cost === null ? null : row.cost.amount.toFixed(6), row.cost === null ? null : row.cost.currency, row.turns, row.reported, row.stopped],
       );
     }
@@ -104,6 +110,8 @@ export interface KindUsageRun {
   readonly at: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly cachedWriteTokens: number;
+  readonly cachedReadTokens: number;
   readonly totalTokens: number;
   readonly cost: readonly AgentUsageAmount[];
   /** The first bound that ended one of the run's rows in this kind, if one did. */
@@ -119,7 +127,7 @@ export interface KindUsageView {
   /** Whether older runs spent on the kind too and are not listed. */
   readonly moreRuns: boolean;
   /** Every run's spend on the kind, this and the older runs together. */
-  readonly total: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number; readonly cost: readonly AgentUsageAmount[]; readonly runs: number };
+  readonly total: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number; readonly cost: readonly AgentUsageAmount[]; readonly runs: number };
 }
 
 /** How many runs a kind's page lists; the total counts every run, and `moreRuns` says the list is shorter. */
@@ -141,8 +149,8 @@ function costOf(amount: string | null, currency: string | null): AgentUsageAmoun
 export async function readKindUsage(owner: DatabaseOwner, kind: string): Promise<KindUsageView> {
   await createAgentUsageSchema(owner);
   return await owner.transaction('snapshot', async (tx) => {
-    const totals = await tx.query<{ input: string; output: string; total: string; runs: string }>(
-      'SELECT coalesce(sum(input_tokens), 0)::text AS input, coalesce(sum(output_tokens), 0)::text AS output, coalesce(sum(total_tokens), 0)::text AS total, count(DISTINCT run_id)::text AS runs FROM agent_usage WHERE kind = $1',
+    const totals = await tx.query<{ input: string; output: string; write: string; read: string; total: string; runs: string }>(
+      'SELECT coalesce(sum(input_tokens), 0)::text AS input, coalesce(sum(output_tokens), 0)::text AS output, coalesce(sum(cache_write_tokens), 0)::text AS write, coalesce(sum(cache_read_tokens), 0)::text AS read, coalesce(sum(total_tokens), 0)::text AS total, count(DISTINCT run_id)::text AS runs FROM agent_usage WHERE kind = $1',
       [kind],
     );
     const byCurrency = await tx.query<{ currency: string; amount: string }>(
@@ -156,10 +164,12 @@ export async function readKindUsage(owner: DatabaseOwner, kind: string): Promise
     const runIds = newest.rows.slice(0, KIND_USAGE_RUNS).map((row) => row.run_id);
     const rows = runIds.length === 0 ? [] : (await tx.query<{
       run_id: string; unit: string; plugin: string; plugin_version: string; kind: string; field: string; model: string | null;
-      input_tokens: string; output_tokens: string; total_tokens: string; cost_amount: string | null; cost_currency: string | null;
+      input_tokens: string; output_tokens: string; cache_write_tokens: string; cache_read_tokens: string; total_tokens: string;
+      cost_amount: string | null; cost_currency: string | null;
       turns: number; reported: boolean; stopped: 'tokens' | 'cost' | null; updated_at: string;
     }>(
       `SELECT run_id, unit, plugin, plugin_version, kind, field, model, input_tokens::text AS input_tokens, output_tokens::text AS output_tokens,
+              cache_write_tokens::text AS cache_write_tokens, cache_read_tokens::text AS cache_read_tokens,
               total_tokens::text AS total_tokens, cost_amount::text AS cost_amount, cost_currency, turns, reported, stopped, updated_at::text AS updated_at
        FROM agent_usage WHERE kind = $1 AND run_id = ANY($2::text[])
        ORDER BY run_id, plugin, field, model NULLS FIRST, unit`,
@@ -169,7 +179,8 @@ export async function readKindUsage(owner: DatabaseOwner, kind: string): Promise
       const held = rows.filter((row) => row.run_id === entry.run_id);
       const lines: KindUsageLine[] = held.map((row) => ({
         run: row.run_id, unit: row.unit, plugin: row.plugin, pluginVersion: row.plugin_version, kind: row.kind, field: row.field,
-        model: row.model, inputTokens: Number(row.input_tokens), outputTokens: Number(row.output_tokens), totalTokens: Number(row.total_tokens),
+        model: row.model, inputTokens: Number(row.input_tokens), outputTokens: Number(row.output_tokens),
+        cachedWriteTokens: Number(row.cache_write_tokens), cachedReadTokens: Number(row.cache_read_tokens), totalTokens: Number(row.total_tokens),
         cost: costOf(row.cost_amount, row.cost_currency), turns: row.turns, reported: row.reported, stopped: row.stopped,
       }));
       return {
@@ -177,6 +188,8 @@ export async function readKindUsage(owner: DatabaseOwner, kind: string): Promise
         at: new Date(entry.at).toISOString(),
         inputTokens: lines.reduce((sum, line) => sum + line.inputTokens, 0),
         outputTokens: lines.reduce((sum, line) => sum + line.outputTokens, 0),
+        cachedWriteTokens: lines.reduce((sum, line) => sum + line.cachedWriteTokens, 0),
+        cachedReadTokens: lines.reduce((sum, line) => sum + line.cachedReadTokens, 0),
         totalTokens: lines.reduce((sum, line) => sum + line.totalTokens, 0),
         cost: amountsOf(lines.flatMap((line) => (line.cost === null ? [] : [line.cost]))),
         stopped: lines.find((line) => line.stopped !== null)?.stopped ?? null,
@@ -190,6 +203,8 @@ export async function readKindUsage(owner: DatabaseOwner, kind: string): Promise
       total: {
         inputTokens: Number(totals.rows[0]?.input ?? '0'),
         outputTokens: Number(totals.rows[0]?.output ?? '0'),
+        cachedWriteTokens: Number(totals.rows[0]?.write ?? '0'),
+        cachedReadTokens: Number(totals.rows[0]?.read ?? '0'),
         totalTokens: Number(totals.rows[0]?.total ?? '0'),
         cost: byCurrency.rows.map((row) => ({ amount: Number(row.amount), currency: row.currency })).sort((left, right) => byCodePoint(left.currency, right.currency)),
         runs: Number(totals.rows[0]?.runs ?? '0'),

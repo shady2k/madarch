@@ -1,0 +1,74 @@
+id: manifest.proposed-kind
+purpose: understand
+audience: [product, product-lead, architect, developer]
+definition: A proposed kind is a kind somebody found missing, declared as their own opinion with the evidence that showed it, until a person accepts or rejects it.
+sources:
+- https://www.w3.org/TR/prov-o/
+acquisition:
+- agent-from-graph
+- conversation
+relation-constraints:
+  out:
+  - refines
+  - hasPart
+  in:
+  - decides
+  - refines
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the producer gives the kind it found missing; it is the proposal's key.
+- name: definition
+  type: text
+  binding:
+    agent: What the kind is, in one sentence, as the producer states it.
+- name: why
+  type: text
+  nullable: true
+  binding:
+    agent: Why the thing is of its own kind rather than a field or an entity of a kind the product already holds.
+- name: shown_by
+  type: text
+  nullable: true
+  binding:
+    agent: 'What showed it: the entities, the fields and the places in the graph that carry it.'
+- name: proposal_state
+  type: text
+  nullable: true
+  binding:
+    agent: 'Where the proposal stands: proposed, accepted, rejected, or «this is really kind Y».'
+- name: proposed_by
+  type: text
+  nullable: true
+  binding:
+    agent: 'The producer that proposed the kind: the agent or the person, with the run it came from.'
+- name: proposed_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the kind was proposed.
+- name: again
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether this is a second proposal after a rejection, with what differs from the first.
+key:
+- name
+derives-from:
+- kind
+labels:
+  en:
+    one: Proposed kind
+    many: Proposed kinds
+  ru:
+    one: Предложенный вид
+    many: Предложенные виды
+description:
+  en: 'A proposed kind is a kind somebody met in the product that the catalogue did not hold: it declares the kind as their own opinion, with the evidence that showed it, and the kind works at once, marked «proposed by an agent». A person accepts it, rejects it with a reason, or says it is really an existing kind — and the decision is one «Решение» entity. A rejection leaves the reason behind, so the next proposal of the same kind meets it instead of starting the same argument again.'
+  ru: 'Предложенный вид — вид, который кто-то встретил в продукте, а каталог его не держал: он объявляет вид как собственное мнение с показавшими его основаниями, и вид сразу работает, помеченный «предложен агентом». Человек принимает его, отклоняет с причиной или говорит, что это на самом деле существующий вид, — и решение — одна сущность «Решение». Отклонение оставляет причину, поэтому следующее предложение того же вида встречает её, а не начинает тот же спор заново.'

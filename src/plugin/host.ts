@@ -43,6 +43,13 @@ const WHERE = 'src/plugin/host.ts';
 export interface HostLimits {
   readonly handshakeMs: number;
   readonly unitMs: number;
+  /**
+   * How long one unit of a plugin that declares an agent part may run (owner's decision, 2026-11-15): an agent explores
+   * the graph through its tools and needs minutes, so its unit lives while it works — every ACP event and tool call is a
+   * sign of life — and the run's token cap and this bound are what stop it. The product's manifest names the bound per
+   * plugin (`plugins[].bounds.minutes`).
+   */
+  readonly agentUnitMs: number;
   readonly runMs: number;
   readonly heartbeatMs: number;
   readonly maxMessageBytes: number;
@@ -54,10 +61,11 @@ export interface HostLimits {
   readonly pids: number;
 }
 
-/** The defaults: a minute a unit, half an hour a run, five seconds of silence, a megabyte a message and eight a unit. */
+/** The defaults: a minute a unit (half an hour one with an agent part), half an hour a run, five seconds of silence, a megabyte a message and eight a unit. */
 export const DEFAULT_HOST_LIMITS: HostLimits = {
   handshakeMs: 10_000,
   unitMs: 60_000,
+  agentUnitMs: 30 * 60_000,
   runMs: 30 * 60_000,
   heartbeatMs: 5_000,
   maxMessageBytes: 1_048_576,
@@ -80,7 +88,7 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = { pluginsAtOnce: 1, unitsPerP
 
 /** One failure, with the place a person can point at. */
 export interface UnitCause {
-  /** A stable code: `handshake-timeout`, `unit-timeout`, `heartbeat-missed`, `message-too-large`, `unit-output-too-large`, `plugin-error`, `plugin-exited`, `sandbox-unavailable`, `needs-approval`, `closure-changed`, `undeclared-kind` and the rest of `results.ts`'s refusals. */
+  /** A stable code: `handshake-timeout`, `unit-timeout`, `agent-timeout`, `heartbeat-missed`, `message-too-large`, `unit-output-too-large`, `plugin-error`, `plugin-exited`, `sandbox-unavailable`, `needs-approval`, `closure-changed`, `undeclared-kind` and the rest of `results.ts`'s refusals. */
   readonly code: string;
   readonly message: string;
   readonly file?: string;
@@ -662,7 +670,9 @@ ${text === '' ? '(empty)' : text}` };
     if (this.agentPart !== undefined && agentOutputs !== undefined) declared.outputs = agentOutputs;
     this.declared = declared;
     if (this.agentPart !== undefined && this.options.agent !== undefined && this.options.graph !== undefined) {
-      this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onSession: (report) => {
+      // Every ACP event and every file the agent reads is a sign of life for its unit (owner's decision, 2026-11-15):
+      // an agent thinks for minutes without answering, and the heartbeat deadline must not read that as silence.
+      this.agentBridge = new PluginAgentBridge({ ...this.agentPart, prompt: this.agentPrompt! }, { ...this.options.agent, onActivity: (unitId: string) => this.sign(unitId, 0), onSession: (report) => {
         this.reports.set(report.unitId, report);
         this.options.agent?.onSession?.(report);
       } }, this.options.graph, declared.outputs);
@@ -742,14 +752,21 @@ ${text === '' ? '(empty)' : text}` };
       this.fail({ code: 'handshake-timeout', message: `${WHERE}:1: the plugin did not introduce itself within ${String(this.limits.handshakeMs)} ms: a plugin that never introduces itself cannot be held to anything, and the host stops it` });
       return;
     }
-    if (now - this.runStartedAt >= this.limits.runMs) {
-      this.fail({ code: 'run-timeout', message: `${WHERE}:1: the run passed its ${String(this.limits.runMs)} ms deadline: the units not answered are recorded as not extracted, and the tree is killed` });
+    if (now - this.runStartedAt >= this.runBound()) {
+      this.fail({ code: 'run-timeout', message: `${WHERE}:1: the run passed its ${String(this.runBound())} ms deadline: the units not answered are recorded as not extracted, and the tree is killed` });
       return;
     }
+    // A plugin with an agent part runs its units under the agent bound (owner's decision, 2026-11-15): the agent explores
+    // the graph through its tools, its ACP events keep the unit's silence fresh, and only its own bound or the run's token
+    // cap stops it. Every other plugin keeps the minute a unit may take.
+    const agentUnit = this.agentPart !== undefined;
+    const unitBound = agentUnit ? this.limits.agentUnitMs : this.limits.unitMs;
     for (const held of this.inFlight.values()) {
-      if (now - held.startedAt >= this.limits.unitMs) {
-        held.settle(this.notExtracted(held, { code: 'unit-timeout', message: `${WHERE}:1: unit ${held.unitId} passed its ${String(this.limits.unitMs)} ms deadline: it was recorded as not extracted, and the plugin stopped` }));
-        this.fail({ code: 'unit-timeout', message: `${WHERE}:1: unit ${held.unitId} passed its ${String(this.limits.unitMs)} ms deadline: the plugin was stopped` });
+      if (now - held.startedAt >= unitBound) {
+        const code = agentUnit ? 'agent-timeout' : 'unit-timeout';
+        const bound = agentUnit ? 'agent bound (the plugin declares an agent part; plugins[].bounds.minutes sets it)' : 'deadline';
+        held.settle(this.notExtracted(held, { code, message: `${WHERE}:1: unit ${held.unitId} passed its ${String(unitBound)} ms ${bound}: it was recorded as not extracted, and the plugin stopped` }));
+        this.fail({ code, message: `${WHERE}:1: unit ${held.unitId} passed its ${String(unitBound)} ms ${bound}: the plugin was stopped` });
         return;
       }
       if (!this.paused && now - held.lastSign >= this.limits.heartbeatMs) {
@@ -758,6 +775,14 @@ ${text === '' ? '(empty)' : text}` };
         return;
       }
     }
+  }
+
+  /**
+   * The run's own deadline: its limit, and never shorter than the agent unit it must outlive — a run that stopped before
+   * its agent part's bound would answer with the wrong reason (owner's decision, 2026-11-15).
+   */
+  private runBound(): number {
+    return this.agentPart === undefined ? this.limits.runMs : Math.max(this.limits.runMs, this.limits.agentUnitMs + 60_000);
   }
 
   /** The outcome of a unit that did not extract, with the numbers read at this moment. */

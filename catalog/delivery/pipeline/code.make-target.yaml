@@ -8,6 +8,7 @@ acquisition:
 - extractor operations
 relation-constraints:
   out:
+  - partOf
   - handles
   in:
   - partOf
@@ -16,6 +17,34 @@ source: graph
 details:
 - phony
 - recipe
+fields:
+- name: file
+  type: text
+  reference: code.file
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: phony
+  type: boolean
+  nullable: true
+  producers:
+  - operations
+- name: recipe
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- file
+- name
+derives-from:
+- code.file
 labels:
   en:
     one: Make target

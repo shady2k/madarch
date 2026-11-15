@@ -135,10 +135,12 @@ export function keyOfKind(vertex: VertexContract, key: unknown): Record<string, 
 }
 
 /** The values one write states, checked field by field: an unknown field is refused naming it. */
-export function valuesOfKind(vertex: VertexContract, values: unknown): Record<string, unknown> {
+export function valuesOfKind(vertex: VertexContract, values: unknown, keyed = false): Record<string, unknown> {
   if (values === null || typeof values !== 'object' || Array.isArray(values)) throw new WriteRefusal(`kind ${JSON.stringify(vertex.name)}: values is an object of field names and values`, 'values');
   const held = values as Record<string, unknown>;
-  if (Object.keys(held).length === 0) throw new WriteRefusal(`kind ${JSON.stringify(vertex.name)}: values states at least one field`, 'values');
+  // A keyed entity is stated by its key alone: the product's page names itself, and one write with no opinion of its
+  // other fields says only that it exists. A keyless entity with no value would say nothing at all.
+  if (Object.keys(held).length === 0 && !keyed) throw new WriteRefusal(`kind ${JSON.stringify(vertex.name)}: values states at least one field`, 'values');
   for (const [name, value] of Object.entries(held)) {
     if (vertex.key.includes(name)) throw new WriteRefusal(`field ${JSON.stringify(name)} of the kind ${JSON.stringify(vertex.name)} is part of its key: an identity is not an opinion`, name);
     const field = vertex.fields.find((one) => one.name === name);
@@ -156,7 +158,7 @@ export function valuesOfKind(vertex: VertexContract, values: unknown): Record<st
 export function entityDraft(contract: GraphContract, input: { kind: string; key: Record<string, unknown>; values: unknown; uid?: string }, source: WriteSource, evidence: EvidenceDraft[]): { draft: VertexDraft; vertex: VertexContract } {
   const vertex = vertexOfKind(contract, input.kind);
   const key = keyOfKind(vertex, input.key);
-  const values = valuesOfKind(vertex, input.values);
+  const values = valuesOfKind(vertex, input.values, Object.keys(key).length > 0);
   return {
     vertex,
     draft: {

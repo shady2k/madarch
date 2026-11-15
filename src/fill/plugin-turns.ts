@@ -36,6 +36,9 @@ import type { PluginLockEntry } from '../plugin/lock.js';
 import type { SnapshotSource } from '../plugin/repository-snapshot.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWriter } from './stage.js';
 import type { PluginAgentOptions, PluginAgentReport } from '../plugin/agent.js';
+import { startAgentGraphMcp } from './agent-graph.js';
+import { UnitBoundStop } from './unit-bound.js';
+import type { PluginContractDeclaration } from '../plugin/protocol.js';
 
 /** The store one turn reads and writes, as the graph's own reads name it: the process's one owner, never a second. */
 export type GraphOwner = Parameters<typeof producerEntities>[0];
@@ -299,6 +302,33 @@ function pluginUnitMeter(wiring: PluginTurnWiring, unit: PluginTurnUnit): AgentM
   });
 }
 
+/**
+ * The error one unit that did not extract is ended with: a bound the run declares — the agent's time, the plugin's
+ * silence, the run's own time — is a `UnitBoundStop`, so the attempt fails the unit with its reason and spends no retry
+ * on the same wall (owner's decision, 2026-11-15). Any other refusal stays a failure another attempt may survive.
+ */
+function unitStopped(id: string, code: string, message: string): Error {
+  const named = `src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${code}): ${message}`;
+  const bound = code === 'agent-timeout' ? 'agent-time' : code === 'heartbeat-missed' ? 'plugin-silence' : code === 'run-timeout' ? 'run-time' : code === 'agent-budget' ? 'tokens' : undefined;
+  return bound === undefined ? new Error(named) : new UnitBoundStop(bound, named);
+}
+
+/**
+ * The task a fill's agent is given (owner's decision, 2026-11-15): the kind it fills, what that kind is, and what each
+ * field of its answer means, in English. Nothing of the graph is preloaded: the agent's session carries madarch's graph
+ * server, and it reads there what it decides it needs.
+ */
+function agentTaskOf(kind: KindDecl, outputs: PluginContractDeclaration): Record<string, unknown> {
+  const vertex = outputs.vertices.find((held) => held.kind === kind.name);
+  return {
+    kind: kind.name,
+    what: kind.descriptions?.['en'] ?? kind.name,
+    key: [...(vertex?.key ?? kind.key ?? [])],
+    fields: (vertex?.fields ?? []).map((field) => ({ name: field.name, meaning: field.meaning })),
+    relations: outputs.edges.map((edge) => ({ kind: edge.kind, from: edge.from, to: edge.to })),
+  };
+}
+
 export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft: StageDraftWriter, progress?: (note: string, fraction?: number) => void, signal?: AbortSignal, graph?: GraphAnswerer, runId?: string, partition?: { readonly keys?: readonly import('../plugin/protocol.js').PluginKeyValues[]; readonly plan?: (partitions: readonly { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[]) => void }): Promise<void> {
   const { PluginHost, RequestLog: PluginRequestLog } = await import('../plugin/host.js');
   const { RELEASE_CLOSURE_HASHES } = await import('../plugin/release-closures.js');
@@ -378,8 +408,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       throw error;
     }
   })();
+  // The agent's session is given madarch's own graph server (owner's decision, 2026-11-15): the agent reads what it
+  // needs of the same graph the fill writes, and the task names only the kind it fills.
+  const agentGraph = wiring.agent === undefined || unit.plugin.contract?.agent === undefined ? undefined : startAgentGraphMcp({ owner: wiring.owner, manifest: wiring.manifest, contract: wiring.contract, folder: wiring.productFolder }, { notice: () => meter?.wrapNotice() });
+  // How long this plugin's agent unit may run: the product's own minutes, or the host's thirty (owner's decision,
+  // 2026-11-15 — the run's token cap is the other bound, and the host's minute-a-unit would stop every agent).
+  const agentMinutes = unit.plugin.bounds?.minutes;
   const host = new PluginHost({
-    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
+    ...(wiring.agent === undefined ? {} : { agent: { ...wiring.agent, outputs, ...(agentGraph === undefined ? {} : { mcpServers: [agentGraph.server] }), ...(meter === undefined ? {} : { meter }), onSession: (report: PluginAgentReport) => { agentReport = report; wiring.agent?.onSession?.(report); } } }),
     pluginFolder,
     closure,
     repository: wiring.productFolder,
@@ -387,6 +423,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     workRoot,
     filesystemInputs: repositoryInputs.filesystemInputs,
     trust: 'production',
+    ...(agentMinutes === undefined ? {} : { limits: { agentUnitMs: agentMinutes * 60_000 } }),
     releaseHashes: wiring.releaseHashes ?? RELEASE_CLOSURE_HASHES,
     ...(wiring.cgroupParent === undefined ? {} : { cgroupParent: wiring.cgroupParent }),
     ...(requests === undefined ? {} : { requests }),
@@ -394,6 +431,8 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
   const author = `${unit.plugin.id}@${unit.lock.version}`;
   /** Whether the unit's own publication carries its requests: a unit that failed publishes nothing (see below). */
   let journaled = false;
+  /** What the unit's answer held, kept past the try so a bound that crossed after it still keeps the result. */
+  let producedCount = 0;
   try {
     const session = await host.open();
     const cancel = (): void => { void session.cancel(); };
@@ -402,12 +441,14 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     try {
       const vertexKinds = new Set(outputs.vertices.map((vertex) => vertex.kind));
       const edgeKinds = new Set(outputs.edges.map((edge) => edge.kind));
-      const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : {
-        contract: outputs,
-        kinds: [unit.kind], kind: unit.kind,
-        files: [],
-      };
-      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
+      // A catalogue agent's task is the kind it fills and what that kind means, in English (owner's decision,
+      // 2026-11-15): it reads the graph through the unit's own server, so no list of files, no path of the product's
+      // checkout and no locale map is handed to it. Another plugin's agent part keeps its own inputs.
+      const catalogueAgent = unit.plugin.contract?.agent?.catalogue === true;
+      const agentInputs = unit.plugin.contract?.agent === undefined ? undefined : catalogueAgent
+        ? agentTaskOf(unit.kind, outputs)
+        : { contract: outputs, kinds: [unit.kind], kind: unit.kind, files: [] };
+      const request = { unitId: id, kind: unit.kind.name, key: { pattern: unit.patterns[0] ?? '' }, inputs: catalogueAgent && agentInputs !== undefined ? agentInputs : { ...(agentInputs ?? { ...(unit.patterns[0] === undefined ? {} : { pattern: unit.patterns[0] }), patterns: [...unit.patterns] }), contract: outputs, edgeOutputs, outputKinds: outputOrder, repositories: repositoryInputs.repositories, ...(unit.kind.classes === undefined ? {} : { classRules: unit.kind.classes }), ...(unit.kind.exclude === undefined ? {} : { exclude: unit.kind.exclude }), ...(wiring.paths === undefined ? {} : { paths: [...wiring.paths] }), ...(partition?.keys === undefined ? {} : { keys: partition.keys }) } };
       if (partition?.plan !== undefined) {
         const partitions: { readonly keys: readonly import('../plugin/protocol.js').PluginKeyValues[] }[] = [];
         const cursors = new Set<string>();
@@ -425,7 +466,15 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       }
       const outcome = await session.runUnit(request);
       access.assertAllowed();
-      if (outcome.state !== 'extracted') throw new Error(`src/fill/plugin-turns.ts:1: the unit ${id} was not extracted (${outcome.cause.code}): ${outcome.cause.message}`);
+      if (outcome.state !== 'extracted') {
+        // The agent part's own bound is a value on the meter, and a typed error cannot cross the plugin protocol: a unit
+        // that failed while its run's tokens are spent ends with that reason, and is not retried (owner's decision,
+        // 2026-11-15).
+        const spent = meter?.overBudget() ?? meter?.stop();
+        if (spent !== undefined) throw new UnitBoundStop('tokens', spent.message);
+        throw unitStopped(id, outcome.cause.code, outcome.cause.message);
+      }
+      producedCount = outcome.result.vertices.length + outcome.result.edges.length;
       access.assertWrites(outcome.result);
       for (const edge of outcome.result.edges) if (!ownsEdge(edge)) throw new Error(`${location}: plugin ${unit.plugin.id} output ${unit.kind.name}: write of unselected edge endpoints ${edge.kind} ${edge.from.kind} -> ${edge.to.kind}`);
       const partitionKeys = partition?.keys === undefined ? undefined : new Set(partition.keys.map(canonicalKey));
@@ -438,19 +487,26 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
       // keeps its cause and its places alike, so a file-specific problem is never hidden under the general cause.
       const problems = outcome.result.problems;
       const problemsText = problems.length === 0 ? undefined : `${String(problems.length)} place${problems.length === 1 ? '' : 's'} could not be read: ${problems.map((problem) => `${problem.repository === undefined ? '' : `${problem.repository}/`}${problem.path}:${String(problem.line)}${problem.column === undefined ? '' : `:${String(problem.column)}`} ${problem.message}`).join('; ')}`;
-      if (outcome.result.end.state === 'partial') {
-        const reason = problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`;
-        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason } });
+      // A partial answer keeps every entry it holds (owner's rule, 2026-11-15): the entries the contract and the graph
+      // could take are published, and the reason — the agent's own cause, the places it could not read, and the entries
+      // the contract could not take — is written beside them. Only an answer that holds nothing abstains.
+      const partialReason = outcome.result.end.state === 'partial'
+        ? (problemsText === undefined ? outcome.result.end.cause : `${outcome.result.end.cause}; ${problemsText}`)
+        : undefined;
+      const producedEntries = outcome.result.vertices.length + outcome.result.edges.length;
+      if (partialReason !== undefined && producedEntries === 0 && outcome.result.removals.length === 0) {
+        draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, outcome: 'abstained', produced: 0, reason: partialReason } });
         draft.write({ kind: 'journal', evidence: unit.kind.name, value: { author, ...(requests === undefined ? {} : { reads: requests.finish() }) } });
         journaled = true;
-        progress?.(`the plugin ${unit.plugin.id} abstained: ${reason}`);
+        progress?.(`the plugin ${unit.plugin.id} abstained: ${partialReason}`);
         await meter?.flush();
         const stop = meter?.stop();
-        if (stop !== undefined) throw new Error(stop.message);
+        if (stop !== undefined) throw unitStopped(id, 'agent-budget', stop.message);
         return;
       }
+      if (partialReason !== undefined) progress?.(`the plugin ${unit.plugin.id} answered partly and published what it held (${String(producedEntries)}): ${partialReason}`);
       const producerVersion = agentReport === undefined ? unit.lock.version : `${unit.lock.version}/${agentReport.agentId}`;
-      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: outcome.result.vertices.length + outcome.result.edges.length === 0 ? 'empty' : 'completed', produced: outcome.result.vertices.length + outcome.result.edges.length, ...(problemsText === undefined ? {} : { reason: problemsText }) } });
+      draft.write({ kind: 'producer-outcome', evidence: unit.kind.name, value: { plugin: unit.plugin.id, kind: unit.kind.name, producerVersion, outcome: producedEntries === 0 ? 'empty' : 'completed', produced: producedEntries, ...(partialReason === undefined ? (problemsText === undefined ? {} : { reason: problemsText }) : { reason: partialReason }) } });
       const only = selectedVertex(wiring, unit.kind.name);
       // Publish this kind's unit; other declared results belong to their own units.
       const selectedKinds = new Set([unit.kind.name]);
@@ -530,7 +586,12 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     // rows say what it spent before it stopped.
     await meter?.flush();
     const stop: AgentUsageStop | undefined = meter?.stop();
-    if (stop !== undefined) throw new Error(stop.message);
+    if (stop !== undefined) {
+      // What the agent produced before the cap stands (owner's decision, 2026-11-15): the unit published it, and the run
+      // says it went over. A unit that produced nothing ends with the bound's reason, and the run never retries it.
+      if (producedCount === 0) throw unitStopped(id, 'agent-budget', stop.message);
+      progress?.(`the plugin ${unit.plugin.id} went over its bound after producing ${String(producedCount)}: its result stands. ${stop.message}`);
+    }
   } catch (error) {
     // What the unit spent is evidence whatever it published: a unit that failed still writes its rows.
     await meter?.flush().catch(() => undefined);
@@ -539,6 +600,7 @@ export async function runPluginTurn(wiring: PluginTurnWiring, id: string, draft:
     if (requests !== undefined && !journaled) await writeRequestEntry(wiring.owner, author, requests.finish()).catch(() => undefined);
     throw error;
   } finally {
+    await agentGraph?.close();
     withSpanSync('plugin.cleanup', { 'madarch.plugin.id': unit.plugin.id }, () => rmSync(workRoot, { recursive: true, force: true }));
   }
 }

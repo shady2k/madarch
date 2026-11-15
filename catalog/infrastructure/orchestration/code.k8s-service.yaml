@@ -9,12 +9,41 @@ acquisition:
 relation-constraints:
   out:
   - routesTo
+  - partOf
   in:
   - routesTo
+  - partOf
 template-policy: page
 source: graph
 details:
 - ports
+fields:
+- name: namespace
+  type: text
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: ports
+  type: json
+  nullable: true
+  producers:
+  - operations
+- name: selector
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- namespace
+- name
+derives-from:
+- code.k8s-deployment
 labels:
   en:
     one: Kubernetes service

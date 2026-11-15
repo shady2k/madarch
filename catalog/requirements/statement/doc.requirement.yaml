@@ -5,37 +5,52 @@ definition: A requirement is a provision the product must fulfil, stated in a do
 sources:
 - https://standards.ieee.org/ieee/29148/6937/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 relation-constraints:
   out:
   - refines
+  - verifies
   - satisfies
   in:
+  - satisfies
   - refines
+  - documents
 template-policy: page
 source: graph
+origin: person
 fields:
-- name: legacy_id
+- name: identifier
+  type: text
+  labels:
+    en: Identifier
+    ru: Идентификатор
+  binding:
+    agent: The number or name the requirement is known by, such as REQ-12; it is the requirement's key.
+- name: statement
+  type: text
+  binding:
+    agent: What the product must do, in one sentence a test can check.
+- name: type
   type: text
   nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
+  binding:
+    agent: 'What kind of requirement it is: functional or a quality.'
+- name: priority
   type: json
   nullable: true
-  producers:
-  - person
-origin: person
+  reference: value-set-entry
+  binding:
+    agent: How urgent the requirement is compared with the others.
+- name: status
+  type: json
+  nullable: true
+  reference: value-set-entry
+  binding:
+    agent: Whether the requirement stands, changed or dropped.
+key:
+- identifier
 labels:
   en:
     one: Requirement
@@ -46,4 +61,3 @@ labels:
 description:
   en: A requirement states something the product must do or must be, such as a function, a limit or a quality, and is often numbered so it can be referred to. Its type says whether it is functional, non-functional or another kind of requirement.
   ru: 'Требование формулирует то, что продукт должен делать или каким должен быть: функцию, ограничение или качество, — и часто имеет номер, чтобы на него можно было сослаться. Тип говорит, функциональное это требование, нефункциональное или иное.'
-key: []

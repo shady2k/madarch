@@ -42,7 +42,7 @@ const ask = (method, params) => new Promise((resolve) => { const id = 'fake-' + 
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const m = JSON.parse(line);
   if (!m.method) { pending.get(m.id)?.(m); pending.delete(m.id); return; }
-  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: true } } } });
   if (m.method === 'session/new') send({ id: m.id, result: { sessionId: 'fixture-session', models: { currentModelId: 'fixture-model', availableModels: [{ modelId: 'fixture-model', name: 'Fixture model' }] } } });
   if (m.method === 'session/prompt') {
     const sessionId = m.params.sessionId;
@@ -51,7 +51,14 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const outside = await ask('fs/read_text_file', { sessionId, path: '/repo/absent.md' });
     const write = await ask('fs/write_text_file', { sessionId, path: '/repo/docs/a.md', content: 'changed' });
     const ok = a.result?.content === 'Alpha\\n' && b.result?.content === 'Beta\\n' && outside.error && write.error;
-    const contract = JSON.parse(m.params.prompt[0].text.split('Output contract: ')[1]);
+    // The agent's task names its kind, its fields and the edges it may state (the prompt carries no dump): a plugin's
+    // own agent part answers its contract, and madarch's catalogue agent its task.
+    const text = m.params.prompt[0].text;
+    const task = JSON.parse(text.slice(text.lastIndexOf('Task: ') + 'Task: '.length));
+    const contract = task.contract ?? {
+      vertices: [{ kind: task.kind, key: task.key ?? [], fields: (task.fields ?? []).map((field) => ({ name: field.name, type: 'text' })) }],
+      edges: task.relations ?? [],
+    };
     const declared = contract.vertices[0];
     const kind = declared.kind;
     // The key and the field the task names are the contract's, not the fixture's: the agent states what it is asked for.
@@ -60,7 +67,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const keyOf = (kindName) => { const declaredKey = contract.vertices.find((one) => one.kind === kindName)?.key ?? ['id']; return Object.fromEntries(declaredKey.map((name) => [name, stated(name, kindName)])); };
     const key = keyOf(kind);
     const field = (declared.fields ?? []).find((one) => !(declared.key ?? []).includes(one.name));
-    const vertex = { kind, key, ...(field === undefined ? {} : { values: { [field.name]: field.type === 'json' ? [] : stated(field.name, kind) } }), evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 1 } };
+    // A catalogue task names no field type: the agent states the key there, and the fields of a plugin's contract.
+    const vertex = { kind, key, ...(field === undefined || task.contract === undefined ? {} : { values: { [field.name]: field.type === 'json' ? [] : stated(field.name, kind) } }), evidence: { repository: 'repo', path: 'docs/a.md', lineStart: 1, lineEnd: 1 } };
     // The fixture's own edge is the one this case is about: the agent states it in the turn of its later end.
     const edges = contract.edges.filter((edge) => edge.kind.startsWith('probe.')).map((edge) => ({ kind: edge.kind, from: { kind: edge.from, key: keyOf(edge.from) }, to: { kind: edge.to, key: keyOf(edge.to) }, evidence: vertex.evidence }));
     const result = ok ? { vertices: [vertex], edges, end: { state: 'complete' } } : { end: { state: 'partial', cause: JSON.stringify({ kind, a, b, outside, write }) } };
@@ -186,8 +194,9 @@ describe.skipIf(sandboxProblem !== undefined)('catalogue agent dependency edges'
       if (run.state !== 'succeeded') throw new Error(JSON.stringify(run));
       const rows = await owner.transaction('snapshot', async (tx) => await tx.query(`SELECT * FROM ${generatedTableName('probe.link', 'edge')} WHERE state='open'`));
       expect(rows.rows).toHaveLength(1);
-      // The whole fill leaves code.file's state machines to the agent too, beside the two fixture kinds.
-      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:code.file', 'agent-fill:probe.a', 'agent-fill:probe.b']);
+      // The agent fills the two fixture kinds and nothing of code.file: every field of a code kind has its producer,
+      // and the state machines are a kind of their own (madarch-64o5.114).
+      expect(sessions.map((session) => session.unitId)).toEqual(['agent-fill:probe.a', 'agent-fill:probe.b']);
     } finally { await owner.close(); }
   }, 120_000);
 });

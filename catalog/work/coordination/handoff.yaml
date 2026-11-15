@@ -6,6 +6,7 @@ sources:
 - https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/assigning-issues-and-pull-requests-to-other-github-users
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -18,52 +19,38 @@ relation-constraints:
   - partOf
 template-policy: none
 fields:
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  nullable: true
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
+- name: branch
   type: text
   nullable: true
-  producers:
-  - person
-- name: owner
+  binding:
+    agent: The branch the work hands over, by the name the repository gives it.
+- name: from
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who hands the work over.
+- name: to
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who takes the work up.
+- name: at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the hand-off happened.
+- name: finished
   type: text
   nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
+  binding:
+    agent: What is finished on the branch, in the words of the hand-off.
+- name: remaining
   type: text
   nullable: true
-  producers:
-  - person
+  binding:
+    agent: What remains to do, in the words of the hand-off.
 labels:
   en:
     one: Handoff

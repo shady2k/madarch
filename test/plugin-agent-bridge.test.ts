@@ -33,28 +33,39 @@ function setup(turn: (options: ConnectAcpOptions, signal?: AbortSignal) => Promi
 }
 
 describe('plugin agent graph bridge', () => {
-  test('one run cap counts scripted turns from different plugin agents', async () => {
+  test('one run cap counts scripted turns from different plugin agents, and the answer produced under it stands', async () => {
     const budget = new AgentRunBudget({ tokens: 150 });
     const make = (plugin: string) => new AgentMeter({ run: 'fill', unit: plugin, plugin, pluginVersion: '1', kind: 'summary', budget });
     const first = make('first');
     const second = make('second');
     await setup(async () => result, { meter: first }).bridge.run('first', {});
-    await expect(setup(async () => result, { meter: second }).bridge.run('second', {})).rejects.toThrow('200 tokens');
+    // The second turn crosses the shared cap while it works: the owner's rule keeps what the agent produced, and the
+    // meter states that the run's cap stopped it (owner's decision, 2026-11-15).
+    const kept = await setup(async () => result, { meter: second }).bridge.run('second', {});
+    expect(kept.vertices).toHaveLength(1);
     expect(budget.tokens).toBe(200);
     expect(second.stop()?.scope).toBe('run');
   });
-  test('meters the real prompt with host-owned kind and model, and enforces the unit bound', async () => {
+  test('meters the real prompt with host-owned kind and model, and states the unit bound it crossed', async () => {
     const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary', bounds: { tokens: 90 } });
     const { bridge, state } = setup(async () => result, { meter });
-    await expect(bridge.run('unit', { kind: 'made-up', field: 'title' })).rejects.toThrow('100 tokens');
+    // The bound is checked before a prompt, never after one: this turn was asked under a fresh meter, crossed the bound
+    // while it worked, and its answer stands; the next prompt under this meter is refused.
+    const kept = await bridge.run('unit', { kind: 'made-up', field: 'title' });
+    expect(kept.vertices).toHaveLength(1);
     expect(meter.rows()).toMatchObject([{ kind: 'summary', field: '', model: 'fake-model', inputTokens: 80, outputTokens: 20, totalTokens: 100, turns: 1, stopped: 'tokens' }]);
-    expect(state.closed).toBe(1);
+    await expect(bridge.run('unit', {})).rejects.toThrow('100 tokens');
+    expect(state.closed).toBe(2);
   });
 
-  test('meters an invalid answer before validation refuses it and does not replace its error', async () => {
+  test('meters an answer it cannot take before leaving its entries out, and does not replace its error', async () => {
     const meter = new AgentMeter({ run: 'fill', unit: 'unit', plugin: 'extract', pluginVersion: '1', kind: 'summary' });
     const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }] }), { meter });
-    await expect(bridge.run('unit', {})).rejects.toThrow('declares');
+    // The entry is left out and named; the answer beside it holds nothing, so the unit's end says it was partial.
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toEqual([]);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('declares');
     expect(meter.rows()[0]).toMatchObject({ totalTokens: 100, turns: 1, stopped: null });
   });
 
@@ -101,17 +112,60 @@ describe('plugin agent graph bridge', () => {
     await bridge.run('empty', {});
   });
 
-  test('refuses missing, outside-root and out-of-range evidence rather than shortening the result', async () => {
+  test('leaves out an entry whose evidence the graph cannot take, names the place, and shortens nothing else', async () => {
+    // The owner's rule (2026-11-15): a produced result is kept entry by entry. An entry whose evidence is missing, outside
+    // the graph or outside its lines is left out and named; the answers beside it stand.
     for (const evidence of [undefined, { repository: 'repo', path: 'docs/a.md' }, { repository: 'repo', path: 'docs/a.md', lineStart: 1 }, { repository: 'repo', path: 'private/b.md' }, { repository: 'repo', path: 'docs/a.md', lineStart: 2, lineEnd: 3 }]) {
       const { bridge, state } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], evidence }] }));
-      await expect(bridge.run('unit', {})).rejects.toThrow('evidence');
+      const kept = await bridge.run('unit', {});
+      expect(kept.vertices).toEqual([]);
+      expect(kept.end).toMatchObject({ state: 'partial' });
+      expect(String((kept.end as { cause?: string }).cause)).toMatch(/evidence/);
       expect(state.closed).toBe(1);
     }
   });
 
-  test('refuses undeclared outputs', async () => {
-    const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }] }));
-    await expect(bridge.run('unit', {})).rejects.toThrow('declares');
+  test('leaves out an entry whose kind the plugin does not declare, and keeps the entries beside it', async () => {
+    const { bridge } = setup(async () => ({ ...result, vertices: [{ ...result.vertices![0], kind: 'other' }, result.vertices![0]] }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toHaveLength(1);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('declares');
+  });
+
+  test('keeps the valid entries when another entry\'s evidence is not canonical', async () => {
+    // An entry citing "repo/docs/../a.md" is no file of the graph, and the vertex beside it must still be published
+    // (owner's decision, 2026-11-15: a produced result is kept, entry by entry).
+    const { bridge } = setup(async () => ({
+      unitId: 'ignored',
+      vertices: [
+        result.vertices![0]!,
+        { ...result.vertices![0], key: { id: 'b' }, evidence: { repository: 'repo', path: 'docs/../a.md', lineStart: 1, lineEnd: 1 } },
+      ],
+      end: { state: 'complete' },
+    }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices?.map((vertex) => vertex.key)).toEqual([{ id: 'a' }]);
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toContain('vertices[1]');
+  });
+
+  test('keeps one entry of a duplicate pair and names the other', async () => {
+    const { bridge } = setup(async () => ({
+      unitId: 'ignored',
+      vertices: [result.vertices![0]!, { ...result.vertices![0], values: { title: 'B' } }],
+      end: { state: 'complete' },
+    }));
+    const kept = await bridge.run('unit', {});
+    expect(kept.vertices).toHaveLength(1);
+    expect(kept.vertices![0]!.values).toMatchObject({ title: 'A' });
+    expect(kept.end).toMatchObject({ state: 'partial' });
+    expect(String((kept.end as { cause?: string }).cause)).toMatch(/duplicate/i);
+  });
+
+  test('a malformed collection is a malformed answer, never an empty complete one', async () => {
+    const { bridge } = setup(async () => ({ unitId: 'ignored', vertices: 'malformed', edges: [], end: { state: 'complete' } }));
+    await expect(bridge.run('unit', {})).rejects.toThrow('vertices');
   });
 
   test('writes only granted host roots and never follows a symlink', async () => {

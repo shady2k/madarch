@@ -5,10 +5,12 @@ definition: An entry point is where a process of the system starts running.
 sources:
 - https://c4model.com/abstractions
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
   - partOf
+  - triggers
   in:
   - hasPart
 template-policy: page
@@ -19,6 +21,33 @@ details:
 - service
 - symbol
 - starts
+fields:
+- name: file
+  type: json
+  reference: code.file
+  binding:
+    agent: The file the entry point starts in, by the key of that file in the graph.
+- name: symbol
+  type: json
+  nullable: true
+  reference: code.symbol
+  binding:
+    agent: The symbol the run starts at, by the key of that symbol in the graph.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language the entry point is written in.
+- name: starts
+  type: text
+  nullable: true
+  binding:
+    agent: 'How the run starts: a command, a server that listens, a scheduled call, a message that arrives.'
+key:
+- file
+- symbol
+derives-from:
+- code.file
 labels:
   en:
     one: Entry point

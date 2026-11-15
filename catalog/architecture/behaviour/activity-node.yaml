@@ -1,0 +1,65 @@
+id: uml.activity-node
+purpose: structure
+audience: [architect, developer, analyst]
+definition: An activity node is one action, decision, merge, fork, join, start or end inside an activity.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- document
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - partOf
+  - triggers
+  in:
+  - hasPart
+template-policy: member
+source: graph
+fields:
+- name: activity
+  type: json
+  reference: activity
+  binding:
+    agent: The activity the node stands in, by the key of that activity in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the diagram gives the node, such as Check the stock; it is the node's key inside its activity.
+- name: type
+  type: text
+  nullable: true
+  binding:
+    agent: 'Which node it is: an action, a decision, a merge, a fork, a join, the start or an end.'
+- name: guard
+  type: text
+  nullable: true
+  binding:
+    agent: The condition that sends the flow out of a decision node, where the diagram states one.
+- name: order
+  type: integer
+  nullable: true
+  binding:
+    agent: Where the node stands in the activity, lowest first, from the order the flow gives.
+key:
+- activity
+- name
+derives-from:
+- activity
+member:
+  relation: partOf
+  direction: out
+  parentKind: activity
+labels:
+  en:
+    one: Activity node
+    many: Activity nodes
+  ru:
+    one: Узел активности
+    many: Узлы активности
+description:
+  en: 'An activity node is one step of an activity: an action somebody does, a decision that sends the flow one way or another, a point where paths merge, split or meet again, or the start and the end of the activity. The flow between nodes is the control flow of the activity.'
+  ru: 'Узел активности — один шаг активности: действие, которое кто-то выполняет, решение, отправляющее поток в одну или другую сторону, точка, где пути сходятся, расходятся или встречаются, либо начало и конец активности. Поток между узлами — это поток управления активностью.'

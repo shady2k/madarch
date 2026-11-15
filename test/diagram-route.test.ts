@@ -31,7 +31,7 @@ const neighbourhood: DiagramNeighbourhood = {
     { from: '1', to: '3', relation: 'codeContains' },
     { from: '2', to: '1', relation: 'codeContainsOf' },
   ],
-  groups: [{ relation: 'codeContains', side: 'out', kind: 'code.file', total: 2, nodes: ['2', '3'] }],
+  groups: [{ relation: 'codeContains', label: 'contains', side: 'out', kind: 'code.file', total: 2, nodes: ['2', '3'] }],
   kindWords: new Map([['code.file', 'Файлы']]),
   kindPages: new Map(),
   labels: new Map([['1', 'repo'], ['2', 'a.ts'], ['3', 'b.ts']]),

@@ -1,10 +1,11 @@
 id: practice.http-route
 purpose: structure
 audience: [developer, architect, analyst, tester]
-definition: An HTTP route is the address and method a service answers, such as GET /orders/{id}.
+definition: 'An HTTP route is the address and method a service answers, such as GET /orders/{id}.'
 sources:
 - https://c4model.com/abstractions
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
@@ -12,9 +13,9 @@ relation-constraints:
   - routesTo
   in:
   - routesTo
+  - implements
 template-policy: page
 source: graph
-sequence: route
 details:
 - method
 - path
@@ -25,6 +26,48 @@ details:
 - service
 - middleware
 - ports
+fields:
+- name: service
+  type: json
+  reference: code.service
+  binding:
+    agent: The service that answers the route, by the key of that service in the graph.
+- name: method
+  type: text
+  binding:
+    agent: The HTTP method the route answers, such as GET or POST.
+- name: path
+  type: text
+  binding:
+    agent: 'The path the route answers, such as /orders/{id}.'
+- name: auth
+  type: text
+  nullable: true
+  binding:
+    agent: What the route requires of its caller before it answers, as the code declares it.
+- name: handler
+  type: json
+  nullable: true
+  reference: code.symbol
+  binding:
+    agent: The symbol that handles the route, by the key of that symbol in the graph.
+- name: middleware
+  type: json
+  nullable: true
+  binding:
+    agent: The steps the request passes before the handler, by their keys in the graph.
+- name: ports
+  type: json
+  nullable: true
+  binding:
+    agent: The ports the route is reachable on, as the service declares them.
+key:
+- service
+- method
+- path
+derives-from:
+- code.symbol
+sequence: route
 labels:
   en:
     one: HTTP route
@@ -33,5 +76,5 @@ labels:
     one: HTTP-маршрут
     many: HTTP-маршруты
 description:
-  en: An HTTP route is one path and method a service listens on, such as GET /orders/{id}, together with the handler that answers it. Its parameters and its answers are what a client relies on.
-  ru: HTTP-маршрут — путь и метод, которые обслуживает сервис, например GET /orders/{id}, вместе с обработчиком, который отвечает. На его параметры и ответы опирается клиент.
+  en: 'An HTTP route is one path and method a service listens on, such as GET /orders/{id}, together with the handler that answers it. Its parameters and its answers are what a client relies on.'
+  ru: 'HTTP-маршрут — путь и метод, которые обслуживает сервис, например GET /orders/{id}, вместе с обработчиком, который отвечает. На его параметры и ответы опирается клиент.'

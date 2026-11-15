@@ -192,7 +192,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           <Paragraph className="mt-3 text-small" data-testid="fill-run-time">
             {t('knowledge.fillRun.elapsed', { seconds: seconds(elapsed) })}{terminal ? null : <> · {run.remainingMs === null ? t('knowledge.fillRun.remainingUnknown') : t('knowledge.fillRun.remaining', { seconds: seconds(run.remainingMs) })}</>}
           </Paragraph>
-          <Paragraph className="m-0 text-small" data-testid="fill-run-tokens">{agentUsage === null ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: agentUsage.inputTokens, output: agentUsage.outputTokens, total: agentUsage.totalTokens })}</Paragraph>
+          <Paragraph className="m-0 text-small" data-testid="fill-run-tokens">{agentUsage === null ? t('knowledge.fillRun.tokensUnknown') : t('knowledge.fillRun.tokens', { input: agentUsage.inputTokens, output: agentUsage.outputTokens, cacheWrite: agentUsage.cachedWriteTokens, cacheRead: agentUsage.cachedReadTokens, total: agentUsage.totalTokens })}</Paragraph>
           <Paragraph className="m-0 text-small" data-testid="fill-run-records">{t('knowledge.fillRun.records', { count: run.records })}</Paragraph>
           <Stack className="mt-4 flex flex-wrap gap-2">
             {run.phase === 'running' ? (

@@ -239,6 +239,17 @@ describe('unit machine: the properties decision 0027 states in prose', () => {
     }
   });
 
+  test('a bound the run declares fails the unit at once, with retries still in hand', () => {
+    // The agent's time, the plugin's silence and the run's time stop a unit whose retries would meet the same wall
+    // (owner's decision, 2026-11-15): the failure is the attempt's own, and no retry is spent on it.
+    for (const state of LIVE_STATES) {
+      const stopped = unitMachine.step({ state, context: { ...contextIn(state), retriesLeft: 2 } }, { type: 'fail', at: 10, generation: 1, fence: tokenIn(contextIn(state)), cause: 'bound-exhausted' });
+      expect(stopped.ok).toBe(true);
+      if (!stopped.ok) continue;
+      expect(stopped.state).toBe('failed');
+    }
+  });
+
   test('the run\'s own sweep reports a lapsed lease with no token, and a worker\'s retry with its own', () => {
     // The sweep is no worker: it moves a generation whose lease lapsed into its retry wait naming no
     // token, and wakes an elapsed wait the same way. The retry a worker sends names the token of the

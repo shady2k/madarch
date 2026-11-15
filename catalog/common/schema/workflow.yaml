@@ -1,20 +1,40 @@
 id: manifest.workflows
 purpose: structure
 audience: [architect, product-lead]
-definition: A workflow is a named sequence of stages with the limits and settings it runs under.
+definition: A workflow is a named set of stages a product runs, with the status that says what can be done with it today.
 sources:
 - https://support.atlassian.com/jira-software-cloud/docs/create-and-edit-workflows-in-team-managed-projects/
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - hasPart
   in:
   - defines
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the product gives the workflow, such as first-fill or complete.
+- name: status
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the engine can do with the workflow today: implemented or planned.'
+- name: stages
+  type: json
+  nullable: true
+  binding:
+    agent: The stages the workflow enables, in the order the engine runs them.
+key:
+- name
 labels:
   en:
     one: Workflow
@@ -23,5 +43,5 @@ labels:
     one: Рабочий процесс
     many: Рабочие процессы
 description:
-  en: A workflow names a sequence of stages that a piece of work goes through, such as draft, review and release, with the limits and settings that apply to it. Its stages and transitions are declared, so the allowed moves are known.
-  ru: 'Рабочий процесс — именованная последовательность этапов, которые проходит работа: черновик, проверка и выпуск, — с действующими для неё пределами и настройками. Его этапы и переходы объявлены, поэтому допустимые ходы известны.'
+  en: A workflow is a named sequence of stages a product runs, such as the first reading of a product or an update by commit, with a status saying whether it can run today. The product declares its workflows, and a run shows the states each one passes.
+  ru: 'Рабочий процесс — именованная последовательность стадий, которую запускает продукт: первое чтение продукта или обновление по коммиту, — со статусом, говорящим, может ли она выполниться сегодня. Продукт объявляет свои процессы, а прогон показывает состояния, которые проходит каждый из них.'

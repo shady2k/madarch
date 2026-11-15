@@ -42,7 +42,7 @@ const ask = (method, params) => new Promise((resolve) => { const id = 'fake-' + 
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const m = JSON.parse(line);
   if (!m.method) { pending.get(m.id)?.(m); pending.delete(m.id); return; }
-  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (m.method === 'initialize') send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: true } } } });
   if (m.method === 'session/new') send({ id: m.id, result: { sessionId: 'fixture-session', models: { currentModelId: 'fixture-model', availableModels: [{ modelId: 'fixture-model', name: 'Fixture model' }] } } });
   if (m.method === 'session/prompt') {
     const sessionId = m.params.sessionId;
@@ -135,6 +135,20 @@ plugins:
   writeFileSync(fake, FAKE);
   return { root, home, product, repo, closure, fake, manifestText };
 }
+
+/** An agent that answers one malformed collection: `vertices` is no list, so the answer names nothing at all. */
+const MALFORMED = `import { createInterface } from 'node:readline';
+const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
+createInterface({ input: process.stdin }).on('line', (line) => {
+  const m = JSON.parse(line);
+  if (!m.method) return;
+  if (m.method === 'initialize') { send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: true } } } }); return; }
+  if (m.method === 'session/new') { send({ id: m.id, result: { sessionId: 'malformed-session', models: { currentModelId: 'fixture-model', availableModels: [{ modelId: 'fixture-model', name: 'Fixture model' }] } } }); return; }
+  if (m.method !== 'session/prompt') return;
+  send({ method: 'session/update', params: { sessionId: 'malformed-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify({ vertices: 'malformed', edges: [], end: { state: 'complete' } }) } } } });
+  send({ id: m.id, result: { stopReason: 'end_turn' } });
+});
+`;
 
 describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fill', () => {
   test('a pressed fill runs ACP over two graph files, denies outside reads and writes, and publishes evidence', async () => {
@@ -245,6 +259,39 @@ describe.skipIf(sandboxProblem !== undefined)('plugin agent parts in the one fil
       if (!run.ok) return;
       expect(run.state).toBe('succeeded');
       expect(run.units.some((unit) => unit.unitId === 'plugin-turns/probe-summary:probe.summary')).toBe(true);
+      const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string }>(`SELECT title FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open'`));
+      expect(rows.rows).toEqual([{ title: 'Alpha and Beta' }]);
+    } finally { await owner.close(); }
+  }, 120_000);
+
+  test('a malformed collection fails the unit, retracts nothing, and says it was malformed', async () => {
+    const f = fixture(true);
+    const owner = await createTestDatabaseOwner({ btreeGist: true, graphContract: await readPinnedGraphContract(f.product) });
+    try {
+      const first = await runFill({ sink: () => undefined, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'], pluginAgent: {
+        adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
+        connect: connectAcpAgent,
+      } });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.state).toBe('succeeded');
+      // The agent now answers a collection that is no list. The documents moved, so the unit runs again.
+      writeFileSync(f.fake, MALFORMED);
+      writeFileSync(join(f.repo, 'docs/a.md'), 'Alpha, changed\n');
+      execFileSync('git', ['-C', f.repo, 'add', '-A']);
+      execFileSync('git', ['-C', f.repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'the documents moved']);
+      const second = await runFill({ sink: () => undefined, product: f.product, targets: { kinds: ['probe.summary'] }, tokenCap: 1000, database: owner, prepareContract: async (contract) => { await prepareStore(owner, { contract }); }, home: f.home, releaseHashes: [...RELEASE_CLOSURE_HASHES, f.closure], steps: ['plugin-turns'], pluginAgent: {
+        adapter: { id: 'fixture-acp', command: process.execPath, args: [f.fake] },
+        connect: connectAcpAgent,
+      } });
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      // One failed unit, the run partial, and the answer's malformed collection named in the run's own words.
+      expect(second.state).toBe('completed_partial');
+      expect(second.units.find((unit) => unit.unitId === 'plugin-turns/probe-summary:probe.summary')?.state).toBe('failed');
+      const events = await owner.transaction('snapshot', async (tx) => await tx.query<{ summary: string }>('SELECT summary FROM fill_event WHERE run_id = $1', [second.runId]));
+      expect(events.rows.map((row) => row.summary).join('\n')).toContain('is no list');
+      // The producer's earlier entity stands: a malformed answer names nothing, so it retracts nothing.
       const rows = await owner.transaction('snapshot', async (tx) => await tx.query<{ title: string }>(`SELECT title FROM ${generatedTableName('probe.summary', 'vertex')} WHERE state='open'`));
       expect(rows.rows).toEqual([{ title: 'Alpha and Beta' }]);
     } finally { await owner.close(); }

@@ -21,7 +21,7 @@ function fixture() {
   const draft = createDraft({ home: join(work, 'home'), name: 'publication-shop', gitEnv: gitEnv(IDENTITY) });
   if (draft.outcome !== 'created') throw new Error(`the product was not made: ${JSON.stringify(draft)}`);
   // The bundled agent advertises capability; this kind explicitly opts into its participation.
-  const kind = join(draft.folder, 'madarch/kinds/documentation/document/user-guide.yaml');
+  const kind = join(draft.folder, 'madarch/kinds/documentation/document/guide.yaml');
   writeFileSync(kind, readFileSync(kind, 'utf8') + '\nagent: { plugin: agent-fill, fields: "*" }\n');
   setManifestPublicationState(draft.folder, { status: 'pending' });
   // These presses select a fixture adapter: admission sees the agent this fixture requires, but the queue spy

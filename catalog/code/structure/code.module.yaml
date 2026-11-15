@@ -1,49 +1,47 @@
 id: practice.module
 purpose: structure
 audience: [developer, architect]
-definition: A module is a folder of code with a purpose of its own, with the modules it depends on.
+definition: A module is a group of code files with one purpose of its own, held in one folder of a repository, with the modules it depends on.
 sources:
 - https://c4model.com/abstractions
 acquisition:
-- extractor code
+- agent-from-graph
 relation-constraints:
   out:
   - contains
   - dependsOn
+  - providesApi
+  - consumesApi
   in:
   - partOf
 template-policy: page
 source: graph
 fields:
-- name: repository
+- name: name
   type: text
-  nullable: true
+  labels:
+    en: Name
+    ru: Имя
   binding:
-    agent: 'Read the declared repositories: repository name, or null for the product repository.'
-- name: path
-  type: text
-  binding:
-    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-- name: state_machines
+    agent: 'The name the people who work on the code give this module, one or two words such as fill, graph or catalogue; it is the module''s key.'
+- name: folder
   type: json
-  nullable: true
-  labels: { en: State machines, ru: Машины состояний }
+  reference: code.directory
+  labels:
+    en: Folder
+    ru: Папка
   binding:
-    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
-      use [] when none exist and preserve source positions.'
+    agent: 'The folder the module covers, named by the key of that folder entity in the graph: its repository and its path.'
+- name: responsibility
+  type: text
+  nullable: true
+  labels:
+    en: Responsibility
+    ru: Ответственность
+  binding:
+    agent: 'What the module is for, in one or two sentences: the responsibility it holds, read from the text of the files the folder holds in the graph.'
 key:
-- repository
-- path
-history: membership
-views:
-- state
-details:
-- role
-- kind
-- language
-- files
-- parsedFiles
-- packageName
+- name
 labels:
   en:
     one: Module
@@ -52,5 +50,8 @@ labels:
     one: Модуль
     many: Модули
 description:
-  en: A module is a group of code files that belong together around one responsibility, such as billing or authentication, and depend on other modules through their public parts. Its boundary says what may be changed without reaching the rest of the product.
+  en: A module is a group of code files that belong together around one responsibility, such as billing or authentication, and that depend on other modules through their public parts. Its boundary says what may be changed without reaching the rest of the product.
   ru: 'Модуль — группа файлов кода, объединённых одной ответственностью: оплата или вход, — и зависящих от других модулей через их открытые части. Его граница говорит, что можно менять, не задевая остальной продукт.'
+derives-from:
+- code.directory
+- code.file

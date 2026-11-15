@@ -1,15 +1,14 @@
 id: manifest.accounting
 purpose: structure
 audience: [architect, product-lead]
-definition: 'Accounting is the shared part of a kind that keeps its lifecycle step records: each step''s duration, tokens, cost, model and outcome.'
+definition: 'Accounting is the part of an entity that keeps the work spans it took: each span’s duration, tokens, cost, model and outcome.'
 sources:
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
 - https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
 - https://openai.github.io/openai-agents-python/tracing/
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - measures
@@ -18,14 +17,30 @@ relation-constraints:
   - defines
   - partOf
   - measures
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the accounting part is declared under.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What the part records, in one sentence.
+key:
+- name
 labels:
   en:
     one: Accounting
-    many: Accounting
+    many: Accountings
   ru:
     one: Учёт
-    many: Учёт
+    many: Учёты
 description:
-  en: 'Accounting is the common part of a kind''s declaration that lets each of its entities keep a record of the steps taken: how long each took, which model did it, how many tokens and how much money it used, and how it ended.'
-  ru: 'Учёт — общая часть объявления вида, которая позволяет каждой его сущности хранить записи о сделанных шагах: сколько занял каждый, какая модель его выполняла, сколько токенов и денег он стоил и чем закончился.'
+  en: 'Accounting is the shared part of a kind that keeps what the work on its entities took: the work spans, each with its duration, tokens, cost, model and outcome. The spans themselves are work-span entities the accounting part points at.'
+  ru: 'Учёт — общая часть вида, которая хранит, сколько работы потребовали его сущности: промежутки работы, у каждого длительность, токены, стоимость, модель и итог. Сами промежутки — сущности вида «промежуток работы», на которые учёт указывает.'

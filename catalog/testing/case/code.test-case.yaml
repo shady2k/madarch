@@ -5,13 +5,16 @@ definition: A test case is a check with a known starting state, a set of actions
 sources:
 - https://glossary.istqb.org/en_US/term/test-case
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
   - verifies
   - hasTestCase
+  - partOf
   in:
   - hasTest
+  - partOf
 template-policy: page
 source: graph
 details:
@@ -24,6 +27,57 @@ details:
 - skipReason
 - cases
 - suite
+fields:
+- name: file
+  type: json
+  reference: code.file
+  binding:
+    agent: The file that declares the test, by the key of that file in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code gives the test; it is the test case's key inside its file.
+- name: test_kind
+  type: text
+  nullable: true
+  binding:
+    agent: 'What kind of test it is: a unit test, an integration test, an end-to-end test.'
+- name: framework
+  type: text
+  nullable: true
+  binding:
+    agent: The test framework the test is written with.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language the test is written in.
+- name: path
+  type: text
+  nullable: true
+  binding:
+    agent: The path of the file that declares the test, as the file entity holds it.
+- name: skipped
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the test is skipped.
+- name: skip_reason
+  type: text
+  nullable: true
+  binding:
+    agent: Why the test is skipped, where the code says so.
+- name: suite
+  type: text
+  nullable: true
+  binding:
+    agent: The suite the test belongs to, as the test framework groups it.
+key:
+- file
+- name
 labels:
   en:
     one: Test case

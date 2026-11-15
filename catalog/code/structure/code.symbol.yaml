@@ -5,43 +5,25 @@ definition: A symbol is a function, a class or a constant the code declares, wit
 sources:
 - https://c4model.com/abstractions
 acquisition:
-- extractor code
+- agent-from-graph
+- conversation
 relation-constraints:
   out:
+  - partOf
+  - defines
+  - code.calls
+  - code.calls-remote
+  - code.inherits
+  - code.implements
   - contains
   in:
   - partOf
+  - code.calls
+  - code.inherits
+  - code.implements
+  - code.references
 template-policy: page
 source: graph
-fields:
-- name: repository
-  type: text
-  nullable: true
-  binding:
-    agent: 'Read the declared repositories: repository name, or null for the product repository.'
-- name: path
-  type: text
-  binding:
-    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-- name: name
-  type: text
-  binding:
-    agent: 'Read the defining source file: fully qualified symbol name, API operation identity (method and route or RPC name),
-      or channel address, unique within this file.'
-- name: state_machines
-  type: json
-  nullable: true
-  labels: { en: State machines, ru: Машины состояний }
-  binding:
-    agent: 'Read all declared repository source files **/* for this entity: complete state machines as an array of {name,type,path,lineStart,lineEnd,states:[{name,label,line}],transitions:[{from,to,event,line}]};
-      use [] when none exist and preserve source positions.'
-key:
-- repository
-- path
-- name
-views:
-- state
-sequence: symbol
 details:
 - symbolKind
 - qualifiedName
@@ -54,6 +36,75 @@ details:
 - deadExport
 - entryPoint
 - entryPoints
+fields:
+- name: repository
+  type: json
+  reference: code.repository
+  binding:
+    agent: The repository the symbol stands in, by the key of that repository in the graph.
+- name: file
+  type: json
+  reference: code.file
+  binding:
+    agent: The file that declares the symbol, by the key of that file in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code gives the symbol, fully qualified inside its file, such as FillRunner.run; it is the symbol's key.
+- name: symbol_kind
+  type: text
+  nullable: true
+  binding:
+    agent: Whether the symbol is a function, a method, a class, an interface, a constant or a type.
+- name: qualified_name
+  type: text
+  nullable: true
+  binding:
+    agent: The fully qualified name the code gives the symbol, with its enclosing names.
+- name: type_text
+  type: text
+  nullable: true
+  binding:
+    agent: The type the symbol is declared with, in the words of the language.
+- name: language
+  type: text
+  nullable: true
+  binding:
+    agent: The language the symbol is written in.
+- name: exported
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the code declares the symbol for use outside its file.
+- name: abstract
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the declaration is abstract, with no body of its own.
+- name: test
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the symbol is a test the code declares.
+- name: line_start
+  type: integer
+  nullable: true
+  binding:
+    agent: The line the declaration starts on.
+- name: line_end
+  type: integer
+  nullable: true
+  binding:
+    agent: The line the declaration ends on.
+key:
+- file
+- name
+derives-from:
+- code.file
+sequence: symbol
 labels:
   en:
     one: Symbol

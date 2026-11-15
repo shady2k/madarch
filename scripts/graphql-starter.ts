@@ -67,6 +67,6 @@ export function starterSchema(): StarterSchema {
     if (lost !== undefined) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${lost}", which the schema left out: the starter catalogue and the schema's names disagree about it`);
     edges.push(edge);
   }
-  const sdl = graphqlSchemaOf({ kinds, edges });
+  const sdl = graphqlSchemaOf({ kinds, edges, relations: manifest.relations });
   return { sdl, refused };
 }

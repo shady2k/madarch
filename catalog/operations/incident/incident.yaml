@@ -5,15 +5,63 @@ definition: An incident is an unplanned event or condition that degrades or thre
 sources:
 - https://sre.google/workbook/postmortem-culture/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
 relation-constraints:
   out:
   - affects
+  - hasPart
   in:
   - affects
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: What the incident was, in one line, such as Checkout stopped answering; it is the incident's key.
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the incident began.
+- name: detected_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the product or its people noticed it.
+- name: acknowledged_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When someone took it up.
+- name: mitigated_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the service was restored.
+- name: resolved_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the incident was closed.
+- name: severity
+  type: text
+  nullable: true
+  binding:
+    agent: How bad it was, in the words the product grades its incidents by.
+- name: summary
+  type: text
+  nullable: true
+  binding:
+    agent: What happened and why, in two or three sentences, from the documents and the changes the graph holds.
+key:
+- name
 labels:
   en:
     one: Incident

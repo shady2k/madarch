@@ -47,19 +47,20 @@ describe('the templates madarch init offers', () => {
       id: 'fixture',
       title: { en: 'Fixture', ru: 'Стенд' },
       description: { en: 'A template this test declares.', ru: 'Шаблон, объявленный этим тестом.' },
-      kinds: ['document'] as const,
+      // A document names the file, the repository and the commit it stands in: a template declares the kinds its kinds name.
+      kinds: ['document', 'code.repository', 'code.directory', 'code.file', 'code.commit'] as const,
     };
     const templates = [...STARTER_TEMPLATES, fixture];
     const home = join(root, 'fixture-home');
     const draft = createDraft({ home, name: 'fixture', template: fixture.id, templates, gitEnv: env });
     if (draft.outcome !== 'created') throw new Error(`the fixture product was not made: ${JSON.stringify(draft)}`);
-    expect(draft.kinds).toBe(1);
+    expect(draft.kinds).toBe(5);
     const read = readKinds(draft.folder);
     expect(read.present).toBe(true);
-    if (read.present) expect([...read.manifest.kinds.keys()]).toEqual(['document']);
+    if (read.present) expect([...read.manifest.kinds.keys()]).toEqual(expect.arrayContaining(['document', 'code.file', 'code.repository', 'code.commit']));
     const checked = checkStarterTemplate(fixture);
     expect({ ok: checked.ok, problems: checked.problems }).toEqual({ ok: true, problems: [] });
-    expect(checked.kinds).toEqual(['document']);
+    expect(checked.kinds).toEqual(expect.arrayContaining(['document', 'code.file', 'code.repository', 'code.commit']));
     const lines = templateMenuLines(templates);
     expect(lines).toHaveLength(3);
     expect(lines[2]).toContain('3. Fixture —');

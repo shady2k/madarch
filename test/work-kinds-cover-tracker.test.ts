@@ -48,23 +48,33 @@ const ISSUE = {
   comments: [{ author: 'shady2k', text: 'Проверь перенос полей.', created_at: '2026-11-13T11:00:00Z' }],
 } as const;
 
-/** Where each field of the export lives: a work kind's field, or the kind that is the entity. */
-const HOME: Record<keyof typeof ISSUE, { kind: string; field?: string; reference?: string }> = {
-  id: { kind: 'task', field: 'legacy_id' },
+/** Where each field of the export lives: a work kind's field, the kind that is the entity, or an edge. */
+const HOME: Partial<Record<keyof typeof ISSUE, { kind: string; field?: string; reference?: string }>> = {
+  id: { kind: 'task', field: 'key' },
   title: { kind: 'task', field: 'title' },
-  description: { kind: 'task', field: 'body' },
+  description: { kind: 'task', field: 'description' },
   status: { kind: 'task', field: 'status', reference: 'value-set-entry' },
   priority: { kind: 'task', field: 'priority', reference: 'value-set-entry' },
-  issue_type: { kind: 'task', field: 'issue_type', reference: 'value-set-entry' },
-  labels: { kind: 'task', field: 'labels' },
-  assignee: { kind: 'task', field: 'assignee' },
-  owner: { kind: 'task', field: 'owner' },
-  created_at: { kind: 'task', field: 'created_at' },
-  updated_at: { kind: 'task', field: 'updated_at' },
-  closed_at: { kind: 'task', field: 'closed_at' },
-  close_reason: { kind: 'task', field: 'close_reason' },
-  dependencies: { kind: 'link', field: 'relation', reference: 'value-set-entry' },
-  comments: { kind: 'comment', field: 'author' },
+  labels: { kind: 'task', field: 'labels', reference: 'value-set-entry' },
+  // A dependency and a comment are entities and edges of their own: the task points at them, the fields are theirs.
+  dependencies: { kind: 'comment', field: 'author' },
+  comments: { kind: 'comment', field: 'body' },
+};
+
+/**
+ * What the export wrote that the catalogue now states as a kind, an edge or a value rather than as a tracker field:
+ * the issue's type is its kind, its assignee and owner are the ownedBy edge, and its times are the work spans and the
+ * decision that closed it. The tracker field set itself is gone (the audit of 2026-11-15): copying it onto a kind made
+ * the kind's own properties unreadable.
+ */
+const ELSEWHERE: Partial<Record<keyof typeof ISSUE, string>> = {
+  issue_type: 'the kind of the entity: a task, a defect, an epic, a feature, a stage or a milestone',
+  assignee: 'the ownedBy edge from the entity to the person',
+  owner: 'the ownedBy edge from the entity to the person',
+  created_at: 'the work span that records the work, not the entity',
+  updated_at: 'the work span that records the work, not the entity',
+  closed_at: 'the decision that closed the entity',
+  close_reason: 'the decision that closed the entity',
 };
 
 describe('the work kinds hold the tracker export (madarch-64o5.68)', () => {
@@ -74,7 +84,9 @@ describe('the work kinds hold the tracker export (madarch-64o5.68)', () => {
     const missing: string[] = [];
     for (const key of Object.keys(ISSUE).sort(byCodePoint)) {
       const home = HOME[key as keyof typeof HOME];
-      if (home === undefined) { missing.push(`${key}: no home is named`); continue; }
+      const elsewhere = ELSEWHERE[key as keyof typeof ELSEWHERE];
+      if (home === undefined && elsewhere === undefined) { missing.push(`${key}: no home is named`); continue; }
+      if (home === undefined) continue;
       const kind = catalogue.get(home.kind);
       if (kind === undefined) { missing.push(`${key}: the kind ${home.kind} is not declared`); continue; }
       const field = kind.fields.find((one) => one.name === home.field);
@@ -82,14 +94,24 @@ describe('the work kinds hold the tracker export (madarch-64o5.68)', () => {
       if (home.reference !== undefined && field.reference !== home.reference) missing.push(`${key}: ${home.kind}.${home.field} does not reference ${home.reference}`);
     }
     expect(missing).toEqual([]);
+    // The fields the export wrote that say how the tracker was run are not fields of a kind any more.
+    const task = catalogue.get('task')!;
+    for (const gone of ['legacy_id', 'body', 'front', 'issue_type', 'assignee', 'owner', 'created_at', 'updated_at', 'closed_at', 'close_reason', 'dependencies', 'comments']) {
+      expect([gone, task.fields.some((field) => field.name === gone)]).toEqual([gone, false]);
+    }
   });
 
-  test('a dependency and a comment carry what the export writes in them', () => {
-    const link = catalogue.get('link');
+  test('a dependency is an edge and a comment is an entity of its own', () => {
+    const task = parse(CATALOG_FILES['work/execution/task.yaml']!) as { 'relation-constraints': { out: string[] } };
+    expect(task['relation-constraints'].out).toContain('dependsOn');
+    expect(task['relation-constraints'].out).toContain('hasPart');
+    expect(catalogue.has('link')).toBe(false);
     const comment = catalogue.get('comment');
-    expect(link?.fields.map((field) => field.name)).toEqual(expect.arrayContaining(['relation', 'source', 'target', 'created_at', 'created_by']));
     expect(comment?.fields.map((field) => field.name)).toEqual(expect.arrayContaining(['author', 'body', 'created_at']));
-    expect(link?.fields.find((field) => field.name === 'relation')?.reference).toBe('value-set-entry');
+  });
+
+  test('an issue type names a kind the catalogue declares', () => {
+    for (const kind of ['task', 'defect', 'epic', 'feature', 'stage', 'milestone']) expect([kind, catalogue.has(kind)]).toEqual([kind, true]);
   });
 
   test('the starter value sets the work kinds point at are declared with their entries', () => {

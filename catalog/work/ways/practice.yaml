@@ -6,6 +6,7 @@ sources:
 - https://www.agilealliance.org/glossary/retrospective/
 - https://github.com/shady2k/madarch/blob/main/docs/vision.md
 acquisition:
+- agent-from-graph
 - conversation
 - document
 - not-implemented
@@ -20,38 +21,7 @@ relation-constraints:
   - verifies
 template-policy: page
 source: graph
-fields:
-- name: name
-  type: text
-  producers:
-  - person
-- name: rule
-  type: text
-  producers:
-  - person
-- name: why
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: applies_to
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: since_date
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-key: []
 origin: person
-nav: own-page
 details:
 - name
 - rule
@@ -59,6 +29,37 @@ details:
 - applies_to
 - status
 - since_date
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the practice is known by; it is the practice's key.
+- name: rule
+  type: text
+  binding:
+    agent: What a person does, in one sentence.
+- name: why
+  type: text
+  nullable: true
+  binding:
+    agent: Why the practice matters, from what went wrong without it.
+- name: status
+  type: json
+  nullable: true
+  reference: value-set-entry
+  binding:
+    agent: Whether the practice is in force.
+- name: since_date
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the practice came into force.
+key:
+- name
+nav: own-page
 labels:
   en:
     one: Practice

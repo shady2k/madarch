@@ -6,6 +6,7 @@ sources:
 - https://agents.md/
 - https://github.com/shady2k/madarch/blob/main/docs/vision.md
 acquisition:
+- agent-from-graph
 - conversation
 - document
 - not-implemented
@@ -18,38 +19,43 @@ relation-constraints:
   - constrains
 template-policy: page
 source: graph
-fields:
-- name: name
-  type: text
-  producers:
-  - person
-- name: when
-  type: text
-  producers:
-  - person
-- name: instructions
-  type: text
-  producers:
-  - person
-- name: checks
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-key: []
 origin: person
-nav: own-page
 details:
 - name
 - when
 - instructions
 - checks
 - status
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the skill is known by; it is the skill's key.
+- name: when
+  type: text
+  binding:
+    agent: When an agent uses the skill, in one or two sentences.
+- name: instructions
+  type: text
+  binding:
+    agent: What the agent does, step by step.
+- name: checks
+  type: json
+  nullable: true
+  binding:
+    agent: What the agent checks before it says it is done.
+- name: status
+  type: json
+  nullable: true
+  reference: value-set-entry
+  binding:
+    agent: Whether the skill is in force.
+key:
+- name
+nav: own-page
 labels:
   en:
     one: Skill

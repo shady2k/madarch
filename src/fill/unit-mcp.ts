@@ -167,8 +167,9 @@ export async function answerUnitMcpMessage(message: unknown, options: UnitMcpOpt
         return result(held.id, { content: [{ type: 'text', text: JSON.stringify({ error: { code: 'tool-failed', message } }) }], isError: true });
       }
       // The answer's own JSON is the content block, compact: the caps a read answers within are counts of
-      // the answer's own text, and a pretty-printed copy would be a longer text than the one they bounded.
-      return result(held.id, { content: [{ type: 'text', text: JSON.stringify(answered.answer) }], isError: answered.isError });
+      // the answer's own text, and a pretty-printed copy would be a longer text than the one they bounded. A note the
+      // host hands with the answer — the fill's wrap notice — is a text block of its own, after it.
+      return result(held.id, { content: [{ type: 'text', text: JSON.stringify(answered.answer) }, ...(answered.note === undefined ? [] : [{ type: 'text', text: answered.note }])], isError: answered.isError });
     }
     default:
       return error(held.id, METHOD_NOT_FOUND, `${JSON.stringify(method)} is no method of this server: it offers initialize, ping, tools/list and tools/call, and the tools are ${tools.map((tool) => tool.name).join(', ')} (src/fill/unit-mcp.ts)`);

@@ -5,17 +5,41 @@ definition: An input is a value that enters the code from outside, such as a que
 sources:
 - https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 acquisition:
+- agent-from-graph
 - extractor code
 relation-constraints:
   out:
   - partOf
   in:
-  - partOf
+  - hasPart
 template-policy: page
 source: graph
 details:
 - name
 - source
+fields:
+- name: symbol
+  type: json
+  reference: code.symbol
+  binding:
+    agent: The symbol that reads the value, by the key of that symbol in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code gives the value, such as id, cursor or filter.
+- name: source
+  type: text
+  nullable: true
+  binding:
+    agent: 'Where the value comes from, as the code names it: a parameter, a header, a field of the body, an environment variable.'
+key:
+- symbol
+- name
+derives-from:
+- code.symbol
 labels:
   en:
     one: Input

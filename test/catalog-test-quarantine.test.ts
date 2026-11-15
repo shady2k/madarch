@@ -35,7 +35,7 @@ describe('test quarantine in the starter catalogue', () => {
       { name: 'task', type: 'text', reference: 'task', binding: 'test-quarantine@1.task' },
       { name: 'quarantine_reason', type: 'text', binding: 'test-quarantine@1.quarantine_reason' },
       { name: 'since', type: 'text', reference: 'code.commit', binding: 'test-quarantine@1.since' },
-      { name: 'latest_result', type: 'json', nullable: true, binding: 'test-quarantine@1.latest_result' },
+      { name: 'latest_result', type: 'json', nullable: true, reference: 'test-result', binding: 'test-quarantine@1.latest_result' },
     ]);
     expect(kind['relation-constraints']).toEqual({ out: ['quarantines', 'fixedBy'], in: [] });
     for (const relation of row.out) expect(CATALOG_RELATIONS).toHaveProperty(relation);

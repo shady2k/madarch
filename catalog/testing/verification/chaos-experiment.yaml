@@ -5,6 +5,7 @@ definition: A chaos experiment injects a controlled fault into a running system 
 sources:
 - https://principlesofchaos.org/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 - not-implemented
@@ -13,7 +14,33 @@ relation-constraints:
   - verifies
   in:
   - verifies
-template-policy: none
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: What the experiment does, in one line; it is the experiment's key.
+- name: steady_state
+  type: text
+  nullable: true
+  binding:
+    agent: What the system promises while the fault is injected.
+- name: outcome
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the experiment showed: the promise held or it did not.'
+- name: started_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the experiment ran.
+key:
+- name
 labels:
   en:
     one: Chaos experiment

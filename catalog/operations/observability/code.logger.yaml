@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - configures
+  - partOf
   in:
   - configures
 template-policy: page
@@ -18,6 +19,38 @@ details:
 - model
 - service
 - json
+fields:
+- name: service
+  type: text
+  reference: code.service
+  producers:
+  - operations
+- name: file
+  type: text
+  reference: code.file
+  producers:
+  - operations
+- name: library
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: format
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: json
+  type: boolean
+  nullable: true
+  producers:
+  - operations
+key:
+- service
+- file
+derives-from:
+- code.service
+- code.file
 labels:
   en:
     one: Logger

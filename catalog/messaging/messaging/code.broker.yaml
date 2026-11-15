@@ -17,6 +17,28 @@ details:
 - technology
 - source
 - addresses
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: technology
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: addresses
+  type: json
+  nullable: true
+  producers:
+  - operations
+key:
+- name
+derives-from:
+- code.service
 labels:
   en:
     one: Message broker

@@ -6,6 +6,7 @@ sources:
 - https://arc42.org/overview
 - https://github.com/shady2k/madarch/blob/main/docs/decisions/0033-one-workflow-by-entity-kinds.md
 acquisition:
+- agent-from-graph
 - conversation
 relation-constraints:
   out:
@@ -15,75 +16,7 @@ relation-constraints:
   - evidences
 template-policy: page
 source: graph
-fields:
-- name: legacy_id
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: title
-  type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: status
-  type: json
-  reference: value-set-entry
-  producers:
-  - person
-- name: priority
-  type: json
-  nullable: true
-  reference: value-set-entry
-  producers:
-  - person
-- name: labels
-  type: json
-  nullable: true
-  producers:
-  - person
-- name: assignee
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: owner
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: created_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: updated_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: closed_at
-  type: timestamp
-  nullable: true
-  producers:
-  - person
-- name: close_reason
-  type: text
-  nullable: true
-  producers:
-  - person
 origin: person
-import-folder: docs/questions
-nav: loop
 details:
 - question
 - why
@@ -98,6 +31,63 @@ details:
 - resolved_at
 - written_at
 - file
+fields:
+- name: question
+  type: text
+  labels:
+    en: Question
+    ru: Вопрос
+  binding:
+    agent: What cannot be settled from the product, in the words it is put in.
+- name: why
+  type: text
+  nullable: true
+  binding:
+    agent: Why it matters and what it blocks.
+- name: sides
+  type: text
+  nullable: true
+  binding:
+    agent: What the sources say, side by side, where the question is a disagreement.
+- name: answer
+  type: text
+  nullable: true
+  binding:
+    agent: The answer, once it is given, in the words of the person who gave it.
+- name: type
+  type: text
+  nullable: true
+  binding:
+    agent: 'What kind of question it is: a missing fact, a contested value or a choice of the product.'
+- name: status
+  type: json
+  nullable: true
+  reference: value-set-entry
+  binding:
+    agent: Whether the question is open or settled.
+- name: asked_by
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who asked it.
+- name: asked_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When it was asked.
+- name: resolved_by
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who settled it.
+- name: resolved_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When it was settled.
+nav: loop
 labels:
   en:
     one: Question
@@ -108,4 +98,3 @@ labels:
 description:
   en: A question records something the person doing the work could not settle from the product's code and documents, addressed to the responsible person who can answer. The work it concerns waits for the answer instead of guessing.
   ru: Вопрос — то, что исполнитель работы не смог решить по коду и документам продукта и адресовал ответственному человеку, который может ответить. Работа, к которой относится вопрос, ждёт ответа, а не догадки.
-key: []

@@ -110,7 +110,7 @@
       "remainingUnknown": "Осталось: пока неизвестно",
       "remaining": "Осталось примерно {{seconds}} с",
       "tokensUnknown": "Токены: не сообщены",
-      "tokens": "Токены: {{input}} вход · {{output}} выход · {{total}} всего",
+      "tokens": "Токены: {{input}} вход · {{output}} выход · {{cacheWrite}} запись кэша · {{cacheRead}} чтение кэша · {{total}} всего",
       "records": "Записано фактов: {{count}}",
       "records_one": "Записано {{count}} факт",
       "records_few": "Записано {{count}} факта",

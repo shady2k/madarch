@@ -3,16 +3,16 @@ import { constants, lstatSync, mkdirSync, openSync, closeSync, writeFileSync } f
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
-import { byCodePoint } from '../model/order.js';
 import { choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
-import type { AcpAgentSpec, AcpConnection, ConnectAcpOptions } from '../fill/acp.js';
+import type { AcpAgentSpec, AcpConnection, AcpMcpServer, ConnectAcpOptions } from '../fill/acp.js';
 import { log } from '../obs/log.js';
 import type { AgentMeter } from '../fill/agent-meter.js';
 import { withSpan } from '../obs/trace.js';
 import type { PluginManifest } from './closure.js';
+import { UnitBoundStop } from '../fill/unit-bound.js';
 import type { GraphAnswerer } from './host.js';
 import { PluginUnitResult, type PluginContractDeclaration } from './protocol.js';
-import { validateUnitResult } from './results.js';
+import { canonicalKey, validateUnitResult } from './results.js';
 
 const WHERE = `src/plugin/agent.ts:1: ${fileURLToPath(import.meta.url)}`;
 
@@ -35,12 +35,22 @@ export interface PluginAgentOptions {
   /** Repository identities mapped to writable host folders. Missing identities cannot be written. */
   readonly repositories?: Readonly<Record<string, string>>;
   readonly cwd?: string;
+  /**
+   * The MCP servers the agent's session is given (owner's decision, 2026-11-15): madarch's own graph server for a fill,
+   * whose reads the agent makes itself instead of being handed a list of files.
+   */
+  readonly mcpServers?: readonly AcpMcpServer[];
   /** Starts the host-supervised adapter process. */
   readonly connect: (spec: AcpAgentSpec, options: ConnectAcpOptions) => Promise<PluginAgentConnection>;
   /** A catalogue agent's contract, derived by the host from the product's bound kinds. */
   readonly outputs?: PluginContractDeclaration;
   /** Host-owned meter for this plugin unit; task text cannot choose its kind or field. */
   readonly meter?: AgentMeter;
+  /**
+   * A sign of life for the unit whose agent works (owner's decision, 2026-11-15): the host calls its heartbeat deadline
+   * into silence, and an agent that thinks for minutes between answers must not be read as a stopped plugin.
+   */
+  readonly onActivity?: (unitId: string) => void;
   /** Host attribution writer receives the actual session identity and its reported usage. */
   readonly onSession?: (metadata: PluginAgentReport) => void;
 }
@@ -88,6 +98,7 @@ export class PluginAgentBridge {
       }
       if (this.activeUnits.has(unitId)) throw new Error(`${WHERE}: unit ${unitId} already has an agent turn`);
       this.activeUnits.add(unitId);
+      this.options.onActivity?.(unitId);
       const controller = new AbortController();
       this.turns.add(controller);
       let connection: PluginAgentConnection | undefined;
@@ -100,6 +111,7 @@ export class PluginAgentBridge {
           cwd: this.options.cwd ?? process.cwd(), env: this.options.environment,
           files: {
             readTextFile: async (params) => {
+              this.options.onActivity?.(unitId);
               checkSession(params.sessionId);
               if ((params.line != null && (!Number.isInteger(params.line) || params.line < 1)) || (params.limit != null && (!Number.isInteger(params.limit) || params.limit < 1))) throw new Error(`${WHERE}: line and limit must be positive integers`);
               const name = virtualPath(params.path);
@@ -135,14 +147,14 @@ export class PluginAgentBridge {
               return {};
             },
           },
-          onRefused: (refusal) => log.warn('plugin agent tool refused', { unitId, method: refusal.method }),
-          onUpdate: (update) => log.debug('plugin agent update', { unitId, kind: update.kind }),
+          onRefused: (refusal) => { this.options.onActivity?.(unitId); log.warn('plugin agent tool refused', { unitId, method: refusal.method }); },
+          onUpdate: (update) => { this.options.onActivity?.(unitId); log.debug('plugin agent update', { unitId, kind: update.kind }); },
         });
         this.connections.add(connection);
         if (this.paused) connection.freeze?.();
         if (this.closed) throw new Error(`${WHERE}: bridge closed during runner startup`);
         await connection.initialize();
-        const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd() });
+        const session = await connection.newSession({ cwd: this.options.cwd ?? process.cwd(), ...(this.options.mcpServers === undefined ? {} : { mcpServers: this.options.mcpServers }) });
         sessionId = session.sessionId;
         const choices = choicesOf(session);
         for (const kind of ['model', 'reasoning'] as const) {
@@ -153,14 +165,27 @@ export class PluginAgentBridge {
           if (choice.configId === null) await session.setModel(wanted);
           else await session.setConfigOption(choice.configId, wanted);
         }
-        const prompt = `${this.part.prompt}\nFiles available through ACP fs/read_text_file:\n${[...byPath.keys()].sort(byCodePoint).map((name) => `/${name}`).join('\n')}\nTask: ${JSON.stringify(task ?? null)}\nReturn only one JSON object with vertices, edges, and end:{"state":"complete"}. Every assertion must carry evidence identifying a listed repository/path and valid lineStart and lineEnd. Output contract: ${JSON.stringify(this.outputs)}`;
+        // The prompt is the agent's role and its tools (the plugin's own file) and the task, which names the kind it
+        // fills and what that kind means: the graph it works on is read through the session's own MCP server, so no list
+        // of files and no dump of context stands here (owner's decision, 2026-11-15).
+        const prompt = `${this.part.prompt}\nTask: ${JSON.stringify(task ?? null)}`;
         const meter = this.options.meter;
         meter?.beginSession();
-        const turn = meter === undefined ? undefined : await meter.runTurn(session, prompt, { model: session.model, signal: controller.signal });
-        if (turn?.stop !== undefined) throw new Error(turn.stop.message);
-        const answer = turn?.result ?? await session.prompt(prompt, { signal: controller.signal });
+        // No prompt is asked under a spent bound: the unit ends with its reason before the model spends anything
+        // (owner's decision, 2026-11-15). Once four fifths are spent the agent is told to finish with what it has, in
+        // the words of its prompt and in every tool answer it reads.
+        const over = meter?.overBudget();
+        if (over !== undefined) throw new UnitBoundStop('tokens', over.message);
+        const notice = meter?.wrapNotice();
+        const asked = notice === undefined ? prompt : `${prompt}\n\n${notice}`;
+        const turn = meter === undefined ? undefined : await meter.runTurn(session, asked, { model: session.model, signal: controller.signal });
+        const answer = turn?.result ?? await session.prompt(asked, { signal: controller.signal });
         if (controller.signal.aborted || this.closed) throw new Error(`${WHERE}: agent turn cancelled`);
-        if (answer.stopReason !== 'end_turn') throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
+        const stop = turn?.stop ?? meter?.stop();
+        // A cap crossed while the agent worked throws away nothing the agent produced (owner's decision, 2026-11-15): a
+        // complete answer stands, and the caller records that the unit went over. A turn with no answer at all ends the
+        // unit with the bound's reason; any other non-answer is the protocol's.
+        if (answer.stopReason !== 'end_turn' && stop === undefined) throw new Error(`${WHERE}: agent ended with ${answer.stopReason}`);
         const usage = session.usage();
         span.setAttribute('madarch.agent.model', session.model ?? 'not reported');
         span.setAttribute('madarch.agent.session', session.sessionId);
@@ -169,23 +194,104 @@ export class PluginAgentBridge {
         if (usage.inputTokens !== undefined) span.setAttribute('madarch.agent.inputTokens', usage.inputTokens);
         if (usage.outputTokens !== undefined) span.setAttribute('madarch.agent.outputTokens', usage.outputTokens);
         this.options.onSession?.({ unitId, agentId: this.options.adapter.id, sessionId: session.sessionId, model: session.model, usage: session.usage() });
-        const raw: unknown = JSON.parse(answer.text);
-        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${WHERE}: agent answer is not a JSON object`);
-        const result = { ...raw, unitId };
-        if (!Value.Check(PluginUnitResult, result)) throw new Error(`${WHERE}: invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
-        const checked = validateUnitResult(this.outputs, result);
-        if (!checked.ok) throw new Error(`${WHERE}: ${checked.refusal.message}`);
-        for (const item of [...(result.vertices ?? []), ...(result.edges ?? [])]) {
-          const evidence = item.evidence;
-          if (typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
-          const file = byPath.get(virtualPath(`${evidence.repository}/${evidence.path}`));
-          if (file === undefined) throw new Error(`${WHERE}: agent assertion lacks evidence from an allowed graph file`);
-          const content = await this.graph.value(file.kind, file.key, 'content');
-          const start = evidence.lineStart;
-          const end = evidence.lineEnd;
-          if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) throw new Error(`${WHERE}: agent evidence line range is outside the graph file`);
+        /** A stop ends the unit where the answer cannot be used: it is the bound's reason, and the run does not retry it. */
+        const unusable = (reason: string): Error => stop === undefined ? new Error(`${WHERE}: ${reason}`) : new UnitBoundStop('tokens', `${stop.message}; ${reason}`);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(answer.text);
+        } catch {
+          throw unusable('the agent answer is no JSON');
         }
-        log.info('plugin agent result validated', { unitId, vertices: result.vertices?.length ?? 0, edges: result.edges?.length ?? 0 });
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw unusable('the agent answer is not a JSON object');
+        // Whatever the agent produced is kept, entry by entry (owner's rule, 2026-11-15): an entry the contract or the
+        // graph cannot take is left out and named, and never costs the entries beside it what the agent got right.
+        const envelope = raw as Record<string, unknown>;
+        // A malformed collection is a malformed answer, never an empty complete one: an answer whose `vertices` or
+        // `edges` is no list names nothing, so it retracts nothing and the unit fails with that reason.
+        for (const name of ['vertices', 'edges'] as const) {
+          const held = envelope[name];
+          if (held !== undefined && !Array.isArray(held)) throw unusable(`the agent answer's ${JSON.stringify(name)} is no list`);
+        }
+        const dropped: { where: string; reason: string }[] = [];
+        const keeps = async (name: 'vertices' | 'edges', entry: unknown, index: number): Promise<boolean> => {
+          const single = { unitId, vertices: name === 'vertices' ? [entry] : [], edges: name === 'edges' ? [entry] : [], end: { state: 'complete' as const } };
+          if (!Value.Check(PluginUnitResult, single)) {
+            dropped.push({ where: `${name}[${String(index)}]`, reason: `it is no ${name === 'vertices' ? 'vertex' : 'edge'} of the protocol` });
+            return false;
+          }
+          const checked = validateUnitResult(this.outputs, single);
+          if (!checked.ok) {
+            // The single-entry check names its place from the entry's own zero: the answer's place is the one a person reads.
+            const reason = checked.refusal.message.replace(new RegExp(`^${name}\\[0\\]\\.?`, 'u'), '');
+            dropped.push({ where: `${name}[${String(index)}]`, reason });
+            return false;
+          }
+          const evidence = (entry as { evidence?: { repository?: unknown; path?: unknown; lineStart?: unknown; lineEnd?: unknown } }).evidence;
+          // A path the graph cannot name ("docs/../a.md", an absolute one, a backslash) refuses only its own entry: the
+          // entries beside it stand (owner's rule, 2026-11-15).
+          let named: string | undefined;
+          try {
+            named = typeof evidence?.repository === 'string' && typeof evidence.path === 'string' ? virtualPath(`${evidence.repository}/${evidence.path}`) : undefined;
+          } catch {
+            named = undefined;
+          }
+          const reason = typeof evidence?.repository !== 'string' || typeof evidence.path !== 'string' || evidence.lineStart === undefined || evidence.lineEnd === undefined
+            ? 'it names no graph file and line range as its evidence'
+            : named === undefined || byPath.get(named) === undefined
+              ? `its evidence ${JSON.stringify(`${evidence.repository}/${evidence.path}`)} is no file of the graph`
+              : undefined;
+          if (reason !== undefined) {
+            dropped.push({ where: `${name}[${String(index)}]`, reason });
+            return false;
+          }
+          const file = byPath.get(named!)!;
+          const content = await this.graph.value(file.kind, file.key, 'content');
+          const start = evidence!.lineStart as number;
+          const end = evidence!.lineEnd as number;
+          if (typeof content !== 'string' || !Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > content.split('\n').length) {
+            dropped.push({ where: `${name}[${String(index)}]`, reason: 'its evidence line range is outside the graph file' });
+            return false;
+          }
+          return true;
+        };
+        // Two entries of one identity are one answer: the first stands, the later is left out and named (the store's
+        // whole-result validation refuses a repeat, and the owner's rule keeps what the agent got right).
+        const firstAt = new Map<string, string>();
+        const identityOf = (name: 'vertices' | 'edges', entry: unknown): string => {
+          const held = entry as { kind?: unknown; key?: unknown; from?: { kind?: unknown; key?: unknown }; to?: { kind?: unknown; key?: unknown }; discriminator?: unknown };
+          if (name === 'vertices') return `v:${String(held.kind)}:${canonicalKey((held.key ?? {}) as never)}`;
+          return `e:${String(held.kind)}:${String(held.from?.kind)}:${canonicalKey((held.from?.key ?? {}) as never)}:${String(held.to?.kind)}:${canonicalKey((held.to?.key ?? {}) as never)}:${String(held.discriminator ?? '')}`;
+        };
+        const collect = async (name: 'vertices' | 'edges'): Promise<unknown[]> => {
+          const kept: unknown[] = [];
+          const list = Array.isArray(envelope[name]) ? envelope[name] as unknown[] : [];
+          for (const [index, entry] of list.entries()) {
+            const where = `${name}[${String(index)}]`;
+            if (!(await keeps(name, entry, index))) continue;
+            const identity = identityOf(name, entry);
+            const first = firstAt.get(identity);
+            if (first !== undefined) { dropped.push({ where, reason: `it is a duplicate of ${first}: the same ${name === 'vertices' ? 'kind and key' : 'ends and discriminator'}` }); continue; }
+            firstAt.set(identity, where);
+            kept.push(entry);
+          }
+          return kept;
+        };
+        const vertices = await collect('vertices');
+        const edges = await collect('edges');
+        const agentEnd = envelope['end'] as { readonly state?: unknown; readonly cause?: unknown } | undefined;
+        const droppedText = dropped.length === 0
+          ? undefined
+          : `${String(dropped.length)} ${dropped.length === 1 ? 'entry' : 'entries'} could not be taken and were left out: ${dropped.map((one) => `${one.where}: ${one.reason}`).join('; ')}`;
+        const end = droppedText === undefined
+          ? agentEnd ?? { state: 'complete' }
+          : { state: 'partial', cause: agentEnd?.state === 'partial' && typeof agentEnd.cause === 'string' ? `${agentEnd.cause}; ${droppedText}` : droppedText };
+        const candidate = { ...envelope, unitId, vertices, edges, end };
+        const result = Value.Check(PluginUnitResult, candidate) ? candidate : { unitId, vertices, edges, end };
+        if (!Value.Check(PluginUnitResult, result)) throw unusable(`invalid agent result: ${[...Value.Errors(PluginUnitResult, result)][0]?.message}`);
+        const whole = validateUnitResult(this.outputs, result);
+        if (!whole.ok) throw unusable(whole.refusal.message);
+        if (dropped.length > 0) log.warn('plugin agent entries left out', { unitId, leftOut: dropped.length, of: `${String(vertices.length + dropped.length)} vertices and edges` });
+        log.info('plugin agent result validated', { unitId, vertices: vertices.length, edges: edges.length, leftOut: dropped.length });
         return result;
       } finally {
         this.activeUnits.delete(unitId);

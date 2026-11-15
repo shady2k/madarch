@@ -5,15 +5,54 @@ definition: A defect is an imperfection in a work product that may cause a failu
 sources:
 - https://glossary.istqb.org/en_US/term/defect
 acquisition:
-- document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - affects
+  - fixedBy
+  - hasPart
   in:
   - foundBy
-template-policy: none
+  - partOf
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: What is wrong, in one line, such as Checkout drops the basket; it is the defect's key.
+- name: severity
+  type: text
+  nullable: true
+  binding:
+    agent: How bad the failure is, in the words the product grades its defects by.
+- name: steps
+  type: text
+  nullable: true
+  binding:
+    agent: What a person does and what they see, step by step.
+- name: expected
+  type: text
+  nullable: true
+  binding:
+    agent: What should have happened.
+- name: actual
+  type: text
+  nullable: true
+  binding:
+    agent: What happened instead.
+- name: status
+  type: json
+  nullable: true
+  reference: value-set-entry
+  binding:
+    agent: 'Where the defect stands: open, being repaired, fixed, refused.'
+key:
+- name
 labels:
   en:
     one: Defect

@@ -1,0 +1,52 @@
+id: org.person
+purpose: history
+audience: [product-lead, developer, architect, operations]
+definition: 'A person is a human the product knows: the one who owns something, writes a commit, decides a dispute or signs in.'
+sources:
+- https://backstage.io/docs/features/software-catalog/well-known-relations
+acquisition:
+- conversation
+- live-system
+- agent-from-graph
+relation-constraints:
+  out:
+  - holds
+  - memberOf
+  - authored
+  - assigns
+  - approves
+  in:
+  - assigns
+  - authored
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the person is known by in the product, such as the owner's name; it is the person's key.
+- name: email
+  type: text
+  nullable: true
+  binding:
+    agent: The address the person commits and signs in with, from the commits and the identity they sign in by in the graph.
+- name: identity
+  type: text
+  nullable: true
+  binding:
+    agent: The identity the person signs in with, once the product is served with sign-in; locally the owner needs none.
+key:
+- name
+labels:
+  en:
+    one: Person
+    many: People
+  ru:
+    one: Человек
+    many: Люди
+description:
+  en: 'A person is a human the product knows: the owner who runs it, a developer whose commits carry their name, a reviewer who settles a dispute. A person holds roles, and a role says what they may do and answer for; the concrete person and the role they play are two kinds, related by «holds».'
+  ru: 'Человек — тот, кого продукт знает: владелец, который им управляет, разработчик, чьи коммиты несут его имя, ревьюер, который решает спор. Человек исполняет роли, а роль говорит, что ему можно и за что он отвечает; конкретный человек и его роль — два вида, связанные отношением «исполняет».'

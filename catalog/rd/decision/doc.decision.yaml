@@ -5,37 +5,84 @@ definition: A decision records a choice the team made, the reasons behind it and
 sources:
 - https://adr.github.io/madr/
 acquisition:
+- agent-from-graph
 - document
 - conversation
 relation-constraints:
   out:
+  - decides
   - supersedes
+  - hasPart
   - appliesTo
+  - evidences
   in:
+  - documents
+  - decides
   - supersedes
 template-policy: page
 source: graph
+origin: person
 fields:
-- name: legacy_id
+- name: identifier
   type: text
-  nullable: true
-  producers:
-  - person
+  labels:
+    en: Identifier
+    ru: Идентификатор
+  binding:
+    agent: The number or name the decision is known by, such as ADR 0033; it is the decision's key.
 - name: title
   type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
+  binding:
+    agent: What the decision is about, in one line.
+- name: status
   type: json
   nullable: true
-  producers:
-  - person
-origin: person
+  reference: value-set-entry
+  binding:
+    agent: Whether the decision stands, is proposed or is replaced.
+- name: date
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the decision was made.
+- name: context
+  type: text
+  nullable: true
+  binding:
+    agent: What situation called for the decision, and what was true before it.
+- name: decision
+  type: text
+  nullable: true
+  binding:
+    agent: What was decided, in the words of the decision.
+- name: consequences
+  type: text
+  nullable: true
+  binding:
+    agent: What follows from the decision, good and bad.
+- name: outcome
+  type: text
+  nullable: true
+  binding:
+    agent: 'What the decision settled: accepted, rejected, «this is really kind Y», a value chosen, a question closed.'
+- name: decision_reason
+  type: text
+  nullable: true
+  binding:
+    agent: Why the decision went that way, in the words of the person who made it.
+- name: decided_by
+  type: json
+  nullable: true
+  reference: person
+  binding:
+    agent: The person who decided.
+- name: decided_at
+  type: timestamp
+  nullable: true
+  binding:
+    agent: When the person decided.
+key:
+- identifier
 labels:
   en:
     one: Decision
@@ -46,4 +93,3 @@ labels:
 description:
   en: 'A decision explains one choice about the product or its architecture: the situation that called for it, the options considered, the option chosen and the consequences. A number and a status let a later reader see which decision is still in force.'
   ru: 'Запись о решении объясняет один выбор в продукте или его архитектуре: ситуацию, которая его потребовала, рассмотренные варианты, выбранный вариант и последствия. Номер и статус помогают позднее понять, какое решение действует.'
-key: []

@@ -13,6 +13,7 @@ relation-constraints:
   - dependsOn
   in:
   - dependsOn
+  - partOf
 template-policy: none
 labels:
   en:

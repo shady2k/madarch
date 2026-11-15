@@ -43,7 +43,7 @@ test('the declared value sets are published as entities, and a field points at a
     expect(closed.rows[0]!.set).toEqual({ kind: 'value-set', key: { name: 'task-status' } });
     // A work entity's field points at the entry, and the entry's page reaches it back through that reference.
     await putEntityOpinion(owner, { producer: 'test', version: '1' }, {
-      kind: 'task', values: { title: 'A task', body: 'body', status: { kind: 'value-set-entry', key: { set: { kind: 'value-set', key: { name: 'task-status' } }, value: 'closed' } } },
+      kind: 'task', key: { tracker: 'test', key: 'T-1' }, values: { title: 'A task', description: 'body', status: { kind: 'value-set-entry', key: { set: { kind: 'value-set', key: { name: 'task-status' } }, value: 'closed' } } },
       evidence: [{ type: 'conversation', id: 'test', words: 'A task with a status.' }],
     });
     const held = await owner.run((tx) => tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM "${generatedTableName('task', 'vertex')}" p JOIN node n ON n.id = p.node_id WHERE p.state = 'open' AND p.status->'key'->>'value' = 'closed'`));

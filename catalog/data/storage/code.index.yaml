@@ -9,6 +9,7 @@ acquisition:
 relation-constraints:
   out:
   - partOf
+  - hasPart
   in:
   - partOf
 template-policy: page
@@ -23,19 +24,16 @@ fields:
 - name: unique
   type: boolean
   binding: db-schema@1.unique
-- name: columns
-  type: json
-  binding: db-schema@1.columns
 - name: where
   type: text
   nullable: true
   binding: db-schema@1.where
+- name: columns
+  type: json
+  binding: db-schema@1.columns
 key:
 - table
 - name
-terms:
-- '**/*.ts'
-- '**/*.tsx'
 details:
 - columns
 - unique

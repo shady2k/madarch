@@ -309,7 +309,7 @@ export interface FillRunDetail {
   readonly events: readonly FillRunEvent[];
   readonly records: number;
   readonly publishedUnits: number;
-  readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly totalTokens: number } | null;
+  readonly agentUsage: { readonly inputTokens: number; readonly outputTokens: number; readonly cachedWriteTokens: number; readonly cachedReadTokens: number; readonly totalTokens: number } | null;
 }
 
 // ---- the client -------------------------------------------------------------------------------------------------

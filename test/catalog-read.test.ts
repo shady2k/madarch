@@ -248,11 +248,11 @@ describe('a catalog is read as its manifest declares it', () => {
     const seeded = parseKinds(starterManifestText(), 'madarch/catalog.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
-    expect(read.catalog!.kinds.size).toBe(526);
+    expect(read.catalog!.kinds.size).toBe(498);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);
-    expect([areas.length, subgroups.length]).toEqual([28, 107]);
+    expect([areas.length, subgroups.length]).toEqual([28, 106]);
     for (const entry of read.catalog!.kinds.values()) expect(read.groups.get(entry.subgroup)!.parent).toBe(entry.area);
   });
 });
@@ -362,15 +362,17 @@ describe('one defect in the manifest is one problem', () => {
   const cases: [string, string, string][] = [
     ['a group whose parent nobody declares', withPlant('groups:\n', 'groups:\n  broken: { en: Broken, ru: Сломано, short: { en: Broken, ru: Сломано }, parent: nowhere }\n'), 'group "broken": "parent" names a group of "groups"'],
     ['a subgroup whose parent nobody declares, its kinds included', withPlant('  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: code }', '  contracts: { en: "Interfaces", ru: "Интерфейсы", short: { en: "Interfaces", ru: "Интерфейсы" }, parent: nowhere }'), 'group "contracts": "parent" names a group of "groups"'],
-    ['a kind in a group nobody declares', withPlant('    group: code.structure\n', '    group: nowhere.at-all\n'), 'kind "code.service": "group" names the subgroup of the catalog the kind belongs to'],
-    ['a kind in an area rather than a subgroup', withPlant('    group: code.structure\n', '    group: code\n'), 'kind "code.service": "group" names "code", which no area holds'],
+    ['a kind in a group nobody declares', withPlant('    group: code.structure\n', '    group: nowhere.at-all\n'), 'kind "code.entry-point": "group" names the subgroup of the catalog the kind belongs to'],
+    ['a kind in an area rather than a subgroup', withPlant('    group: code.structure\n', '    group: code\n'), 'kind "code.entry-point": "group" names "code", which no area holds'],
     ['a subgroup over its bound', appendedKind('probe.overflow', 'practice.probe-overflow', 'infrastructure.orchestration'), 'subgroup "infrastructure.orchestration": 13 kinds'],
     ['two kinds of one concept id', appendedKind('probe.duplicate', 'c4.container', 'code.schema'), 'kind "probe.duplicate": the concept id "c4.container" is the id of kind "code.service"'],
     ['a value the catalog marks as an attribute declared as a kind', appendedKind('probe.attribute', 'version', 'code.schema'), 'kind "probe.attribute": "version" is a value the catalog marks as an attribute'],
-    ['an origin mark the catalog does not declare', withPlant('    acquisition:\n    - extractor operations\n', '    acquisition: ["telepathy"]\n'), 'kind "code.service": "acquisition" holds "telepathy"'],
-    ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "code.service": "sources" holds "nowhere"'],
+    ['an origin mark the catalog does not declare', withPlant('    acquisition:\n    - agent-from-graph\n    - extractor code\n', '    acquisition: ["telepathy"]\n'), 'kind "code.entry-point": "acquisition" holds "telepathy"'],
+    ['a source that is not an address', withPlant('    sources:\n    - https://c4model.com/abstractions\n', '    sources: ["nowhere"]\n'), 'kind "code.entry-point": "sources" holds "nowhere"'],
     ['a short label the sidebar cannot hold', withPlant('short: { en: "Strategy", ru: "Стратегия" }', 'short: { en: "Strategy and business motivation", ru: "Стратегия" }'), 'group "strategy": the short label in "en" is 32 code points'],
     ['a role leading a group nobody declares', withPlant('roles:\n', 'roles:\n  probe: { lead: [nowhere] }\n'), 'role "probe": "nowhere" is not a group of "groups"'],
+    ['an agent field that sends the agent to a file', withPlant("    agent: The language the entry point is written in.", '    agent: "Read docs/domains/**/*.md: the name"'), 'kind "code.entry-point": an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository'],
+    ['an agent field that sends the agent to a glob', withPlant("    agent: The language the entry point is written in.", '    agent: "the name, from each **/*.md source file"'), 'kind "code.entry-point": an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository'],
   ];
   for (const [what, manifest, names] of cases) {
     test(`${what} is one problem, naming it`, () => {
@@ -396,10 +398,10 @@ describe('the areas a person sees open at once', () => {
     // A person reads the product's own knowledge before the code: every open area stands before code.
     for (const open of ['strategy', 'requirements', 'rd', 'documentation']) expect([open, order.indexOf(open) < order.indexOf('code')]).toEqual([open, true]);
     // The kinds the old "Product knowledge" group held are all in an area that opens: domains and the product page,
-    // use cases, rules, requirements and terms, decisions, and the agent's enrichments and corrections. The question
-    // is now the tracker's clarification, so it stands in Work instead (the owner's decision of 2026-11-08).
+    // use cases, rules, requirements and terms, decisions, and the agent's corrections. The question is now the
+    // tracker's clarification, so it stands in Work instead (the owner's decision of 2026-11-08).
     const opened = new Set(areas.filter((area) => area.open === true).map((area) => area.name));
-    for (const kind of ['product', 'domain', 'doc.use-case', 'doc.rule', 'doc.requirement', 'doc.term', 'doc.decision', 'enrichment', 'correction']) {
+    for (const kind of ['product', 'domain', 'doc.use-case', 'doc.rule', 'doc.requirement', 'doc.term', 'doc.decision', 'correction']) {
       const entry = read.catalog!.kinds.get(kind);
       expect([kind, entry !== undefined && opened.has(entry.area)]).toEqual([kind, true]);
     }

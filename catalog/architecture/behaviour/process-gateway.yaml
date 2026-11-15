@@ -7,13 +7,44 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
   in:
-  - partOf
-template-policy: none
+  - hasPart
+template-policy: member
+source: graph
+fields:
+- name: process
+  type: json
+  reference: business-process
+  binding:
+    agent: The business process the gateway stands in, by the key of that process in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the process gives this branch point, such as Amount within the limit.
+- name: type
+  type: text
+  nullable: true
+  binding:
+    agent: 'Which kind of gateway it is: exclusive, parallel, inclusive or event-based, as the process states it.'
+- name: condition
+  type: text
+  nullable: true
+  binding:
+    agent: The condition that decides which way the process goes, where the gateway states one.
+key:
+- process
+- name
+member:
+  relation: partOf
+  direction: out
+  parentKind: business-process
 labels:
   en:
     one: Process gateway

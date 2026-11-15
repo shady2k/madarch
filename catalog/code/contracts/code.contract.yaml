@@ -6,6 +6,7 @@ sources:
 - https://spec.openapis.org/oas/v3.1.1.html
 - https://www.asyncapi.com/docs/reference/specification/v3.0.0
 acquisition:
+- agent-from-graph
 - extractor contracts
 relation-constraints:
   out:
@@ -13,34 +14,54 @@ relation-constraints:
   - hasDocumentation
   in:
   - documents
+  - partOf
 template-policy: page
 source: graph
-fields:
-- name: repository
-  type: text
-  nullable: true
-  binding:
-    agent: 'Read the declared repositories: repository name, or null for the product repository.'
-- name: path
-  type: text
-  binding:
-    agent: 'Read **/* source files: repository-relative path of the file or folder defining this entity.'
-- name: definition
-  type: json
-  nullable: true
-  binding:
-    agent: 'Read the contract source files **/* for this entity: complete structured definition {spec:{text,lines},document?,protobuf?,descriptions?,selection?,diagnostics?},
-      preserving the full spec text and source lines; use null when no definition applies.'
-key:
-- repository
-- path
-card: true
-definition-block: contract
 details:
 - format
 - specVersion
 - version
 - path
+fields:
+- name: repository
+  type: json
+  reference: code.repository
+  binding:
+    agent: The repository the contract file stands in, by the key of that repository in the graph.
+- name: path
+  type: text
+  labels:
+    en: Path
+    ru: Путь
+  binding:
+    agent: The path of the contract file in the repository.
+- name: format
+  type: text
+  nullable: true
+  binding:
+    agent: 'Which notation the contract is written in: OpenAPI, gRPC or AsyncAPI.'
+- name: spec_version
+  type: text
+  nullable: true
+  binding:
+    agent: The version of the notation the contract declares.
+- name: version
+  type: text
+  nullable: true
+  binding:
+    agent: The version of the interface the contract declares.
+- name: title
+  type: text
+  nullable: true
+  binding:
+    agent: The title the contract gives itself.
+key:
+- repository
+- path
+derives-from:
+- code.file
+card: true
+definition-block: contract
 labels:
   en:
     one: Contract

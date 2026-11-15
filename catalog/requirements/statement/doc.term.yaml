@@ -5,37 +5,43 @@ definition: A glossary term is a word or phrase of the product's own language wh
 sources:
 - https://arc42.org/overview
 acquisition:
+- agent-from-graph
 - document
 - conversation
 relation-constraints:
   out:
   - defines
+  - partOf
+  - implements
   in:
   - uses
 template-policy: page
-title: title
 source: graph
+origin: person
 fields:
-- name: legacy_id
+- name: name
   type: text
-  nullable: true
-  producers:
-  - person
-- name: title
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The word or the phrase the product fixes the meaning of; it is the term's key.
+- name: definition
   type: text
-  producers:
-  - person
-- name: body
-  type: text
-  nullable: true
-  producers:
-  - person
-- name: front
+  binding:
+    agent: What the term means in this product, in one or two sentences.
+- name: also_called
   type: json
   nullable: true
-  producers:
-  - person
-origin: person
+  binding:
+    agent: The other words the product uses for the same thing.
+- name: ambiguous
+  type: text
+  nullable: true
+  binding:
+    agent: How the word is used elsewhere and where that reading misleads.
+key:
+- name
 listing: glossary
 nav: own-page
 labels:
@@ -48,4 +54,3 @@ labels:
 description:
   en: A glossary term is a word or a short phrase with a precise meaning in the product, such as order or settlement. The glossary states that meaning once, and the product's documents and people then use the word in exactly that sense.
   ru: Термин — слово или короткое словосочетание с точным значением в продукте, например «заказ» или «расчёт». Глоссарий один раз задаёт это значение, и дальше документы и люди продукта употребляют слово именно в нём.
-key: []

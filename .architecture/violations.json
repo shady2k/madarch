@@ -97,11 +97,6 @@
   {
     "rule": "no-kind-names",
     "file": "src/knowledge/graph-verdict-rules.ts",
-    "symbol": "code.task"
-  },
-  {
-    "rule": "no-kind-names",
-    "file": "src/knowledge/graph-verdict-rules.ts",
     "symbol": "code.test-case"
   },
   {

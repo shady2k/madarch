@@ -198,6 +198,12 @@ export interface PluginBounds {
   readonly tokens?: number;
   /** The most one run may cost, in the currency the agent itself reports; absent declares no cost bound. */
   readonly cost?: { readonly amount: number; readonly currency: string };
+  /**
+   * The most wall-clock minutes one agent unit may take (owner's decision, 2026-11-15): an agent reads the graph through
+   * its tools and takes minutes, and this bound — beside the run's token cap — is what stops it. Absent, the engine's
+   * own thirty minutes hold.
+   */
+  readonly minutes?: number;
 }
 
 /** One plugin the product holds, as its manifest declares it (decision 0035, item 11). */
@@ -229,6 +235,12 @@ export interface EdgeDecl {
   readonly discriminator?: string;
   readonly fields: readonly FieldDecl[];
   readonly capability?: string;
+  /**
+   * The words the edge reads as at each end, per interface language: `{ en: { out, in }, ru: { out, in } }`. They are
+   * the product's declaration, so no renderer guesses a relation's words from its key (owner's decision, 2026-11-15);
+   * both ends are declared whether or not the pages read the inverse.
+   */
+  readonly labels: Readonly<Record<string, { readonly out: string; readonly in: string }>>;
   readonly line: number;
 }
 
@@ -1166,12 +1178,17 @@ function readPluginContract(files: ProductFileRead, id: string, path: string, ma
 function readPluginBounds(value: unknown, id: string, manifestFile: string, line: number, findings: Finding[]): PluginBounds | undefined {
   if (value === undefined) return undefined;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" is { tokens: <whole number>, cost: { amount: <number>, currency: <code> } }` });
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" is { tokens: <whole number>, cost: { amount: <number>, currency: <code> }, minutes: <whole number> }` });
     return undefined;
   }
   const body = value as Record<string, unknown>;
-  const extra = Object.keys(body).filter((key) => key !== 'tokens' && key !== 'cost');
-  if (extra.length > 0) { findings.push({ file: manifestFile, line, message: `plugin "${id}": "${extra[0]}" is not a bound: a plugin's bounds are "tokens" and "cost"` }); return undefined; }
+  const extra = Object.keys(body).filter((key) => key !== 'tokens' && key !== 'cost' && key !== 'minutes');
+  if (extra.length > 0) { findings.push({ file: manifestFile, line, message: `plugin "${id}": "${extra[0]}" is not a bound: a plugin's bounds are "tokens", "cost" and "minutes"` }); return undefined; }
+  const minutes = body['minutes'];
+  if (minutes !== undefined && (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1)) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds.minutes" is the most wall-clock minutes one agent unit may take: a whole number of 1 or more, not ${JSON.stringify(minutes)}` });
+    return undefined;
+  }
   const tokens = body['tokens'];
   if (tokens !== undefined && (typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens < 1)) {
     findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds.tokens" is the most tokens one run may spend: a whole number of 1 or more, not ${JSON.stringify(tokens)}` });
@@ -1190,11 +1207,11 @@ function readPluginBounds(value: unknown, id: string, manifestFile: string, line
     }
     declaredCost = { amount, currency: currency.trim() };
   }
-  if (tokens === undefined && declaredCost === undefined) {
-    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" declares no bound: name "tokens", "cost" or leave the key out` });
+  if (tokens === undefined && declaredCost === undefined && minutes === undefined) {
+    findings.push({ file: manifestFile, line, message: `plugin "${id}": "bounds" declares no bound: name "tokens", "cost", "minutes" or leave the key out` });
     return undefined;
   }
-  return { ...(tokens === undefined ? {} : { tokens }), ...(declaredCost === undefined ? {} : { cost: declaredCost }) };
+  return { ...(tokens === undefined ? {} : { tokens }), ...(declaredCost === undefined ? {} : { cost: declaredCost }), ...(minutes === undefined ? {} : { minutes }) };
 }
 
 /** The line a JSON document's nth path segment stands on: the nth occurrence of its quoted name, or the first line. */
@@ -1774,6 +1791,14 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (extra.length > 0) { problem([...path, extra[0]!], `"${extra[0]}" is not a field of a binding: a binding names a plugin field, or the agent with { agent: <description> }`); return null; }
       const description = body['agent'];
       if (typeof description !== 'string' || description.trim() === '') { problem([...path, 'agent'], '"agent" says what the field is and how to extract it'); return null; }
+      // The owner's rule (madarch-64o5.109): the agent reads only the graph. A binding that sends it to a file, a glob or
+      // a repository is refused where it is written; a specialised plugin reads documents into the graph, and the agent
+      // then reads those entities. A description of graph data ("read from the text of the files … in the graph") is not
+      // such an instruction.
+      if (/^\s*Read\b/u.test(description) || /\*\*|(^|\s)docs\//u.test(description)) {
+        problem([...path, 'agent'], 'an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository');
+        return null;
+      }
       return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');
@@ -2008,8 +2033,29 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         findings.push({ file, line, message: 'an edge is { name: <name>, from: [<kind>, ...], to: [<kind>, ...], repeats?: true, discriminator?: <field>, fields?: [...], capability?: <name> }' });
         return;
       }
-      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability'].includes(key));
-      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields and capability` }); return; }
+      const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability', 'labels'].includes(key));
+      if (extra.length > 0) { findings.push({ file, line: at(['edges', index, extra[0]!]), message: `"${extra[0]}" is not a field of an edge: the fields are name, from, to, repeats, discriminator, fields, capability and labels` }); return; }
+      // Every edge kind declares the words it reads as at both ends in each interface language (owner's decision,
+      // 2026-11-15): relation words are product data, and no renderer derives them from the key.
+      const labels: Record<string, { out: string; in: string }> = {};
+      const rawLabels = body['labels'];
+      if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
+        findings.push({ file, line: at(['edges', index, 'labels']), message: `edge "${body['name']}": "labels" names the words the edge reads as at each end, per interface language: { en: { out, in }, ru: { out, in } }` });
+        return;
+      }
+      for (const [language, words] of Object.entries(rawLabels as Record<string, unknown>)) {
+        const held = words as { out?: unknown; in?: unknown } | null;
+        if (held === null || typeof held !== 'object' || typeof held.out !== 'string' || held.out.trim() === '' || typeof held.in !== 'string' || held.in.trim() === '') {
+          findings.push({ file, line: at(['edges', index, 'labels', language]), message: `edge "${body['name']}": the words in "${language}" are { out: <the words at the source>, in: <the words at the target> }` });
+          return;
+        }
+        labels[language] = { out: held.out.trim(), in: held.in.trim() };
+      }
+      for (const language of LABEL_LANGUAGES) {
+        if (labels[language] !== undefined) continue;
+        findings.push({ file, line: at(['edges', index, 'labels']), message: `edge "${body['name']}": the edge declares no words in "${language}": every edge kind names both ends in ${LABEL_LANGUAGES.join(' and ')}` });
+        return;
+      }
       const fieldTypes = new Set(['text', 'integer', 'bigint', 'boolean', 'timestamp', 'json']);
       const fields: FieldDecl[] = [];
       const rawFields = body['fields'];
@@ -2036,7 +2082,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (repeats && discriminator === undefined) { findings.push({ file, line: at(['edges', index]), message: 'an edge kind that repeats names the field that tells its repeats apart (discriminator)' }); return; }
       if (!repeats && discriminator !== undefined) { findings.push({ file, line: at(['edges', index, 'discriminator']), message: 'an edge kind that does not repeat has no discriminator' }); return; }
       const capability = typeof body['capability'] === 'string' ? body['capability'] : undefined;
-      edges.set(body['name'], { name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, ...(capability === undefined ? {} : { capability }), line });
+      edges.set(body['name'], { name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, ...(capability === undefined ? {} : { capability }), labels, line });
     });
   }
   // The plugins the product holds (decision 0035, items 3, 11 and 20): the manifest binds a major version and names

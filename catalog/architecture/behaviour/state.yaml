@@ -7,13 +7,52 @@ sources:
 acquisition:
 - document
 - conversation
-- not-implemented
+- agent-from-graph
 relation-constraints:
   out:
   - partOf
+  - constrains
   in:
   - hasPart
-template-policy: none
+template-policy: member
+source: graph
+fields:
+- name: machine
+  type: json
+  reference: state-machine
+  binding:
+    agent: The state machine the state belongs to, by the key of that machine in the graph.
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the machine gives the state, such as open or closed.
+- name: label
+  type: text
+  nullable: true
+  binding:
+    agent: The words a reader sees for the state, where they differ from its name.
+- name: initial
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether the machine starts in this state.
+- name: final
+  type: boolean
+  nullable: true
+  binding:
+    agent: Whether this state ends the life the machine describes.
+key:
+- machine
+- name
+derives-from:
+- code.symbol
+member:
+  relation: partOf
+  direction: out
+  parentKind: state-machine
 labels:
   en:
     one: State

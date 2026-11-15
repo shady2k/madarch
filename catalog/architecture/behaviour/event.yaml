@@ -1,0 +1,44 @@
+id: uml.event
+purpose: structure
+audience: [architect, developer, analyst]
+definition: An event is a named happening that can move a thing from one state to another, such as an approval, a payment or a merge.
+sources:
+- https://www.omg.org/spec/UML/
+acquisition:
+- document
+- conversation
+- agent-from-graph
+relation-constraints:
+  out:
+  - triggers
+  in:
+  - triggers
+template-policy: page
+source: graph
+fields:
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  binding:
+    agent: The name the code or the document gives the happening, such as approved or paid; it is the event's key.
+- name: description
+  type: text
+  nullable: true
+  binding:
+    agent: What happens when the event occurs, in one sentence, from the transitions it causes in the graph.
+key:
+- name
+derives-from:
+- code.symbol
+labels:
+  en:
+    one: Event
+    many: Events
+  ru:
+    one: Событие
+    many: События
+description:
+  en: An event is a named happening the outside world or another part of the product produces — an approval, a payment, a merge. A state machine transition names the event that causes it, and a process event marks where a process starts, waits or ends.
+  ru: 'Событие — названное происшествие, которое производит внешний мир или другая часть продукта: одобрение, оплата, слияние. Переход конечного автомата называет событие, которое его вызывает, а событие процесса отмечает, где процесс начинается, ждёт или заканчивается.'

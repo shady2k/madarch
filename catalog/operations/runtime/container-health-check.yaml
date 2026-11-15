@@ -1,0 +1,85 @@
+id: practice.container-health-check
+purpose: operations
+audience: [operations, developer, platform-devops]
+definition: A container health check is a command or a request a container platform runs to learn whether a container is alive, ready or started.
+sources:
+- https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+- https://docs.docker.com/compose/compose-file/05-services/#healthcheck
+acquisition:
+- extractor operations
+relation-constraints:
+  out:
+  - monitors
+  - partOf
+  in:
+  - monitors
+  - hasPart
+template-policy: page
+source: graph
+fields:
+- name: platform
+  type: text
+  labels:
+    en: Platform
+    ru: Платформа
+  producers:
+  - operations
+- name: name
+  type: text
+  labels:
+    en: Name
+    ru: Имя
+  producers:
+  - operations
+- name: type
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: command
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: path
+  type: text
+  nullable: true
+  producers:
+  - operations
+- name: port
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: interval
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: timeout
+  type: integer
+  nullable: true
+  producers:
+  - operations
+- name: retries
+  type: integer
+  nullable: true
+  producers:
+  - operations
+key:
+- platform
+- name
+- type
+derives-from:
+- code.compose-service
+- code.k8s-deployment
+labels:
+  en:
+    one: Container health check
+    many: Container health checks
+  ru:
+    one: Проверка здоровья контейнера
+    many: Проверки здоровья контейнеров
+description:
+  en: 'A container health check is what a platform runs to learn whether a container works: a command inside it, or a request to an address it serves. The platform repeats it every interval, waits the timeout and acts on the result — restarting the container, holding traffic back or letting it in.'
+  ru: 'Проверка здоровья контейнера — то, что платформа запускает, чтобы узнать, работает ли контейнер: команда внутри него или запрос по адресу, который он обслуживает. Платформа повторяет её с заданным интервалом, ждёт таймаут и решает по результату: перезапустить контейнер, не пускать к нему трафик или пустить.'
