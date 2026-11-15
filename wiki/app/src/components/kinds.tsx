@@ -4,6 +4,7 @@
  * by the frame's one navigation query — the home page shows the product, not the catalogue.
  */
 import type { ReactElement } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Paragraph, Text, TextLink } from './ui/typography.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table.js';
 import { CATALOGUE_KIND } from '../../../../src/page-contract/index.js';
@@ -22,6 +23,7 @@ interface KindRow {
 }
 
 export function KindsSection({ context }: { readonly context: SectionContext }): ReactElement {
+  const { t } = useTranslation();
   const rows = edgesOf(at(context.data, context.section.params['path'] ?? 'kinds'))
     .map((row) => row as KindRow)
     .filter((row) => typeof row.many === 'string' && Number(row.count) > 0)
@@ -30,7 +32,7 @@ export function KindsSection({ context }: { readonly context: SectionContext }):
   return (
     <Table data-testid="kinds">
       <TableHeader>
-        <TableRow><TableHead>{''}</TableHead><TableHead>{''}</TableHead></TableRow>
+        <TableRow><TableHead>{t('kinds.name')}</TableHead><TableHead>{t('kinds.count')}</TableHead></TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((row, at) => {

@@ -710,6 +710,12 @@ main tbody tr:nth-child(odd) {
   font-size: var(--fs-small);
 }
 
+/* Sections stand apart by the reading rhythm: a card with no heading (the first run's own content) keeps the same
+ * space under the section above it as a section that opens with a heading. */
+.shell-document main > article > section + section {
+  margin-block-start: 1.5em;
+}
+
 /* 4.4 A rule between sections. */
 main hr {
   border: 0;

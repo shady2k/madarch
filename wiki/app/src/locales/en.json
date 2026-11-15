@@ -1,4 +1,8 @@
 {
+  "kinds": {
+    "name": "Kind",
+    "count": "Entities"
+  },
   "connection": {
     "offline": "No connection to the madarch server. Trying again…"
   },

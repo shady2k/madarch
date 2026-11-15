@@ -1,4 +1,8 @@
 {
+  "kinds": {
+    "name": "Вид",
+    "count": "Сущностей"
+  },
   "connection": {
     "offline": "Нет связи с сервером madarch. Пробую снова…"
   },

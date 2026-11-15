@@ -33,7 +33,7 @@ export function FirstRunSection({ context }: { readonly context: SectionContext 
           <Button variant="default" size="default" onClick={() => context.open(prepareAddress(chosen, false, true))} data-testid="first-run-start">
             {t('firstRun.start')}
           </Button>
-          <Button variant="ghost" size="default" onClick={() => context.open(catalogueSelectionAddress(chosen))} data-testid="first-run-manual">
+          <Button variant="outline" size="default" onClick={() => context.open(catalogueSelectionAddress(chosen))} data-testid="first-run-manual">
             {t('firstRun.manual')}
           </Button>
         </Stack>
