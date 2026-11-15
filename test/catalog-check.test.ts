@@ -94,7 +94,7 @@ describe('the catalog check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('catalog: 28 areas, 107 subgroups, 526 kinds (83 with a page of their own or a member\'s row)');
+    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 498 kinds (117 with a page of their own or a member\'s row)');
     expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 
@@ -108,14 +108,14 @@ describe('the catalog check over the starter set', () => {
   }, 30_000);
 
   test('the same row is refused by the wiki\'s own read of the manifest, which is the product-wiki check', () => {
-    const manifest = editField(MANIFEST, 'code.service', 'definition', null);
+    const manifest = editField(MANIFEST, 'code.entry-point', 'definition', null);
     const read = parseKinds(manifest, 'madarch/catalog.yaml', product());
-    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "definition" is one sentence saying what the kind is, got undefined']);
+    expect(read.catalog!.findings.map((finding) => finding.message)).toEqual(['kind "code.entry-point": "definition" is one sentence saying what the kind is, got undefined']);
     // One defect is one problem: the kind's refused row is the finding, and the mapping's row for it is not echoed.
-    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.service": "definition" is one sentence saying what the kind is, got undefined']);
+    expect(read.findings.map((finding) => finding.message)).toEqual(['kind "code.entry-point": "definition" is one sentence saying what the kind is, got undefined']);
     // The kind is left out of the catalog and of the wiki\'s kinds, and the rest of the catalog stands.
-    expect(read.catalog!.kinds.has('code.service')).toBe(false);
-    expect(read.kinds.has('code.service')).toBe(false);
+    expect(read.catalog!.kinds.has('code.entry-point')).toBe(false);
+    expect(read.kinds.has('code.entry-point')).toBe(false);
     expect(read.catalog!.kinds.has('code.file')).toBe(true);
   }, 30_000);
 

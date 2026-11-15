@@ -1785,6 +1785,14 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (extra.length > 0) { problem([...path, extra[0]!], `"${extra[0]}" is not a field of a binding: a binding names a plugin field, or the agent with { agent: <description> }`); return null; }
       const description = body['agent'];
       if (typeof description !== 'string' || description.trim() === '') { problem([...path, 'agent'], '"agent" says what the field is and how to extract it'); return null; }
+      // The owner's rule (madarch-64o5.109): the agent reads only the graph. A binding that sends it to a file, a glob or
+      // a repository is refused where it is written; a specialised plugin reads documents into the graph, and the agent
+      // then reads those entities. A description of graph data ("read from the text of the files … in the graph") is not
+      // such an instruction.
+      if (/^\s*Read\b/u.test(description) || /\*\*|(^|\s)docs\//u.test(description)) {
+        problem([...path, 'agent'], 'an agent binding describes the property and the graph data it rests on; it never tells the agent to read a file, a glob or a repository');
+        return null;
+      }
       return { kind: 'agent', description };
     };
     const fields = parseFields(decl['fields'], 'fields');

@@ -79,8 +79,10 @@ export async function planReset(productFolder: string, storeFolder: string, grap
   const files = new Map<string, string>(); const edits = new Map<string, string>(); const removed = new Set<string>();
   const { pages, findings } = await graphKnowledgePages(graph, manifest);
   if (findings.length) throw failure(productFolder, findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('\n'));
+  // Every page opinion the graph holds is a page of the product: the kinds that can hold one are the kinds that declare a
+  // body, which is how the page reader found them. The engine names no kind (madarch-64o5.109: the product's Markdown
+  // page kinds are gone, and a product that declares one still resets it).
   for (const page of pages) {
-    if (page.kind !== 'product' && page.kind !== 'domain') continue;
     const relative = page.file;
     const path = join(productFolder, relative);
     files.set(relative, fingerprint(productFolder, path));

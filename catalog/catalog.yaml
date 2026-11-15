@@ -434,6 +434,9 @@ documents:
   exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, "**/AGENTS.md", "**/CLAUDE.md", "**/GEMINI.md"]
   expect: []
   ignore: [code, html, thematicBreak, definition]
+# The roles a reader can read as. Each key is the natural key of a «Роль» entity (role.yaml): a kind's `audience` names
+# those roles, and a person holds them, so the audience of a kind and the actor of its use cases are the same entities
+# (madarch-64o5.109, madarch-64o5.115).
 roles:
   product: { lead: [strategy, discovery, requirements, rd], open: [stated, implementedby, linkedfrom, related, properties] }
   analyst: { lead: [strategy, requirements, data, contracts, information], open: [stated, implementedby, linkedfrom, related, properties, er, sequence, children] }

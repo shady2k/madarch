@@ -35,8 +35,8 @@ test('the real File catalogue page shares dependency and declared-relation edges
     };
     const starter = validated();
     expect([...starter.manifest.kinds].filter(([, kind]) => kind.derivesFrom?.includes('code.file')).map(([name]) => name).sort())
-      .toEqual(['code.commit', 'code.database', 'code.module', 'code.test-quarantine', 'domain']);
-    // The bundled catalogue has five File dependents. Two product-owned kinds exercise a seven-kind backlink list.
+      .toEqual(['code.channel', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.migration', 'code.module', 'code.service', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-quarantine', 'document', 'domain', 'state-machine']);
+    // The bundled catalogue has 26 File dependents. Two product-owned kinds exercise a 28-kind backlink list.
     const basePath = join(folder, 'madarch/kinds/testing/case/code.test-quarantine.yaml');
     const base = parse(readFileSync(basePath, 'utf8'));
     for (const field of base.fields) {
@@ -65,7 +65,7 @@ test('the real File catalogue page shares dependency and declared-relation edges
     expect(page.label).toBe('Файл');
     expect(page.derivesFrom.edges.map((edge: any) => edge.node.name).sort()).toEqual(['code.directory', 'code.repository']);
     const dependents = page.derivedBy.edges.map((edge: any) => edge.node.name).sort();
-    expect(dependents).toEqual(['code.commit', 'code.database', 'code.module', 'code.test-quarantine', 'domain', 'fixture.file-audit', 'fixture.file-review']);
+    expect(dependents).toEqual(['code.channel', 'code.ci-workflow', 'code.commit', 'code.compose-service', 'code.contract', 'code.cycle', 'code.database', 'code.debt', 'code.dockerfile', 'code.entry-point', 'code.env-definition', 'code.k8s-deployment', 'code.lockfile', 'code.logger', 'code.make-target', 'code.manifest', 'code.migration', 'code.module', 'code.service', 'code.sql-build', 'code.sql-sink', 'code.symbol', 'code.test-quarantine', 'document', 'domain', 'fixture.file-audit', 'fixture.file-review', 'state-machine']);
     const id = String(page.id);
     const templates = readProductTemplates(folder);
     const read = async () => await owner!.transaction('snapshot', async tx => {

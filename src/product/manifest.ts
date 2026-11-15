@@ -501,12 +501,19 @@ export function productEntityOf(folder: string, manifest: KindManifestLike, comm
   const read = readProduct(folder);
   const name = read.ok === true ? read.product.name : '';
   if (name === '') return undefined;
-  // The key is the product's stable identity; its label comes from the manifest name through the kind's title field.
-  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, read.ok ? read.product.id : '']));
+  // The key is the product's stable identity: a kind keyed by its name takes the manifest's name, and any other key
+  // field (an older declaration's slug) takes the product's id, which never changes.
+  const named = new Set([(kind as { readonly title?: string }).title ?? 'label', 'name']);
+  const key = Object.fromEntries((kind.key ?? []).map((field: string) => [field, read.ok ? (named.has(field) ? read.product.name : read.product.id) : '']));
   const declared = new Set(kind.fields?.map((field) => field.name));
   // The start states the name only. The description and the page fields belong to the graph: an agent or a person writes
-  // them, and an absent opinion reads as not written rather than as an empty one the start would impose.
-  const values = declared.has('title') ? { title: name } : {};
+  // them, and an absent opinion reads as not written rather than as an empty one the start would impose. The field the
+  // name goes into is the kind's own title attribute (`title: name` in its declaration), not an engine-fixed name.
+  const title = (kind as { readonly title?: string }).title;
+  const keyed = new Set(kind.key ?? []);
+  // A key field is the identity and never an opinion: the product keyed by its name is stated by that key alone.
+  const titled = [title, 'title', 'name'].find((field): field is string => field !== undefined && declared.has(field) && !keyed.has(field));
+  const values = titled === undefined ? {} : { [titled]: name };
   return { kind: kind.name, key, values, evidence: [{ repository: folder, path: '.', lineStart: 1, lineEnd: 1, ...(commit === undefined ? {} : { commit }) }] };
 }
 

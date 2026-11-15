@@ -7,6 +7,49 @@ import { readKinds } from '../src/product/manifest/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import { FakeGraph } from './fake-graph.js';
 
+/** A page kind the fixture declares: one that holds a body, the file it is written in and its producer. */
+const NOTE_KIND = `id: fixture.note
+purpose: understand
+audience: [product, analyst, developer]
+definition: A note is a piece of text the product keeps for its readers, such as a page about one part of it.
+sources:
+- https://arc42.org/overview
+acquisition:
+- conversation
+- agent-from-graph
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+source: graph
+fields:
+- name: body
+  type: text
+  producers:
+  - agent
+- name: file
+  type: text
+  producers:
+  - agent
+- name: producer
+  type: text
+  nullable: true
+  producers:
+  - agent
+key:
+- file
+labels:
+  en:
+    one: Note
+    many: Notes
+  ru:
+    one: Заметка
+    many: Заметки
+description:
+  en: A note is a piece of text the product keeps for its readers, with the file it stands in.
+  ru: Заметка — текст, который продукт хранит для своих читателей, вместе с файлом, в котором она стоит.
+`;
+
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
 async function fixture() {
@@ -16,7 +59,11 @@ async function fixture() {
   const graph = new FakeGraph();
   const file = 'docs/product.md'; mkdirSync(join(product, 'docs'), { recursive: true });
   writeFileSync(join(product, file), 'arbitrary bytes, never parsed');
-  graph.add('product:sample', 'product', 'Sample', { title: 'Sample', slug: 'sample', file, body: '', body_line: 1, producer: 'agent', relates: [], sources: [], statements: [], mentions: [], digest: 'fixture-digest', links: [], findings: [], ungrounded: [] });
+  // A page is an opinion of a kind that declares a body: the starter catalogue's Markdown page kinds are gone
+  // (madarch-64o5.109), so the fixture declares a page kind of its own, as a product may.
+  mkdirSync(join(product, 'madarch/kinds/documentation/document'), { recursive: true });
+  writeFileSync(join(product, 'madarch/kinds/documentation/document/note.yaml'), NOTE_KIND);
+  graph.add('note:sample', 'note', 'Sample', { body: '', file, producer: 'agent' });
   const read = await readKinds(product);
   if (!read.present) throw new Error('fixture manifest is absent');
   return { product, store, graph, manifest: read.manifest, file };

@@ -20,6 +20,53 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct } from './knowledge-fixture.js';
 import { useFixturePlugins } from './enabled-plugins-fixture.js';
 
+/** The source-text kind the fixture declares: a file's text at the commit a fill recorded. */
+const SOURCE_KIND = `id: fixture.source
+purpose: history
+audience: [developer, architect]
+definition: A source text is the text of one repository file at the commit the fill recorded.
+sources:
+- https://git-scm.com/docs/git-show
+acquisition:
+- conversation
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+source: graph
+fields:
+- name: repository
+  type: text
+  producers:
+  - person
+- name: path
+  type: text
+  producers:
+  - person
+- name: source_text
+  type: text
+  producers:
+  - person
+- name: commit
+  type: text
+  nullable: true
+  producers:
+  - person
+key:
+- repository
+- path
+labels:
+  en:
+    one: Source text
+    many: Source texts
+  ru:
+    one: Исходный текст
+    many: Исходные тексты
+description:
+  en: A source text is the text of one file of a repository at the commit a fill recorded, kept so a reader opens it without the repository.
+  ru: Исходный текст — текст одного файла репозитория на коммите, который записал проход, чтобы читатель открыл его без репозитория.
+`;
+
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
 
@@ -59,7 +106,10 @@ beforeAll(async () => {
   git(repository, 'add', '-A');
   git(repository, 'commit', '-qm', 'first');
   folder = makeProduct(home, 'source-follow', repository, 'code');
-  // The fixture writes the source-text record itself, so its kind stays and its fields are a person's write.
+  // The fixture declares the source-text kind it writes: the starter catalogue's own source kind became part of code.file
+  // (madarch-64o5.109), and the read is generic over a kind that declares `source_text`, so the product declares one.
+  mkdirSync(join(folder, 'madarch/kinds/common/attachment'), { recursive: true });
+  writeFileSync(join(folder, 'madarch/kinds/common/attachment/source.yaml'), SOURCE_KIND);
   useFixturePlugins(folder, ['disk', 'git'], ['source']);
   writeFileSync(join(folder, 'madarch', 'workflows.yaml'), 'workflows:\n  first-fill:\n    status: implemented\n    stages: [plugin-turns]\n');
   git(folder, 'add', '-A');

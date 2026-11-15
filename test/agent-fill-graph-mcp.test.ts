@@ -200,10 +200,13 @@ describe('the agent fill reads the graph through madarch\'s MCP server', () => {
         expect(turn.answer.end.state).toBe('complete');
       }
       expect(domainTurn.task.what).toContain('area of the business');
-      expect(domainTurn.task.fields.map((field) => field.name)).toEqual(['name', 'description']);
-      expect(domainTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers', 'domain.covers-folder', 'domain.uses-term']);
+      expect(domainTurn.task.fields.map((field) => field.name)).toEqual(['name', 'description', 'type']);
+      // An edge between two kinds one agent fills belongs to the later unit's turn: the domain turn owns the edge to
+      // the folder, which the repository plugins fill, and the module's turn owns the edge to the module.
+      expect(domainTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers-folder']);
       expect(moduleTurn.task.fields.map((field) => field.name)).toEqual(['name', 'folder', 'responsibility']);
-      expect(moduleTurn.task.relations.map((relation) => relation.kind)).toEqual(['module.depends-on']);
+      // The module's turn owns the edge from a domain to the module, as the later of the two agent-filled kinds' turns.
+      expect(moduleTurn.task.relations.map((relation) => relation.kind)).toEqual(['domain.covers', 'module.depends-on']);
 
       // What the graph holds: the domains with the folders they cover, and the modules with their folders.
       const graph = async (query: string) => await executeGraphql(owner, { manifest: declarations.manifest, folder: f.product }, { query });
