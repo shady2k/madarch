@@ -293,6 +293,8 @@ export interface FileFactRow {
   readonly path: string;
   readonly repository: string;
   readonly scope: string;
+  /** The file class the disk producer states (`generated`, `dependency`, `test`, …), when one opinion says it. */
+  readonly class: string | null;
   readonly lines: number | null;
   /** A fact a reader states about the file that the graph holds no column for today (a repository-declared generated file). */
   readonly generated?: unknown;
@@ -721,11 +723,14 @@ export class GraphReader {
     if (this.declared !== undefined && this.declared.size === 0) return { total: 0, rows: [] };
     if (!this.holds(GIT_KINDS.file)) return { total: 0, rows: [] };
     return await this.run(async (tx) => {
-      const found = await tx.query<{ node: string; path: string; repository: string; scope: string; lines: number | null; total: string }>(
+      const found = await tx.query<{ node: string; path: string; repository: string; scope: string; class: string | null; lines: number | null; total: string }>(
         `SELECT n.id::text AS node, (n.key->>'path') AS path, (n.key->>'repository') AS repository, ${ENTITY_SCOPE_EXPRESSION} AS scope,
                 (SELECT CASE WHEN count(DISTINCT o."lines") = 1 THEN min(o."lines") ELSE NULL END
                    FROM ${GIT_TABLES.file} o
                   WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS lines,
+                (SELECT CASE WHEN count(DISTINCT o."class") = 1 THEN min(o."class") ELSE NULL END
+                   FROM ${GIT_TABLES.file} o
+                  WHERE o."node_id" = n.id AND o."state" = 'open' AND o."context_id" = 1) AS class,
                 count(*) OVER ()::text AS total
          FROM node n JOIN entity k ON k.id = n.entity_id AND k.name = '${GIT_KINDS.file}'
          WHERE n.context_id = 1 AND NOT n.removed
@@ -742,6 +747,7 @@ export class GraphReader {
           path: row.path,
           repository: row.repository,
           scope: row.scope,
+          class: row.class,
           lines: row.lines === null ? null : Number(row.lines),
         })),
       };
