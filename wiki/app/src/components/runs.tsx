@@ -45,11 +45,11 @@ export function RunsSection({ context }: { readonly context: SectionContext }): 
                 <TextLink href={context.base + runAddress(run.runId)} onClick={(event) => { event.preventDefault(); context.open(runAddress(run.runId)); }} className="font-medium">
                   {momentWords(run.startedAt, language)}
                 </TextLink>
-                <Badge variant={run.phase === 'running' || run.phase === 'paused' ? 'solid' : 'outline'}>{t(`knowledge.fillRun.phase.${run.phase}`, { defaultValue: run.phase })}</Badge>
+                <Badge variant={run.phase === 'running' || run.phase === 'paused' ? 'solid' : 'outline'}>{t(`knowledge.fillRun.status.${run.phase}`, { defaultValue: run.phase })}</Badge>
                 {run.finishedAt === null ? null : <Paragraph className="m-0 text-small text-muted">{momentWords(run.finishedAt, language)}</Paragraph>}
               </Stack>
               <Paragraph className="m-0 mt-1 text-small text-secondary" data-testid="runs-summary">
-                {t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length })}
+                {t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })}
                 {' · '}{t('runs.took', { duration: durationWords(run.elapsedMs, language) })}
                 {failed === 0 ? '' : ` · ${t('runs.failedUnits', { count: failed })}`}
               </Paragraph>

@@ -124,6 +124,47 @@ test('a successful run reads unmistakably finished at the top, with its end time
   } finally { await page.close(); }
 });
 
+test('a run that published nothing is failed, never partial', async () => {
+  runAnswer = {
+    ...RUN, state: 'failed', phase: 'failed', final: true, finishedAt: new Date().toISOString(), remainingMs: null, publishedUnits: 0,
+    groups: [{ kind: 'demo.alpha', group: 'code', plugin: 'disk', done: 0, total: 2, state: 'failed', phase: 'failed' }],
+    units: [
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file', status: 'failed', phase: 'failed', generation: 1, attempts: 1 },
+      { unitId: 'disk:demo.alpha', stage: 'disk:demo.alpha', scope: 'file:b', status: 'skipped', phase: 'skipped', skippedBecause: 'unit disk:demo.alpha failed', generation: 1, attempts: 1 },
+    ],
+  };
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    expect(page.container.querySelector('[data-testid="fill-run-status-badge"]')?.textContent).toBe('Не удалось');
+    expect(page.container.querySelector('[data-testid="fill-run-final"]')?.getAttribute('data-phase')).toBe('failed');
+    expect(page.container.textContent).not.toContain('Частично');
+  } finally { await page.close(); }
+});
+
+test('unit counts use the locale plural rules for one, few, many and twenty-one', async () => {
+  const cases: readonly [number, string, string][] = [
+    [1, 'из 1 единицы', 'of 1 unit'],
+    [2, 'из 2 единиц', 'of 2 units'],
+    [5, 'из 5 единиц', 'of 5 units'],
+    [21, 'из 21 единицы', 'of 21 units'],
+  ];
+  for (const language of ['ru', 'en'] as const) {
+    await setWikiLanguage(language);
+    for (const [total, russian, english] of cases) {
+      runAnswer = {
+        ...RUN, state: 'succeeded', phase: 'succeeded', final: true, finishedAt: new Date().toISOString(), remainingMs: 0, publishedUnits: total,
+        units: Array.from({ length: total }, (_, at) => ({ unitId: `disk:demo.alpha`, stage: 'disk:demo.alpha', scope: `file:${String(at)}`, status: 'published', phase: 'done', generation: 1, attempts: 1 })),
+        groups: [],
+      };
+      const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+      try {
+        const text = page.container.textContent ?? '';
+        expect(text).toContain(language === 'ru' ? russian : english);
+      } finally { await page.close(); }
+    }
+  }
+});
+
 test('a finished partial run shows its final state, not a remaining time, and names its skipped units', async () => {
   runAnswer = {
     ...RUN, state: 'completed_partial', phase: 'partial', final: true, finishedAt: new Date().toISOString(), remainingMs: null,

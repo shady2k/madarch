@@ -171,7 +171,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
             <Badge variant={terminal ? 'solid' : 'outline'} className="px-2 py-0.5 text-small" data-testid="fill-run-status-badge">{t(`knowledge.fillRun.status.${run.phase}`, { defaultValue: run.phase })}</Badge>
             {finished === null ? null : <Text className="text-small text-muted" data-testid="fill-run-ended">{finished} · {t('knowledge.fillRun.duration', { seconds: seconds(elapsed) })}</Text>}
           </Stack>
-          <CardTitle>{run.units.length === 0 ? emptyWords : t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length })}</CardTitle>
+          <CardTitle>{run.units.length === 0 ? emptyWords : t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })}</CardTitle>
           {terminal && (run.phase === 'partial' || run.phase === 'failed') ? (
             <Alert variant="problem" className="mt-2" data-testid="fill-run-final" data-phase={run.phase}>
               <AlertTitle data-testid="fill-run-final-title">{t('knowledge.fillRun.attention')}</AlertTitle>
@@ -185,7 +185,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
           {names.length === 0 ? null : <Paragraph className="m-0 text-small text-muted" data-testid="fill-run-selection">{names.join(', ')}</Paragraph>}
         </CardHeader>
         <CardContent>
-          {run.units.length > 0 && !terminal ? <Progress value={run.publishedUnits} max={run.units.length} aria-label={t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length })} /> : null}
+          {run.units.length > 0 && !terminal ? <Progress value={run.publishedUnits} max={run.units.length} aria-label={t('knowledge.fillRun.count', { done: run.publishedUnits, total: run.units.length, count: run.units.length })} /> : null}
           <Paragraph className="mt-3 text-small" data-testid="fill-run-time">
             {t('knowledge.fillRun.elapsed', { seconds: seconds(elapsed) })}{terminal ? null : <> · {run.remainingMs === null ? t('knowledge.fillRun.remainingUnknown') : t('knowledge.fillRun.remaining', { seconds: seconds(run.remainingMs) })}</>}
           </Paragraph>
@@ -214,7 +214,7 @@ export function RunSection({ context }: { readonly context: SectionContext }): R
                     {kind} · {pluginName(group.plugin) === undefined ? <InlineCode>{group.plugin}</InlineCode> : pluginName(group.plugin)}
                   </Paragraph>
                   <Paragraph className="m-0 text-small text-muted">
-                    {group.total === 0 ? emptyWords : t('knowledge.fillRun.count', { done: group.done, total: group.total })} · {t(`knowledge.fillRun.phase.${group.phase}`, { defaultValue: group.phase })}
+                    {group.total === 0 ? emptyWords : t('knowledge.fillRun.count', { done: group.done, total: group.total, count: group.total })} · {t(`knowledge.fillRun.phase.${group.phase}`, { defaultValue: group.phase })}
                   </Paragraph>
                   {group.total > 0 ? <Progress value={group.done} max={group.total} aria-label={kind} /> : null}
                 </ListItem>
