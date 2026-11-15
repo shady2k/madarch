@@ -11,10 +11,10 @@ import { RUNS_PAGE } from '../address.js';
 
 export function RunIndicator({ base, open }: { readonly base: string; readonly open: (path: string) => void }): ReactElement | null {
   const { t } = useTranslation();
-  const status = useCommandRead<FillStatusAnswer>('run-indicator-status', (signal) => readFillStatus(base, signal));
+  const status = useCommandRead<FillStatusAnswer>('fill-status', (signal) => readFillStatus(base, signal));
   const fill = status.data?.fill;
   const requested = fill !== undefined && (fill.state === 'running' || fill.state === 'paused');
-  const detail = useCommandRead<{ run: FillRunDetail }>(`run-indicator:${fill?.runId ?? ''}`, (signal) => readFillRun(base, fill!.runId as string, signal), requested && fill?.runId !== undefined);
+  const detail = useCommandRead<{ run: FillRunDetail }>(`fill-run:${fill?.runId ?? ''}`, (signal) => readFillRun(base, fill!.runId as string, signal), requested && fill?.runId !== undefined);
   // The status poll can lag the run's own end; the run's state is the one that says whether it is still going.
   const runState = detail.data?.run.state;
   const runLive = runState === undefined || ['created', 'planning', 'running', 'pausing', 'cancelling', 'paused'].includes(runState);

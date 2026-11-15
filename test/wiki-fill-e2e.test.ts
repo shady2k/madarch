@@ -260,14 +260,13 @@ run('the fill flow on a product filled with disk and git', () => {
       await page.waitForSelector('[data-testid="first-run"]', { timeout: 60_000 });
       expect(await page.$eval('[data-testid="page-title"]', (element) => element.textContent?.trim() ?? '')).toBe('agent-plan');
       expect(await page.$('[data-testid="page-search"]')).toBeNull();
-      expect(await textOf(page)).not.toContain('Aggregate');
+      // The first-run guide states what madarch is and the three steps, and the preparation wizard stands inline.
+      expect(await textOf(page)).toContain('вики этого продукта');
+      expect(await textOf(page)).toContain('Проверьте набор видов');
+      await page.waitForSelector('[data-testid="prepare-panel"]', { timeout: 60_000 });
+      await page.waitForSelector('[data-testid="prepare-run"]', { timeout: 60_000 });
       await shotAt('first-run', 1440, 900);
       await shotAt('first-run', 390, 844);
-      await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
-      await page.click('[data-testid="first-run-start"]');
-      await page.waitForSelector('[data-testid="prepare-wizard"]', { timeout: 60_000 });
-      await shotAt('wizard-prepare', 1440, 900);
-      await shotAt('wizard-prepare', 390, 844);
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
       await page.goto(`${planServer!.url}/p/catalogue?select=1`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForSelector('[data-testid="catalogue-kind-check-code.file"]', { timeout: 60_000 });

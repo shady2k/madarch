@@ -13,7 +13,9 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PageView } = await import('../page.js');
+const { TooltipProvider } = await import('./ui/tooltip.js');
 const { setWikiLanguage } = await import('../i18n.js');
+const { reportOffline, reportOnline } = await import('../connection.js');
 
 afterAll(() => { GlobalRegistrator.unregister(); });
 
@@ -155,11 +157,11 @@ async function render(sections: Section[], variables: Record<string, unknown> = 
   const root = createRoot(container);
   const opened: string[] = [];
   await act(async () => {
-    root.render(createElement(PageView, {
+    root.render(createElement(TooltipProvider, null, createElement(PageView, {
       composition: { template: 'fill', operation: '', variables, sections, findings: [] },
       data: {},
       runtime: { base: '', language: 'ru', busy: false, variables, product: 'Portal', navigation: NAVIGATION, pageName: null, open: (path: string) => { opened.push(path); }, reload: () => undefined },
-    }));
+    })));
   });
   await settle();
   return { container, opened, close: async () => { await act(async () => { root.unmount(); }); container.remove(); } };
@@ -425,3 +427,21 @@ test('the run page shows progress per kind and plugin, a readable log, and contr
   }
 });
 
+test('the stop confirmation is disabled while the link is away', async () => {
+  const page = await render([section('run', 'run', { runVariable: 'run' })], { run: 'fill-run-1' });
+  try {
+    await act(async () => { (page.container.querySelector('[data-testid="run-stop"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect((document.querySelector('[data-testid="stop-confirm"]') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { reportOffline(); await Promise.resolve(); });
+    await settle();
+    expect((document.querySelector('[data-testid="stop-confirm"]') as HTMLButtonElement).disabled).toBe(true);
+    const before = requests.filter((one) => one.path.endsWith('/api/stop')).length;
+    await act(async () => { (document.querySelector('[data-testid="stop-confirm"]') as HTMLButtonElement).click(); });
+    await settle();
+    expect(requests.filter((one) => one.path.endsWith('/api/stop'))).toHaveLength(before);
+  } finally {
+    await page.close();
+    reportOnline();
+  }
+});

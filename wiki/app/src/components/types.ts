@@ -27,4 +27,6 @@ export interface SectionContext {
   readonly onRole?: (role: string) => void;
   /** The frame page or template page the address names, when it names one; an entity's page trails its kind instead. */
   readonly pageName: string | null;
+  /** Kinds a unit publication just changed: a row that shows one wears a short highlight. */
+  readonly changedKinds?: ReadonlySet<string>;
 }

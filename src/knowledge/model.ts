@@ -272,3 +272,14 @@ export interface StatusKind {
   kind: string;
   count: number;
 }
+
+/**
+ * One notice the wiki's change stream carries (madarch-64o5.91): the graph's revision, the kinds a unit publication
+ * changed with the facts it wrote, or the product's structure (its manifest and templates) moving.
+ */
+export interface ChangeNotice {
+  readonly revision: string;
+  readonly kinds?: readonly string[];
+  readonly facts?: number;
+  readonly structure?: boolean;
+}

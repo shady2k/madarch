@@ -1,4 +1,18 @@
 {
+  "kinds": {
+    "name": "Kind",
+    "count": "Entities"
+  },
+  "connection": {
+    "offline": "No connection to the madarch server — reconnecting…",
+    "starting": "The server is starting…",
+    "restored": "Connection restored",
+    "retryIn": "next attempt in {{seconds}} s",
+    "checking": "checking the connection…",
+    "retryNow": "Retry now",
+    "dataAsOf": "data as of {{time}}",
+    "actionsDisabled": "The server cannot be reached. This action will be available when the connection returns."
+  },
   "facts": {
     "loading": "Reading facts…",
     "empty": "No facts are declared for this reader role.",
@@ -1604,8 +1618,10 @@
   },
   "firstRun": {
     "title": "First run",
-    "intro": "The graph is empty. This is a recommended set of {{count}} kinds; change it if you need to, then start the fill.",
-    "start": "Prepare the first fill",
+    "what": "Madarch is the wiki of this product: it reads the product repository and the code repositories the product connects, and fills the wiki from them. A fill does that reading; plugins take the parts a program can decide, and an agent takes the parts that need judgement.",
+    "stepOne": "Check the set of kinds the wiki should hold.",
+    "stepTwo": "Choose who fills: plugins only, or an agent where a field needs judgement.",
+    "stepThree": "Start the fill and follow its run.",
     "manual": "Choose in the catalogue"
   },
   "prepare": {
@@ -1618,6 +1634,9 @@
     "productRepository": "Product repository",
     "repositoryNotFilled": "Not filled",
     "finalSet": "What will be filled",
+    "inlineSet": "{{count}} kinds will be filled.",
+    "openPlan": "Open the whole plan",
+    "unfilledInline": "Without an agent, {{count}} kinds keep some fields empty. The whole plan names them.",
     "neededFor": "needed for {{kind}}",
     "pluginsLine": "Plugins fill:",
     "agentLine": "The agent fills: {{fields}}",
