@@ -289,7 +289,8 @@ class Builder {
       { name: 'taken', type: 'Boolean!' },
       { name: 'plugins', type: '[String!]!' },
       { name: 'fields', type: '[CatalogueField!]!' },
-      { name: 'instances', type: 'EntityConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
+      // The kind's records: the page searches, filters and sorts them on the server, and the graph pages them (madarch-64o5.128).
+      { name: 'instances', type: 'EntityConnection!', args: [{ name: 'where', type: 'JSON' }, { name: 'orderBy', type: 'JSON' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'instancesAggregate', type: 'Aggregate!', args: [{ name: 'where', type: 'JSON' }, { name: 'lang', type: 'String' }] },
       { name: 'derivesFrom', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },
       { name: 'derivedBy', type: `${connection}!`, args: [...relationArgs, { name: 'lang', type: 'String' }] },

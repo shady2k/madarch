@@ -201,6 +201,13 @@ export function composePage(bootstrap: Bootstrap, address: PageAddress): PageCom
         values[used] = typeof pageSize === 'number' ? pageSize : 50;
         continue;
       }
+      // A table's own filter and order (madarch-64o5.128): the page supplies them and the server does the work, so the
+      // operation declares them as JSON and no row is filtered here.
+      const table = /^(.+)_(where|orderBy)$/u.exec(used);
+      if (table !== null && table[1] === section.id) {
+        declarations.set(used, 'JSON');
+        continue;
+      }
       const declared: TemplateVariable | undefined = resolved.resolved.variables[used];
       if (declared === undefined) {
         findings.push({ file: 'templates', line: section.line, path: `sections.${section.id}.query`, message: `the query of "${section.id}" uses $${used}, and the template declares no such variable (it declares $id, $lang, $role and its own $${section.id}_first and $${section.id}_after)` });
