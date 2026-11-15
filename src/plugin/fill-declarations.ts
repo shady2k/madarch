@@ -541,10 +541,16 @@ export function planManifestFill(manifest: KindsManifest, folder: string, select
   const fieldOf = (kind: string, field: string) => manifest.kinds.get(kind)?.fields?.find((one) => one.name === field);
   const askedSet = new Set(requested);
   for (const kind of plan.selectedKinds) {
-    if (!askedSet.has(kind) || unavailable.has(kind) || nothingToFill.has(kind)) continue;
+    if (unavailable.has(kind) || nothingToFill.has(kind)) continue;
     const authored = authoredFields(kind);
     const empty = [...plan.fieldProducers(kind)].filter(([field, producers]) => producers.length === 0 && !authored.has(field)).map(([field]) => field);
     if (empty.length === 0) continue;
+    if (!askedSet.has(kind)) {
+      // A kind this fill pulls in only as a prerequisite or input is not asked for: its agent-bound fields are unfilled
+      // here, and named so the page can say so, rather than refused or silently filled (madarch-64o5.102, 64o5.63).
+      skipped.push({ kind, fields: empty.sort(byCodePoint), reason: 'the agent fills it, and this fill does not ask for this kind' });
+      continue;
+    }
     const named = empty.filter((field) => fieldOf(kind, field)?.binding?.kind === 'plugin' && manifest.plugins?.has((fieldOf(kind, field)!.binding as { plugin: string }).plugin) !== true);
     if (named.length > 0) {
       const error = fillPlanError(manifest, kind);

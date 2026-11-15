@@ -385,3 +385,14 @@ test('the clean-install walk\'s fixture plans nothing: a fieldless kind with no 
   expect(plan.agentNeeds).toEqual([]);
   expect(plan.selectedKinds).toEqual(['code.file']);
 });
+
+test('an agent chosen fills a pulled-in dependency\'s agent-bound field too: Домены over Файлы with state_machines', () => {
+  // The owner's refusal (madarch-64o5.102): selecting Домены pulls in Файлы, whose state_machines only the agent fills.
+  // The agent is the filler of last resort for a dependency as much as for the asked kind, so the run starts.
+  const manifest = manifestOf([kind('File', ['title', 'state_machines']), kind('Domain', ['title'], ['File'])], [plugin('index', [output('File', ['title']), output('Domain', ['title'])]), general(['File'])]);
+  const plan = planManifestFill(manifest, '/product', ['Domain'], true, ['Domain']);
+  expect(plan.errors).toEqual([]);
+  expect([...plan.selectedKinds]).toContain('Domain');
+  // The dependency's agent-bound field is named among the unfilled, not refused and not silently planned.
+  expect(plan.skipped).toEqual([{ kind: 'File', fields: ['state_machines'], reason: 'the agent fills it, and this fill does not ask for this kind' }]);
+});
