@@ -57,10 +57,8 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
       const assertions = loaded[index]!;
       const ownIdentities = identityGroups[request.index]!;
       const slots = new Map(selectAssertionSlots(assertions, temporal));
-      const resolvedIds = new Set<string>();
       if (disputable) {
         const chosenIds = new Set(disputes.flatMap(slot => slot.sort === sort && slot.kind === kind && slot.dispute.selectedAssertionUid !== null ? [slot.dispute.selectedAssertionUid] : []));
-        for (const id of chosenIds) resolvedIds.add(id);
         for (const [key, selection] of slots) {
           const chosen = selection.candidates.find(row => chosenIds.has(row.id));
           if (chosen !== undefined) slots.set(key, { ...selection, selected: chosen, contested: false });
@@ -87,8 +85,7 @@ export async function readKindsAssertions(tx: SqlExecutor, requests: readonly As
         const ownSlots = subjectSlots.get(Number(row.id)) ?? [];
         const values = Object.fromEntries(own.filter(a => selected.has(a.id)).map(a => [a.property,a.value]));
         const existence = ownSlots.filter(slot => slot.candidates.some(candidate => candidate.property === '$exists'));
-        const decided = existence.flatMap(slot => slot.candidates.filter(candidate => resolvedIds.has(candidate.id)));
-        const exists = decided.length > 0 ? decided.some(candidate => candidate.value === true) : existence.some(slot => slot.candidates.some(candidate => candidate.value === true));
+        const exists = existence.some(slot => slot.selected?.value === true);
         if (!exists) return [];
         values['$exists'] = true;
         const activeSources = [...new Set(existence.flatMap(slot => slot.candidates.filter(a => a.value === true).map(a => a.source)))];
