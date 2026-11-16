@@ -4,25 +4,36 @@
  * scheme. The wiki app carries no highlighter of its own; shiki is the one the kit's `SyntaxToken` was written for (its
  * `colors` and `fontStyle` are shiki's), and it is added as a dependency for this page's source only.
  */
-import { bundledLanguagesInfo, type ThemedToken } from 'shiki';
+import { bundledLanguagesInfo, createHighlighter, createJavaScriptRegexEngine, type ThemedToken } from 'shiki';
 
 /** One line of tokens, as the kit's file source draws it. */
 export type HighlightedLine = readonly ThemedToken[];
 /**
- * The grammars the highlighter can draw, read from shiki's own registry: the engine keeps no list of its own, and the words
- * a graph names a language by are the registry's ids and aliases.
+ * The grammars the highlighter draws, named by the registry's own aliases and resolved to its ids: a fixed set, so a shiki
+ * release that adds a grammar (or renames one) cannot change what a product's file is drawn as. The aliases are the file
+ * extensions and the graph's language words; none of them is a word of the product catalogue, which the app may not spell.
  */
-const GRAMMARS: readonly { readonly id: string; readonly aliases?: readonly string[] }[] = bundledLanguagesInfo;
+const WANTED_ALIASES: readonly string[] = ['ts', 'tsx', 'js', 'jsx', 'json', 'yaml', 'yml', 'md', 'mdx', 'sh', 'bash', 'sql', 'go', 'xml', 'html', 'css', 'py', 'rs', 'toml', 'diff'];
 
-/** The registry's grammar a word names: its id or one of its aliases, or undefined when no grammar claims the word. */
+/** The registry's entries for those aliases: one entry a grammar, its aliases included, in code point order of its id. */
+const GRAMMARS: readonly { readonly id: string; readonly aliases?: readonly string[] }[] = (() => {
+  const found = new Map<string, { readonly id: string; readonly aliases?: readonly string[] }>();
+  for (const alias of WANTED_ALIASES) {
+    const held = bundledLanguagesInfo.find((one) => one.id === alias || (one.aliases ?? []).includes(alias));
+    if (held !== undefined) found.set(held.id, held);
+  }
+  return [...found.values()].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+})();
+
+/** The grammar of the drawn set a word names: its id or one of its aliases, or undefined when the set holds none. */
 function grammarNamed(word: string): string | undefined {
   if (word === '') return undefined;
   return GRAMMARS.find((one) => one.id === word || (one.aliases ?? []).includes(word))?.id;
 }
 
 /**
- * The grammar one of the graph's language words names, or undefined when the shipped grammars carry none. A word the graph
- * does not name falls back to the file's extension, and the extension goes through the same registry.
+ * The grammar one of the graph's language words names, or undefined when the drawn grammars carry none. A word the graph
+ * does not name falls back to the file's extension, and the extension is resolved through the same set.
  */
 export function grammarOf(language: string | undefined, path?: string): string | undefined {
   const word = (language ?? '').trim().toLowerCase();
@@ -72,14 +83,25 @@ function themeWithScopes(): Record<string, unknown> {
   };
 }
 
-/** The one highlighter this page opens, made on first use and kept for the page's life. */
-let highlighter: Promise<{ codeToTokens: (text: string, options: { lang: string; theme: unknown }) => { tokens: ThemedToken[][] } }> | undefined;
+/**
+ * The one highlighter this page opens, made on first use and kept for the page's life. Its engine is named: shiki's
+ * default is a WASM build whose load differs by architecture and by what a runner's install kept, and a page whose tokens
+ * depend on that draws plain text on one machine and coloured text on another. The JavaScript regex engine is the same
+ * code everywhere. The theme is loaded once, by name, so every call colours a token from it and never from a per-call
+ * registration.
+ */
+const THEME_NAME = 'madarch-kit';
+
+let highlighter: Promise<{ codeToTokens: (text: string, options: { lang: string }) => { tokens: ThemedToken[][] } }> | undefined;
 
 async function highlighterOf(): Promise<NonNullable<Awaited<typeof highlighter>>> {
   highlighter ??= (async () => {
-    const { createHighlighter } = await import('shiki');
-    const created = await createHighlighter({ themes: [themeWithScopes() as never], langs: GRAMMARS.map((one) => one.id) });
-    return { codeToTokens: (text: string, options: { lang: string; theme: unknown }) => created.codeToTokens(text, options as never) };
+    const created = await createHighlighter({
+      engine: createJavaScriptRegexEngine(),
+      themes: [themeWithScopes() as never],
+      langs: GRAMMARS.map((one) => one.id),
+    });
+    return { codeToTokens: (text: string, options: { lang: string }) => created.codeToTokens(text, { lang: options.lang as never, theme: THEME_NAME }) };
   })();
   return await highlighter;
 }
@@ -96,7 +118,7 @@ export async function highlightLines(text: string, language: string | undefined)
   if (language === undefined || text.trim() === '') return lines.map((line) => [{ content: line, color: 'var(--text)', offset: 0 }]);
   try {
     const engine = await highlighterOf();
-    const tokens = engine.codeToTokens(text, { lang: language, theme: themeWithScopes() }).tokens;
+    const tokens = engine.codeToTokens(text, { lang: language }).tokens;
     // A trailing newline ends the last line rather than starting an empty one, as the lines' own count does.
     if (text.endsWith('\n') && tokens.length > lines.length) return tokens.slice(0, lines.length);
     return tokens;

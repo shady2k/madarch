@@ -1195,12 +1195,15 @@ export class ReadContext {
       const table = this.vertexTable.get(kind);
       if (table === undefined) return null;
       // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
-      const found = await this.tx.query<{ blob: unknown }>(
-        `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
           WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
-            AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`,
-        [roles.repository, repository, roles.path, path],
-      );
+            AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<{ blob: unknown }>(statementSql, [roles.repository, repository, roles.path, path]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
       const blob = found.rows[0]?.blob;
       if (typeof blob !== 'string' || blob === '') return null;
       // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and

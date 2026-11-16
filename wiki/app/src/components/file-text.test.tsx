@@ -3,7 +3,7 @@
  * rendered by the Sources page's own component with a Rendered / Source switch, shows any other text as source with line
  * numbers, and says a binary file has no text. The server's read is mocked here; the plugin read is tested in the repo.
  */
-import { afterAll, beforeEach, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -11,13 +11,9 @@ GlobalRegistrator.register({ url: 'http://localhost/' });
 (globalThis as { EventSource?: unknown }).EventSource = undefined;
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
-// The highlighter is tested on its own (file-highlight.test.ts); here it answers tokens, so the section's drawing is what
-// the test holds.
-mock.module('./file-highlight.js', () => ({
-  grammarOf: () => 'typescript',
-  plainLines: (text: string) => text.replace(/\n$/u, '').split('\n').map((line) => [{ content: line, color: 'var(--text)' }]),
-  highlightLines: async (text: string) => text.replace(/\n$/u, '').split('\n').map((line) => [{ content: line, color: line.includes('const') ? 'var(--syntax-keyword)' : 'var(--text)' }]),
-}));
+// The highlighter runs for real, as the page runs it: mocking it here would register a module replacement for the rest of
+// the test process, and the highlighter's own test then reads the replacement instead of shiki (its engine draws a
+// TypeScript line in a few hundred milliseconds).
 const { FileTextSection } = await import('./file-text.js');
 const { setWikiLanguage } = await import('../i18n.js');
 
