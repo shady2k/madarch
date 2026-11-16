@@ -136,19 +136,20 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         CROSS JOIN (VALUES ${vertexKinds.map(name => `(${literal(name)})`).join(',')}) k(name)
         CROSS JOIN LATERAL graph_vertex_active_ids(k.name,ctx.id) active(id)
       )`;
-      relationChecks.push(`IF EXISTS(${active}
+      const failures = [`WHEN EXISTS(
         SELECT 1 FROM active_edges e
         WHERE NOT EXISTS(SELECT 1 FROM active_vertices f WHERE f.context_id=e.context_id AND f.id=e.from_node AND f.kind=ANY(ARRAY[${kind.from.map(literal).join(',')}]::text[]))
-          OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[])))
-        THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;`);
+          OR NOT EXISTS(SELECT 1 FROM active_vertices t WHERE t.context_id=e.context_id AND t.id=e.to_node AND t.kind=ANY(ARRAY[${kind.to.map(literal).join(',')}]::text[]))) THEN 1`];
       for (const [direction, ends, bound] of [['from',kind.from,kind.cardinality.to],['to',kind.to,kind.cardinality.from]] as const) {
         if (bound === 'many') continue;
-        relationChecks.push(`IF EXISTS(${active}
+        failures.push(`WHEN EXISTS(
           SELECT 1 FROM active_vertices n LEFT JOIN active_edges e ON e.context_id=n.context_id AND e.${direction}_node=n.id
           WHERE n.kind=ANY(ARRAY[${ends.map(literal).join(',')}]::text[])
-          GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'})
-          THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
+          GROUP BY n.context_id,n.id HAVING count(e.id) ${bound==='one'?'<> 1':bound==='some'?'< 1':'> 1'}) THEN 2`);
       }
+      relationChecks.push(`${active} SELECT CASE ${failures.join(' ')} ELSE 0 END INTO violation;
+        IF violation=1 THEN RAISE EXCEPTION '${import.meta.path}:118: TARGET_MISSING or END_KIND_INVALID for %',${edgeKind}; END IF;
+        IF violation=2 THEN RAISE EXCEPTION '${import.meta.path}:125: CARDINALITY_INVALID for %',${edgeKind}; END IF;`);
     }
     await tx.query(`CREATE OR REPLACE FUNCTION graph_relations_dirty() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
@@ -156,7 +157,7 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         RETURN NEW;
       END $$`);
     await tx.query(`CREATE OR REPLACE FUNCTION graph_relations_check() RETURNS trigger LANGUAGE plpgsql AS $$
-      DECLARE revision text; BEGIN
+      DECLARE revision text; violation integer; BEGIN
       revision := current_setting('madarch.graph_revision',true);
       IF current_setting('madarch.checked_graph_revision',true)=revision THEN RETURN NULL; END IF;
       ${relationChecks.join('\n')}
