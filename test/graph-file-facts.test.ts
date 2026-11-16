@@ -4,6 +4,8 @@
  */
 import { assertionValueTableName, type GraphContract } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
+import { loadAssertions } from '../src/graph/assertion-read.js';
+import type { SqlExecutor } from '../src/sql-driver.js';
 import { expect, test } from 'bun:test';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
 import { GIT_KINDS } from '../src/fill/stages/git-contract.js';
@@ -58,4 +60,33 @@ test('a file kind with a class reads that column', async () => {
   const facts = await held.reader.fileFacts('', 10);
   expect(facts.rows[0]?.class).toBe('generated');
   expect(held.queries.join('\n')).toContain(assertionValueTableName(GIT_KINDS.file, 'vertex', 'class'));
+});
+
+
+test('typed assertion JSON preserves exact sequences without changing internal values', async () => {
+  const at = '2026-01-01T00:00:00.000Z';
+  const raw = {
+    request_index: 0, id: 'assertion', subject_id: 1, subject_uid: 'file',
+    edge_from: null, edge_to: null, context_id: 1, language: null,
+    source: 'source', author: 'author', unit: null, operation_uid: 'operation', evidence: [],
+    operation: 'assert', valid_from: at, valid_to: null, recorded_at: at,
+    recorded_sequence: '9007199254740993',
+  };
+  const tx = { query: async () => ({ rows: [
+    { ...raw, property: 'lines', value: '700', value_type: 'bigint' },
+    { ...raw, property: 'bytes', value: '9007199254740993', value_type: 'bigint' },
+    { ...raw, property: 'date', value: '2026-01-01T00:00:00+00:00', value_type: 'timestamp with time zone' },
+  ] }) } as unknown as SqlExecutor;
+  const stored = await loadAssertions(tx, 'vertex', GIT_KINDS.file, ['lines', 'bytes', 'date']);
+  expect(stored.map(row => row.value)).toEqual([700, '9007199254740993', at]);
+  for (const row of stored) {
+    expect(typeof row.recordedSequence).toBe('bigint');
+    expect(row.recordedSequence).toBe(9007199254740993n);
+    expect(Object.keys(row)).not.toContain('toJSON');
+  }
+  const serialized = JSON.parse(JSON.stringify(stored));
+  expect(serialized.map((row: { recordedSequence: string }) => row.recordedSequence)).toEqual([
+    '9007199254740993', '9007199254740993', '9007199254740993',
+  ]);
+  expect(serialized.map((row: { value: unknown }) => row.value)).toEqual([700, '9007199254740993', at]);
 });

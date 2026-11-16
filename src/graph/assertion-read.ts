@@ -19,6 +19,10 @@ export interface AssertionReadRequest {
   readonly subjectIds?: readonly number[];
 }
 
+function assertionJSON(this: StoredAssertion): Omit<StoredAssertion, 'recordedSequence'> & { recordedSequence: string } {
+  return { ...this, recordedSequence: this.recordedSequence.toString() };
+}
+
 /** Numeric ids are internal joins only; all exposed identities are graph uids. */
 export async function loadAssertions(executor: SqlExecutor, sort: 'vertex' | 'edge', kind: string, properties: readonly string[], subjectIds?: readonly number[]): Promise<StoredAssertion[]> {
   return (await loadAssertionsBatch(executor, [{ sort, kind, properties, ...(subjectIds === undefined ? {} : { subjectIds }) }]))[0]!;
@@ -78,14 +82,16 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
       const text = (value: string | Date): string => value instanceof Date ? value.toISOString() : value;
       for (const row of rows) {
         const request = requests[row.request_index]!;
-        result[row.request_index]!.push({
+        const assertion = {
         id: row.id,
         subject: request.sort === 'vertex' ? { type: 'vertex', uid: row.subject_uid } : { type: 'edge', id: row.subject_uid, kind: request.kind, from: row.edge_from!, to: row.edge_to! },
         subjectId: Number(row.subject_id), property: row.property, context: Number(row.context_id), language: row.language,
         source: row.source, author: row.author, unit: row.unit, operationUid: row.operation_uid, evidence: row.evidence,
         value: row.value_type === 'bigint' && typeof row.value === 'string' && Number.isSafeInteger(Number(row.value)) ? Number(row.value) : row.value_type==='timestamp with time zone'&&typeof row.value==='string' ? new Date(row.value).toISOString() : row.value instanceof Date ? row.value.toISOString() : row.value, operation: row.operation, validFrom: text(row.valid_from), validTo: row.valid_to === null ? null : text(row.valid_to),
         recordedAt: text(row.recorded_at), recordedSequence: BigInt(row.recorded_sequence),
-      });
+      } satisfies StoredAssertion;
+        Object.defineProperty(assertion, 'toJSON', { value: assertionJSON });
+        result[row.request_index]!.push(assertion);
       }
     return result;
   });
