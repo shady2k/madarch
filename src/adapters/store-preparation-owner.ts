@@ -13,28 +13,47 @@ const TOKEN = 'MADARCH_STORE_OWNER_TOKEN';
 export async function withStorePreparationOwner<T>(work: () => Promise<T>): Promise<T> {
   if (process.env['MADARCH_ROLE'] === 'api' || process.env['MADARCH_ROLE'] === 'fill') throw new Error('an API or fill role cannot own schema preparation (src/product/store-preparation.ts)');
   if (process.env[ADDRESS] !== undefined) return await work();
+  const lifetime = new AbortController();
+  const stop = (): void => { lifetime.abort(new Error(`${import.meta.path}:17: the store preparation owner is stopping`)); };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  const { signal } = lifetime;
+  // The scope keeps the pool; preparation only borrows its shutdown lifetime.
+  const preparing = (owner: DatabaseOwner): DatabaseOwner => ({
+    location: owner.location, ready: owner.ready, allowConcurrentSnapshots: owner.allowConcurrentSnapshots, hasVector: owner.hasVector,
+    transaction: (kind, work, options) => owner.transaction(kind, work, { signal: options?.signal === undefined ? signal : AbortSignal.any([signal, options.signal]) }),
+    // pg-boss sends its own transaction batches. Fence admission without changing their transaction boundaries.
+    run: (work) => { signal.throwIfAborted(); return owner.run(work); },
+    exec: (text) => { signal.throwIfAborted(); return owner.exec(text); },
+    close: owner.close.bind(owner),
+  });
   const owners = new Map<string, DatabaseOwner>();
   const prepared = new Map<string, Map<string, string>>();
   let tail: Promise<unknown> = Promise.resolve();
   const ownerOf = async (store: string, database?: string): Promise<DatabaseOwner> => {
+    signal.throwIfAborted();
     const key = JSON.stringify([resolve(store), database ?? 'madarch']);
     let owner = owners.get(key);
     if (owner === undefined) {
       owner = await createDatabaseOwner({ store: resolve(store), ...(database === undefined ? {} : { database }) });
       owners.set(key, owner);
     }
-    return owner;
+    signal.throwIfAborted();
+    return preparing(owner);
   };
   const prepare = async (body: PreparationRequest): Promise<void> => {
+    signal.throwIfAborted();
     const store = resolve(body.store);
     if (body.histories === true || body.rename !== undefined) {
       prepared.delete(store);
       const lease = await leaseStoreCluster(resolve(body.store));
       try {
+        signal.throwIfAborted();
         if (body.rename !== undefined) {
           const key = JSON.stringify([resolve(body.store), body.rename.from]);
           await owners.get(key)?.close();
           owners.delete(key);
+          signal.throwIfAborted();
           await renameClusterDatabase(lease.ref, body.rename.from, body.rename.to);
         } else {
           for (const database of await clusterDatabases(lease.ref)) {
@@ -63,6 +82,7 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
     } finally {
       if (process.env.MADARCH_STARTUP_TIMING === '1') console.error(`startup schema.prepare ${(performance.now() - started).toFixed(1)} ms ${store}`);
     }
+    signal.throwIfAborted();
     const databases = prepared.get(store) ?? new Map<string, string>();
     databases.set(database, stamp ?? 'prepared');
     prepared.set(store, databases);
@@ -71,8 +91,10 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     if (req.method !== 'POST' || req.headers.get('authorization') !== `Bearer ${token}`) return new Response('unauthorized', { status: 403 });
     try {
+      signal.throwIfAborted();
       const body = await req.json() as PreparationRequest;
       if (typeof body.store !== 'string' || body.store === '') return new Response('store is required', { status: 400 });
+      signal.throwIfAborted();
       const pending = tail.then(async () => await prepare(body));
       tail = pending.catch(() => undefined);
       await pending;
@@ -83,6 +105,9 @@ export async function withStorePreparationOwner<T>(work: () => Promise<T>): Prom
   process.env[TOKEN] = token;
   try { return await work(); }
   finally {
+    stop();
+    process.off('SIGTERM', stop);
+    process.off('SIGINT', stop);
     if (process.env[TOKEN] === token && process.env[ADDRESS] === server.url.origin) {
       delete process.env[ADDRESS]; delete process.env[TOKEN];
     }
