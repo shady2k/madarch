@@ -53,13 +53,18 @@ This existing coverage entry is narrower than the whole cutover. Complete capabi
 ### Current status: unaccepted work in progress
 No final green backend, architecture, wiki, mutation or whole-stage acceptance is claimed. Concurrent implementation reports and older targeted results do not establish the current working tree's result. The coordinator must validate the final integrated tree serially and retain every failure and limitation.
 
-At this update, the following checks remain pending:
-- Scalar false selected-existence behavior and deferred constraints, including required relation lower bounds, against the canonical projection.
-- The new bounded 100-entry metadata regression and its query/work bound, without increasing test timeouts.
-- Complete integrated validation of typed scalar keys without node.key fact fallback; grants and permission scope at all writer doors; context and language selection; disputes, evidence invalidation, mentions and all effective readers.
-- Whole-cutover capability specifications and coverage, static checks with no gained architecture debt, backend and wiki suites, relevant bounded mutation checks, independent review and stage acceptance.
+Verified intermediate recovery milestones reported by the coordinator:
+- A normal hooked local WIP checkpoint commit succeeded: a699a96a. The privacy hook is no longer blocking this checkpoint; no hook bypass occurred. This is a recovery checkpoint, not an accepted cutover or stage closure.
+- Root static and architecture check run 24 passed with 874 of 874 findings matched and zero gained findings against the 1,241-entry baseline comparison.
+- Resolved-false public/core coverage passed 8 tests with 91 assertions, including restart, person, plugin, session and standalone fill paths. The bounded metadata regression passed 30 of 30 checks. These are targeted results, not full-suite evidence; no test timeout was increased.
+- The actual first fill completed within its unchanged 120-second bound, at about 79 seconds, but failed: git output classified an ensure-only vertex as a removal. The implementation fix is in progress; this run is not a passing fill.
 
-The privacy hook blocked local commits. Hooks have not been disabled, and no successful cutover commit or accepted patch series is claimed here. Work must remain preserved as a patch until the hook permits a normal commit. This document update creates no commit and changes no source or test file.
+At this update, the following checks remain pending:
+- The git-output correction and a passing actual first fill under the original bound.
+- Complete integrated validation of typed scalar keys without node.key fact fallback; grants and permission scope at all writer doors; context and language selection; disputes, evidence invalidation, mentions and all effective readers.
+- Whole-cutover capability specifications and coverage, the full backend suite, final integrated wiki validation, relevant bounded mutation checks, independent review and stage acceptance. Targeted intermediate results do not replace these obligations.
+
+The coordinator retains the checkpoint and refreshes the patch series against f438fd54. This document update creates no commit and changes no source or test file. No task is closed or labelled accepted by this record.
 
 ### Historical endpoint increment only
 The following results belong to the earlier endpoint-only increment, not the present whole cutover or its current revision:

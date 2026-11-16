@@ -44,13 +44,16 @@ export function pluginInvocationAccess(graph: GraphAnswerer, scope: {
     assertAllowed(): void { if (violation !== undefined) throw violation; },
     assertWrites(result: { readonly vertices?: Readonly<NonNullable<PluginFactsApplyRequest['operation']['vertices']>>; readonly edges?: Readonly<NonNullable<PluginFactsApplyRequest['operation']['edges']>>; readonly removals?: Readonly<NonNullable<PluginFactsApplyRequest['operation']['removals']>> }): void {
       if (violation !== undefined) throw violation;
-      for (const vertex of [...(result.vertices ?? []), ...(result.removals ?? [])]) {
+      for (const vertex of result.vertices ?? []) {
         const support = scope.supportOutputs?.get(vertex.kind);
         if (vertex.kind !== scope.output && support === undefined) deny(`write of unselected output ${vertex.kind}; this invocation selects only ${scope.output}`);
-        if (support !== undefined && !('values' in vertex)) deny(`support output ${vertex.kind} cannot be removed`);
-        for (const field of Object.keys('values' in vertex ? vertex.values ?? {} : {})) {
+        for (const field of Object.keys(vertex.values ?? {})) {
           if (!(support ?? scope.fields).includes(field)) deny(`write of undeclared selected field ${vertex.kind}.${field}`);
         }
+      }
+      for (const removal of result.removals ?? []) {
+        if (scope.supportOutputs?.has(removal.kind)) deny(`support output ${removal.kind} cannot be removed`);
+        if (removal.kind !== scope.output) deny(`write of unselected output ${removal.kind}; this invocation selects only ${scope.output}`);
       }
       for (const edge of result.edges ?? []) if (!scope.edges.includes(edge.kind)) deny(`write of unselected edge ${edge.kind}`);
     },

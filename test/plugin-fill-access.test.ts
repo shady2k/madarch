@@ -44,6 +44,7 @@ test('a selected support closure admits only its fields and never removes suppor
     edges: ['support-about'], supportOutputs: new Map([['Support', ['content']]]),
   });
   expect(() => scoped().assertWrites({ vertices: [{ kind: 'Support', key: { digest: 'sha' }, values: { content: 'source' } }], edges: [{ kind: 'support-about', from: { kind: 'Support', key: { digest: 'sha' } }, to: { kind: 'File', key: { path: 'source.ts' } } }] })).not.toThrow();
+  expect(() => scoped().assertWrites({ vertices: [{ kind: 'Support', key: { digest: 'sha' } }] })).not.toThrow();
   expect(() => scoped().assertWrites({ vertices: [{ kind: 'OtherSupport', key: {}, values: {} }] })).toThrow('unselected output');
   expect(() => scoped().assertWrites({ vertices: [{ kind: 'Support', key: { digest: 'sha' }, values: { private: 'hidden' } }] })).toThrow('Support.private');
   expect(() => scoped().assertWrites({ removals: [{ kind: 'Support', key: { digest: 'sha' } }] })).toThrow('cannot be removed');
