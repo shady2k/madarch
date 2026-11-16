@@ -73,7 +73,9 @@ test('POST /graphql answers the product graph through the one executor', async (
   const catalogue = await post({ query: '{ allCatalogueEntity(first: 1) { totalCount edges { node { name taken } } } }' });
   expect(catalogue.status).toBe(200);
   expect(catalogue.body.errors).toBeUndefined();
-  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(502);
+  const read = readKinds(product);
+  if (!read.present) throw new Error(`${product}/madarch/catalog.yaml:1: the fixture product holds no manifest`);
+  expect(catalogue.body.data.allCatalogueEntity.totalCount).toBe(read.manifest.catalog!.kinds.size);
 });
 
 test('POST /graphql refuses a query deeper than six levels', async () => {

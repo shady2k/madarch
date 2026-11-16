@@ -150,6 +150,25 @@ type BusinessProcessOwnerEdge {
   node: Entity!
 }
 
+type C4ComponentContainsConnection {
+  edges: [C4ComponentContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type C4ComponentContainsConnectionEdge {
+  cursor: String!
+  node: C4ComponentContainsEdge!
+}
+
+type C4ComponentContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type CatalogueEntity implements Entity {
   id: ID!
   kind: String!
@@ -541,6 +560,25 @@ type CodeDeclaredInConnectionEdge {
 }
 
 type CodeDeclaredInEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type CodeDirectoryContainsConnection {
+  edges: [CodeDirectoryContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeDirectoryContainsConnectionEdge {
+  cursor: String!
+  node: CodeDirectoryContainsEdge!
+}
+
+type CodeDirectoryContainsEdge {
   id: ID!
   discriminator: String!
   assertions: [Assertion!]!
@@ -1242,6 +1280,25 @@ type CodeMigrationRepositoryEdge {
   node: Entity!
 }
 
+type CodeModuleContainsConnection {
+  edges: [CodeModuleContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeModuleContainsConnectionEdge {
+  cursor: String!
+  node: CodeModuleContainsEdge!
+}
+
+type CodeModuleContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type CodeModuleFolderConnection {
   edges: [CodeModuleFolderConnectionEdge!]!
   pageInfo: PageInfo!
@@ -1428,6 +1485,25 @@ type CodeRouteServiceConnectionEdge {
 }
 
 type CodeRouteServiceEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type CodeServiceContainsConnection {
+  edges: [CodeServiceContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeServiceContainsConnectionEdge {
+  cursor: String!
+  node: CodeServiceContainsEdge!
+}
+
+type CodeServiceContainsEdge {
   id: ID!
   discriminator: String!
   assertions: [Assertion!]!
@@ -1763,6 +1839,25 @@ type CommentAuthorEdge {
   node: Entity!
 }
 
+type ComponentImplementedByConnection {
+  edges: [ComponentImplementedByConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ComponentImplementedByConnectionEdge {
+  cursor: String!
+  node: ComponentImplementedByEdge!
+}
+
+type ComponentImplementedByEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type ConstitutionProductConnection {
   edges: [ConstitutionProductConnectionEdge!]!
   pageInfo: PageInfo!
@@ -1776,6 +1871,25 @@ type ConstitutionProductConnectionEdge {
 }
 
 type ConstitutionProductEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type ContainerContainsComponentConnection {
+  edges: [ContainerContainsComponentConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ContainerContainsComponentConnectionEdge {
+  cursor: String!
+  node: ContainerContainsComponentEdge!
+}
+
+type ContainerContainsComponentEdge {
   id: ID!
   discriminator: String!
   assertions: [Assertion!]!
@@ -1943,6 +2057,25 @@ type DocumentRepositoryEdge {
   node: Entity!
 }
 
+type DomainContainsConnection {
+  edges: [DomainContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type DomainContainsConnectionEdge {
+  cursor: String!
+  node: DomainContainsEdge!
+}
+
+type DomainContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type DomainCoversConnection {
   edges: [DomainCoversConnectionEdge!]!
   pageInfo: PageInfo!
@@ -2023,6 +2156,44 @@ type EntityConnection {
 
 type EntityEdge {
   cursor: String!
+  node: Entity!
+}
+
+type EpicContainsConnection {
+  edges: [EpicContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type EpicContainsConnectionEdge {
+  cursor: String!
+  node: EpicContainsEdge!
+}
+
+type EpicContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type FeatureContainsConnection {
+  edges: [FeatureContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type FeatureContainsConnectionEdge {
+  cursor: String!
+  node: FeatureContainsEdge!
+}
+
+type FeatureContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
   node: Entity!
 }
 
@@ -2165,6 +2336,25 @@ type HandoffToConnectionEdge {
 }
 
 type HandoffToEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type IdeaEvolvedIntoConnection {
+  edges: [IdeaEvolvedIntoConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type IdeaEvolvedIntoConnectionEdge {
+  cursor: String!
+  node: IdeaEvolvedIntoEdge!
+}
+
+type IdeaEvolvedIntoEdge {
   id: ID!
   discriminator: String!
   assertions: [Assertion!]!
@@ -2459,6 +2649,40 @@ type KindBusinessProcessConnection {
 type KindBusinessProcessEdge {
   cursor: String!
   node: KindBusinessProcess!
+}
+
+type KindC4Component implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  responsibility: String
+  responsibilityAssertions: [Assertion!]!
+  c4ComponentContains(first: Int, after: String): C4ComponentContainsConnection!
+  c4ComponentContainsOf(first: Int, after: String): C4ComponentContainsConnection!
+  componentImplementedBy(first: Int, after: String): ComponentImplementedByConnection!
+  containerContainsComponentOf(first: Int, after: String): ContainerContainsComponentConnection!
+}
+
+type KindC4ComponentConnection {
+  edges: [KindC4ComponentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindC4ComponentEdge {
+  cursor: String!
+  node: KindC4Component!
 }
 
 type KindChaosExperiment implements Entity {
@@ -3211,6 +3435,8 @@ type KindCodeDirectory implements Entity {
   pathAssertions: [Assertion!]!
   codeContains(first: Int, after: String): CodeContainsConnection!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
+  codeDirectoryContains(first: Int, after: String): CodeDirectoryContainsConnection!
+  codeDirectoryContainsOf(first: Int, after: String): CodeDirectoryContainsConnection!
   codeDirectoryRepository(first: Int, after: String): CodeDirectoryRepositoryConnection!
   codeFileDirectoryOf(first: Int, after: String): CodeFileDirectoryConnection!
   codeModuleFolderOf(first: Int, after: String): CodeModuleFolderConnection!
@@ -4281,7 +4507,10 @@ type KindCodeModule implements Entity {
   responsibilityAssertions: [Assertion!]!
   classDiagramModuleOf(first: Int, after: String): ClassDiagramModuleConnection!
   codeCycleMembersOf(first: Int, after: String): CodeCycleMembersConnection!
+  codeModuleContains(first: Int, after: String): CodeModuleContainsConnection!
+  codeModuleContainsOf(first: Int, after: String): CodeModuleContainsConnection!
   codeModuleFolder(first: Int, after: String): CodeModuleFolderConnection!
+  componentImplementedByOf(first: Int, after: String): ComponentImplementedByConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   domainCoversOf(first: Int, after: String): DomainCoversConnection!
   grounds(first: Int, after: String): GroundsConnection!
@@ -4586,6 +4815,7 @@ type KindCodeRepository implements Entity {
   mentionsOf(first: Int, after: String): MentionsConnection!
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  productUsesRepositoryOf(first: Int, after: String): ProductUsesRepositoryConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
@@ -4681,8 +4911,11 @@ type KindCodeService implements Entity {
   codePortServiceOf(first: Int, after: String): CodePortServiceConnection!
   codeProcessServiceOf(first: Int, after: String): CodeProcessServiceConnection!
   codeRouteServiceOf(first: Int, after: String): CodeRouteServiceConnection!
+  codeServiceContains(first: Int, after: String): CodeServiceContainsConnection!
+  codeServiceContainsOf(first: Int, after: String): CodeServiceContainsConnection!
   codeServiceFrameworks(first: Int, after: String): CodeServiceFrameworksConnection!
   codeServiceRepository(first: Int, after: String): CodeServiceRepositoryConnection!
+  containerContainsComponent(first: Int, after: String): ContainerContainsComponentConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -5394,6 +5627,10 @@ type KindDefect implements Entity {
   actualAssertions: [Assertion!]!
   status: String
   statusAssertions: [Assertion!]!
+  priority: String
+  priorityAssertions: [Assertion!]!
+  queuePosition: Int
+  queuePositionAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
@@ -5575,16 +5812,16 @@ type KindDocTerm implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  identifier: String
+  identifierAssertions: [Assertion!]!
   name: String
   nameAssertions: [Assertion!]!
-  definition: String
-  definitionAssertions: [Assertion!]!
-  alsoCalled: JSON
-  alsoCalledAssertions: [Assertion!]!
-  ambiguous: String
-  ambiguousAssertions: [Assertion!]!
   synonyms: JSON
   synonymsAssertions: [Assertion!]!
+  definition: String
+  definitionAssertions: [Assertion!]!
+  ambiguous: String
+  ambiguousAssertions: [Assertion!]!
   code: JSON
   codeAssertions: [Assertion!]!
   usages: JSON
@@ -5600,6 +5837,7 @@ type KindDocTerm implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  termInDomain(first: Int, after: String): TermInDomainConnection!
 }
 
 type KindDocTermConnection {
@@ -5732,6 +5970,8 @@ type KindDomain implements Entity {
   typeAssertions: [Assertion!]!
   classDiagramDomainOf(first: Int, after: String): ClassDiagramDomainConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  domainContains(first: Int, after: String): DomainContainsConnection!
+  domainContainsOf(first: Int, after: String): DomainContainsConnection!
   domainCovers(first: Int, after: String): DomainCoversConnection!
   domainCoversFolder(first: Int, after: String): DomainCoversFolderConnection!
   domainUsesTerm(first: Int, after: String): DomainUsesTermConnection!
@@ -5745,6 +5985,7 @@ type KindDomain implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  termInDomainOf(first: Int, after: String): TermInDomainConnection!
 }
 
 type KindDomainConnection {
@@ -5866,7 +6107,11 @@ type KindEpic implements Entity {
   statusAssertions: [Assertion!]!
   priority: String
   priorityAssertions: [Assertion!]!
+  queuePosition: Int
+  queuePositionAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  epicContains(first: Int, after: String): EpicContainsConnection!
+  epicContainsOf(first: Int, after: String): EpicContainsConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -5982,7 +6227,13 @@ type KindFeature implements Entity {
   valueAssertions: [Assertion!]!
   status: String
   statusAssertions: [Assertion!]!
+  priority: String
+  priorityAssertions: [Assertion!]!
+  queuePosition: Int
+  queuePositionAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  featureContains(first: Int, after: String): FeatureContainsConnection!
+  featureContainsOf(first: Int, after: String): FeatureContainsConnection!
   grounds(first: Int, after: String): GroundsConnection!
   groundsOf(first: Int, after: String): GroundsConnection!
   linksTo(first: Int, after: String): LinksToConnection!
@@ -6174,6 +6425,42 @@ type KindIamRoleConnection {
 type KindIamRoleEdge {
   cursor: String!
   node: KindIamRole!
+}
+
+type KindIdea implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  identifier: String
+  identifierAssertions: [Assertion!]!
+  title: String
+  titleAssertions: [Assertion!]!
+  status: String
+  statusAssertions: [Assertion!]!
+  deathReason: String
+  deathReasonAssertions: [Assertion!]!
+  ideaEvolvedInto(first: Int, after: String): IdeaEvolvedIntoConnection!
+  ideaEvolvedIntoOf(first: Int, after: String): IdeaEvolvedIntoConnection!
+}
+
+type KindIdeaConnection {
+  edges: [KindIdeaEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindIdeaEdge {
+  cursor: String!
+  node: KindIdea!
 }
 
 type KindIncident implements Entity {
@@ -7285,6 +7572,7 @@ type KindProduct implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   productAudience(first: Int, after: String): ProductAudienceConnection!
+  productUsesRepository(first: Int, after: String): ProductUsesRepositoryConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
 }
 
@@ -7298,6 +7586,49 @@ type KindProductConnection {
 type KindProductEdge {
   cursor: String!
   node: KindProduct!
+}
+
+type KindProductProfile implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  deployment: JSON
+  deploymentAssertions: [Assertion!]!
+  dataStores: JSON
+  dataStoresAssertions: [Assertion!]!
+  webUi: JSON
+  webUiAssertions: [Assertion!]!
+  mobile: JSON
+  mobileAssertions: [Assertion!]!
+  ml: JSON
+  mlAssertions: [Assertion!]!
+  messaging: JSON
+  messagingAssertions: [Assertion!]!
+  languages: JSON
+  languagesAssertions: [Assertion!]!
+  frameworks: JSON
+  frameworksAssertions: [Assertion!]!
+  profileProduct(first: Int, after: String): ProfileProductConnection!
+}
+
+type KindProductProfileConnection {
+  edges: [KindProductProfileEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindProductProfileEdge {
+  cursor: String!
+  node: KindProductProfile!
 }
 
 type KindProposedKind implements Entity {
@@ -7887,6 +8218,8 @@ type KindStage implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  stageContains(first: Int, after: String): StageContainsConnection!
+  stageContainsOf(first: Int, after: String): StageContainsConnection!
 }
 
 type KindStageConnection {
@@ -8402,6 +8735,7 @@ type KindSystemProblem implements Entity {
   reasonAssertions: [Assertion!]!
   locator: String
   locatorAssertions: [Assertion!]!
+  taskProblemOf(first: Int, after: String): TaskProblemConnection!
 }
 
 type KindSystemProblemConnection {
@@ -8428,6 +8762,7 @@ type KindSystemProduct implements Entity {
   related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  profileProductOf(first: Int, after: String): ProfileProductConnection!
 }
 
 type KindSystemProductConnection {
@@ -8872,6 +9207,8 @@ type KindTask implements Entity {
   doneCriterionAssertions: [Assertion!]!
   labels: String
   labelsAssertions: [Assertion!]!
+  queuePosition: Int
+  queuePositionAssertions: [Assertion!]!
   codeTestQuarantineTaskOf(first: Int, after: String): CodeTestQuarantineTaskConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
   fixedByOf(first: Int, after: String): FixedByConnection!
@@ -8884,6 +9221,9 @@ type KindTask implements Entity {
   ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
   questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  taskContains(first: Int, after: String): TaskContainsConnection!
+  taskContainsOf(first: Int, after: String): TaskContainsConnection!
+  taskProblem(first: Int, after: String): TaskProblemConnection!
 }
 
 type KindTaskConnection {
@@ -8896,6 +9236,36 @@ type KindTaskConnection {
 type KindTaskEdge {
   cursor: String!
   node: KindTask!
+}
+
+type KindTechnicalDebt implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  details: [Detail!]!
+  trail: [Entity!]!
+  origin: String
+  related(edge: String!, inverse: Boolean = false, depth: Int = 1, kinds: [String!], where: JSON, orderBy: [RelatedOrder!], first: Int, after: String): EntityConnection!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  priority: String
+  priorityAssertions: [Assertion!]!
+  queuePosition: Int
+  queuePositionAssertions: [Assertion!]!
+}
+
+type KindTechnicalDebtConnection {
+  edges: [KindTechnicalDebtEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type KindTechnicalDebtEdge {
+  cursor: String!
+  node: KindTechnicalDebt!
 }
 
 type KindTechnology implements Entity {
@@ -9674,6 +10044,44 @@ type ProductAudienceEdge {
   node: Entity!
 }
 
+type ProductUsesRepositoryConnection {
+  edges: [ProductUsesRepositoryConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ProductUsesRepositoryConnectionEdge {
+  cursor: String!
+  node: ProductUsesRepositoryEdge!
+}
+
+type ProductUsesRepositoryEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type ProfileProductConnection {
+  edges: [ProfileProductConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ProfileProductConnectionEdge {
+  cursor: String!
+  node: ProfileProductEdge!
+}
+
+type ProfileProductEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type QuarantinesConnection {
   edges: [QuarantinesConnectionEdge!]!
   pageInfo: PageInfo!
@@ -9967,6 +10375,25 @@ type SourceTextNext {
   column: Int!
 }
 
+type StageContainsConnection {
+  edges: [StageContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type StageContainsConnectionEdge {
+  cursor: String!
+  node: StageContainsEdge!
+}
+
+type StageContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type StateBelongsToMachineConnection {
   edges: [StateBelongsToMachineConnectionEdge!]!
   pageInfo: PageInfo!
@@ -10043,11 +10470,68 @@ type SuppressionByEdge {
   node: Entity!
 }
 
+type TaskContainsConnection {
+  edges: [TaskContainsConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type TaskContainsConnectionEdge {
+  cursor: String!
+  node: TaskContainsEdge!
+}
+
+type TaskContainsEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type TaskProblemConnection {
+  edges: [TaskProblemConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type TaskProblemConnectionEdge {
+  cursor: String!
+  node: TaskProblemEdge!
+}
+
+type TaskProblemEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
 type TemplateFinding {
   file: String!
   line: Int!
   path: String!
   message: String!
+}
+
+type TermInDomainConnection {
+  edges: [TermInDomainConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type TermInDomainConnectionEdge {
+  cursor: String!
+  node: TermInDomainEdge!
+}
+
+type TermInDomainEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
 }
 
 type TestResultTestConnection {
@@ -10299,6 +10783,8 @@ type Query {
   allAgentUsageAggregate(where: KindAgentUsageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allBusinessProcess(where: KindBusinessProcessWhere, orderBy: [KindBusinessProcessOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindBusinessProcessConnection!
   allBusinessProcessAggregate(where: KindBusinessProcessWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allC4Component(where: KindC4ComponentWhere, orderBy: [KindC4ComponentOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindC4ComponentConnection!
+  allC4ComponentAggregate(where: KindC4ComponentWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allChaosExperiment(where: KindChaosExperimentWhere, orderBy: [KindChaosExperimentOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindChaosExperimentConnection!
   allChaosExperimentAggregate(where: KindChaosExperimentWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allClassDiagram(where: KindClassDiagramWhere, orderBy: [KindClassDiagramOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindClassDiagramConnection!
@@ -10459,6 +10945,8 @@ type Query {
   allHandoffAggregate(where: KindHandoffWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allIamRole(where: KindIamRoleWhere, orderBy: [KindIamRoleOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindIamRoleConnection!
   allIamRoleAggregate(where: KindIamRoleWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allIdea(where: KindIdeaWhere, orderBy: [KindIdeaOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindIdeaConnection!
+  allIdeaAggregate(where: KindIdeaWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allIncident(where: KindIncidentWhere, orderBy: [KindIncidentOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindIncidentConnection!
   allIncidentAggregate(where: KindIncidentWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allJobRun(where: KindJobRunWhere, orderBy: [KindJobRunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindJobRunConnection!
@@ -10515,6 +11003,8 @@ type Query {
   allProcessStepAggregate(where: KindProcessStepWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allProduct(where: KindProductWhere, orderBy: [KindProductOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindProductConnection!
   allProductAggregate(where: KindProductWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allProductProfile(where: KindProductProfileWhere, orderBy: [KindProductProfileOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindProductProfileConnection!
+  allProductProfileAggregate(where: KindProductProfileWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allProposedKind(where: KindProposedKindWhere, orderBy: [KindProposedKindOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindProposedKindConnection!
   allProposedKindAggregate(where: KindProposedKindWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allQuestion(where: KindQuestionWhere, orderBy: [KindQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindQuestionConnection!
@@ -10593,6 +11083,8 @@ type Query {
   allSystemUnreadAggregate(where: KindSystemUnreadWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allTask(where: KindTaskWhere, orderBy: [KindTaskOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindTaskConnection!
   allTaskAggregate(where: KindTaskWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allTechnicalDebt(where: KindTechnicalDebtWhere, orderBy: [KindTechnicalDebtOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindTechnicalDebtConnection!
+  allTechnicalDebtAggregate(where: KindTechnicalDebtWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allTechnology(where: KindTechnologyWhere, orderBy: [KindTechnologyOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindTechnologyConnection!
   allTechnologyAggregate(where: KindTechnologyWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allTestResult(where: KindTestResultWhere, orderBy: [KindTestResultOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): KindTestResultConnection!
@@ -11396,6 +11888,45 @@ input KindBusinessProcessWhere {
   name: KindBusinessProcessNameFilter
   goal: KindBusinessProcessGoalFilter
   trigger: KindBusinessProcessTriggerFilter
+}
+
+input KindC4ComponentNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindC4ComponentOrder {
+  field: KindC4ComponentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindC4ComponentResponsibilityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindC4ComponentWhere {
+  name: KindC4ComponentNameFilter
+  responsibility: KindC4ComponentResponsibilityFilter
 }
 
 input KindChaosExperimentNameFilter {
@@ -15295,6 +15826,32 @@ input KindDefectOrder {
   nulls: NullsOrder
 }
 
+input KindDefectPriorityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDefectQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input KindDefectSeverityFilter {
   _eq: String
   _neq: String
@@ -15344,6 +15901,8 @@ input KindDefectWhere {
   expected: KindDefectExpectedFilter
   actual: KindDefectActualFilter
   status: KindDefectStatusFilter
+  priority: KindDefectPriorityFilter
+  queuePosition: KindDefectQueuePositionFilter
 }
 
 input KindDocDecisionConsequencesFilter {
@@ -15639,12 +16198,6 @@ input KindDocRuleWhere {
   rationale: KindDocRuleRationaleFilter
 }
 
-input KindDocTermAlsoCalledFilter {
-  _eq: JSON
-  _neq: JSON
-  _is_null: Boolean
-}
-
 input KindDocTermAmbiguousFilter {
   _eq: String
   _neq: String
@@ -15666,6 +16219,20 @@ input KindDocTermCodeFilter {
 }
 
 input KindDocTermDefinitionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindDocTermIdentifierFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -15712,11 +16279,11 @@ input KindDocTermUsagesFilter {
 }
 
 input KindDocTermWhere {
+  identifier: KindDocTermIdentifierFilter
   name: KindDocTermNameFilter
-  definition: KindDocTermDefinitionFilter
-  alsoCalled: KindDocTermAlsoCalledFilter
-  ambiguous: KindDocTermAmbiguousFilter
   synonyms: KindDocTermSynonymsFilter
+  definition: KindDocTermDefinitionFilter
+  ambiguous: KindDocTermAmbiguousFilter
   code: KindDocTermCodeFilter
   usages: KindDocTermUsagesFilter
 }
@@ -16093,6 +16660,18 @@ input KindEpicPriorityFilter {
   _is_null: Boolean
 }
 
+input KindEpicQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input KindEpicStatusFilter {
   _eq: String
   _neq: String
@@ -16113,6 +16692,7 @@ input KindEpicWhere {
   outcome: KindEpicOutcomeFilter
   status: KindEpicStatusFilter
   priority: KindEpicPriorityFilter
+  queuePosition: KindEpicQueuePositionFilter
 }
 
 input KindEventLabelFieldFilter {
@@ -16240,6 +16820,32 @@ input KindFeatureOrder {
   nulls: NullsOrder
 }
 
+input KindFeaturePriorityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindFeatureQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input KindFeatureStatusFilter {
   _eq: String
   _neq: String
@@ -16273,6 +16879,8 @@ input KindFeatureWhere {
   description: KindFeatureDescriptionFilter
   value: KindFeatureValueFilter
   status: KindFeatureStatusFilter
+  priority: KindFeaturePriorityFilter
+  queuePosition: KindFeatureQueuePositionFilter
 }
 
 input KindFieldSetFieldsFilter {
@@ -16464,6 +17072,75 @@ input KindIamRoleWhere {
   name: KindIamRoleNameFilter
   description: KindIamRoleDescriptionFilter
   source: KindIamRoleSourceFilter
+}
+
+input KindIdeaDeathReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindIdeaIdentifierFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindIdeaOrder {
+  field: KindIdeaOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindIdeaStatusFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindIdeaTitleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindIdeaWhere {
+  identifier: KindIdeaIdentifierFilter
+  title: KindIdeaTitleFilter
+  status: KindIdeaStatusFilter
+  deathReason: KindIdeaDeathReasonFilter
 }
 
 input KindIncidentAcknowledgedAtFilter {
@@ -17943,6 +18620,71 @@ input KindProductOrder {
   field: KindProductOrderField!
   direction: OrderDirection
   nulls: NullsOrder
+}
+
+input KindProductProfileDataStoresFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileDeploymentFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileFrameworksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileLanguagesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileMessagingFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileMlFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileMobileFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileOrder {
+  field: KindProductProfileOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindProductProfileWebUiFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input KindProductProfileWhere {
+  deployment: KindProductProfileDeploymentFilter
+  dataStores: KindProductProfileDataStoresFilter
+  webUi: KindProductProfileWebUiFilter
+  mobile: KindProductProfileMobileFilter
+  ml: KindProductProfileMlFilter
+  messaging: KindProductProfileMessagingFilter
+  languages: KindProductProfileLanguagesFilter
+  frameworks: KindProductProfileFrameworksFilter
 }
 
 input KindProductPurposeFilter {
@@ -21008,6 +21750,18 @@ input KindTaskPriorityFilter {
   _is_null: Boolean
 }
 
+input KindTaskQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
 input KindTaskScopeFilter {
   _eq: String
   _neq: String
@@ -21074,6 +21828,44 @@ input KindTaskWhere {
   scope: KindTaskScopeFilter
   doneCriterion: KindTaskDoneCriterionFilter
   labels: KindTaskLabelsFilter
+  queuePosition: KindTaskQueuePositionFilter
+}
+
+input KindTechnicalDebtOrder {
+  field: KindTechnicalDebtOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input KindTechnicalDebtPriorityFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input KindTechnicalDebtQueuePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input KindTechnicalDebtWhere {
+  priority: KindTechnicalDebtPriorityFilter
+  queuePosition: KindTechnicalDebtQueuePositionFilter
 }
 
 input KindTechnologyNameFilter {
@@ -21826,6 +22618,11 @@ enum KindBusinessProcessOrderField {
   trigger
 }
 
+enum KindC4ComponentOrderField {
+  name
+  responsibility
+}
+
 enum KindChaosExperimentOrderField {
   name
   steadyState
@@ -22262,6 +23059,8 @@ enum KindDefectOrderField {
   expected
   actual
   status
+  priority
+  queuePosition
 }
 
 enum KindDocDecisionOrderField {
@@ -22292,11 +23091,11 @@ enum KindDocRuleOrderField {
 }
 
 enum KindDocTermOrderField {
+  identifier
   name
-  definition
-  alsoCalled
-  ambiguous
   synonyms
+  definition
+  ambiguous
   code
   usages
 }
@@ -22341,6 +23140,7 @@ enum KindEpicOrderField {
   outcome
   status
   priority
+  queuePosition
 }
 
 enum KindEventOrderField {
@@ -22359,6 +23159,8 @@ enum KindFeatureOrderField {
   description
   value
   status
+  priority
+  queuePosition
 }
 
 enum KindFieldSetOrderField {
@@ -22382,6 +23184,13 @@ enum KindIamRoleOrderField {
   name
   description
   source
+}
+
+enum KindIdeaOrderField {
+  identifier
+  title
+  status
+  deathReason
 }
 
 enum KindIncidentOrderField {
@@ -22556,6 +23365,17 @@ enum KindProductOrderField {
   purpose
   status
   vision
+}
+
+enum KindProductProfileOrderField {
+  deployment
+  dataStores
+  webUi
+  mobile
+  ml
+  messaging
+  languages
+  frameworks
 }
 
 enum KindProposedKindOrderField {
@@ -22862,6 +23682,12 @@ enum KindTaskOrderField {
   scope
   doneCriterion
   labels
+  queuePosition
+}
+
+enum KindTechnicalDebtOrderField {
+  priority
+  queuePosition
 }
 
 enum KindTechnologyOrderField {

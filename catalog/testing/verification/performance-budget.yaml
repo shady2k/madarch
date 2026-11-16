@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A performance budget sets a number a screen, a view or a route may not exceed: load time, size, frame time or the number of requests. A test that crosses the budget fails, so slowness is caught as a defect.'
   ru: 'Бюджет производительности задаёт число, которое экран, вид или маршрут не должны превышать: время загрузки, размер, время кадра или число запросов. Тест, вышедший за бюджет, падает, поэтому медленность ловится как дефект.'
+derives-from:
+- quality-scenario

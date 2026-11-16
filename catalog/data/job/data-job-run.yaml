@@ -48,3 +48,6 @@ key-edges:
 - role: data-job-run-job
   edge: data-job-run-job
   side: from
+derives-from:
+- data-job
+- product-profile

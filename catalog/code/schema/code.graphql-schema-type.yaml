@@ -24,3 +24,5 @@ labels:
 description:
   en: A GraphQL schema type describes one kind of object a service can return or accept, with its fields, their types and which of them are required. Queries and mutations are written against these types.
   ru: 'Тип GraphQL описывает один вид объекта, который сервис может вернуть или принять: его поля, их типы и обязательность. Запросы и мутации пишут против этих типов.'
+derives-from:
+- code.contract

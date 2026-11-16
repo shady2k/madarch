@@ -40,6 +40,8 @@ member:
   direction: out
   parentKind: runtime-scenario
 derives-from:
+- code.service
+- role
 - runtime-scenario
 labels:
   en:

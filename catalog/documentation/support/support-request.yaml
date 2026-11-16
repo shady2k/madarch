@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A support request is a message in which a user, a customer or a colleague asks for help with the product: something does not work, is unclear or is missing. It carries the situation, what was tried and what the person expected.'
   ru: 'Обращение в поддержку — сообщение, в котором пользователь, клиент или коллега просит помочь с продуктом: что-то не работает, непонятно или отсутствует. В нём описаны обстановка, что уже пробовали и чего человек ожидал.'
+derives-from:
+- person
+- product

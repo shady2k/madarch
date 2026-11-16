@@ -12,9 +12,11 @@ relation-constraints:
   out:
   - hasPart
   - dependsOn
+  - stage.contains
   in:
   - partOf
   - dependsOn
+  - stage.contains
 template-policy: page
 source: graph
 fields:
@@ -48,3 +50,5 @@ labels:
 description:
   en: A stage is a part of a feature cut small enough for one responsible person or agent to finish. It holds the tasks and bugs that make up that piece of work.
   ru: Этап — часть возможности, очерченная так, чтобы один ответственный человек или агент мог довести её до конца. В этап входят задачи и ошибки, из которых состоит эта часть работы.
+derives-from:
+- feature

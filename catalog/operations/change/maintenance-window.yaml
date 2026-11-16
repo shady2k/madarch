@@ -24,3 +24,5 @@ labels:
 description:
   en: A maintenance window is an agreed time when a service may be stopped or degraded, announced in advance to the people who use it. Work that cannot be done without a pause is planned into it.
   ru: Окно обслуживания — согласованное время, когда сервис можно остановить или ухудшить, о котором заранее сообщают пользователям. В него планируют работу, которую нельзя сделать без паузы.
+derives-from:
+- code.service

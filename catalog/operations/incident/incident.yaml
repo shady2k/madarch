@@ -72,3 +72,5 @@ labels:
 description:
   en: An incident is an unplanned interruption of a service, a drop in its quality, or an event that may cause one. It is tracked from detection to resolution, and a later review records what happened, what helped and what should change.
   ru: Инцидент — незапланированный перерыв в работе сервиса, падение его качества или событие, которое может к этому привести. Его ведут с момента обнаружения до устранения, а позже разбор записывает, что произошло, что помогло и что стоит изменить.
+derives-from:
+- code.service

@@ -27,3 +27,5 @@ labels:
 description:
   en: An operation is one change someone intends to make — create an entity, change a field, add a link — with who asked for it, when and what result is expected. Applying operations in order reproduces the state they describe.
   ru: 'Операция — одно изменение, которое кто-то намерен сделать: создать сущность, изменить поле, добавить связь, — с указанием автора, времени и ожидаемого результата. Применённые по порядку операции воспроизводят описанное ими состояние.'
+derives-from:
+- request

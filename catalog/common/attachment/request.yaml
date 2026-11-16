@@ -27,3 +27,6 @@ labels:
 description:
   en: A request is a person's utterance or an agent's proposal, kept in the words in which it was made, that may change something in the product. Its consequences are reviewed, and a responsible person approves them before they are applied.
   ru: Запрос — высказывание человека или предложение агента, сохранённое дословно, которое может изменить что-то в продукте; последствия разбирают, а ответственный человек согласует их до применения.
+derives-from:
+- person
+- product

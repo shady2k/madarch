@@ -36,8 +36,8 @@ fields:
   - operations
 key: []
 derives-from:
-- code.service
 - code.file
+- code.service
 labels:
   en:
     one: Logger

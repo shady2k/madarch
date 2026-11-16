@@ -25,3 +25,5 @@ labels:
 description:
   en: 'A change follows one alteration through delivery: the commits that make it, the review it gets, the build and the deployments that carry it to users. It is the unit that answers what happened to the product and why.'
   ru: 'Изменение прослеживает одну правку через всю доставку: коммиты, из которых оно состоит, его просмотр, сборку и развёртывания, которые доносят его до пользователей. Это единица, по которой видно, что и почему произошло с продуктом.'
+derives-from:
+- pull-request

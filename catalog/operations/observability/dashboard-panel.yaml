@@ -24,3 +24,6 @@ labels:
 description:
   en: A dashboard panel shows the answer to one query as a chart, a number or a table, over a chosen period. Panels are put on a dashboard so one look answers a question about the service.
   ru: Панель на дашборде показывает ответ одного запроса картинкой, числом или таблицей за выбранный период. Панели собирают на дашборде, чтобы один взгляд отвечал на вопрос о сервисе.
+derives-from:
+- code.metric
+- dashboard

@@ -48,3 +48,5 @@ labels:
 description:
   en: A business rule states a constraint the organisation wants the product to respect, such as an order above a limit needing approval. Unlike a requirement about software behaviour, it comes from the business and should hold even when the implementation changes.
   ru: 'Бизнес-правило формулирует ограничение, которое организация хочет соблюдать в продукте: например, заказ выше предела требует согласования. В отличие от требования к поведению программы, оно идёт от бизнеса и должно сохраняться при смене реализации.'
+derives-from:
+- domain

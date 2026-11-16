@@ -13,6 +13,7 @@ relation-constraints:
   out:
   - hasPart
   - ownedBy
+  - product.uses-repository
   in:
   - partOf
 template-policy: page
@@ -55,3 +56,4 @@ labels:
 description:
   en: A product is the software and service an organisation offers to a group of people, together with what it does for them and how it is built. It has an owner, users, a purpose and a life from the first idea to retirement.
   ru: Продукт — программа и услуга, которые организация предлагает группе людей, вместе с тем, что она для них делает и как устроена. У продукта есть владелец, пользователи, назначение и жизнь от первой идеи до вывода.
+derives-from: []

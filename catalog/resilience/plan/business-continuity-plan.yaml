@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A business continuity plan says how the organisation keeps serving its customers during a disruption: which processes run by hand, which people take over, which suppliers help and how decisions are made. It covers the time between the failure and the return to normal.'
   ru: 'План непрерывности бизнеса говорит, как организация продолжает обслуживать клиентов во время сбоя: какие процессы идут вручную, кто берёт на себя работу, какие поставщики помогают и как принимают решения. Он покрывает время от отказа до возврата к обычной работе.'
+derives-from:
+- business-impact-analysis
+- contingency-plan

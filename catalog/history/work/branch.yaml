@@ -24,3 +24,5 @@ labels:
 description:
   en: A branch names one line of development in a repository and moves as new commits are added to it. Branches let people work on a change apart from the main line and join it back when it is ready.
   ru: 'Ветка — перемещаемое имя одной линии разработки в репозитории: оно сдвигается, когда к линии добавляются коммиты. Ветки позволяют вести работу над изменением отдельно от основной линии и вернуть её туда, когда она готова.'
+derives-from:
+- code.commit

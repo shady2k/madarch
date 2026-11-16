@@ -53,7 +53,7 @@ fields:
 key:
 - path
 derives-from:
-- code.file
+- product
 labels:
   en:
     one: Document

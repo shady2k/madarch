@@ -25,3 +25,9 @@ labels:
 description:
   en: A Kubernetes pod holds one or more containers that are started and stopped together, share an address and can share volumes. It is the unit the cluster schedules onto a node, and pods are usually replaced rather than repaired.
   ru: 'Под — наименьшая развёртываемая единица Kubernetes: один или несколько контейнеров, которые запускаются и останавливаются вместе, делят адрес и могут делить хранилище. Кластер ставит под на узел, а поды обычно заменяют, а не чинят.'
+derives-from:
+- code.k8s-deployment
+- k8s-daemonset
+- k8s-job
+- k8s-statefulset
+- product-profile

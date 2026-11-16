@@ -24,3 +24,6 @@ labels:
 description:
   en: An A/B test gives one group of people a change and another group the current version, then compares a measured outcome such as conversion or retention. It shows whether the change caused the difference, provided the groups were split at random.
   ru: 'A/B-тест даёт одной группе людей изменение, а другой — текущую версию, а затем сравнивает измеряемый результат: конверсию или удержание. Он показывает, вызвало ли разницу само изменение, если группы разделили случайно.'
+derives-from:
+- experiment
+- persona

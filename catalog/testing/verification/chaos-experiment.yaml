@@ -51,3 +51,6 @@ labels:
 description:
   en: A chaos experiment deliberately breaks something in a running system — stops a server, delays a network, kills a pod — and watches whether the service still meets its stated steady state. It tests resilience against real failure rather than a prediction of it.
   ru: 'Эксперимент с отказами намеренно ломает что-то в работающей системе: останавливает сервер, задерживает сеть, убивает под, — и смотрит, соблюдает ли сервис заявленное устойчивое состояние. Он проверяет стойкость настоящим сбоем, а не его предсказанием.'
+derives-from:
+- quality-scenario
+- recovery-plan

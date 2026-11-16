@@ -37,12 +37,14 @@ test("a starter product's domain page and diagram name relations in the declared
     await publishValidatedManifests(owner, validation.value);
     const domain = { kind: 'domain', key: { name: 'Payments' } };
     const module = { kind: 'code.module', key: { name: 'payments' } };
-    const folderEntity = { kind: 'code.directory', key: { repository: 'app', path: 'src/payments' } };
-    const term = { kind: 'doc.term', key: { name: 'Payment' } };
+    const repository = { kind: 'code.repository', key: { name: 'app' } };
+    const folderEntity = { kind: 'code.directory', key: { path: 'src/payments' }, keyEdges: { 'code.directory-repository': repository } };
+    const term = { kind: 'doc.term', key: { identifier: 'payment' }, keyEdges: { 'doc.term-subject': domain } };
     const producer = { producer: 'fixture', producerVersion: '1' };
     const binding = await testHostBinding(owner, contract, 'fixture');
     await owner.transaction('write', async (tx) => await publishGraphDrafts(tx, contract, {
       vertices: [
+        { ...repository, ...producer },
         { ...domain, ...producer },
         { ...module, ...producer },
         { ...folderEntity, ...producer },

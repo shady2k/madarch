@@ -39,6 +39,7 @@ fields:
 key: []
 derives-from:
 - code.file
+- product-profile
 labels:
   en:
     one: Dockerfile

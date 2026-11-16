@@ -181,6 +181,7 @@ kinds:
     title: path
 edges:
   - name: links-to
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.file]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }
@@ -200,6 +201,7 @@ kinds:
     title: name
 edges:
   - name: demo.contains
+    labels: { en: { out: links, in: linked by }, ru: { out: связывает, in: связан } }
     from: [demo.repository]
     to: [demo.absent]
     cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }

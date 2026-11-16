@@ -24,3 +24,5 @@ labels:
 description:
   en: An in-toto statement names the artifacts it is about (the subject), the kind of claim it makes (the predicate type) and the claim itself (the predicate). The signature around it makes the whole attestation verifiable.
   ru: Утверждение in-toto называет артефакты, о которых речь (предмет), род заявления (тип предиката) и само заявление (предикат). Подпись вокруг делает всю аттестацию проверяемой.
+derives-from:
+- build-artifact

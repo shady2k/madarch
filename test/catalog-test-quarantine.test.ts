@@ -27,7 +27,7 @@ describe('test quarantine in the starter catalogue', () => {
     const kind = manifest.kinds['code.test-quarantine'];
     expect(kind.key).toEqual(['path', 'name']);
     expect(kind['key-edges']).toEqual([{ role: 'code.test-quarantine-repository', edge: 'code.test-quarantine-repository', side: 'from' }]);
-    expect(kind['derives-from']).toEqual(['code.file']);
+    expect(kind['derives-from']).toEqual(['code.file', 'code.test-case']);
     expect(kind.fields).toEqual([
       { name: 'path', type: 'path', binding: 'test-quarantine@1.path' },
       { name: 'name', type: 'text', binding: 'test-quarantine@1.name' },

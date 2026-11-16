@@ -24,3 +24,5 @@ labels:
 description:
   en: 'A licence states what the copyright holder allows others to do with a component and under which conditions: use, change, redistribute, keep the notice. Its SPDX identifier names the standard terms without repeating them.'
   ru: 'Лицензия говорит, что держатель прав разрешает делать с компонентом и на каких условиях: использовать, менять, распространять, сохранять уведомление. Её идентификатор SPDX называет стандартные условия, не повторяя их.'
+derives-from:
+- product

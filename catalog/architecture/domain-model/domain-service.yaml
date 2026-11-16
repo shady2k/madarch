@@ -24,3 +24,5 @@ labels:
 description:
   en: A domain service carries an operation that needs several domain objects and does not naturally belong to one of them, such as transferring money between accounts. It holds domain logic without holding state.
   ru: 'Служба предметной области несёт операцию, которой нужны несколько объектов и которая не принадлежит естественно ни одному из них: перевод денег между счетами. Она держит логику предметной области, но не состояние.'
+derives-from:
+- bounded-context

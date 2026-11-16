@@ -12,9 +12,11 @@ relation-constraints:
   out:
   - hasPart
   - refines
+  - epic.contains
   in:
   - partOf
   - realises
+  - epic.contains
 template-policy: page
 source: graph
 fields:
@@ -45,7 +47,12 @@ fields:
   type: value-set-value
   nullable: true
   binding:
-    agent: How urgent the epic is compared with the others.
+    agent: The priority level set by the product owner; suggested by the configured method, WSJF by default.
+- name: queue_position
+  type: integer
+  nullable: true
+  binding:
+    agent: The position of this work among work at the same priority level; a smaller number comes first.
 key:
 - name
 labels:
@@ -58,3 +65,6 @@ labels:
 description:
   en: An epic states a need of a stakeholder that is too large to meet in one iteration. Features and user stories break it into parts small enough to plan and deliver.
   ru: Эпик называет потребность заинтересованной стороны, которую нельзя закрыть за одну итерацию. Возможности и истории пользователя делят его на части, которые можно спланировать и выполнить.
+derives-from:
+- goal
+- stakeholder

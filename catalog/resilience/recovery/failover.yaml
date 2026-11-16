@@ -24,3 +24,6 @@ labels:
 description:
   en: A failover switches a service to a standby copy when the active one fails, either automatically or by a person's decision. It records what triggered it, how long the switch took and whether the service stayed available.
   ru: Переключение при отказе переводит сервис на резервную копию, когда основная отказала, — само или по решению человека. В записи сказано, что его вызвало, сколько занял переход и оставался ли сервис доступен.
+derives-from:
+- geo-redundancy
+- recovery-plan

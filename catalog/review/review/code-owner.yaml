@@ -24,3 +24,7 @@ labels:
 description:
   en: A code owner is a person or a team that a repository's CODEOWNERS file names as the reviewer for particular files or folders. Their review is expected before a change to those paths is merged.
   ru: Владелец кода — человек или команда, которых файл CODEOWNERS в репозитории называет проверяющими для определённых файлов или папок. Их просмотр ожидается до того, как изменение этих путей будет слито.
+derives-from:
+- code.repository
+- person
+- team

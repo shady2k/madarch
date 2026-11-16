@@ -1,0 +1,102 @@
+id: practice.product-profile
+purpose: understand
+audience:
+- product
+- architect
+- developer
+definition: A product profile states the technical areas that apply to a product.
+sources:
+- https://backstage.io/docs/features/software-catalog/system-model/
+- https://github.com/github-linguist/linguist
+acquisition:
+- conversation
+- document
+- agent-from-graph
+relation-constraints:
+  out: []
+  in: []
+template-policy: page
+source: graph
+fields:
+- name: deployment
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Deployment platforms known to apply, including Kubernetes and Docker. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: data_stores
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Data store technologies known to apply. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: web_ui
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Web interface technologies known to apply. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: mobile
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Mobile platforms known to apply. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: ml
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Machine learning technologies known to apply. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: messaging
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Messaging technologies known to apply. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: languages
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Languages selected or in use. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+- name: frameworks
+  type: json
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    $ref: urn:madarch:value-type:text-list:v1
+  nullable: true
+  binding:
+    agent: Frameworks selected or in use. Null means unknown; an empty list means searched and none found. Cite evidence through assertion support edges, not embedded values.
+key: []
+derives-from:
+- product
+labels:
+  en:
+    one: Product profile
+    many: Product profiles
+  ru:
+    one: Профиль продукта
+    many: Профили продукта
+description:
+  en: A product profile lists deployment platforms, data stores, web interfaces, mobile platforms, machine learning and messaging technologies known to apply, and the languages and frameworks in use. Null means unknown; an empty list means searched and none found. Assertion support edges carry evidence.
+  ru: Профиль продукта перечисляет применимые платформы развёртывания, хранилища данных, веб-интерфейсы, мобильные платформы, технологии машинного обучения и обмена сообщениями, а также языки и каркасы. Null означает неизвестность; пустой список — поиск выполнен, ничего не найдено. Свидетельства хранятся в связях утверждений.
+
+key-edges:
+- role: product
+  edge: profile-product
+  side: from

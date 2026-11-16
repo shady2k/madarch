@@ -25,3 +25,7 @@ labels:
 description:
   en: 'A training run records one execution that produced a model: the data it read, the settings it used, the hardware and time it took, and the model it wrote. Repeating the same run should give a comparable model.'
   ru: 'Запуск обучения описывает один прогон, который создал модель: какие данные он читал, какие настройки использовал, сколько занял и какую модель записал. Повторение того же прогона должно дать сопоставимую модель.'
+derives-from:
+- code.module
+- product-profile
+- training-dataset

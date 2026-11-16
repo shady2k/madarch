@@ -49,3 +49,6 @@ key-edges:
 - role: test-result-test
   edge: test-result-test
   side: from
+derives-from:
+- code.test-case
+- test-run

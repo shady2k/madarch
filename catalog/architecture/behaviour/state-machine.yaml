@@ -40,7 +40,6 @@ fields:
 key:
 - name
 derives-from:
-- code.file
 - domain-entity
 labels:
   en:

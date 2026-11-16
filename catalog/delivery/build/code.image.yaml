@@ -42,6 +42,7 @@ key:
 - tag
 derives-from:
 - code.dockerfile
+- product-profile
 labels:
   en:
     one: Image

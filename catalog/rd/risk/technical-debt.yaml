@@ -24,3 +24,16 @@ labels:
 description:
   en: Technical debt is a compromise in the code or the design that made something faster to build but makes changes harder or riskier later. It is recorded with the work it would take to repay and the interest it charges while it stays.
   ru: Технический долг — компромисс в коде или устройстве, который позволил сделать быстрее, но позже усложняет или делает рискованными изменения. Его записывают вместе с работой, нужной для возврата, и с той ценой, которую он берёт, пока остаётся.
+derives-from:
+- product
+fields:
+- name: priority
+  type: value-set-value
+  nullable: true
+  binding:
+    agent: The priority level set by the product owner; suggested by the configured method, WSJF by default.
+- name: queue_position
+  type: integer
+  nullable: true
+  binding:
+    agent: The position of this work among work at the same priority level; a smaller number comes first.

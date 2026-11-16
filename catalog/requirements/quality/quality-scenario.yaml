@@ -25,3 +25,6 @@ labels:
 description:
   en: A quality scenario describes a source of stimulation, the system's response and the measure that tells whether the response is good enough, for example a thousand users in one minute with a response under a second. Because it is concrete, a test or a review can decide whether the requirement is met.
   ru: 'Сценарий качества описывает источник воздействия, ответ системы и меру, по которой видно, достаточно ли хорош ответ: например, тысяча пользователей за минуту при отклике меньше секунды. Благодаря конкретности тест или проверка могут решить, выполнено ли требование.'
+derives-from:
+- doc.requirement
+- quality-characteristic

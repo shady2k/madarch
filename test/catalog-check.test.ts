@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'bun:test';
 import { parseKinds } from '../src/product/manifest/kinds.js';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { CATALOG_KINDS } from '../src/knowledge/catalog-starter.js';
 import { parse, stringify } from 'yaml';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'check-catalog.ts');
@@ -104,7 +105,11 @@ describe('the catalog check over the starter set', () => {
     const done = run();
     expect(done.err).toBe('');
     expect(done.code).toBe(0);
-    expect(done.out).toContain('catalog: 28 areas, 106 subgroups, 502 kinds (118 with a page of their own or a member\'s row)');
+    expect(done.out).toContain(`catalog: 28 areas, 106 subgroups, ${CATALOG_KINDS.length} kinds (${CATALOG_KINDS.filter((kind) => kind.policy !== 'none').length} with a page of their own or a member's row)`);
+    expect(done.out).toContain('catalog: 5 edges waiting for a page kind');
+    for (const name of ['architecture.serves-domain', 'data-catalog.contains', 'organization.contains', 'software-system.contains', 'token-group.contains']) {
+      expect(done.out).toContain(`edge "${name}": waiting for a page kind`);
+    }
     expect(done.out).toContain(join('madarch', 'catalog.yaml'));
   }, 30_000);
 

@@ -170,7 +170,11 @@ export function validateProductManifests(productFolder: string, files: KindsFile
     }
     for (const dependency of kind.derivesFrom ?? []) addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line);
   }
-  for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) add('kind', name, { catalog: kind, taken: false, plugins: [] }, manifest.kindFiles?.get(name) ?? KINDS_FILE, kind.line);
+  for (const [name, kind] of manifest.catalog?.kinds ?? []) if (!manifest.kinds.has(name)) {
+    const path = manifest.kindFiles?.get(name) ?? KINDS_FILE;
+    add('kind', name, { catalog: kind, derivesFrom: kind.derivesFrom, taken: false, plugins: [] }, path, kind.line);
+    for (const dependency of kind.derivesFrom ?? []) addEdge(MANIFEST_DEPENDS_ON, name, dependency, { from: name, to: dependency, via: 'derives-from' }, path, kind.line);
+  }
   for (const [name, edge] of manifest.edges ?? []) {
     add('relation', JSON.stringify(['edge', name]), edge, KINDS_FILE, edge.line);
     // A wildcard permits endpoints; it does not declare a relationship between every pair of kinds.

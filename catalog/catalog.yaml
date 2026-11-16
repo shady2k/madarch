@@ -1079,6 +1079,25 @@ catalog:
     uses: {"labels": {"en": {"out": "uses", "in": "used by"}, "ru": {"out": "использует", "in": "используется"}}}
     usesTool: {"source": "https://spdx.github.io/spdx-spec/v3.0.1/model/Core/Vocabularies/RelationshipType/", "labels": {"en": {"out": "uses tool", "in": "tool of"}, "ru": {"out": "использует инструмент", "in": "инструмент для"}}}
     verifies: {"labels": {"en": {"out": "verifies", "in": "verified by"}, "ru": {"out": "верифицирует", "in": "верифицировано"}}}
+    domain.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    software-system.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    c4.component.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    code.service.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    code.module.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    code.directory.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    organization.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    token-group.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    data-catalog.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    epic.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    feature.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    stage.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    task.contains: {"labels": {"en": {"out": "contains", "in": "part of"}, "ru": {"out": "содержит", "in": "входит в"}}}
+    idea.evolved-into: {"labels": {"en": {"out": "evolved into", "in": "grew out of"}, "ru": {"out": "переросла в", "in": "выросла из"}}}
+    architecture.serves-domain: {"labels": {"en": {"out": "serves domain", "in": "served by"}, "ru": {"out": "обслуживает домен", "in": "обслуживается"}}}
+    container.contains-component: {"labels": {"en": {"out": "contains component", "in": "component of"}, "ru": {"out": "содержит компонент", "in": "компонент контейнера"}}}
+    component.implemented-by: {"labels": {"en": {"out": "implemented by", "in": "implements component"}, "ru": {"out": "реализован модулем", "in": "реализует компонент"}}}
+    term.in-domain: {"labels": {"en": {"out": "in subject field", "in": "defines concepts"}, "ru": {"out": "в предметной области", "in": "определяет понятия"}}}
+    product.uses-repository: {"labels": {"en": {"out": "uses repository", "in": "used by product"}, "ru": {"out": "использует репозиторий", "in": "используется продуктом"}}}
 edges:
 - name: code.contains
   from:
@@ -5337,6 +5356,391 @@ edges:
   labels:
     en: { out: captures, in: captured by }
     ru: { out: фиксирует, in: зафиксировано в }
+
+- name: domain.contains
+  from:
+  - domain
+  to:
+  - domain
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: software-system.contains
+  from:
+  - software-system
+  to:
+  - software-system
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: c4.component.contains
+  from:
+  - c4.component
+  to:
+  - c4.component
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.service.contains
+  from:
+  - code.service
+  to:
+  - code.service
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.module.contains
+  from:
+  - code.module
+  to:
+  - code.module
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: code.directory.contains
+  from:
+  - code.directory
+  to:
+  - code.directory
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: organization.contains
+  from:
+  - organization
+  to:
+  - organization
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: token-group.contains
+  from:
+  - token-group
+  to:
+  - token-group
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: data-catalog.contains
+  from:
+  - data-catalog
+  to:
+  - data-catalog
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: epic.contains
+  from:
+  - epic
+  to:
+  - epic
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: feature.contains
+  from:
+  - feature
+  to:
+  - feature
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: stage.contains
+  from:
+  - stage
+  to:
+  - stage
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: task.contains
+  from:
+  - task
+  to:
+  - task
+  labels:
+    en:
+      out: contains
+      in: part of
+    ru:
+      out: содержит
+      in: входит в
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: idea.evolved-into
+  from:
+  - idea
+  to:
+  - idea
+  labels:
+    en:
+      out: evolved into
+      in: grew out of
+    ru:
+      out: переросла в
+      in: выросла из
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: architecture.serves-domain
+  from:
+  - software-system
+  - c4.component
+  to:
+  - domain
+  labels:
+    en:
+      out: serves domain
+      in: served by
+    ru:
+      out: обслуживает домен
+      in: обслуживается
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: container.contains-component
+  from:
+  - code.service
+  to:
+  - c4.component
+  labels:
+    en:
+      out: contains component
+      in: component of
+    ru:
+      out: содержит компонент
+      in: компонент контейнера
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 1
+      max: 1
+  on-parent-delete: restrict
+- name: component.implemented-by
+  from:
+  - c4.component
+  to:
+  - code.module
+  labels:
+    en:
+      out: implemented by
+      in: implements component
+    ru:
+      out: реализован модулем
+      in: реализует компонент
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: term.in-domain
+  from:
+  - doc.term
+  to:
+  - domain
+  labels:
+    en:
+      out: in subject field
+      in: defines concepts
+    ru:
+      out: в предметной области
+      in: определяет понятия
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: null
+  on-parent-delete: restrict
+- name: product.uses-repository
+  from:
+  - product
+  to:
+  - code.repository
+  labels:
+    en:
+      out: uses repository
+      in: used by product
+    ru:
+      out: использует репозиторий
+      in: используется продуктом
+  cardinality:
+    from:
+      min: 0
+      max: null
+    to:
+      min: 0
+      max: null
+- name: profile-product
+  from:
+  - product-profile
+  to:
+  - system.product
+  cardinality:
+    from:
+      min: 1
+      max: 1
+    to:
+      min: 0
+      max: 1
+  labels:
+    en:
+      out: Product
+      in: Product profile
+    ru:
+      out: Продукт
+      in: Профиль продукта
+  on-parent-delete: restrict
 
 semantic-bindings:
   document:

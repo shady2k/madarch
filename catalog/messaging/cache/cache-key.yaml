@@ -24,3 +24,6 @@ labels:
 description:
   en: A cache key identifies one cached value among all the values a cache holds, usually by the thing it names and the parameters that change it. The same key must lead to the same value, or different answers get mixed up.
   ru: Ключ кэша отличает одно закэшированное значение от всех остальных, обычно по тому, что оно называет, и по параметрам, которые на него влияют. Один и тот же ключ должен вести к одному и тому же значению, иначе разные ответы перепутаются.
+derives-from:
+- cache
+- product-profile

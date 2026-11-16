@@ -24,3 +24,5 @@ labels:
 description:
   en: A flag provider stores the definitions of feature flags and their rules, and answers each request with the variant to serve. It may be a hosted service or a library inside the product, and its answers must be quick and available.
   ru: Поставщик флагов хранит определения флагов функций и их правила и на каждый запрос отвечает, какой вариант выдать. Это может быть внешняя служба или библиотека внутри продукта, и его ответы должны быть быстрыми и доступными.
+derives-from:
+- code.service

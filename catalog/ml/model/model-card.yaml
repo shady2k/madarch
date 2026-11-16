@@ -24,3 +24,7 @@ labels:
 description:
   en: A model card states what a model is for, how it was trained, on which data, how it was evaluated and where it fails or should not be used. It is written for the people who choose or rely on the model.
   ru: Карточка модели говорит, для чего модель нужна, как её обучали и на каких данных, как её оценивали и где она ошибается или где её нельзя применять. Она написана для тех, кто выбирает модель или полагается на неё.
+derives-from:
+- evaluation-result
+- ml-model
+- product-profile

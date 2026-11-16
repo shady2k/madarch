@@ -36,3 +36,5 @@ labels:
 description:
   en: A package is a reusable piece of software published by someone else and brought into a repository, such as a library, a framework or a command-line tool. Its ecosystem names it and versions it, and its licence and security matter to the product.
   ru: 'Пакет — многоразовая программная часть, опубликованная кем-то другим и подключённая в репозиторий: библиотека, каркас или программа. Экосистема даёт ему имя и версии, а его лицензия и безопасность важны для продукта.'
+derives-from:
+- code.file

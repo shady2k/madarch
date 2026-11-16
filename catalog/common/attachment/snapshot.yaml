@@ -27,3 +27,5 @@ labels:
 description:
   en: A snapshot captures the whole state of the product's knowledge at one moment, so it can be brought back to that point. Changes made after it are kept as separate steps, which can be replayed on the restored state.
   ru: Снимок захватывает всё состояние знаний продукта на один момент, чтобы к этой точке можно было вернуться. Изменения после него хранят отдельными шагами, которые можно повторить на восстановленном состоянии.
+derives-from:
+- product

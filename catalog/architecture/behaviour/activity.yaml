@@ -35,8 +35,7 @@ fields:
 key:
 - name
 derives-from:
-- code.symbol
-- code.route
+- doc.use-case
 labels:
   en:
     one: Activity

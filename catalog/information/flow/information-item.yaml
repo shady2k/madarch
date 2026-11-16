@@ -24,3 +24,6 @@ labels:
 description:
   en: An information item is one piece of data a flow carries, such as a customer's name, an order number or a payment amount. A glossary term names it, so the same item is called the same way wherever it appears.
   ru: 'Элемент информации — отдельная единица сведений, которую несёт поток: имя клиента, номер заказа или сумма платежа. Его называет термин глоссария, поэтому один и тот же элемент всюду называется одинаково.'
+derives-from:
+- doc.term
+- information-flow

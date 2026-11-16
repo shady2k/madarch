@@ -74,6 +74,9 @@ key:
 derives-from:
 - code.file
 - code.image
+- code.service
+- k8s-namespace
+- product-profile
 labels:
   en:
     one: Kubernetes deployment

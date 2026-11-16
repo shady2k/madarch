@@ -24,3 +24,6 @@ labels:
 description:
   en: A penetration test has people try, with permission, to defeat the product's defences as a real attacker would, within an agreed scope. Its report says what they reached, how and what should be fixed.
   ru: Тест на проникновение — разрешённая попытка людей преодолеть защиту продукта так, как это сделал бы настоящий атакующий, в согласованных границах. В отчёте сказано, куда они дошли, как и что надо исправить.
+derives-from:
+- code.service
+- security-target

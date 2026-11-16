@@ -24,3 +24,7 @@ labels:
 description:
   en: Build provenance states which source revision, which build definition and which builder produced an artifact, and when. A verifier can replay or compare the record to decide whether the artifact is what it claims to be.
   ru: Происхождение сборки говорит, какая ревизия исходников, какое описание сборки и какой сборщик создали артефакт и когда. Проверяющий может повторить или сравнить запись и решить, тот ли это артефакт, за который его выдают.
+derives-from:
+- build
+- build-artifact
+- builder

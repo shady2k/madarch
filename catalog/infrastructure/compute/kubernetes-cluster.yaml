@@ -24,3 +24,6 @@ labels:
 description:
   en: A Kubernetes cluster groups machines and a control plane that decides where each workload runs, keeps the declared number of copies and restarts what fails. It is the boundary within which Kubernetes objects live.
   ru: Кластер Kubernetes объединяет машины и панель управления, которая решает, где работает каждая нагрузка, держит объявленное число копий и перезапускает отказавшее. Это граница, внутри которой существуют объекты Kubernetes.
+derives-from:
+- deployment-node
+- product-profile

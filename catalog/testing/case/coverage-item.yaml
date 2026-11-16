@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A coverage item is one unit a coverage measure watches: a line of code, a branch, a function or a requirement. Recording which items the tests reached shows what is untested.'
   ru: 'Элемент покрытия — одна единица, за которой следит мера покрытия: строка кода, ветвь, функция или требование. Запись о том, какие элементы задели тесты, показывает, что осталось непроверенным.'
+derives-from:
+- code.symbol
+- test-basis

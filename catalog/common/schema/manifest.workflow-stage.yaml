@@ -54,3 +54,6 @@ description:
     its sequence. It is distinct from a stage of planned product work.
   ru: Исполняемая стадия принадлежит одному процессу и имеет явное место в его последовательности.
     Это не этап запланированной работы над продуктом.
+
+derives-from:
+- workflow

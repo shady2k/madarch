@@ -88,3 +88,6 @@ labels:
 description:
   en: 'A decision explains one choice about the product or its architecture: the situation that called for it, the options considered, the option chosen and the consequences. A number and a status let a later reader see which decision is still in force.'
   ru: 'Запись о решении объясняет один выбор в продукте или его архитектуре: ситуацию, которая его потребовала, рассмотренные варианты, выбранный вариант и последствия. Номер и статус помогают позднее понять, какое решение действует.'
+derives-from:
+- decision-log
+- goal

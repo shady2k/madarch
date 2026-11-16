@@ -24,3 +24,5 @@ labels:
 description:
   en: 'An action item is one change a review of an incident or a near miss asks for: fix the cause, add a check, change a rule. It has an owner and a date, and its completion is tracked like any other work.'
   ru: 'Действие по разбору — одно изменение, которое требует разбор инцидента или его предотвращения: устранить причину, добавить проверку, изменить правило. У него есть владелец и срок, а выполнение ведут как любую другую работу.'
+derives-from:
+- postmortem

@@ -24,3 +24,6 @@ labels:
 description:
   en: 'A postmortem explains an incident after it is over: what users experienced, how it happened, which conditions allowed it and what will be changed. It is written to learn, not to blame a person.'
   ru: 'Разбор инцидента объясняет его после окончания: что пережили пользователи, как это произошло, какие условия это допустили и что будет изменено. Его пишут, чтобы учиться, а не искать виноватого.'
+derives-from:
+- incident
+- response-record

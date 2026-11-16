@@ -1711,7 +1711,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
         continue;
       }
       const start = findings.length;
-      const metadata = new Set(['extends', 'fields', 'source', 'title', 'labels', 'description', 'group', 'origin', 'purpose', 'audience', 'facts', 'attributes', 'details', 'relations', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'member', 'import-folder', 'import-file', ...CATALOG_ONLY_FIELDS]);
+      const metadata = new Set(['extends', 'fields', 'source', 'derives-from', 'title', 'labels', 'description', 'group', 'origin', 'purpose', 'audience', 'facts', 'attributes', 'details', 'relations', 'card', 'history', 'views', 'er', 'sequence', 'system', 'definition-block', 'listing', 'nav', 'member', 'import-folder', 'import-file', ...CATALOG_ONLY_FIELDS]);
       for (const key of Object.keys(raw)) if (!metadata.has(key)) problem([key], `"${key}" cannot replace an inherited system contract`);
       if (raw['source'] !== undefined && raw['source'] !== 'graph') problem(['source'], 'a system extension has source graph');
       const additions = raw['fields'];
@@ -2318,7 +2318,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (edges.has(body['name']) || kinds.has(body['name'])) { findings.push({ file, line, message: `edge "${body['name']}": kind names are unique` }); return; }
       for (const direction of ['from', 'to'] as const) {
         for (const [endpoint, name] of (body[direction] as string[]).entries()) {
-          if (!kinds.has(name) && !protectedGraphKinds.has(name)) { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }
+          if (!kinds.has(name) && !protectedGraphKinds.has(name) && catalogEntries.get(name)?.templatePolicy !== 'none') { findings.push({ file, line: at(['edges', index, direction, endpoint]), message: `edge "${body['name']}": ${direction} endpoint names missing kind "${name}" (0039 item 1)` }); return; }
         }
       }
       const fieldTypes = new Set([...FIELD_TYPES, ...Object.keys(valueTypes)]);
@@ -2551,17 +2551,18 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   // authoritative), the dependency graph is acyclic and declared, and a plugin reads only what the
   // closure of its earliest output kind holds. No fill starts while any finding stands.
   const dependencies = new Map<string, readonly string[]>();
+  for (const [name, kind] of catalogEntries) dependencies.set(name, kind.derivesFrom ?? []);
   for (const [name, kind] of kinds) dependencies.set(name, kind.derivesFrom ?? []);
   for (const [name, deps] of dependencies) {
-    const kind = kinds.get(name)!;
+    const kind = kinds.get(name) ?? catalogEntries.get(name)!;
     for (const dependency of deps) {
-      if (!kinds.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
+      if (!dependencies.has(dependency)) findings.push({ file, line: kind.line, message: `kind "${name}": "derives-from" names the kind ${JSON.stringify(dependency)}, and the manifest declares no such kind` });
     }
   }
   const cycle = findDependencyCycle(dependencies);
   if (cycle !== undefined) {
     const first = cycle[0]!;
-    findings.push({ file, line: kinds.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
+    findings.push({ file, line: kinds.get(first)?.line ?? catalogEntries.get(first)?.line ?? at(['kinds', first]), message: `kind "${first}": the dependency cycle ${cycle.join(' -> ')} is refused: the kinds' declared dependencies must form no cycle` });
   }
   const checkField = (owner: string, field: FieldDecl, ownerLine: number, edge: boolean): void => {
     const line = field.line ?? ownerLine;
@@ -2685,12 +2686,20 @@ export function matchesAny(patterns: readonly string[], path: string): boolean {
 }
 
 
+/** Edges with catalogue-only endpoints keep their declarations, without a table or GraphQL type yet. */
+export function deferredEdgesOf(manifest: KindsManifest): EdgeDecl[] {
+  return [...(manifest.edges?.values() ?? [])].filter((edge) => [...edge.from, ...edge.to]
+    .every((name) => name === 'any' || manifest.kinds.has(name) || manifest.catalog?.kinds.has(name))
+    && [...edge.from, ...edge.to].some((name) => !manifest.kinds.has(name) && manifest.catalog?.kinds.get(name)?.templatePolicy === 'none'))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+}
+
 /**
  * The kinds in the order their declared dependencies give (decision 0035, item 11): a kind after the kinds it depends on.
  * The manifest's check refuses a cycle before a fill starts, so the order stands whenever a fill reads it.
  */
 export function kindsInDependencyOrder(manifest: KindsManifest): string[] {
-  const dependencies = new Map<string, readonly string[]>([...manifest.kinds].map(([name, kind]) => [name, kind.derivesFrom ?? []]));
+  const dependencies = new Map<string, readonly string[]>([...(manifest.catalog?.kinds ?? []), ...manifest.kinds].map(([name, kind]) => [name, kind.derivesFrom ?? []]));
   return dependencyOrder(dependencies);
 }
 
