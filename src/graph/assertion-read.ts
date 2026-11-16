@@ -139,8 +139,8 @@ export async function loadAssertionsBatch(executor: SqlExecutor, requests: reado
         LEFT JOIN LATERAL (
           SELECT (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-source')) AS scalar(value)) AS source,
                  (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-author')) AS scalar(value)) AS author,
-                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-unit')) AS scalar(value)) AS unit,
-                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-operation')) AS scalar(value)) AS operation_uid,
+                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-unit')) AS scalar(value) LIMIT 1) AS unit,
+                 (SELECT value FROM unnest(array_agg(target.uid::text) FILTER (WHERE k.name='system.assertion-operation')) AS scalar(value) LIMIT 1) AS operation_uid,
                  coalesce(array_agg(target.uid::text ORDER BY target.uid) FILTER (WHERE k.name='system.assertion-evidence'),ARRAY[]::text[]) AS evidence,
                  coalesce(jsonb_agg(jsonb_build_object('targetUid',target.uid::text,'locator',lineage.discriminator,'key',target.key) ORDER BY target.uid,lineage.discriminator) FILTER (WHERE k.name='system.assertion-evidence'),'[]'::jsonb) AS evidence_attachments
           FROM edge lineage JOIN entity k ON k.id=lineage.entity_id JOIN node target ON target.id=lineage.to_node

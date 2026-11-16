@@ -7,8 +7,6 @@ import { withStorePreparationOwner, requestStorePreparation } from '../src/produ
 import { createDatabaseOwner } from '../src/adapters/database-owner.js';
 import { EMPTY_CONTRACT } from '../src/graph/contract.js';
 import { readKindAssertions } from '../src/graph/records.js';
-import { installDisputeSelection } from '../src/graph/disputes.js';
-import { withManifestContract } from '../src/graph/manifest-contract.js';
 
 test('product preparation retains locked plugins before any fill starts', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-plugin-install-'));
@@ -19,7 +17,6 @@ test('product preparation retains locked plugins before any fill starts', async 
       const owner = await createDatabaseOwner({ store, connectOnly: true });
       try {
         const sources = await owner.transaction('snapshot', async (tx) => {
-          await installDisputeSelection(tx, withManifestContract(EMPTY_CONTRACT));
           const now = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
           return await readKindAssertions(tx, 'vertex', 'plugin', ['installation', 'version', 'label', 'scope'], { validAt: now, recordedAt: now });
         });

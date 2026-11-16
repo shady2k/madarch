@@ -9,9 +9,8 @@ import { graphqlSchemaOf } from '../src/graphql/schema.js';
 import { typeNameOf } from '../src/graphql/names.js';
 import { withManifestContract } from '../src/graph/manifest-contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
-import { assertionValueTableName, type GraphContract, type EntityRefDraft, type VertexDraft } from '../src/graph/contract.js';
+import { assertionValueTableName, type EntityRefDraft, type VertexDraft } from '../src/graph/contract.js';
 import { publishGraphDrafts, requireWriteCapability } from '../src/graph/write.js';
-import { installDisputeSelection, refreshDisputeSelection } from '../src/graph/disputes.js';
 import { newUid } from '../src/graph/uid.js';
 import type { SqlExecutor } from '../src/sql-driver.js';
 import { createTestDatabaseOwner } from './test-database.js';
@@ -39,7 +38,7 @@ edges:
 `;
 
 /** Clone a complete authenticated header and lineage, never calling writer endpoint validation. */
-async function sqlEdge(tx: SqlExecutor, from: string, to: string, discriminator: string, original: string, declared: GraphContract) {
+async function sqlEdge(tx: SqlExecutor, from: string, to: string, discriminator: string, original: string) {
   const edge = (await tx.query<{ id: string }>(`INSERT INTO edge(uid,entity_id,from_node,to_node,discriminator,context_id)
     SELECT $1,id,$2,$3,$4,1 FROM entity WHERE name='fixture.any' RETURNING id::text`,
     [newUid(), from, to, discriminator])).rows[0]!.id;
@@ -51,7 +50,6 @@ async function sqlEdge(tx: SqlExecutor, from: string, to: string, discriminator:
     SELECT gen_random_uuid(),entity_id,$1,to_node,discriminator,context_id FROM edge WHERE from_node=$2`, [assertion, original]);
   await tx.query('INSERT INTO assertion_edge_subject(assertion_id,edge_id) VALUES($1,$2)', [assertion, edge]);
   await tx.query(`INSERT INTO "${assertionValueTableName('fixture.any', 'edge', '$exists')}"(assertion_id,value) VALUES($1,true)`, [assertion]);
-  await refreshDisputeSelection(tx, declared);
   expect((await tx.query(`SELECT id FROM graph_edge_active_ids('fixture.any',1) active(id) WHERE id=$1`, [edge])).rows).toHaveLength(1);
   return edge;
 }
@@ -78,7 +76,6 @@ test('ALX-65: schema Entity kinds equal writer and deferred SQL wildcard accepta
   const owner = await createTestDatabaseOwner({ graphContract: declared });
   try {
     const refs = await owner.transaction('write', async tx => {
-      await installDisputeSelection(tx, declared);
       const binding = requireWriteCapability(tx);
       // Reuse host identities: system.product is installation-wide; plugin and operation already have real lineage.
       const refs = new Map<string, EntityRefDraft>([
@@ -102,21 +99,18 @@ test('ALX-65: schema Entity kinds equal writer and deferred SQL wildcard accepta
       }
       const assertion = (await tx.query<{ uid: string }>('SELECT n.uid::text FROM assertion a JOIN node n ON n.id=a.assertion_id ORDER BY a.recorded_sequence LIMIT 1')).rows[0]!;
       refs.set('system.assertion', { kind: 'system.assertion', key: {}, uid: assertion.uid });
-      await refreshDisputeSelection(tx, declared);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
       return refs;
     });
     await owner.transaction('write', async tx => {
-      await installDisputeSelection(tx, declared);
       const anchor = refs.get('fixture.anchor')!;
       await publishGraphDrafts(tx, declared, { vertices: [], removals: [], edges: [...refs.values()].flatMap(ref => [
         { kind: 'fixture.any', from: ref, to: anchor, discriminator: 'writer-from', producer: 'fixture', producerVersion: '1' },
         { kind: 'fixture.any', from: anchor, to: ref, discriminator: 'writer-to', producer: 'fixture', producerVersion: '1' },
       ]) });
-      await refreshDisputeSelection(tx, declared);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     });
-    for (const side of ['from', 'to'] as const) expect(await owner.transaction('snapshot', async tx => { await installDisputeSelection(tx, declared); return accepted(tx, `writer-${side}`, side); })).toEqual(expected);
+    for (const side of ['from', 'to'] as const) expect(await owner.transaction('snapshot', async tx => { return accepted(tx, `writer-${side}`, side); })).toEqual(expected);
     const original = await owner.run(async tx => (await tx.query<{ id: string }>(`SELECT a.assertion_id::text AS id FROM assertion a
       JOIN assertion_edge_subject s ON s.assertion_id=a.assertion_id JOIN edge e ON e.id=s.edge_id JOIN entity k ON k.id=e.entity_id
       WHERE k.name='fixture.any' AND a.property='$exists' ORDER BY a.recorded_sequence LIMIT 1`)).rows[0]!.id);
@@ -125,13 +119,12 @@ test('ALX-65: schema Entity kinds equal writer and deferred SQL wildcard accepta
       const ids = new Map([...refs].map(([kind, ref]) => [kind, nodes.find(node => node.uid === ref.uid)!.id]));
       const anchor = ids.get('fixture.anchor')!;
       for (const id of ids.values()) {
-        await sqlEdge(tx, id, anchor, 'sql-from', original, declared);
-        await sqlEdge(tx, anchor, id, 'sql-to', original, declared);
+        await sqlEdge(tx, id, anchor, 'sql-from', original);
+        await sqlEdge(tx, anchor, id, 'sql-to', original);
       }
-      await refreshDisputeSelection(tx, declared);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     });
-    for (const side of ['from', 'to'] as const) expect(await owner.transaction('snapshot', async tx => { await installDisputeSelection(tx, declared); return accepted(tx, `sql-${side}`, side); })).toEqual(expected);
+    for (const side of ['from', 'to'] as const) expect(await owner.transaction('snapshot', async tx => { return accepted(tx, `sql-${side}`, side); })).toEqual(expected);
     const counts = () => owner.run(tx => tx.query(`SELECT (SELECT count(*)::text FROM node) AS nodes,(SELECT count(*)::text FROM edge) AS edges,(SELECT count(*)::text FROM assertion) AS assertions`));
     for (const side of ['from', 'to'] as const) {
       for (const kind of ['fixture.undeclared', 'CatalogueEntity', 'fixture.any']) {
@@ -148,8 +141,7 @@ test('ALX-65: schema Entity kinds equal writer and deferred SQL wildcard accepta
         const outside = (await tx.query<{ id: string }>(`WITH kind AS (INSERT INTO entity(name,sort) VALUES('fixture.undeclared','node') RETURNING id)
           INSERT INTO node(entity_id,uid,key,identity_scope,context_id) SELECT kind.id,$1,'{}',n.identity_scope,1 FROM kind CROSS JOIN node n LIMIT 1 RETURNING id::text`, [newUid()])).rows[0]!.id;
         const anchor = (await tx.query<{ id: string }>('SELECT id::text FROM node WHERE uid=$1', [refs.get('fixture.anchor')!.uid])).rows[0]!.id;
-        await sqlEdge(tx, side === 'from' ? outside : anchor, side === 'to' ? outside : anchor, 'sql-outside', original, declared);
-        await refreshDisputeSelection(tx, declared);
+        await sqlEdge(tx, side === 'from' ? outside : anchor, side === 'to' ? outside : anchor, 'sql-outside', original);
         reachedDeferred = true;
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
       })).rejects.toThrow('TARGET_MISSING or END_KIND_INVALID for fixture.any');
