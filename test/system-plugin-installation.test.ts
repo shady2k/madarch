@@ -26,7 +26,7 @@ test('product preparation retains locked plugins before any fill starts', async 
         const installation = createHash('sha256').update(JSON.stringify(['plugin', 'fixture-reader', owner.location])).digest('hex');
         const locked = sources.filter((source) => source.values['installation'] === installation);
         expect(locked).toHaveLength(1);
-        expect(locked[0]!.values).toEqual({ installation, version: '1.2.3', label: 'fixture-reader', scope: owner.location });
+        expect(locked[0]!.values).toEqual({ '$exists': true, installation, version: '1.2.3', label: 'fixture-reader', scope: owner.location });
         const startup = sources.filter((source) => source.values['installation'] === JSON.stringify(['system-engine', 'system-installation']));
         expect(startup).toHaveLength(1);
         expect(sources).toHaveLength(locked.length + startup.length);
