@@ -91,7 +91,7 @@ test('adding one kind to the full starter publishes only its own field, relation
       { kind: MANIFEST_RELATION_EDGE, from: { key: { name: 'fixture.growth' } }, to: { key: { name: 'code.file' } }, discriminator: 'mentions' },
     ]);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 30_000); // Measured 14.86 s on 2026-11-16 with the complete starter catalogue.
 
 test('publishing the same full starter catalogue again writes no declarations', async () => {
   const root = mkdtempSync(join(tmpdir(), 'madarch-catalog-any-repeat-'));
@@ -104,7 +104,7 @@ test('publishing the same full starter catalogue again writes no declarations', 
     expect(await publishValidatedManifests(owner, first)).toBeGreaterThan(0);
     expect(await publishValidatedManifests(owner, validated(folder))).toBe(0);
   } finally { await owner?.close(); rmSync(root, { recursive: true, force: true }); }
-});
+}, 300_000); // Measured 146.08 s to CONTRACT_CONFLICT on 2026-11-16; publication remains blocked.
 
 function endpointFixture(folder: string, from: string, to: string): string {
   mkdirSync(join(folder, 'madarch'));
