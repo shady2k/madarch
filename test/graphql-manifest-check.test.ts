@@ -25,7 +25,7 @@ function collidingProduct(): string {
   const metadata = readFileSync(join(import.meta.dir, 'graphql/fixture-product-catalog.yaml'), 'utf8');
   const cut = metadata.indexOf('\nedges:');
   // Both directions retain bilingual catalogue labels and checked cardinality (0039 item 1).
-  writeFileSync(join(folder, 'madarch/catalog.yaml'), `${cut < 0 ? metadata : metadata.slice(0, cut)}\nedges:\n  - { name: mentions, from: [any], to: [any], repeats: true, cardinality: { from: many, to: many }, discriminator: place, labels: { en: { out: mentions, in: mentioned by }, ru: { out: упоминает, in: упомянут в } } }\n`);
+  writeFileSync(join(folder, 'madarch/catalog.yaml'), `${cut < 0 ? metadata : metadata.slice(0, cut)}\nedges:\n  - { name: mentions, from: [any], to: [any], repeats: true, cardinality: { from: { min: 0, max: null }, to: { min: 0, max: null } }, discriminator: place, labels: { en: { out: mentions, in: mentioned by }, ru: { out: упоминает, in: упомянут в } } }\n`);
   writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.page.yaml'), [
     'id: practice.page', 'purpose: structure', 'definition: A page of the demo.', 'sources: [https://example.test/standard]',
     'acquisition: [conversation]', 'relation-constraints: { out: [], in: [] }',

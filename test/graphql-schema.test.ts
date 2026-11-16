@@ -13,6 +13,9 @@ import { parseKinds, type KindsManifest } from '../src/product/manifest/kinds.js
 import { publishedManifestOf } from '../src/graphql/manifest.js';
 import { SchemaRefusal } from '../src/graphql/names.js';
 import { graphqlSchemaOf } from '../src/graphql/schema.js';
+import { withAssertionContract } from '../src/graph/system-contract.js';
+import { withManifestContract } from '../src/graph/manifest-contract.js';
+import { typeNameOf, fieldNameOf } from '../src/graphql/names.js';
 
 /** A product folder holding one manifest text and the template its kinds name, read the way a product's is. */
 function manifestOf(text: string): KindsManifest {
@@ -58,6 +61,16 @@ describe('the schema of a published manifest', () => {
     expect(fields['demoFileRepository']?.type.toString()).toBe('DemoFileRepositoryConnection!');
     expect(fields['demoTouchedOf']?.type.toString()).toBe('DemoTouchedConnection!');
     expect(fields['demoContainsOf']?.type.toString()).toBe('DemoContainsConnection!');
+  });
+
+  test('exposes every inherited foundation declaration with its actual fields', () => {
+    const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(fixtureManifest())));
+    const foundation = withAssertionContract(withManifestContract({ vertex: [], edge: [], dictionary: [] }));
+    for (const kind of foundation.vertex) {
+      const type = schema.getType(typeNameOf(kind.name)) as GraphQLObjectType;
+      expect(type).toBeDefined();
+      for (const field of kind.fields) expect(type.getFields()[fieldNameOf(field.name)]).toBeDefined();
+    }
   });
 
   test('is one schema from one manifest: two derivations are identical', () => {

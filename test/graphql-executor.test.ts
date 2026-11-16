@@ -313,6 +313,8 @@ describe('the GraphQL executor', () => {
   });
 
   test('a list of fifty entities with one edge each costs a small constant number of statements', async () => {
+    const { pinContext } = await import('../src/graph/context.js');
+    const context = Number(await owner.transaction('write', tx => pinContext(tx, '1', 'bounded-list-fixture')));
     const many: VertexDraft[] = [];
     const edges: EdgeDraft[] = [];
     // Fifty files, each with one incoming contains edge: the same shape a page's list has.
@@ -323,19 +325,19 @@ describe('the GraphQL executor', () => {
       edges.push({ kind: 'demo.contains', from: { kind: 'demo.repository', key: { name: 'r1' } }, to: { kind: 'demo.file', key, keyEdges }, producer: 'bulk', producerVersion: '1' });
     }
     await owner.transaction('write', async (tx) => {
-    await bindTestWriteCapability(tx, contract);
-      await bindTestWriteCapability(tx, contract, 'bf8348b4-0000-7000-8000-000000000001');
+      await bindTestWriteCapability(tx, contract, 'bf8348b4-0000-7000-8000-000000000001', context);
     await publishGraphDrafts(tx, contract, {
         vertices: many.map((one) => ({ ...one, producer: 'bulk', producerVersion: '1' })),
         edges: edges.map((one) => ({ ...one, producer: 'bulk', producerVersion: '1' })),
         removals: [],
-      }, 1, { author: 'bulk@1' });
+      }, context, { author: 'bulk@1' });
     });
     const counted = countingOwner();
     const answer = await executeGraphql(counted.owner, { manifest, folder }, {
-      query: `{ allDemoFile(first: 50) { edges { node { path demoContainsOf(first: 1) { edges { cursor } } } } } }`,
+      query: `{ allDemoFile(context: ${context}, where: { path: { _contains: "bulk-" } }, first: 50) { edges { node { path demoContainsOf(first: 1) { edges { cursor } } } } } }`,
     });
     expect((answer.body as MessageBody).errors).toBeUndefined();
+    expect(((answer.body as MessageBody).data!['allDemoFile'] as { edges: unknown[] }).edges).toHaveLength(50);
     expect(counted.statements()).toBeLessThan(12);
   }, 60_000);
 

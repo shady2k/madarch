@@ -23,12 +23,13 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
     const predicates = ['k.name=$1'];
     if (selector.subjectUids !== undefined) { parameters.push(selector.subjectUids); predicates.push(`n.uid=ANY($${parameters.length}::uuid[])`); }
     if (selector.subjectIds !== undefined) { parameters.push(selector.subjectIds); predicates.push(`n.id=ANY($${parameters.length}::bigint[])`); }
-    const identities = await tx.query<{ id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string }>((sort === 'vertex'
-      ? 'SELECT n.id,n.uid::text,n.key FROM node n JOIN entity k ON k.id=n.entity_id WHERE '
-      : "SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator FROM edge n JOIN entity k ON k.id=n.entity_id WHERE ") + predicates.join(' AND '), parameters);
+    const identities = await tx.query<{ id: number; uid: string; key: Record<string, unknown>; from_node?: number; to_node?: number; discriminator?: string; read_at: string | Date }>((sort === 'vertex'
+      ? 'SELECT n.id,n.uid::text,n.key,transaction_timestamp() AS read_at FROM node n JOIN entity k ON k.id=n.entity_id WHERE '
+      : "SELECT n.id,n.uid::text,'{}'::jsonb AS key,n.from_node,n.to_node,n.discriminator,transaction_timestamp() AS read_at FROM edge n JOIN entity k ON k.id=n.entity_id WHERE ") + predicates.join(' AND '), parameters);
     const assertions = await loadAssertions(tx, sort, kind, [...new Set(['$exists', ...fields])], identities.rows.map(row => Number(row.id)));
-    const clock = await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now');
-    const now = new Date(clock.rows[0]!.now).toISOString();
+    // Empty identity sets still load typed storage and resolve disputes, so malformed schemas are refused.
+    const readAt = identities.rows[0]?.read_at ?? (await tx.query<{ now: string | Date }>('SELECT transaction_timestamp() AS now')).rows[0]!.now;
+    const now = new Date(readAt).toISOString();
     const temporal = { validAt: selector.validAt ?? now, recordedAt: selector.recordedAt ?? now, contexts: selector.contexts ?? [1], ...(selector.contextRecordedThrough === undefined ? {} : { contextRecordedThrough: selector.contextRecordedThrough }) };
     const slots = new Map(selectAssertionSlots(assertions, temporal));
     const resolvedIds = new Set<string>();
@@ -42,15 +43,31 @@ export async function readKindAssertions(tx: SqlExecutor, sort: 'vertex' | 'edge
       }
     }
     const selected = new Set([...slots.values()].flatMap(s => s.selected === null ? [] : [s.selected.id]));
+    const bySubject = new Map<number, StoredAssertion[]>();
+    for (const assertion of assertions) {
+      const own = bySubject.get(assertion.subjectId) ?? [];
+      own.push(assertion);
+      bySubject.set(assertion.subjectId, own);
+    }
+    const assertionSubjects = new Map(assertions.map(assertion => [assertion.id, assertion.subjectId]));
+    const subjectSlots = new Map<number, (typeof slots extends Map<string, infer S> ? S : never)[]>();
+    for (const slot of slots.values()) {
+      const subjectId = slot.candidates[0] === undefined ? undefined : assertionSubjects.get(slot.candidates[0].id);
+      if (subjectId === undefined) continue;
+      const own = subjectSlots.get(subjectId) ?? [];
+      own.push(slot);
+      subjectSlots.set(subjectId, own);
+    }
     return identities.rows.flatMap(row => {
-      const own = assertions.filter(a => a.subjectId === Number(row.id));
+      const own = bySubject.get(Number(row.id)) ?? [];
+      const ownSlots = subjectSlots.get(Number(row.id)) ?? [];
       const values = Object.fromEntries(own.filter(a => selected.has(a.id)).map(a => [a.property,a.value]));
-      const existence = [...slots.values()].filter(slot => slot.candidates.some(candidate => candidate.property === '$exists' && own.some(assertion => assertion.id === candidate.id)));
+      const existence = ownSlots.filter(slot => slot.candidates.some(candidate => candidate.property === '$exists'));
       const decided = existence.flatMap(slot => slot.candidates.filter(candidate => resolvedIds.has(candidate.id)));
       const exists = decided.length > 0 ? decided.some(candidate => candidate.value === true) : existence.some(slot => slot.candidates.some(candidate => candidate.value === true));
       if (!exists) return [];
       values['$exists'] = true;
-      const activeSources = [...new Set([...slots.values()].flatMap(slot => slot.candidates.filter(a => a.property === '$exists' && a.value === true && own.some(held => held.id === a.id)).map(a => a.source)))];
+      const activeSources = [...new Set(existence.flatMap(slot => slot.candidates.filter(a => a.value === true).map(a => a.source)))];
       return [{id:Number(row.id),uid:row.uid,key:row.key,values,assertions:own,selectedAssertions:own.filter(a => selected.has(a.id)),activeSources,...(row.from_node === undefined ? {} : {from:Number(row.from_node),to:Number(row.to_node),discriminator:row.discriminator})}];
     });
   });

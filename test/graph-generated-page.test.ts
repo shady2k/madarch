@@ -1,7 +1,8 @@
 import { testHostBinding } from './host-binding-fixture.js';
 import { expect, test } from 'bun:test';
 import { generatedTableName, type GraphContract } from '../src/graph/contract.js';
-import { bindWriteCapability, publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
+import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
+import { activateGraphProducer } from '../src/graph/producer-binding.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { createTestDatabaseOwner } from './test-database.js';
 
@@ -21,9 +22,9 @@ test('generated pages count before the cursor, preserve empty totals, and read p
       removals: [],
     }, 1, { binding }));
     await owner.transaction('write', async (tx) => {
-      bindWriteCapability(tx, binding);
-      const removed = await tx.query<{ id: number }>(
-        "SELECT n.id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=$1 AND n.key->>'slug'=$2", ['fixture.page', 'removed']);
+      await activateGraphProducer(tx, contract, binding);
+      const removed = await tx.query<{ id: string }>(
+        "SELECT n.id::text AS id FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name=$1 AND n.key->>'slug'=$2", ['fixture.page', 'removed']);
       await writeAssertion(tx, contract, { sort: 'vertex', kind: 'fixture.page', subjectId: removed.rows[0]!.id, property: '$exists', operation: 'assert', value: false });
     });
     await owner.transaction('snapshot', async (tx) => {

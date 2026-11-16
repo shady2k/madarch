@@ -161,6 +161,90 @@ type ActivitySubjectEdge {
   node: Entity!
 }
 
+type Agent implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+}
+
+type AgentConnection {
+  edges: [AgentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type AgentEdge {
+  cursor: String!
+  node: Agent!
+}
+
+type AgentSession implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+}
+
+type AgentSessionConnection {
+  edges: [AgentSessionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type AgentSessionEdge {
+  cursor: String!
+  node: AgentSession!
+}
+
+type AgentUsage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+}
+
+type AgentUsageConnection {
+  edges: [AgentUsageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type AgentUsageEdge {
+  cursor: String!
+  node: AgentUsage!
+}
+
 type Aggregate {
   count: Int!
   groupBy(field: String!, limit: Int = 20): [Group!]!
@@ -548,6 +632,62 @@ type CodeAuthoredEdge {
   node: Entity!
 }
 
+type CodeBlob implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  digest: String
+  digestAssertions: [Assertion!]!
+  content: String
+  contentAssertions: [Assertion!]!
+  codeBlobAbout(first: Int, after: String): CodeBlobAboutConnection!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+}
+
+type CodeBlobAboutConnection {
+  edges: [CodeBlobAboutConnectionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeBlobAboutConnectionEdge {
+  cursor: String!
+  node: CodeBlobAboutEdge!
+}
+
+type CodeBlobAboutEdge {
+  id: ID!
+  discriminator: String!
+  assertions: [Assertion!]!
+  node: Entity!
+}
+
+type CodeBlobConnection {
+  edges: [CodeBlobEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type CodeBlobEdge {
+  cursor: String!
+  node: CodeBlob!
+}
+
 type CodeBroker implements Entity {
   id: ID!
   kind: String!
@@ -907,6 +1047,8 @@ type CodeComposeService implements Entity {
   imageAssertions: [Assertion!]!
   ports: JSON
   portsAssertions: [Assertion!]!
+  dependsOn: JSON
+  dependsOnAssertions: [Assertion!]!
   environment: JSON
   environmentAssertions: [Assertion!]!
   codeComposeServiceDependsOn(first: Int, after: String): CodeComposeServiceDependsOnConnection!
@@ -1785,6 +1927,7 @@ type CodeFile implements Entity {
   addedAtAssertions: [Assertion!]!
   removedAt: DateTime
   removedAtAssertions: [Assertion!]!
+  codeBlobAboutOf(first: Int, after: String): CodeBlobAboutConnection!
   codeComposeServiceFileOf(first: Int, after: String): CodeComposeServiceFileConnection!
   codeContainsOf(first: Int, after: String): CodeContainsConnection!
   codeCycleMembersOf(first: Int, after: String): CodeCycleMembersConnection!
@@ -2462,6 +2605,8 @@ type CodeLockfile implements Entity {
   formatAssertions: [Assertion!]!
   lockfileVersion: String
   lockfileVersionAssertions: [Assertion!]!
+  packages: JSON
+  packagesAssertions: [Assertion!]!
   codeLockfilePackages(first: Int, after: String): CodeLockfilePackagesConnection!
   codeLockfileRepository(first: Int, after: String): CodeLockfileRepositoryConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -3380,6 +3525,7 @@ type CodeRepository implements Entity {
   historyShallow: Boolean
   historyShallowAssertions: [Assertion!]!
   codeAsIs(first: Int, after: String): CodeAsIsConnection!
+  codeBlobAboutOf(first: Int, after: String): CodeBlobAboutConnection!
   codeCiWorkflowRepositoryOf(first: Int, after: String): CodeCiWorkflowRepositoryConnection!
   codeContains(first: Int, after: String): CodeContainsConnection!
   codeContractRepositoryOf(first: Int, after: String): CodeContractRepositoryConnection!
@@ -3539,6 +3685,8 @@ type CodeService implements Entity {
   pathAssertions: [Assertion!]!
   language: String
   languageAssertions: [Assertion!]!
+  frameworks: JSON
+  frameworksAssertions: [Assertion!]!
   runtime: String
   runtimeAssertions: [Assertion!]!
   purpose: String
@@ -4923,6 +5071,10 @@ type Document implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  content: String
+  contentAssertions: [Assertion!]!
+  anchors: JSON
+  anchorsAssertions: [Assertion!]!
   path: String
   pathAssertions: [Assertion!]!
   title: String
@@ -5244,21 +5396,8 @@ type Event implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  name: String
-  nameAssertions: [Assertion!]!
-  description: String
-  descriptionAssertions: [Assertion!]!
-  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
-  grounds(first: Int, after: String): GroundsConnection!
-  groundsOf(first: Int, after: String): GroundsConnection!
-  linksTo(first: Int, after: String): LinksToConnection!
-  linksToOf(first: Int, after: String): LinksToConnection!
-  mentions(first: Int, after: String): MentionsConnection!
-  mentionsOf(first: Int, after: String): MentionsConnection!
-  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
-  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
-  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
-  transitionEventOf(first: Int, after: String): TransitionEventConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
 }
 
 type EventConnection {
@@ -5895,6 +6034,10 @@ type LinkType implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameAssertions: [Assertion!]!
+  fromKinds: JSON
+  fromKindsAssertions: [Assertion!]!
+  toKinds: JSON
+  toKindsAssertions: [Assertion!]!
   labels: JSON
   labelsAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -6034,6 +6177,162 @@ type LogicalDataModelDomainEdge {
 type LogicalDataModelEdge {
   cursor: String!
   node: LogicalDataModel!
+}
+
+type ManifestCatalogue implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+}
+
+type ManifestCatalogueConnection {
+  edges: [ManifestCatalogueEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ManifestCatalogueEdge {
+  cursor: String!
+  node: ManifestCatalogue!
+}
+
+type ManifestDependency implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+}
+
+type ManifestDependencyConnection {
+  edges: [ManifestDependencyEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ManifestDependencyEdge {
+  cursor: String!
+  node: ManifestDependency!
+}
+
+type ManifestField implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+}
+
+type ManifestFieldConnection {
+  edges: [ManifestFieldEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ManifestFieldEdge {
+  cursor: String!
+  node: ManifestField!
+}
+
+type ManifestKind implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+}
+
+type ManifestKindConnection {
+  edges: [ManifestKindEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ManifestKindEdge {
+  cursor: String!
+  node: ManifestKind!
+}
+
+type ManifestRelation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+}
+
+type ManifestRelationConnection {
+  edges: [ManifestRelationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ManifestRelationEdge {
+  cursor: String!
+  node: ManifestRelation!
+}
+
+type ManifestWorkflow implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  declaration: String
+  declarationAssertions: [Assertion!]!
+}
+
+type ManifestWorkflowConnection {
+  edges: [ManifestWorkflowEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ManifestWorkflowEdge {
+  cursor: String!
+  node: ManifestWorkflow!
 }
 
 type ManifestWorkflowStage implements Entity {
@@ -6265,6 +6564,30 @@ type NavigationPurpose {
   labels: JSON!
 }
 
+type Operation implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+}
+
+type OperationConnection {
+  edges: [OperationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type OperationEdge {
+  cursor: String!
+  node: Operation!
+}
+
 type Outgoing {
   relation: String!
   label: String!
@@ -6439,6 +6762,36 @@ type PersonEdge {
   node: Person!
 }
 
+type Plugin implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+}
+
+type PluginConnection {
+  edges: [PluginEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type PluginEdge {
+  cursor: String!
+  node: Plugin!
+}
+
 type Practice implements Entity {
   id: ID!
   kind: String!
@@ -6521,6 +6874,30 @@ type PrincipleConnection {
 type PrincipleEdge {
   cursor: String!
   node: Principle!
+}
+
+type Problem implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+}
+
+type ProblemConnection {
+  edges: [ProblemEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type ProblemEdge {
+  cursor: String!
+  node: Problem!
 }
 
 type ProcessEvent implements Entity {
@@ -7228,6 +7605,30 @@ type RoleEdge {
   node: Role!
 }
 
+type Run implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+}
+
+type RunConnection {
+  edges: [RunEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type RunEdge {
+  cursor: String!
+  node: Run!
+}
+
 type RuntimeScenario implements Entity {
   id: ID!
   kind: String!
@@ -7458,6 +7859,30 @@ type SearchHit {
   line: String!
 }
 
+type Setting implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+}
+
+type SettingConnection {
+  edges: [SettingEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SettingEdge {
+  cursor: String!
+  node: Setting!
+}
+
 type Skill implements Entity {
   id: ID!
   kind: String!
@@ -7498,6 +7923,36 @@ type SkillConnection {
 type SkillEdge {
   cursor: String!
   node: Skill!
+}
+
+type Source implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  installation: String
+  installationAssertions: [Assertion!]!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+  scope: String
+  scopeAssertions: [Assertion!]!
+}
+
+type SourceConnection {
+  edges: [SourceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SourceEdge {
+  cursor: String!
+  node: Source!
 }
 
 type Stage implements Entity {
@@ -7600,6 +8055,43 @@ type StateEdge {
   node: State!
 }
 
+type StateEvent implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  description: String
+  descriptionAssertions: [Assertion!]!
+  correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
+  grounds(first: Int, after: String): GroundsConnection!
+  groundsOf(first: Int, after: String): GroundsConnection!
+  linksTo(first: Int, after: String): LinksToConnection!
+  linksToOf(first: Int, after: String): LinksToConnection!
+  mentions(first: Int, after: String): MentionsConnection!
+  mentionsOf(first: Int, after: String): MentionsConnection!
+  ownedBy(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  ownedByOf(where: OwnedByEdgeWhere, orderBy: [OwnedByEdgeOrder!], first: Int, after: String): OwnedByConnection!
+  questionAboutOf(first: Int, after: String): QuestionAboutConnection!
+  transitionEventOf(first: Int, after: String): TransitionEventConnection!
+}
+
+type StateEventConnection {
+  edges: [StateEventEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type StateEventEdge {
+  cursor: String!
+  node: StateEvent!
+}
+
 type StateMachine implements Entity {
   id: ID!
   kind: String!
@@ -7610,6 +8102,8 @@ type StateMachine implements Entity {
   outgoing(first: Int, after: String): OutgoingConnection!
   name: String
   nameAssertions: [Assertion!]!
+  lifecycleOfField: String
+  lifecycleOfFieldAssertions: [Assertion!]!
   description: String
   descriptionAssertions: [Assertion!]!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -7762,6 +8256,60 @@ type SystemAssertionEdge {
   node: SystemAssertion!
 }
 
+type SystemAuthoredImport implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  sourcePath: String
+  sourcePathAssertions: [Assertion!]!
+  contentDigest: String
+  contentDigestAssertions: [Assertion!]!
+}
+
+type SystemAuthoredImportConnection {
+  edges: [SystemAuthoredImportEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemAuthoredImportEdge {
+  cursor: String!
+  node: SystemAuthoredImport!
+}
+
+type SystemChain implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  productName: String
+  productNameAssertions: [Assertion!]!
+  state: String
+  stateAssertions: [Assertion!]!
+  updatedAt: BigInt
+  updatedAtAssertions: [Assertion!]!
+}
+
+type SystemChainConnection {
+  edges: [SystemChainEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemChainEdge {
+  cursor: String!
+  node: SystemChain!
+}
+
 type SystemContentSnapshot implements Entity {
   id: ID!
   kind: String!
@@ -7788,6 +8336,136 @@ type SystemContentSnapshotEdge {
   node: SystemContentSnapshot!
 }
 
+type SystemDisputePin implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  canonicalValue: String
+  canonicalValueAssertions: [Assertion!]!
+  digest: String
+  digestAssertions: [Assertion!]!
+  segmentFrom: DateTime
+  segmentFromAssertions: [Assertion!]!
+  segmentTo: DateTime
+  segmentToAssertions: [Assertion!]!
+}
+
+type SystemDisputePinConnection {
+  edges: [SystemDisputePinEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemDisputePinEdge {
+  cursor: String!
+  node: SystemDisputePin!
+}
+
+type SystemDisputeQuestion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  property: String
+  propertyAssertions: [Assertion!]!
+  language: String
+  languageAssertions: [Assertion!]!
+  segmentFrom: DateTime
+  segmentFromAssertions: [Assertion!]!
+  segmentTo: DateTime
+  segmentToAssertions: [Assertion!]!
+  state: String
+  stateAssertions: [Assertion!]!
+}
+
+type SystemDisputeQuestionConnection {
+  edges: [SystemDisputeQuestionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemDisputeQuestionEdge {
+  cursor: String!
+  node: SystemDisputeQuestion!
+}
+
+type SystemDisputeResolution implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  rationale: String
+  rationaleAssertions: [Assertion!]!
+  segmentFrom: DateTime
+  segmentFromAssertions: [Assertion!]!
+  segmentTo: DateTime
+  segmentToAssertions: [Assertion!]!
+}
+
+type SystemDisputeResolutionConnection {
+  edges: [SystemDisputeResolutionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemDisputeResolutionEdge {
+  cursor: String!
+  node: SystemDisputeResolution!
+}
+
+type SystemFillTransition implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  step: String
+  stepAssertions: [Assertion!]!
+  fromState: String
+  fromStateAssertions: [Assertion!]!
+  toState: String
+  toStateAssertions: [Assertion!]!
+  event: String
+  eventAssertions: [Assertion!]!
+  cause: String
+  causeAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  generation: Int
+  generationAssertions: [Assertion!]!
+  fence: Int
+  fenceAssertions: [Assertion!]!
+  at: BigInt
+  atAssertions: [Assertion!]!
+}
+
+type SystemFillTransitionConnection {
+  edges: [SystemFillTransitionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemFillTransitionEdge {
+  cursor: String!
+  node: SystemFillTransition!
+}
+
 type SystemOperation implements Entity {
   id: ID!
   kind: String!
@@ -7796,6 +8474,8 @@ type SystemOperation implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  words: String
+  wordsAssertions: [Assertion!]!
   key: String
   keyAssertions: [Assertion!]!
   canonicalRequest: String
@@ -7818,7 +8498,7 @@ type SystemOperationEdge {
   node: SystemOperation!
 }
 
-type SystemPerson implements Entity {
+type SystemProblem implements Entity {
   id: ID!
   kind: String!
   label: String!
@@ -7826,44 +8506,26 @@ type SystemPerson implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  scopeKey: String
-  scopeKeyAssertions: [Assertion!]!
+  rule: String
+  ruleAssertions: [Assertion!]!
+  fingerprint: String
+  fingerprintAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+  locator: String
+  locatorAssertions: [Assertion!]!
 }
 
-type SystemPersonConnection {
-  edges: [SystemPersonEdge!]!
+type SystemProblemConnection {
+  edges: [SystemProblemEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
 }
 
-type SystemPersonEdge {
+type SystemProblemEdge {
   cursor: String!
-  node: SystemPerson!
-}
-
-type SystemPlugin implements Entity {
-  id: ID!
-  kind: String!
-  label: String!
-  template: String!
-  contested: [String!]!
-  backlinks(first: Int, after: String): BacklinkConnection!
-  outgoing(first: Int, after: String): OutgoingConnection!
-  scopeKey: String
-  scopeKeyAssertions: [Assertion!]!
-}
-
-type SystemPluginConnection {
-  edges: [SystemPluginEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-  relationLabel: String
-}
-
-type SystemPluginEdge {
-  cursor: String!
-  node: SystemPlugin!
+  node: SystemProblem!
 }
 
 type SystemProduct implements Entity {
@@ -7888,6 +8550,42 @@ type SystemProductEdge {
   node: SystemProduct!
 }
 
+type SystemProgress implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  seq: Int
+  seqAssertions: [Assertion!]!
+  at: BigInt
+  atAssertions: [Assertion!]!
+  stage: String
+  stageAssertions: [Assertion!]!
+  unitName: String
+  unitNameAssertions: [Assertion!]!
+  generation: Int
+  generationAssertions: [Assertion!]!
+  kindField: String
+  kindFieldAssertions: [Assertion!]!
+  summary: String
+  summaryAssertions: [Assertion!]!
+}
+
+type SystemProgressConnection {
+  edges: [SystemProgressEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemProgressEdge {
+  cursor: String!
+  node: SystemProgress!
+}
+
 type SystemRun implements Entity {
   id: ID!
   kind: String!
@@ -7896,10 +8594,50 @@ type SystemRun implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  targetPluginsOnly: Boolean
+  targetPluginsOnlyAssertions: [Assertion!]!
+  targetsPresent: Boolean
+  targetsPresentAssertions: [Assertion!]!
+  endState: String
+  endStateAssertions: [Assertion!]!
+  endMessage: String
+  endMessageAssertions: [Assertion!]!
+  endRecorded: Boolean
+  endRecordedAssertions: [Assertion!]!
+  controlAction: String
+  controlActionAssertions: [Assertion!]!
+  controlAt: BigInt
+  controlAtAssertions: [Assertion!]!
+  repository: String
+  repositoryAssertions: [Assertion!]!
+  defaultBranch: String
+  defaultBranchAssertions: [Assertion!]!
+  commit: String
+  commitAssertions: [Assertion!]!
+  registryHash: String
+  registryHashAssertions: [Assertion!]!
+  targetVertex: String
+  targetVertexAssertions: [Assertion!]!
+  configurationDigest: String
+  configurationDigestAssertions: [Assertion!]!
+  configurationRecordedAt: BigInt
+  configurationRecordedAtAssertions: [Assertion!]!
+  runName: String
+  runNameAssertions: [Assertion!]!
+  productName: String
+  productNameAssertions: [Assertion!]!
+  planningEpoch: Int
+  planningEpochAssertions: [Assertion!]!
+  planningClosed: Boolean
+  planningClosedAssertions: [Assertion!]!
+  hasSelection: Boolean
+  hasSelectionAssertions: [Assertion!]!
+  createdAt: BigInt
+  createdAtAssertions: [Assertion!]!
+  updatedAt: BigInt
+  updatedAtAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
-  scopeKey: String
-  scopeKeyAssertions: [Assertion!]!
 }
 
 type SystemRunConnection {
@@ -7914,7 +8652,7 @@ type SystemRunEdge {
   node: SystemRun!
 }
 
-type SystemSource implements Entity {
+type SystemRunSelection implements Entity {
   id: ID!
   kind: String!
   label: String!
@@ -7922,20 +8660,122 @@ type SystemSource implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
-  scopeKey: String
-  scopeKeyAssertions: [Assertion!]!
+  role: String
+  roleAssertions: [Assertion!]!
+  position: Int
+  positionAssertions: [Assertion!]!
+  name: String
+  nameAssertions: [Assertion!]!
+  groupName: String
+  groupNameAssertions: [Assertion!]!
+  pluginName: String
+  pluginNameAssertions: [Assertion!]!
+  stageUnitName: String
+  stageUnitNameAssertions: [Assertion!]!
 }
 
-type SystemSourceConnection {
-  edges: [SystemSourceEdge!]!
+type SystemRunSelectionConnection {
+  edges: [SystemRunSelectionEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
   relationLabel: String
 }
 
-type SystemSourceEdge {
+type SystemRunSelectionEdge {
   cursor: String!
-  node: SystemSource!
+  node: SystemRunSelection!
+}
+
+type SystemRunStage implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  stageName: String
+  stageNameAssertions: [Assertion!]!
+  plannedAt: BigInt
+  plannedAtAssertions: [Assertion!]!
+  units: Int
+  unitsAssertions: [Assertion!]!
+  publications: Int
+  publicationsAssertions: [Assertion!]!
+}
+
+type SystemRunStageConnection {
+  edges: [SystemRunStageEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemRunStageEdge {
+  cursor: String!
+  node: SystemRunStage!
+}
+
+type SystemRunTarget implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  role: String
+  roleAssertions: [Assertion!]!
+  name: String
+  nameAssertions: [Assertion!]!
+  position: Int
+  positionAssertions: [Assertion!]!
+}
+
+type SystemRunTargetConnection {
+  edges: [SystemRunTargetEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemRunTargetEdge {
+  cursor: String!
+  node: SystemRunTarget!
+}
+
+type SystemTrackedRead implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  queryDigest: String
+  queryDigestAssertions: [Assertion!]!
+  query: String
+  queryAssertions: [Assertion!]!
+  membership: String
+  membershipAssertions: [Assertion!]!
+  members: Int
+  membersAssertions: [Assertion!]!
+  seq: Int
+  seqAssertions: [Assertion!]!
+  at: BigInt
+  atAssertions: [Assertion!]!
+}
+
+type SystemTrackedReadConnection {
+  edges: [SystemTrackedReadEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemTrackedReadEdge {
+  cursor: String!
+  node: SystemTrackedRead!
 }
 
 type SystemUnit implements Entity {
@@ -7946,6 +8786,48 @@ type SystemUnit implements Entity {
   contested: [String!]!
   backlinks(first: Int, after: String): BacklinkConnection!
   outgoing(first: Int, after: String): OutgoingConnection!
+  planStageName: String
+  planStageNameAssertions: [Assertion!]!
+  planStageUnitName: String
+  planStageUnitNameAssertions: [Assertion!]!
+  planScope: String
+  planScopeAssertions: [Assertion!]!
+  planStagePosition: Int
+  planStagePositionAssertions: [Assertion!]!
+  planPosition: Int
+  planPositionAssertions: [Assertion!]!
+  plannedAt: BigInt
+  plannedAtAssertions: [Assertion!]!
+  unitName: String
+  unitNameAssertions: [Assertion!]!
+  productName: String
+  productNameAssertions: [Assertion!]!
+  stageName: String
+  stageNameAssertions: [Assertion!]!
+  generation: Int
+  generationAssertions: [Assertion!]!
+  inputsDigest: String
+  inputsDigestAssertions: [Assertion!]!
+  fence: Int
+  fenceAssertions: [Assertion!]!
+  attempt: Int
+  attemptAssertions: [Assertion!]!
+  retriesLeft: Int
+  retriesLeftAssertions: [Assertion!]!
+  retryAt: BigInt
+  retryAtAssertions: [Assertion!]!
+  replacementGeneration: Int
+  replacementGenerationAssertions: [Assertion!]!
+  skippedBecause: String
+  skippedBecauseAssertions: [Assertion!]!
+  publishedAt: BigInt
+  publishedAtAssertions: [Assertion!]!
+  staleAt: BigInt
+  staleAtAssertions: [Assertion!]!
+  updatedAt: BigInt
+  updatedAtAssertions: [Assertion!]!
+  producedKind: String
+  producedKindAssertions: [Assertion!]!
   producer: String
   producerAssertions: [Assertion!]!
   outcome: String
@@ -7958,14 +8840,38 @@ type SystemUnit implements Entity {
   producerVersionAssertions: [Assertion!]!
   scope: String
   scopeAssertions: [Assertion!]!
-  scopeKey: String
-  scopeKeyAssertions: [Assertion!]!
   state: String
   stateAssertions: [Assertion!]!
   committedOperations: Int
   committedOperationsAssertions: [Assertion!]!
   lastProgress: String
   lastProgressAssertions: [Assertion!]!
+}
+
+type SystemUnitCacheVersion implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  name: String
+  nameAssertions: [Assertion!]!
+  version: String
+  versionAssertions: [Assertion!]!
+}
+
+type SystemUnitCacheVersionConnection {
+  edges: [SystemUnitCacheVersionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemUnitCacheVersionEdge {
+  cursor: String!
+  node: SystemUnitCacheVersion!
 }
 
 type SystemUnitConnection {
@@ -7978,6 +8884,34 @@ type SystemUnitConnection {
 type SystemUnitEdge {
   cursor: String!
   node: SystemUnit!
+}
+
+type SystemUnread implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  repository: String
+  repositoryAssertions: [Assertion!]!
+  path: String
+  pathAssertions: [Assertion!]!
+  reason: String
+  reasonAssertions: [Assertion!]!
+}
+
+type SystemUnreadConnection {
+  edges: [SystemUnreadEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type SystemUnreadEdge {
+  cursor: String!
+  node: SystemUnread!
 }
 
 type Task implements Entity {
@@ -8004,7 +8938,7 @@ type Task implements Entity {
   scopeAssertions: [Assertion!]!
   doneCriterion: String
   doneCriterionAssertions: [Assertion!]!
-  labels: JSON
+  labels: String
   labelsAssertions: [Assertion!]!
   codeTestQuarantineTaskOf(first: Int, after: String): CodeTestQuarantineTaskConnection!
   correctionAboutOf(first: Int, after: String): CorrectionAboutConnection!
@@ -8248,6 +9182,30 @@ type TransitionToEdge {
   discriminator: String!
   assertions: [Assertion!]!
   node: Entity!
+}
+
+type Unit implements Entity {
+  id: ID!
+  kind: String!
+  label: String!
+  template: String!
+  contested: [String!]!
+  backlinks(first: Int, after: String): BacklinkConnection!
+  outgoing(first: Int, after: String): OutgoingConnection!
+  labelField: String
+  labelFieldAssertions: [Assertion!]!
+}
+
+type UnitConnection {
+  edges: [UnitEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  relationLabel: String
+}
+
+type UnitEdge {
+  cursor: String!
+  node: Unit!
 }
 
 type UseCaseStep implements Entity {
@@ -8611,6 +9569,12 @@ type Query {
   allActivityAggregate(where: ActivityWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allActivityNode(where: ActivityNodeWhere, orderBy: [ActivityNodeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ActivityNodeConnection!
   allActivityNodeAggregate(where: ActivityNodeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allAgent(where: AgentWhere, orderBy: [AgentOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): AgentConnection!
+  allAgentAggregate(where: AgentWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allAgentSession(where: AgentSessionWhere, orderBy: [AgentSessionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): AgentSessionConnection!
+  allAgentSessionAggregate(where: AgentSessionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allAgentUsage(where: AgentUsageWhere, orderBy: [AgentUsageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): AgentUsageConnection!
+  allAgentUsageAggregate(where: AgentUsageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allBusinessProcess(where: BusinessProcessWhere, orderBy: [BusinessProcessOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): BusinessProcessConnection!
   allBusinessProcessAggregate(where: BusinessProcessWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allChaosExperiment(where: ChaosExperimentWhere, orderBy: [ChaosExperimentOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ChaosExperimentConnection!
@@ -8619,6 +9583,8 @@ type Query {
   allClassDiagramAggregate(where: ClassDiagramWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allCodeAuthor(where: CodeAuthorWhere, orderBy: [CodeAuthorOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CodeAuthorConnection!
   allCodeAuthorAggregate(where: CodeAuthorWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allCodeBlob(where: CodeBlobWhere, orderBy: [CodeBlobOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CodeBlobConnection!
+  allCodeBlobAggregate(where: CodeBlobWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allCodeBroker(where: CodeBrokerWhere, orderBy: [CodeBrokerOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CodeBrokerConnection!
   allCodeBrokerAggregate(where: CodeBrokerWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allCodeChannel(where: CodeChannelWhere, orderBy: [CodeChannelOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): CodeChannelConnection!
@@ -8785,20 +9751,38 @@ type Query {
   allLinkTypeAggregate(where: LinkTypeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allLogicalDataModel(where: LogicalDataModelWhere, orderBy: [LogicalDataModelOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): LogicalDataModelConnection!
   allLogicalDataModelAggregate(where: LogicalDataModelWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestCatalogue(where: ManifestCatalogueWhere, orderBy: [ManifestCatalogueOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestCatalogueConnection!
+  allManifestCatalogueAggregate(where: ManifestCatalogueWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestDependency(where: ManifestDependencyWhere, orderBy: [ManifestDependencyOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestDependencyConnection!
+  allManifestDependencyAggregate(where: ManifestDependencyWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestField(where: ManifestFieldWhere, orderBy: [ManifestFieldOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestFieldConnection!
+  allManifestFieldAggregate(where: ManifestFieldWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestKind(where: ManifestKindWhere, orderBy: [ManifestKindOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestKindConnection!
+  allManifestKindAggregate(where: ManifestKindWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestRelation(where: ManifestRelationWhere, orderBy: [ManifestRelationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestRelationConnection!
+  allManifestRelationAggregate(where: ManifestRelationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allManifestWorkflow(where: ManifestWorkflowWhere, orderBy: [ManifestWorkflowOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestWorkflowConnection!
+  allManifestWorkflowAggregate(where: ManifestWorkflowWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allManifestWorkflowStage(where: ManifestWorkflowStageWhere, orderBy: [ManifestWorkflowStageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ManifestWorkflowStageConnection!
   allManifestWorkflowStageAggregate(where: ManifestWorkflowStageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allMerge(where: MergeWhere, orderBy: [MergeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): MergeConnection!
   allMergeAggregate(where: MergeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allMilestone(where: MilestoneWhere, orderBy: [MilestoneOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): MilestoneConnection!
   allMilestoneAggregate(where: MilestoneWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allOperation(where: OperationWhere, orderBy: [OperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): OperationConnection!
+  allOperationAggregate(where: OperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allPermission(where: PermissionWhere, orderBy: [PermissionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): PermissionConnection!
   allPermissionAggregate(where: PermissionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allPerson(where: PersonWhere, orderBy: [PersonOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): PersonConnection!
   allPersonAggregate(where: PersonWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allPlugin(where: PluginWhere, orderBy: [PluginOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): PluginConnection!
+  allPluginAggregate(where: PluginWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allPractice(where: PracticeWhere, orderBy: [PracticeOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): PracticeConnection!
   allPracticeAggregate(where: PracticeWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allPrinciple(where: PrincipleWhere, orderBy: [PrincipleOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): PrincipleConnection!
   allPrincipleAggregate(where: PrincipleWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allProblem(where: ProblemWhere, orderBy: [ProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ProblemConnection!
+  allProblemAggregate(where: ProblemWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allProcessEvent(where: ProcessEventWhere, orderBy: [ProcessEventOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ProcessEventConnection!
   allProcessEventAggregate(where: ProcessEventWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allProcessGateway(where: ProcessGatewayWhere, orderBy: [ProcessGatewayOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ProcessGatewayConnection!
@@ -8819,40 +9803,70 @@ type Query {
   allReviewFindingAggregate(where: ReviewFindingWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allRole(where: RoleWhere, orderBy: [RoleOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): RoleConnection!
   allRoleAggregate(where: RoleWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allRun(where: RunWhere, orderBy: [RunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): RunConnection!
+  allRunAggregate(where: RunWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allRuntimeScenario(where: RuntimeScenarioWhere, orderBy: [RuntimeScenarioOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): RuntimeScenarioConnection!
   allRuntimeScenarioAggregate(where: RuntimeScenarioWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allScenarioStep(where: ScenarioStepWhere, orderBy: [ScenarioStepOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ScenarioStepConnection!
   allScenarioStepAggregate(where: ScenarioStepWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allScheduledJob(where: ScheduledJobWhere, orderBy: [ScheduledJobOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ScheduledJobConnection!
   allScheduledJobAggregate(where: ScheduledJobWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSetting(where: SettingWhere, orderBy: [SettingOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SettingConnection!
+  allSettingAggregate(where: SettingWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSkill(where: SkillWhere, orderBy: [SkillOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SkillConnection!
   allSkillAggregate(where: SkillWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSource(where: SourceWhere, orderBy: [SourceOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SourceConnection!
+  allSourceAggregate(where: SourceWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allStage(where: StageWhere, orderBy: [StageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): StageConnection!
   allStageAggregate(where: StageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allState(where: StateWhere, orderBy: [StateOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): StateConnection!
   allStateAggregate(where: StateWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allStateEvent(where: StateEventWhere, orderBy: [StateEventOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): StateEventConnection!
+  allStateEventAggregate(where: StateEventWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allStateMachine(where: StateMachineWhere, orderBy: [StateMachineOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): StateMachineConnection!
   allStateMachineAggregate(where: StateMachineWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSuppression(where: SuppressionWhere, orderBy: [SuppressionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SuppressionConnection!
   allSuppressionAggregate(where: SuppressionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemAssertion(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemAssertionConnection!
   allSystemAssertionAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemAuthoredImport(where: SystemAuthoredImportWhere, orderBy: [SystemAuthoredImportOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemAuthoredImportConnection!
+  allSystemAuthoredImportAggregate(where: SystemAuthoredImportWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemChain(where: SystemChainWhere, orderBy: [SystemChainOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemChainConnection!
+  allSystemChainAggregate(where: SystemChainWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemContentSnapshot(where: SystemContentSnapshotWhere, orderBy: [SystemContentSnapshotOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemContentSnapshotConnection!
   allSystemContentSnapshotAggregate(where: SystemContentSnapshotWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemDisputePin(where: SystemDisputePinWhere, orderBy: [SystemDisputePinOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemDisputePinConnection!
+  allSystemDisputePinAggregate(where: SystemDisputePinWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemDisputeQuestion(where: SystemDisputeQuestionWhere, orderBy: [SystemDisputeQuestionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemDisputeQuestionConnection!
+  allSystemDisputeQuestionAggregate(where: SystemDisputeQuestionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemDisputeResolution(where: SystemDisputeResolutionWhere, orderBy: [SystemDisputeResolutionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemDisputeResolutionConnection!
+  allSystemDisputeResolutionAggregate(where: SystemDisputeResolutionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemFillTransition(where: SystemFillTransitionWhere, orderBy: [SystemFillTransitionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemFillTransitionConnection!
+  allSystemFillTransitionAggregate(where: SystemFillTransitionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemOperation(where: SystemOperationWhere, orderBy: [SystemOperationOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemOperationConnection!
   allSystemOperationAggregate(where: SystemOperationWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
-  allSystemPerson(where: SystemPersonWhere, orderBy: [SystemPersonOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemPersonConnection!
-  allSystemPersonAggregate(where: SystemPersonWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
-  allSystemPlugin(where: SystemPluginWhere, orderBy: [SystemPluginOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemPluginConnection!
-  allSystemPluginAggregate(where: SystemPluginWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemProblem(where: SystemProblemWhere, orderBy: [SystemProblemOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProblemConnection!
+  allSystemProblemAggregate(where: SystemProblemWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemProduct(first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProductConnection!
   allSystemProductAggregate(where: JSON, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemProgress(where: SystemProgressWhere, orderBy: [SystemProgressOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemProgressConnection!
+  allSystemProgressAggregate(where: SystemProgressWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemRun(where: SystemRunWhere, orderBy: [SystemRunOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemRunConnection!
   allSystemRunAggregate(where: SystemRunWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
-  allSystemSource(where: SystemSourceWhere, orderBy: [SystemSourceOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemSourceConnection!
-  allSystemSourceAggregate(where: SystemSourceWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRunSelection(where: SystemRunSelectionWhere, orderBy: [SystemRunSelectionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemRunSelectionConnection!
+  allSystemRunSelectionAggregate(where: SystemRunSelectionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRunStage(where: SystemRunStageWhere, orderBy: [SystemRunStageOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemRunStageConnection!
+  allSystemRunStageAggregate(where: SystemRunStageWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemRunTarget(where: SystemRunTargetWhere, orderBy: [SystemRunTargetOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemRunTargetConnection!
+  allSystemRunTargetAggregate(where: SystemRunTargetWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemTrackedRead(where: SystemTrackedReadWhere, orderBy: [SystemTrackedReadOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemTrackedReadConnection!
+  allSystemTrackedReadAggregate(where: SystemTrackedReadWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allSystemUnit(where: SystemUnitWhere, orderBy: [SystemUnitOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemUnitConnection!
   allSystemUnitAggregate(where: SystemUnitWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemUnitCacheVersion(where: SystemUnitCacheVersionWhere, orderBy: [SystemUnitCacheVersionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemUnitCacheVersionConnection!
+  allSystemUnitCacheVersionAggregate(where: SystemUnitCacheVersionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allSystemUnread(where: SystemUnreadWhere, orderBy: [SystemUnreadOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): SystemUnreadConnection!
+  allSystemUnreadAggregate(where: SystemUnreadWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allTask(where: TaskWhere, orderBy: [TaskOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): TaskConnection!
   allTaskAggregate(where: TaskWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allTechnology(where: TechnologyWhere, orderBy: [TechnologyOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): TechnologyConnection!
@@ -8861,6 +9875,8 @@ type Query {
   allTestResultAggregate(where: TestResultWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allTransition(where: TransitionWhere, orderBy: [TransitionOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): TransitionConnection!
   allTransitionAggregate(where: TransitionWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
+  allUnit(where: UnitWhere, orderBy: [UnitOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): UnitConnection!
+  allUnitAggregate(where: UnitWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allUseCaseStep(where: UseCaseStepWhere, orderBy: [UseCaseStepOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): UseCaseStepConnection!
   allUseCaseStepAggregate(where: UseCaseStepWhere, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): Aggregate!
   allValueSet(where: ValueSetWhere, orderBy: [ValueSetOrder!], first: Int, after: String, lang: String, context: Int, validAt: DateTime, recordedAt: DateTime): ValueSetConnection!
@@ -9027,6 +10043,168 @@ input ActivityOrder {
 input ActivityWhere {
   name: ActivityNameFilter
   description: ActivityDescriptionFilter
+}
+
+input AgentInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentOrder {
+  field: AgentOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input AgentScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentSessionInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentSessionLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentSessionOrder {
+  field: AgentSessionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input AgentSessionScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentSessionVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentSessionWhere {
+  installation: AgentSessionInstallationFilter
+  labelField: AgentSessionLabelFieldFilter
+  version: AgentSessionVersionFilter
+  scope: AgentSessionScopeFilter
+}
+
+input AgentUsageLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentUsageOrder {
+  field: AgentUsageOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input AgentUsageWhere {
+  labelField: AgentUsageLabelFieldFilter
+}
+
+input AgentVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input AgentWhere {
+  installation: AgentInstallationFilter
+  labelField: AgentLabelFieldFilter
+  version: AgentVersionFilter
+  scope: AgentScopeFilter
 }
 
 input BusinessProcessGoalFilter {
@@ -9332,6 +10510,45 @@ input CodeAuthorOrder {
 input CodeAuthorWhere {
   name: CodeAuthorNameFilter
   email: CodeAuthorEmailFilter
+}
+
+input CodeBlobContentFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeBlobDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input CodeBlobOrder {
+  field: CodeBlobOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input CodeBlobWhere {
+  digest: CodeBlobDigestFilter
+  content: CodeBlobContentFilter
 }
 
 input CodeBrokerAddressesFilter {
@@ -9721,6 +10938,12 @@ input CodeCommitWhere {
   commitOffsetMin: CodeCommitCommitOffsetMinFilter
 }
 
+input CodeComposeServiceDependsOnFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input CodeComposeServiceEnvironmentFilter {
   _eq: JSON
   _neq: JSON
@@ -9771,6 +10994,7 @@ input CodeComposeServiceWhere {
   name: CodeComposeServiceNameFilter
   image: CodeComposeServiceImageFilter
   ports: CodeComposeServicePortsFilter
+  dependsOn: CodeComposeServiceDependsOnFilter
   environment: CodeComposeServiceEnvironmentFilter
 }
 
@@ -11323,6 +12547,12 @@ input CodeLockfileOrder {
   nulls: NullsOrder
 }
 
+input CodeLockfilePackagesFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input CodeLockfilePathFilter {
   _eq: String
   _neq: String
@@ -11341,6 +12571,7 @@ input CodeLockfileWhere {
   path: CodeLockfilePathFilter
   format: CodeLockfileFormatFilter
   lockfileVersion: CodeLockfileLockfileVersionFilter
+  packages: CodeLockfilePackagesFilter
 }
 
 input CodeLoggerFormatFilter {
@@ -12207,6 +13438,12 @@ input CodeRouteWhere {
   ports: CodeRoutePortsFilter
 }
 
+input CodeServiceFrameworksFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input CodeServiceLanguageFilter {
   _eq: String
   _neq: String
@@ -12287,6 +13524,7 @@ input CodeServiceWhere {
   name: CodeServiceNameFilter
   path: CodeServicePathFilter
   language: CodeServiceLanguageFilter
+  frameworks: CodeServiceFrameworksFilter
   runtime: CodeServiceRuntimeFilter
   purpose: CodeServicePurposeFilter
 }
@@ -13850,6 +15088,26 @@ input DocUseCaseWhere {
   postconditions: DocUseCasePostconditionsFilter
 }
 
+input DocumentAnchorsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
+input DocumentContentFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input DocumentFormatFilter {
   _eq: String
   _neq: String
@@ -13899,6 +15157,8 @@ input DocumentTitleFilter {
 }
 
 input DocumentWhere {
+  content: DocumentContentFilter
+  anchors: DocumentAnchorsFilter
   path: DocumentPathFilter
   title: DocumentTitleFilter
   format: DocumentFormatFilter
@@ -14138,21 +15398,7 @@ input EpicWhere {
   priority: EpicPriorityFilter
 }
 
-input EventDescriptionFilter {
-  _eq: String
-  _neq: String
-  _in: [String!]
-  _nin: [String!]
-  _contains: String
-  _like: String
-  _lt: String
-  _lte: String
-  _gt: String
-  _gte: String
-  _is_null: Boolean
-}
-
-input EventNameFilter {
+input EventLabelFieldFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -14173,8 +15419,7 @@ input EventOrder {
 }
 
 input EventWhere {
-  name: EventNameFilter
-  description: EventDescriptionFilter
+  labelField: EventLabelFieldFilter
 }
 
 input EvidenceAtFilter {
@@ -14892,6 +16137,12 @@ input LinkBehaviourWhere {
   required: LinkBehaviourRequiredFilter
 }
 
+input LinkTypeFromKindsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input LinkTypeLabelsFilter {
   _eq: JSON
   _neq: JSON
@@ -14918,8 +16169,16 @@ input LinkTypeOrder {
   nulls: NullsOrder
 }
 
+input LinkTypeToKindsFilter {
+  _eq: JSON
+  _neq: JSON
+  _is_null: Boolean
+}
+
 input LinkTypeWhere {
   name: LinkTypeNameFilter
+  fromKinds: LinkTypeFromKindsFilter
+  toKinds: LinkTypeToKindsFilter
   labels: LinkTypeLabelsFilter
 }
 
@@ -14960,6 +16219,235 @@ input LogicalDataModelOrder {
 input LogicalDataModelWhere {
   name: LogicalDataModelNameFilter
   description: LogicalDataModelDescriptionFilter
+}
+
+input ManifestCatalogueDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestCatalogueNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestCatalogueOrder {
+  field: ManifestCatalogueOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ManifestCatalogueWhere {
+  name: ManifestCatalogueNameFilter
+  declaration: ManifestCatalogueDeclarationFilter
+}
+
+input ManifestDependencyDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestDependencyNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestDependencyOrder {
+  field: ManifestDependencyOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ManifestDependencyWhere {
+  name: ManifestDependencyNameFilter
+  declaration: ManifestDependencyDeclarationFilter
+}
+
+input ManifestFieldDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestFieldNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestFieldOrder {
+  field: ManifestFieldOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ManifestFieldWhere {
+  name: ManifestFieldNameFilter
+  declaration: ManifestFieldDeclarationFilter
+}
+
+input ManifestKindDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestKindNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestKindOrder {
+  field: ManifestKindOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ManifestKindWhere {
+  name: ManifestKindNameFilter
+  declaration: ManifestKindDeclarationFilter
+}
+
+input ManifestRelationDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestRelationNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestRelationOrder {
+  field: ManifestRelationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ManifestRelationWhere {
+  name: ManifestRelationNameFilter
+  declaration: ManifestRelationDeclarationFilter
+}
+
+input ManifestWorkflowDeclarationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestWorkflowNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ManifestWorkflowOrder {
+  field: ManifestWorkflowOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
 }
 
 input ManifestWorkflowStageExecutorFilter {
@@ -15012,6 +16500,11 @@ input ManifestWorkflowStageWhere {
   name: ManifestWorkflowStageNameFilter
   position: ManifestWorkflowStagePositionFilter
   executor: ManifestWorkflowStageExecutorFilter
+}
+
+input ManifestWorkflowWhere {
+  name: ManifestWorkflowNameFilter
+  declaration: ManifestWorkflowDeclarationFilter
 }
 
 input MergeConditionsFilter {
@@ -15138,6 +16631,30 @@ input MilestoneWhere {
   targetDate: MilestoneTargetDateFilter
   status: MilestoneStatusFilter
   criterion: MilestoneCriterionFilter
+}
+
+input OperationLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input OperationOrder {
+  field: OperationOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input OperationWhere {
+  labelField: OperationLabelFieldFilter
 }
 
 input OwnedByEdgeOrder {
@@ -15344,6 +16861,75 @@ input PersonWhere {
   identity: PersonIdentityFilter
 }
 
+input PluginInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PluginLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PluginOrder {
+  field: PluginOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input PluginScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PluginVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input PluginWhere {
+  installation: PluginInstallationFilter
+  labelField: PluginLabelFieldFilter
+  version: PluginVersionFilter
+  scope: PluginScopeFilter
+}
+
 input PracticeNameFilter {
   _eq: String
   _neq: String
@@ -15508,6 +17094,30 @@ input PrincipleWhere {
   rationale: PrincipleRationaleFilter
   implications: PrincipleImplicationsFilter
   status: PrincipleStatusFilter
+}
+
+input ProblemLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input ProblemOrder {
+  field: ProblemOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input ProblemWhere {
+  labelField: ProblemLabelFieldFilter
 }
 
 input ProcessEventNameFilter {
@@ -16186,6 +17796,30 @@ input RoleWhere {
   responsibility: RoleResponsibilityFilter
 }
 
+input RunLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input RunOrder {
+  field: RunOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input RunWhere {
+  labelField: RunLabelFieldFilter
+}
+
 input RuntimeScenarioDescriptionFilter {
   _eq: String
   _neq: String
@@ -16351,6 +17985,30 @@ input ScheduledJobWhere {
   concurrency: ScheduledJobConcurrencyFilter
 }
 
+input SettingLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SettingOrder {
+  field: SettingOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SettingWhere {
+  labelField: SettingLabelFieldFilter
+}
+
 input SkillChecksFilter {
   _eq: JSON
   _neq: JSON
@@ -16427,6 +18085,75 @@ input SkillWhere {
   status: SkillStatusFilter
 }
 
+input SourceInstallationFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceOrder {
+  field: SourceOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SourceScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SourceWhere {
+  installation: SourceInstallationFilter
+  labelField: SourceLabelFieldFilter
+  version: SourceVersionFilter
+  scope: SourceScopeFilter
+}
+
 input StageAcceptanceCriterionFilter {
   _eq: String
   _neq: String
@@ -16481,6 +18208,45 @@ input StageWhere {
   status: StageStatusFilter
 }
 
+input StateEventDescriptionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input StateEventNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input StateEventOrder {
+  field: StateEventOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input StateEventWhere {
+  name: StateEventNameFilter
+  description: StateEventDescriptionFilter
+}
+
 input StateFinalFilter {
   _eq: Boolean
   _neq: Boolean
@@ -16521,6 +18287,20 @@ input StateMachineDescriptionFilter {
   _is_null: Boolean
 }
 
+input StateMachineLifecycleOfFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
 input StateMachineNameFilter {
   _eq: String
   _neq: String
@@ -16543,6 +18323,7 @@ input StateMachineOrder {
 
 input StateMachineWhere {
   name: StateMachineNameFilter
+  lifecycleOfField: StateMachineLifecycleOfFieldFilter
   description: StateMachineDescriptionFilter
 }
 
@@ -16655,6 +18436,97 @@ input SuppressionWhere {
   at: SuppressionAtFilter
 }
 
+input SystemAuthoredImportContentDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemAuthoredImportOrder {
+  field: SystemAuthoredImportOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemAuthoredImportSourcePathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemAuthoredImportWhere {
+  sourcePath: SystemAuthoredImportSourcePathFilter
+  contentDigest: SystemAuthoredImportContentDigestFilter
+}
+
+input SystemChainOrder {
+  field: SystemChainOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemChainProductNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemChainStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemChainUpdatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemChainWhere {
+  productName: SystemChainProductNameFilter
+  state: SystemChainStateFilter
+  updatedAt: SystemChainUpdatedAtFilter
+}
+
 input SystemContentSnapshotContentFilter {
   _eq: String
   _neq: String
@@ -16692,6 +18564,339 @@ input SystemContentSnapshotOrder {
 input SystemContentSnapshotWhere {
   digest: SystemContentSnapshotDigestFilter
   content: SystemContentSnapshotContentFilter
+}
+
+input SystemDisputePinCanonicalValueFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemDisputePinDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemDisputePinOrder {
+  field: SystemDisputePinOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemDisputePinSegmentFromFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input SystemDisputePinSegmentToFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input SystemDisputePinWhere {
+  canonicalValue: SystemDisputePinCanonicalValueFilter
+  digest: SystemDisputePinDigestFilter
+  segmentFrom: SystemDisputePinSegmentFromFilter
+  segmentTo: SystemDisputePinSegmentToFilter
+}
+
+input SystemDisputeQuestionLanguageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemDisputeQuestionOrder {
+  field: SystemDisputeQuestionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemDisputeQuestionPropertyFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemDisputeQuestionSegmentFromFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input SystemDisputeQuestionSegmentToFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input SystemDisputeQuestionStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemDisputeQuestionWhere {
+  property: SystemDisputeQuestionPropertyFilter
+  language: SystemDisputeQuestionLanguageFilter
+  segmentFrom: SystemDisputeQuestionSegmentFromFilter
+  segmentTo: SystemDisputeQuestionSegmentToFilter
+  state: SystemDisputeQuestionStateFilter
+}
+
+input SystemDisputeResolutionOrder {
+  field: SystemDisputeResolutionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemDisputeResolutionRationaleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemDisputeResolutionSegmentFromFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input SystemDisputeResolutionSegmentToFilter {
+  _eq: DateTime
+  _neq: DateTime
+  _in: [DateTime!]
+  _nin: [DateTime!]
+  _lt: DateTime
+  _lte: DateTime
+  _gt: DateTime
+  _gte: DateTime
+  _is_null: Boolean
+}
+
+input SystemDisputeResolutionWhere {
+  rationale: SystemDisputeResolutionRationaleFilter
+  segmentFrom: SystemDisputeResolutionSegmentFromFilter
+  segmentTo: SystemDisputeResolutionSegmentToFilter
+}
+
+input SystemFillTransitionAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemFillTransitionCauseFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemFillTransitionEventFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemFillTransitionFenceFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemFillTransitionFromStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemFillTransitionGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemFillTransitionOrder {
+  field: SystemFillTransitionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemFillTransitionReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemFillTransitionStepFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemFillTransitionToStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemFillTransitionWhere {
+  step: SystemFillTransitionStepFilter
+  fromState: SystemFillTransitionFromStateFilter
+  toState: SystemFillTransitionToStateFilter
+  event: SystemFillTransitionEventFilter
+  cause: SystemFillTransitionCauseFilter
+  reason: SystemFillTransitionReasonFilter
+  generation: SystemFillTransitionGenerationFilter
+  fence: SystemFillTransitionFenceFilter
+  at: SystemFillTransitionAtFilter
 }
 
 input SystemOperationCanonicalRequestFilter {
@@ -16757,19 +18962,14 @@ input SystemOperationResultFilter {
 }
 
 input SystemOperationWhere {
+  words: SystemOperationWordsFilter
   key: SystemOperationKeyFilter
   canonicalRequest: SystemOperationCanonicalRequestFilter
   digest: SystemOperationDigestFilter
   result: SystemOperationResultFilter
 }
 
-input SystemPersonOrder {
-  field: SystemPersonOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input SystemPersonScopeKeyFilter {
+input SystemOperationWordsFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -16783,17 +18983,7 @@ input SystemPersonScopeKeyFilter {
   _is_null: Boolean
 }
 
-input SystemPersonWhere {
-  scopeKey: SystemPersonScopeKeyFilter
-}
-
-input SystemPluginOrder {
-  field: SystemPluginOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input SystemPluginScopeKeyFilter {
+input SystemProblemFingerprintFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -16807,8 +18997,299 @@ input SystemPluginScopeKeyFilter {
   _is_null: Boolean
 }
 
-input SystemPluginWhere {
-  scopeKey: SystemPluginScopeKeyFilter
+input SystemProblemLocatorFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProblemOrder {
+  field: SystemProblemOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemProblemReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProblemRuleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProblemWhere {
+  rule: SystemProblemRuleFilter
+  fingerprint: SystemProblemFingerprintFilter
+  reason: SystemProblemReasonFilter
+  locator: SystemProblemLocatorFilter
+}
+
+input SystemProgressAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemProgressGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemProgressKindFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProgressOrder {
+  field: SystemProgressOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemProgressSeqFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemProgressStageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProgressSummaryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProgressUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemProgressWhere {
+  seq: SystemProgressSeqFilter
+  at: SystemProgressAtFilter
+  stage: SystemProgressStageFilter
+  unitName: SystemProgressUnitNameFilter
+  generation: SystemProgressGenerationFilter
+  kindField: SystemProgressKindFieldFilter
+  summary: SystemProgressSummaryFilter
+}
+
+input SystemRunCommitFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunConfigurationDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunConfigurationRecordedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemRunControlActionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunControlAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemRunCreatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemRunDefaultBranchFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunEndMessageFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunEndRecordedFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input SystemRunEndStateFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunHasSelectionFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
 }
 
 input SystemRunOrder {
@@ -16817,7 +19298,25 @@ input SystemRunOrder {
   nulls: NullsOrder
 }
 
-input SystemRunScopeKeyFilter {
+input SystemRunPlanningClosedFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input SystemRunPlanningEpochFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemRunProductNameFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -16829,6 +19328,208 @@ input SystemRunScopeKeyFilter {
   _gt: String
   _gte: String
   _is_null: Boolean
+}
+
+input SystemRunRegistryHashFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunRunNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSelectionGroupNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSelectionNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSelectionOrder {
+  field: SystemRunSelectionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemRunSelectionPluginNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSelectionPositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemRunSelectionRoleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSelectionStageUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunSelectionWhere {
+  role: SystemRunSelectionRoleFilter
+  position: SystemRunSelectionPositionFilter
+  name: SystemRunSelectionNameFilter
+  groupName: SystemRunSelectionGroupNameFilter
+  pluginName: SystemRunSelectionPluginNameFilter
+  stageUnitName: SystemRunSelectionStageUnitNameFilter
+}
+
+input SystemRunStageOrder {
+  field: SystemRunStageOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemRunStagePlannedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemRunStagePublicationsFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemRunStageStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunStageUnitsFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemRunStageWhere {
+  stageName: SystemRunStageStageNameFilter
+  plannedAt: SystemRunStagePlannedAtFilter
+  units: SystemRunStageUnitsFilter
+  publications: SystemRunStagePublicationsFilter
 }
 
 input SystemRunStateFilter {
@@ -16845,18 +19546,7 @@ input SystemRunStateFilter {
   _is_null: Boolean
 }
 
-input SystemRunWhere {
-  state: SystemRunStateFilter
-  scopeKey: SystemRunScopeKeyFilter
-}
-
-input SystemSourceOrder {
-  field: SystemSourceOrderField!
-  direction: OrderDirection
-  nulls: NullsOrder
-}
-
-input SystemSourceScopeKeyFilter {
+input SystemRunTargetNameFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -16870,8 +19560,249 @@ input SystemSourceScopeKeyFilter {
   _is_null: Boolean
 }
 
-input SystemSourceWhere {
-  scopeKey: SystemSourceScopeKeyFilter
+input SystemRunTargetOrder {
+  field: SystemRunTargetOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemRunTargetPluginsOnlyFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input SystemRunTargetPositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemRunTargetRoleFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunTargetVertexFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemRunTargetWhere {
+  role: SystemRunTargetRoleFilter
+  name: SystemRunTargetNameFilter
+  position: SystemRunTargetPositionFilter
+}
+
+input SystemRunTargetsPresentFilter {
+  _eq: Boolean
+  _neq: Boolean
+  _is_null: Boolean
+}
+
+input SystemRunUpdatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemRunWhere {
+  targetPluginsOnly: SystemRunTargetPluginsOnlyFilter
+  targetsPresent: SystemRunTargetsPresentFilter
+  endState: SystemRunEndStateFilter
+  endMessage: SystemRunEndMessageFilter
+  endRecorded: SystemRunEndRecordedFilter
+  controlAction: SystemRunControlActionFilter
+  controlAt: SystemRunControlAtFilter
+  repository: SystemRunRepositoryFilter
+  defaultBranch: SystemRunDefaultBranchFilter
+  commit: SystemRunCommitFilter
+  registryHash: SystemRunRegistryHashFilter
+  targetVertex: SystemRunTargetVertexFilter
+  configurationDigest: SystemRunConfigurationDigestFilter
+  configurationRecordedAt: SystemRunConfigurationRecordedAtFilter
+  runName: SystemRunRunNameFilter
+  productName: SystemRunProductNameFilter
+  planningEpoch: SystemRunPlanningEpochFilter
+  planningClosed: SystemRunPlanningClosedFilter
+  hasSelection: SystemRunHasSelectionFilter
+  createdAt: SystemRunCreatedAtFilter
+  updatedAt: SystemRunUpdatedAtFilter
+  state: SystemRunStateFilter
+}
+
+input SystemTrackedReadAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
+input SystemTrackedReadMembersFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemTrackedReadMembershipFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemTrackedReadOrder {
+  field: SystemTrackedReadOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemTrackedReadQueryDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemTrackedReadQueryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemTrackedReadSeqFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemTrackedReadWhere {
+  queryDigest: SystemTrackedReadQueryDigestFilter
+  query: SystemTrackedReadQueryFilter
+  membership: SystemTrackedReadMembershipFilter
+  members: SystemTrackedReadMembersFilter
+  seq: SystemTrackedReadSeqFilter
+  at: SystemTrackedReadAtFilter
+}
+
+input SystemUnitAttemptFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitCacheVersionNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitCacheVersionOrder {
+  field: SystemUnitCacheVersionOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemUnitCacheVersionVersionFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitCacheVersionWhere {
+  name: SystemUnitCacheVersionNameFilter
+  version: SystemUnitCacheVersionVersionFilter
 }
 
 input SystemUnitCommittedOperationsFilter {
@@ -16883,6 +19814,44 @@ input SystemUnitCommittedOperationsFilter {
   _lte: Int
   _gt: Int
   _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitFenceFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitInputsDigestFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
   _is_null: Boolean
 }
 
@@ -16920,6 +19889,84 @@ input SystemUnitOutcomeFilter {
   _is_null: Boolean
 }
 
+input SystemUnitPlanPositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitPlanScopeFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitPlanStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitPlanStagePositionFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitPlanStageUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitPlannedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
 input SystemUnitProducedFilter {
   _eq: Int
   _neq: Int
@@ -16929,6 +19976,20 @@ input SystemUnitProducedFilter {
   _lte: Int
   _gt: Int
   _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitProducedKindFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
   _is_null: Boolean
 }
 
@@ -16960,6 +20021,32 @@ input SystemUnitProducerVersionFilter {
   _is_null: Boolean
 }
 
+input SystemUnitProductNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitPublishedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
 input SystemUnitReasonFilter {
   _eq: String
   _neq: String
@@ -16971,6 +20058,42 @@ input SystemUnitReasonFilter {
   _lte: String
   _gt: String
   _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitReplacementGenerationFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitRetriesLeftFilter {
+  _eq: Int
+  _neq: Int
+  _in: [Int!]
+  _nin: [Int!]
+  _lt: Int
+  _lte: Int
+  _gt: Int
+  _gte: Int
+  _is_null: Boolean
+}
+
+input SystemUnitRetryAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
   _is_null: Boolean
 }
 
@@ -16988,7 +20111,7 @@ input SystemUnitScopeFilter {
   _is_null: Boolean
 }
 
-input SystemUnitScopeKeyFilter {
+input SystemUnitSkippedBecauseFilter {
   _eq: String
   _neq: String
   _in: [String!]
@@ -16999,6 +20122,32 @@ input SystemUnitScopeKeyFilter {
   _lte: String
   _gt: String
   _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitStageNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitStaleAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
   _is_null: Boolean
 }
 
@@ -17016,17 +20165,117 @@ input SystemUnitStateFilter {
   _is_null: Boolean
 }
 
+input SystemUnitUnitNameFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnitUpdatedAtFilter {
+  _eq: BigInt
+  _neq: BigInt
+  _in: [BigInt!]
+  _nin: [BigInt!]
+  _lt: BigInt
+  _lte: BigInt
+  _gt: BigInt
+  _gte: BigInt
+  _is_null: Boolean
+}
+
 input SystemUnitWhere {
+  planStageName: SystemUnitPlanStageNameFilter
+  planStageUnitName: SystemUnitPlanStageUnitNameFilter
+  planScope: SystemUnitPlanScopeFilter
+  planStagePosition: SystemUnitPlanStagePositionFilter
+  planPosition: SystemUnitPlanPositionFilter
+  plannedAt: SystemUnitPlannedAtFilter
+  unitName: SystemUnitUnitNameFilter
+  productName: SystemUnitProductNameFilter
+  stageName: SystemUnitStageNameFilter
+  generation: SystemUnitGenerationFilter
+  inputsDigest: SystemUnitInputsDigestFilter
+  fence: SystemUnitFenceFilter
+  attempt: SystemUnitAttemptFilter
+  retriesLeft: SystemUnitRetriesLeftFilter
+  retryAt: SystemUnitRetryAtFilter
+  replacementGeneration: SystemUnitReplacementGenerationFilter
+  skippedBecause: SystemUnitSkippedBecauseFilter
+  publishedAt: SystemUnitPublishedAtFilter
+  staleAt: SystemUnitStaleAtFilter
+  updatedAt: SystemUnitUpdatedAtFilter
+  producedKind: SystemUnitProducedKindFilter
   producer: SystemUnitProducerFilter
   outcome: SystemUnitOutcomeFilter
   produced: SystemUnitProducedFilter
   reason: SystemUnitReasonFilter
   producerVersion: SystemUnitProducerVersionFilter
   scope: SystemUnitScopeFilter
-  scopeKey: SystemUnitScopeKeyFilter
   state: SystemUnitStateFilter
   committedOperations: SystemUnitCommittedOperationsFilter
   lastProgress: SystemUnitLastProgressFilter
+}
+
+input SystemUnreadOrder {
+  field: SystemUnreadOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input SystemUnreadPathFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnreadReasonFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnreadRepositoryFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input SystemUnreadWhere {
+  repository: SystemUnreadRepositoryFilter
+  path: SystemUnreadPathFilter
+  reason: SystemUnreadReasonFilter
 }
 
 input TaskDescriptionFilter {
@@ -17072,8 +20321,16 @@ input TaskKeyFilter {
 }
 
 input TaskLabelsFilter {
-  _eq: JSON
-  _neq: JSON
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
   _is_null: Boolean
 }
 
@@ -17291,6 +20548,30 @@ input TransitionOrder {
 
 input TransitionWhere {
   guard: TransitionGuardFilter
+}
+
+input UnitLabelFieldFilter {
+  _eq: String
+  _neq: String
+  _in: [String!]
+  _nin: [String!]
+  _contains: String
+  _like: String
+  _lt: String
+  _lte: String
+  _gt: String
+  _gte: String
+  _is_null: Boolean
+}
+
+input UnitOrder {
+  field: UnitOrderField!
+  direction: OrderDirection
+  nulls: NullsOrder
+}
+
+input UnitWhere {
+  labelField: UnitLabelFieldFilter
 }
 
 input UseCaseStepActionFilter {
@@ -17688,6 +20969,24 @@ enum ActivityOrderField {
   description
 }
 
+enum AgentOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum AgentSessionOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
+enum AgentUsageOrderField {
+  labelField
+}
+
 enum AssertionOperation {
   ASSERT
   RETRACT
@@ -17730,6 +21029,11 @@ enum ClassDiagramOrderField {
 enum CodeAuthorOrderField {
   name
   email
+}
+
+enum CodeBlobOrderField {
+  digest
+  content
 }
 
 enum CodeBrokerOrderField {
@@ -17781,6 +21085,7 @@ enum CodeComposeServiceOrderField {
   name
   image
   ports
+  dependsOn
   environment
 }
 
@@ -17957,6 +21262,7 @@ enum CodeLockfileOrderField {
   path
   format
   lockfileVersion
+  packages
 }
 
 enum CodeLoggerOrderField {
@@ -18065,6 +21371,7 @@ enum CodeServiceOrderField {
   name
   path
   language
+  frameworks
   runtime
   purpose
 }
@@ -18229,6 +21536,8 @@ enum DocUseCaseOrderField {
 }
 
 enum DocumentOrderField {
+  content
+  anchors
   path
   title
   format
@@ -18261,20 +21570,12 @@ enum EpicOrderField {
 }
 
 enum EventOrderField {
-  name
-  description
+  labelField
 }
 
-enum EvidenceOrderField {
-  check
-  result
-  where
-  at
-}
-
-enum EvidenceHistoricalValidity {
-  VALID
-  INVALID
+enum EvidenceAvailability {
+  AVAILABLE
+  UNAVAILABLE
   UNKNOWN
 }
 
@@ -18285,10 +21586,17 @@ enum EvidenceCurrentApplicability {
   UNKNOWN
 }
 
-enum EvidenceAvailability {
-  AVAILABLE
-  UNAVAILABLE
+enum EvidenceHistoricalValidity {
+  VALID
+  INVALID
   UNKNOWN
+}
+
+enum EvidenceOrderField {
+  check
+  result
+  where
+  at
 }
 
 enum FeatureOrderField {
@@ -18363,12 +21671,44 @@ enum LinkBehaviourOrderField {
 
 enum LinkTypeOrderField {
   name
+  fromKinds
+  toKinds
   labels
 }
 
 enum LogicalDataModelOrderField {
   name
   description
+}
+
+enum ManifestCatalogueOrderField {
+  name
+  declaration
+}
+
+enum ManifestDependencyOrderField {
+  name
+  declaration
+}
+
+enum ManifestFieldOrderField {
+  name
+  declaration
+}
+
+enum ManifestKindOrderField {
+  name
+  declaration
+}
+
+enum ManifestRelationOrderField {
+  name
+  declaration
+}
+
+enum ManifestWorkflowOrderField {
+  name
+  declaration
 }
 
 enum ManifestWorkflowStageOrderField {
@@ -18394,6 +21734,10 @@ enum MilestoneOrderField {
 enum NullsOrder {
   FIRST
   LAST
+}
+
+enum OperationOrderField {
+  labelField
 }
 
 enum OrderDirection {
@@ -18425,6 +21769,13 @@ enum PersonOrderField {
   identity
 }
 
+enum PluginOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
 enum PracticeOrderField {
   name
   rule
@@ -18439,6 +21790,10 @@ enum PrincipleOrderField {
   rationale
   implications
   status
+}
+
+enum ProblemOrderField {
+  labelField
 }
 
 enum ProcessEventOrderField {
@@ -18511,6 +21866,10 @@ enum RoleOrderField {
   responsibility
 }
 
+enum RunOrderField {
+  labelField
+}
+
 enum RuntimeScenarioOrderField {
   name
   trigger
@@ -18530,6 +21889,10 @@ enum ScheduledJobOrderField {
   concurrency
 }
 
+enum SettingOrderField {
+  labelField
+}
+
 enum SkillOrderField {
   name
   when
@@ -18538,14 +21901,27 @@ enum SkillOrderField {
   status
 }
 
+enum SourceOrderField {
+  installation
+  labelField
+  version
+  scope
+}
+
 enum StageOrderField {
   name
   acceptanceCriterion
   status
 }
 
+enum StateEventOrderField {
+  name
+  description
+}
+
 enum StateMachineOrderField {
   name
+  lifecycleOfField
   description
 }
 
@@ -18564,46 +21940,178 @@ enum SuppressionOrderField {
   at
 }
 
+enum SystemAuthoredImportOrderField {
+  sourcePath
+  contentDigest
+}
+
+enum SystemChainOrderField {
+  productName
+  state
+  updatedAt
+}
+
 enum SystemContentSnapshotOrderField {
   digest
   content
 }
 
+enum SystemDisputePinOrderField {
+  canonicalValue
+  digest
+  segmentFrom
+  segmentTo
+}
+
+enum SystemDisputeQuestionOrderField {
+  property
+  language
+  segmentFrom
+  segmentTo
+  state
+}
+
+enum SystemDisputeResolutionOrderField {
+  rationale
+  segmentFrom
+  segmentTo
+}
+
+enum SystemFillTransitionOrderField {
+  step
+  fromState
+  toState
+  event
+  cause
+  reason
+  generation
+  fence
+  at
+}
+
 enum SystemOperationOrderField {
+  words
   key
   canonicalRequest
   digest
   result
 }
 
-enum SystemPersonOrderField {
-  scopeKey
+enum SystemProblemOrderField {
+  rule
+  fingerprint
+  reason
+  locator
 }
 
-enum SystemPluginOrderField {
-  scopeKey
+enum SystemProgressOrderField {
+  seq
+  at
+  stage
+  unitName
+  generation
+  kindField
+  summary
 }
 
 enum SystemRunOrderField {
+  targetPluginsOnly
+  targetsPresent
+  endState
+  endMessage
+  endRecorded
+  controlAction
+  controlAt
+  repository
+  defaultBranch
+  commit
+  registryHash
+  targetVertex
+  configurationDigest
+  configurationRecordedAt
+  runName
+  productName
+  planningEpoch
+  planningClosed
+  hasSelection
+  createdAt
+  updatedAt
   state
-  scopeKey
 }
 
-enum SystemSourceOrderField {
-  scopeKey
+enum SystemRunSelectionOrderField {
+  role
+  position
+  name
+  groupName
+  pluginName
+  stageUnitName
+}
+
+enum SystemRunStageOrderField {
+  stageName
+  plannedAt
+  units
+  publications
+}
+
+enum SystemRunTargetOrderField {
+  role
+  name
+  position
+}
+
+enum SystemTrackedReadOrderField {
+  queryDigest
+  query
+  membership
+  members
+  seq
+  at
+}
+
+enum SystemUnitCacheVersionOrderField {
+  name
+  version
 }
 
 enum SystemUnitOrderField {
+  planStageName
+  planStageUnitName
+  planScope
+  planStagePosition
+  planPosition
+  plannedAt
+  unitName
+  productName
+  stageName
+  generation
+  inputsDigest
+  fence
+  attempt
+  retriesLeft
+  retryAt
+  replacementGeneration
+  skippedBecause
+  publishedAt
+  staleAt
+  updatedAt
+  producedKind
   producer
   outcome
   produced
   reason
   producerVersion
   scope
-  scopeKey
   state
   committedOperations
   lastProgress
+}
+
+enum SystemUnreadOrderField {
+  repository
+  path
+  reason
 }
 
 enum TaskOrderField {
@@ -18632,6 +22140,10 @@ enum TestResultOrderField {
 
 enum TransitionOrderField {
   guard
+}
+
+enum UnitOrderField {
+  labelField
 }
 
 enum UseCaseStepOrderField {
