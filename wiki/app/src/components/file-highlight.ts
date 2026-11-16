@@ -4,7 +4,7 @@
  * scheme. The wiki app carries no highlighter of its own; shiki is the one the kit's `SyntaxToken` was written for (its
  * `colors` and `fontStyle` are shiki's), and it is added as a dependency for this page's source only.
  */
-import { bundledLanguagesInfo, createHighlighter, type ThemedToken } from 'shiki';
+import { bundledLanguagesInfo, createHighlighter, createJavaScriptRegexEngine, type ThemedToken } from 'shiki';
 
 /** One line of tokens, as the kit's file source draws it. */
 export type HighlightedLine = readonly ThemedToken[];
@@ -83,13 +83,25 @@ function themeWithScopes(): Record<string, unknown> {
   };
 }
 
-/** The one highlighter this page opens, made on first use and kept for the page's life. */
-let highlighter: Promise<{ codeToTokens: (text: string, options: { lang: string; theme: unknown }) => { tokens: ThemedToken[][] } }> | undefined;
+/**
+ * The one highlighter this page opens, made on first use and kept for the page's life. Its engine is named: shiki's
+ * default is a WASM build whose load differs by architecture and by what a runner's install kept, and a page whose tokens
+ * depend on that draws plain text on one machine and coloured text on another. The JavaScript regex engine is the same
+ * code everywhere. The theme is loaded once, by name, so every call colours a token from it and never from a per-call
+ * registration.
+ */
+const THEME_NAME = 'madarch-kit';
+
+let highlighter: Promise<{ codeToTokens: (text: string, options: { lang: string }) => { tokens: ThemedToken[][] } }> | undefined;
 
 async function highlighterOf(): Promise<NonNullable<Awaited<typeof highlighter>>> {
   highlighter ??= (async () => {
-    const created = await createHighlighter({ themes: [themeWithScopes() as never], langs: GRAMMARS.map((one) => one.id) });
-    return { codeToTokens: (text: string, options: { lang: string; theme: unknown }) => created.codeToTokens(text, options as never) };
+    const created = await createHighlighter({
+      engine: createJavaScriptRegexEngine(),
+      themes: [themeWithScopes() as never],
+      langs: GRAMMARS.map((one) => one.id),
+    });
+    return { codeToTokens: (text: string, options: { lang: string }) => created.codeToTokens(text, { lang: options.lang as never, theme: THEME_NAME }) };
   })();
   return await highlighter;
 }
@@ -106,7 +118,7 @@ export async function highlightLines(text: string, language: string | undefined)
   if (language === undefined || text.trim() === '') return lines.map((line) => [{ content: line, color: 'var(--text)', offset: 0 }]);
   try {
     const engine = await highlighterOf();
-    const tokens = engine.codeToTokens(text, { lang: language, theme: themeWithScopes() }).tokens;
+    const tokens = engine.codeToTokens(text, { lang: language }).tokens;
     // A trailing newline ends the last line rather than starting an empty one, as the lines' own count does.
     if (text.endsWith('\n') && tokens.length > lines.length) return tokens.slice(0, lines.length);
     return tokens;
