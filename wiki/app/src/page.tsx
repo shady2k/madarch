@@ -63,8 +63,15 @@ export function PageView({ composition, data, runtime }: { readonly composition:
   }
   // A section the data leaves empty is not drawn at all: an entity with no relations shows no empty relation box, and
   // no heading over nothing (madarch-64o5.83).
-  const drawsNothing = (section: ComposedSection): boolean =>
-    section.component === 'relations' && edgesOf(at(data[section.id], section.params['path'])).length === 0;
+  const drawsNothing = (section: ComposedSection): boolean => {
+    if (section.component === 'relations') return edgesOf(at(data[section.id], section.params['path'])).length === 0;
+    // 0039 items 5 and 29: a page whose text leaves no name unlinked draws no mention section.
+    if (section.component === 'mentions') {
+      const names = at(data[section.id], 'unlinkedMentions');
+      return !Array.isArray(names) || names.length === 0;
+    }
+    return false;
+  };
   const render = (section: ComposedSection): ReactElement | null => {
     if (drawsNothing(section)) return null;
     const context: SectionContext = {

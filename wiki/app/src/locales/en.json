@@ -107,8 +107,7 @@
   },
   "knowledge": {
     "mentions": {
-      "linking": "Linking…",
-      "empty": "Every name in the text is linked."
+      "linking": "Linking…"
     },
     "fillRun": {
       "noUnits": "No units were planned",

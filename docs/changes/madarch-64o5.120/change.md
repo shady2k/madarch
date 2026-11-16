@@ -64,8 +64,19 @@ not active, and the row stays as history. The page reads `Entity.unlinkedMention
 `/api/mention-link`, which binds a person source to the write contract and writes the field through the one writer.
 
 ## Acceptance evidence
-Static: `bun run check` passed (<counts to be filled>); the wiki app's `bun run check` passed.
-Test: <counts to be filled>
+Static: `bun run check` passed: `tsc --noEmit` clean; architecture 874 violations found, 874 listed in
+`.architecture/violations.json` (no gained entry; `graphql-only-reads` 0 after the command route is named in the
+allowed list); UI architecture 0; catalog 501 kinds read, no finding on 117 page-holding kinds; workflows 4; quarantine
+0. The wiki app's `bun run check` passed: `tsc --noEmit` clean and UI architecture 0.
+Test: `test/mention-text.test.ts`, `test/graphql-writes.test.ts` and `test/page-contract.test.ts` passed together:
+54 passed, 0 failed (the mention grammar's 12; the writes suite's 27, including the new changed-text retraction, the
+unlinked-mentions read with two same-named candidates and the press that links the shown span; the entity template's
+section list). The wiki app's suite passed: 127 passed, 0 failed, including `mentions.test.tsx`'s 3 (two candidates of
+two kinds each named with its kind, the press posting the exact span, an all-linked text drawing nothing).
+The full `test/` run with `MADARCH_PLUGIN_SANDBOX=off` (this box has no delegated cgroup) fails the same suites as the
+base commit d9a0d329 does, measured by running them in a worktree of that commit: the disk/git fill fixtures, the
+init/start commands, the draft templates, the golden fixture SDL, the catalog row check and the parent-bound fact case
+that the run's 5 s unnamed bound stops. None of them is new.
 Mutation: not run, filed per the stage rule.
 Review: pending; this record is for the review.
 

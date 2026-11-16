@@ -96,10 +96,10 @@ test('the press links the span the page showed, as this person’s statement', a
   } finally { await page.close(); }
 });
 
-test('a text whose names are all linked draws the empty line, and no Button', async () => {
+test('a text whose names are all linked draws no name and no Button', async () => {
   const page = await render({ id: '019a0000-0000-7000-8000-0000000000aa', kind: 'demo.note', unlinkedMentions: [] });
   try {
-    expect(page.container.textContent).toContain('Все имена в тексте связаны.');
+    expect(page.container.querySelectorAll('[data-testid="unlinked-mention"]').length).toBe(0);
     expect(page.container.querySelectorAll('[data-testid="unlinked-mention-link"]').length).toBe(0);
   } finally { await page.close(); }
 });
