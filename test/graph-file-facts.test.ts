@@ -2,9 +2,12 @@
  * A product may declare code.file's lines and no class. The file facts read only the columns the manifest declares; the
  * absent class is unknown, never a query for a column the generated table does not hold.
  */
-import { assertionValueTableName, type GraphContract } from '../src/graph/contract.js';
+import { createTestDatabaseOwner } from './test-database.js';
+import { bindTestWriteCapability } from './write-capability-fixture.js';
+import { publishGraphDrafts, writeAssertion } from '../src/graph/write.js';
+import { assertionValueTableName, generatedTableName, type GraphContract } from '../src/graph/contract.js';
 import { withAssertionContract } from '../src/graph/system-contract.js';
-import { loadAssertions } from '../src/graph/assertion-read.js';
+import { loadAssertions, loadAssertionsBatch } from '../src/graph/assertion-read.js';
 import type { SqlExecutor } from '../src/sql-driver.js';
 import { expect, test } from 'bun:test';
 import type { DatabaseOwner, OuterTransaction } from '../src/adapters/database-owner.js';
@@ -90,3 +93,61 @@ test('typed assertion JSON preserves exact sequences without changing internal v
   ]);
   expect(serialized.map((row: { value: unknown }) => row.value)).toEqual([700, '9007199254740993', at]);
 });
+
+const typedBatchGraph:GraphContract={vertex:[{name:'typed',table:generatedTableName('typed','vertex'),key:['name'],fields:[{name:'name',type:'text'},{name:'amount',type:'bigint'},{name:'when',type:'timestamp'},{name:'enabled',type:'boolean'},{name:'details',type:'json',schema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',properties:{count:{type:'integer'}},required:['count'],additionalProperties:false}}],capability:'fixture'}],edge:[],dictionary:[]};
+test('assertion property batch preserves native typed values and subject filtering',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:typedBatchGraph,authenticated:false});
+ try{
+  await owner.transaction('write',async tx=>{await bindTestWriteCapability(tx,typedBatchGraph);await publishGraphDrafts(tx,typedBatchGraph,{vertices:['one','two'].map(name=>({kind:'typed',key:{name},values:{amount:name==='one'?'9223372036854775807':'9007199254740991',when:'2026-01-01T12:00:00.123Z',enabled:true,details:{count:3}},producer:'fixture',producerVersion:'1'})),removals:[]});});
+  await owner.run(async tx=>{
+   const identities=await tx.query<{id:number}>(`SELECT id FROM node WHERE key->>'name'='one'`);
+   let reads=0;const executor={query:((...args:Parameters<typeof tx.query>)=>{reads++;return tx.query(...args);}) as typeof tx.query};
+   const rows=await loadAssertions(executor,'vertex','typed',['amount','when','enabled','details'],[Number(identities.rows[0]!.id)]);
+   expect(reads).toBe(1);expect(rows.map(row=>[row.property,row.value])).toEqual([['amount','9223372036854775807'],['when','2026-01-01T12:00:00.123Z'],['enabled',true],['details',{count:3}]]);
+   expect(await loadAssertions(executor,'vertex','typed',['amount'],[])).toEqual([]);expect(reads).toBe(1);
+   const all=await loadAssertions(executor,'vertex','typed',['amount']);
+   expect(all.map(row=>row.value)).toEqual(['9223372036854775807',9007199254740991]);
+   const beforeBatch=reads;
+   const batches=await loadAssertionsBatch(executor,[
+    {sort:'vertex',kind:'typed',properties:['amount'],subjectIds:[Number(identities.rows[0]!.id)]},
+    {sort:'vertex',kind:'typed',properties:['enabled','amount']},
+    {sort:'vertex',kind:'typed',properties:['details'],subjectIds:[]},
+   ]);
+   expect(reads-beforeBatch).toBe(1);
+   expect(batches.map(batch=>batch.map(row=>[row.property,row.value]))).toEqual([
+    [['amount','9223372036854775807']],
+    [['enabled',true],['enabled',true],['amount','9223372036854775807'],['amount',9007199254740991]],
+    [],
+   ]);
+  });
+ }finally{await owner.close();}
+},30000);
+
+test('typed history batches retain retractions, duplicate properties and request boundaries',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:typedBatchGraph,authenticated:false});
+ try{
+  await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,typedBatchGraph);
+   await publishGraphDrafts(tx,typedBatchGraph,{vertices:[{kind:'typed',key:{name:'history'},values:{amount:'9223372036854775807',enabled:true},producer:'fixture',producerVersion:'1'}],removals:[]});
+   const subject=(await tx.query<{id:string}>(`SELECT id::text AS id FROM node WHERE key->>'name'='history'`)).rows[0]!;
+   await writeAssertion(tx,typedBatchGraph,{sort:'vertex',kind:'typed',subjectId:subject.id,property:'amount',operation:'retract'});
+  });
+  await owner.run(async tx=>{
+   const requests=[
+    {sort:'vertex' as const,kind:'typed',properties:['amount','amount']},
+    {sort:'vertex' as const,kind:'typed',properties:['enabled','amount']},
+    {sort:'vertex' as const,kind:'typed',properties:['amount'],subjectIds:[]},
+   ];
+   const batches=await loadAssertionsBatch(tx,requests);
+   expect(batches[0]!.map(row=>[row.property,row.operation,row.value])).toEqual([
+    ['amount','assert','9223372036854775807'],['amount','assert','9223372036854775807'],['amount','retract',null],
+   ]);
+   expect(batches[1]!.map(row=>[row.property,row.operation,row.value])).toEqual([
+    ['enabled','assert',true],['amount','assert','9223372036854775807'],['amount','retract',null],
+   ]);
+   expect(batches[2]).toEqual([]);
+   for(const [index,request] of requests.entries())expect(batches[index]).toEqual(await loadAssertions(tx,request.sort,request.kind,request.properties,'subjectIds' in request?request.subjectIds:undefined));
+  });
+ }finally{await owner.close();}
+},30000);
+
