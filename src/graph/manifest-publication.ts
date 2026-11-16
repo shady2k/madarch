@@ -267,8 +267,9 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 /** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
   return await withSpan('manifest.publishDeclarations', {}, async () => await owner.transaction('write', async (tx) => {
-    await installDisputeSelection(tx, withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest))));
-    const { contract: publicationContract, binding } = await startupBinding(tx, withManifestContract(authored ?? graphContractOf(validated.manifest)), 'manifest');
+    const contract = withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest)));
+    await installDisputeSelection(tx, contract);
+    const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
     await publishGraphDrafts(tx, publicationContract, { vertices: validated.snapshots, removals: [] });
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
@@ -343,10 +344,9 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       }
     }
     written += await publishGraphDrafts(tx, publicationContract, { vertices: [], edges, removals: [], edgeRemovals }, 1, { author: 'manifest' });
-    const valueContract = authored ?? graphContractOf(validated.manifest);
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
     if (valueKinds.size > 0) {
-      written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+      written += await publishGraphDrafts(tx, publicationContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
     await refreshDisputeSelection(tx, publicationContract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
