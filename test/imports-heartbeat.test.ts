@@ -35,6 +35,7 @@ test.skipIf(sandboxProblem !== undefined)('a unit over more files than the silen
   const closure = closureOf(folder);
   const work = mkdtempSync(join(tmpdir(), 'madarch-imports-heartbeat-'));
   const host = new PluginHost({
+    operations: { apply: async () => ({ accepted: true }) },
     pluginFolder: folder,
     closure,
     repository: work,
@@ -45,7 +46,7 @@ test.skipIf(sandboxProblem !== undefined)('a unit over more files than the silen
     limits: { heartbeatMs: 1_000 },
     ...(cgroupParent() === undefined ? {} : { cgroupParent: cgroupParent() }),
     graph: {
-      files: async () => [...files.keys()].map((path) => ({ kind: 'code.file', key: { repository: 'app', path } })),
+      files: async () => [...files.keys()].map((path) => ({ kind: 'code.file', key: { path }, keyEdges: { 'code.file-repository': { kind: 'code.repository', key: { name: 'app' } } } })),
       value: async (_kind, key, field) => field === 'content' ? files.get(String(key['path'])) ?? null : null,
     },
   });
