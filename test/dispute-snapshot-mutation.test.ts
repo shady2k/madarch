@@ -108,6 +108,7 @@ test('dispute snapshot matches each requested slot to its own anchor and ignores
    const ids=[...new Set(rows.map(row=>row.subjectId))];
    const views=await Promise.all(ids.map(async id=>({id,view:(await readDispute(tx,contract,rows.filter(row=>row.subjectId===id),{contexts:[1]}))!})));
    expect(views).toHaveLength(2);expect(new Set(views.map(one=>one.view.id)).size).toBe(2);
+   for(const one of views){expect(one.view.state).toBe('OPEN');expect(one.view.resolution).toBeNull();expect(one.view.supersededResolutions).toEqual([]);expect(one.view.selectedAssertionUid).toBeNull();}
    for(const one of views)expect([...one.view.candidates].sort()).toEqual(rows.filter(row=>row.subjectId===one.id).map(row=>row.id).sort());
    return views;
   });
@@ -152,6 +153,8 @@ test('resolved snapshot excludes its current explanation from superseded history
   const first=await resolve();const initial=(await view())!;
   expect(initial.state).toBe('RESOLVED');expect(initial.resolution).toBe(first);expect(initial.supersededResolutions).toEqual([]);expect(initial.selectedAssertionUid).not.toBeNull();
   await write(1,3);
+  const reopened=(await view())!;
+  expect(reopened.state).toBe('OPEN');expect(reopened.resolution).toBeNull();expect(reopened.supersededResolutions).toEqual([first]);expect(reopened.selectedAssertionUid).toBeNull();
   const second=await resolve();const replaced=(await view())!;
   expect(first<second).toBe(true);
   expect(replaced.state).toBe('RESOLVED');expect(replaced.resolution).toBe(second);expect(replaced.supersededResolutions).toEqual([first]);expect(replaced.selectedAssertionUid).not.toBe(initial.selectedAssertionUid);
