@@ -199,17 +199,19 @@ async function writeCheckedAssertion(executor:SqlExecutor,prepared:PreparedContr
 
  const mentions=input.operation==='assert'?scanMentions(input.value,`/values/${input.property.split('~').join('~0').split('/').join('~1')}`):[];
  for(const mention of mentions){const endpointNode=(await executor.query<{id:string;kind:string}>(`SELECT n.id::text AS id,k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[mention.uid])).rows[0];if(!endpointNode||!(await executor.query<{active:boolean}>(`SELECT graph_vertex_active($1::bigint,$2,$3::bigint) AS active`,[endpointNode.id,endpointNode.kind,context])).rows[0]?.active)throw new Error(`${WHERE}:120: TARGET_MISSING ${mention.path} ${mention.uid}`);}
- const association=input.sort==='vertex'
-  ? 'JOIN assertion_vertex_subject attachment ON attachment.assertion_id=a.assertion_id JOIN edge subject ON subject.id=attachment.subject_edge_id'
-  : 'JOIN assertion_edge_subject attachment ON attachment.assertion_id=a.assertion_id';
- const subjectId=input.sort==='vertex'?'subject.to_node':'attachment.edge_id';
- const current=(await executor.query<{id:string;uid:string;operation:string;value:unknown;unchangedScope:boolean}>(`WITH stream AS (
+ const targetAssertions=input.sort==='vertex'
+  ? 'SELECT attachment.assertion_id FROM edge subject_edge CROSS JOIN LATERAL (SELECT av.assertion_id FROM assertion_vertex_subject av WHERE av.subject_edge_id=subject_edge.id OFFSET 0) attachment WHERE subject_edge.to_node=$1::bigint'
+  : 'SELECT attachment.assertion_id FROM assertion_edge_subject attachment WHERE attachment.edge_id=$1::bigint';
+ const current=(await executor.query<{id:string;uid:string;operation:string;value:unknown;unchangedScope:boolean}>(`WITH target_assertions AS MATERIALIZED (${targetAssertions}), stream AS MATERIALIZED (
   SELECT a.assertion_id::text AS id,n.uid::text AS uid,a.operation,v.value,a.valid_from,a.valid_to,a.recorded_sequence
-  FROM assertion a JOIN node n ON n.id=a.assertion_id ${association}
-  JOIN edge source ON source.from_node=a.assertion_id JOIN entity source_kind ON source_kind.id=source.entity_id AND source_kind.name='system.assertion-source'
-  JOIN node producer ON producer.id=source.to_node
+  FROM target_assertions target CROSS JOIN LATERAL (
+   SELECT header.* FROM assertion header WHERE header.assertion_id=target.assertion_id
+    AND header.property=$2 AND header.language IS NOT DISTINCT FROM $3::text AND header.context_id=$4 OFFSET 0
+  ) a JOIN node n ON n.id=a.assertion_id
   LEFT JOIN "${assertionValueTableName(input.kind,input.sort,input.property)}" v ON v.assertion_id=a.assertion_id
-  WHERE ${subjectId}=$1::bigint AND a.property=$2 AND a.language IS NOT DISTINCT FROM $3::text AND a.context_id=$4 AND producer.uid=$5::uuid
+  WHERE EXISTS(SELECT 1 FROM edge source WHERE source.from_node=a.assertion_id
+   AND source.entity_id=(SELECT id FROM entity WHERE name='system.assertion-source')
+   AND source.to_node=(SELECT id FROM node WHERE uid=$5::uuid))
  ), current AS (
   SELECT * FROM stream WHERE valid_from<=coalesce($6::timestamptz,statement_timestamp())
    AND (valid_to IS NULL OR valid_to>coalesce($6::timestamptz,statement_timestamp())) ORDER BY recorded_sequence DESC LIMIT 1
