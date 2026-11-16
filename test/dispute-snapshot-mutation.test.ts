@@ -23,7 +23,7 @@ test('dispute snapshot excludes denied and retracted candidate lineage but retai
   }
   const view=async(recordedAt=new Date().toISOString())=>owner.transaction('snapshot',async tx=>readDispute(tx,contract,await loadAssertions(tx,'vertex','sample',['amount']),{validAt:'2020-06-01T00:00:00Z',recordedAt,contexts:[1]}));
   const before=(await view())!;
-  expect(before.state).toBe('OPEN');expect(before.candidates).toHaveLength(2);
+  expect(before.state).toBe('OPEN');expect(before.candidates).toHaveLength(2);expect(before.resolution).toBeNull();expect(before.supersededResolutions).toEqual([]);expect(before.selectedAssertionUid).toBeNull();
   const cutoff=new Date().toISOString();
   const candidate=before.candidates[0]!;
   const change=async(operation:'assert'|'retract')=>owner.transaction('write',async tx=>{
@@ -92,5 +92,68 @@ test('slot batches keep boolean vertex IDs separate from denied lineage edge IDs
    expect(slots.find(slot=>slot.kind==='flag')!.rows.find(row=>row.selected)?.value).toBe(true);
    expect(slots.find(slot=>slot.dispute.id===original.id)!.dispute.candidates).toEqual(original.candidates.filter(uid=>uid!==removed));
   });
+ } finally {await owner.close();}
+},30000);
+
+test('dispute snapshot matches each requested slot to its own anchor and ignores stateless questions',async()=>{
+ const owner=await createTestDatabaseOwner({graphContract:contract,authenticated:false});
+ try {
+  for(const [index,source] of ['019a0000-0000-7000-8000-000000000041','019a0000-0000-7000-8000-000000000042'].entries())await owner.transaction('write',async tx=>{
+   await bindTestWriteCapability(tx,contract,source);
+   await publishGraphDrafts(tx,contract,{vertices:['first','second'].map(name=>({kind:'sample',key:{name},values:{amount:index+1},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'})),removals:[]});
+   await reconcileDisputes(tx,contract);
+  });
+  const before=await owner.transaction('snapshot',async tx=>{
+   const rows=await loadAssertions(tx,'vertex','sample',['amount']);
+   const ids=[...new Set(rows.map(row=>row.subjectId))];
+   const views=await Promise.all(ids.map(async id=>({id,view:(await readDispute(tx,contract,rows.filter(row=>row.subjectId===id),{contexts:[1]}))!})));
+   expect(views).toHaveLength(2);expect(new Set(views.map(one=>one.view.id)).size).toBe(2);
+   for(const one of views)expect([...one.view.candidates].sort()).toEqual(rows.filter(row=>row.subjectId===one.id).map(row=>row.id).sort());
+   return views;
+  });
+  await owner.transaction('write',async tx=>{
+   const installed=await startupBinding(tx,contract,'system.disputes');
+   const state=(await loadAssertions(tx,'vertex','system.dispute-question',['state'])).find(row=>row.subject.type==='vertex'&&row.subject.uid===before[0]!.view.id)!;
+   bindWriteCapability(tx,{...installed.binding,sourceUid:state.source});
+   await writeAssertion(tx,contract,{sort:'vertex',kind:'system.dispute-question',subjectId:String(state.subjectId),property:'state',operation:'retract',validFrom:state.validFrom,validTo:state.validTo});
+  });
+  await owner.transaction('snapshot',async tx=>{
+   const rows=await loadAssertions(tx,'vertex','sample',['amount']);
+   expect(await readDispute(tx,contract,rows.filter(row=>row.subjectId===before[0]!.id),{contexts:[1]})).toBeNull();
+   expect((await readDispute(tx,contract,rows.filter(row=>row.subjectId===before[1]!.id),{contexts:[1]}))?.id).toBe(before[1]!.view.id);
+  });
+ } finally {await owner.close();}
+},30000);
+
+test('resolved snapshot excludes its current explanation from superseded history and follows replacement lineage',async()=>{
+ const {registerSystemSource}=await import('../src/graph/system-installation.js');
+ const {activateGraphProducer,bindGraphProducer}=await import('../src/graph/producer-binding.js');
+ const {resolveDispute}=await import('../src/graph/disputes.js');
+ const {sha256Hex}=await import('../src/graph/digest.js');
+ const owner=await createTestDatabaseOwner({graphContract:contract});
+ try {
+  const scope=await owner.transaction('write',async tx=>(await startupBinding(tx,contract,'snapshot-resolution')).binding.productUid);
+  const identities=await Promise.all(['a','b','judge'].map(installationKey=>registerSystemSource(owner,contract,{type:'plugin',installationKey,scope,version:'1'})));
+  const bindings=identities.map(identity=>bindGraphProducer(owner,contract,{principal:identity.principal,vertices:{sample:['amount'],'system.content-snapshot':['digest','content']},edges:{},actions:['assert','resolve']}));
+  const write=async(index:number,value:number)=>owner.transaction('write',async tx=>{
+   await activateGraphProducer(tx,contract,bindings[index]!);
+   await publishGraphDrafts(tx,contract,{vertices:[{kind:'sample',key:{name:'resolved'},values:{amount:value},validFrom:'2020-01-01T00:00:00Z',producer:'fixture',producerVersion:'1'}],removals:[]});
+   await reconcileDisputes(tx,contract);
+  });
+  await write(0,1);await write(1,2);
+  const content='Snapshot resolution proof',digest=sha256Hex(Buffer.from(content));
+  await owner.transaction('write',async tx=>{await activateGraphProducer(tx,contract,bindings[2]!);await publishGraphDrafts(tx,contract,{vertices:[{kind:'system.content-snapshot',key:{digest},values:{content},producer:'fixture',producerVersion:'1'}],removals:[]});});
+  const view=async()=>owner.transaction('snapshot',async tx=>readDispute(tx,contract,await loadAssertions(tx,'vertex','sample',['amount']),{contexts:[1]}));
+  const resolve=async()=>owner.transaction('write',async tx=>{
+   await activateGraphProducer(tx,contract,bindings[2]!);
+   const rows=await loadAssertions(tx,'vertex','sample',['amount']);const question=(await readDispute(tx,contract,rows,{contexts:[1]}))!;
+   return resolveDispute(tx,contract,bindings[2]!,{questionUid:question.id,chosenAssertionUid:rows.find(row=>row.source===bindings[0]!.sourceUid&&row.operation==='assert')!.id,expectedCandidates:question.candidates,rationale:'Checked',evidence:[{target:{kind:'system.content-snapshot',key:{digest}}}]});
+  });
+  const first=await resolve();const initial=(await view())!;
+  expect(initial.state).toBe('RESOLVED');expect(initial.resolution).toBe(first);expect(initial.supersededResolutions).toEqual([]);expect(initial.selectedAssertionUid).not.toBeNull();
+  await write(1,3);
+  const second=await resolve();const replaced=(await view())!;
+  expect(first<second).toBe(true);
+  expect(replaced.state).toBe('RESOLVED');expect(replaced.resolution).toBe(second);expect(replaced.supersededResolutions).toEqual([first]);expect(replaced.selectedAssertionUid).not.toBe(initial.selectedAssertionUid);
  } finally {await owner.close();}
 },30000);
