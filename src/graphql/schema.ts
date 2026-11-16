@@ -63,6 +63,15 @@ function operatorType(operator: string, scalar: string): string {
   return scalar;
 }
 
+/** Arguments shared by the root and an entity's traversal. */
+function relatedArgs(): ArgumentDef[] {
+  return [
+    { name: 'edge', type: 'String!' }, { name: 'inverse', type: 'Boolean', defaultValue: 'false' },
+    { name: 'depth', type: 'Int', defaultValue: '1' }, { name: 'kinds', type: '[String!]' }, { name: 'where', type: 'JSON' },
+    { name: 'orderBy', type: '[RelatedOrder!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' },
+  ];
+}
+
 /** The fields every entity answers: the interface of section 1. */
 function entityFields(): FieldDef[] {
   return [
@@ -71,6 +80,7 @@ function entityFields(): FieldDef[] {
     { name: 'label', type: 'String!' },
     { name: 'template', type: 'String!' },
     { name: 'contested', type: '[String!]!' },
+    { name: 'related', type: 'EntityConnection!', args: relatedArgs() },
     { name: 'backlinks', type: 'BacklinkConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
     { name: 'outgoing', type: 'OutgoingConnection!', args: [{ name: 'first', type: 'Int' }, { name: 'after', type: 'String' }] },
   ];
@@ -141,7 +151,7 @@ class Builder {
       { name: 'text', type: 'String!' },
       { name: 'blob', type: 'String!' },
       { name: 'lines', type: 'Int!' },
-      { name: 'byteLength', type: 'Int!' },
+      { name: 'bytes', type: 'Int!' },
       { name: 'binary', type: 'Boolean!' },
       { name: 'from', type: 'Int!' },
       { name: 'complete', type: 'Boolean!' },
@@ -243,7 +253,7 @@ class Builder {
       { name: 'histogram', type: '[Bucket!]!', args: [{ name: 'field', type: 'String!' }, { name: 'bounds', type: '[JSON!]!' }] },
       { name: 'topN', type: '[Ranked!]!', args: [{ name: 'field', type: 'String!' }, { name: 'n', type: 'Int', defaultValue: '10' }] },
     ]);
-    this.type('Cochange', [{ name: 'node', type: 'Entity!' }, { name: 'count', type: 'Int!' }]);
+    this.type('Cochange', [{ name: 'node', type: 'Entity!' }, { name: 'count', type: 'Int!' }, { name: 'total', type: 'Int' }, { name: 'share', type: 'Float' }]);
     // The search's answers as a reader meets them: each kind's word, how many it holds, and the rows with the line a
     // result is shown by (a file's path, a commit's short hash and its message).
     this.type('SearchHit', [{ name: 'node', type: 'Entity!' }, { name: 'line', type: 'String!' }]);
@@ -511,12 +521,14 @@ class Builder {
     this.registry.claimField('Query', 'cochange', 'the entities changed together through an edge');
     this.registry.claimField('Query', 'contributors', 'the entities one more relation beyond an entity');
     this.registry.claimField('Query', 'related', 'the rows of one relation of one entity');
+    this.registry.claimField('Query', 'entityByKey', 'an entity by its declared kind and stable key');
     this.registry.claimField('Query', 'searchGroups', 'the search grouped by kind');
     // One file's text, by the repository and path the graph names (decision 0037): the one read surface a page uses.
     this.registry.claimField('Query', 'source', 'the source text of one file');
     fields.push(
       { name: 'catalogueEntity', type: 'CatalogueEntity', args: [{ name: 'name', type: 'String!' }, { name: 'lang', type: 'String' }] },
       { name: 'allCatalogueEntity', type: 'CatalogueEntityConnection!', args: [...connectionArgs(catalogueWhere, catalogueOrder), { name: 'lang', type: 'String' }] },
+      { name: 'entityByKey', type: 'Entity', args: [{ name: 'kind', type: 'String!' }, { name: 'key', type: 'JSON!' }, { name: 'lang', type: 'String' }] },
       { name: 'home', type: 'Entity', args: [{ name: 'lang', type: 'String' }] },
       { name: 'search', type: 'EntityConnection!', args: [{ name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' }] },
       { name: 'bootstrap', type: 'Bootstrap!', args: [{ name: 'lang', type: 'String' }] },
@@ -529,10 +541,7 @@ class Builder {
         { name: 'text', type: 'String!' }, { name: 'kinds', type: '[String!]' },
         { name: 'perKind', type: 'Int', defaultValue: '5' }, { name: 'lang', type: 'String' },
       ] },
-      { name: 'related', type: 'EntityConnection!', args: [
-        { name: 'id', type: 'ID!' }, { name: 'edge', type: 'String!' }, { name: 'inverse', type: 'Boolean', defaultValue: 'false' },
-        { name: 'orderBy', type: '[RelatedOrder!]' }, { name: 'first', type: 'Int' }, { name: 'after', type: 'String' }, { name: 'lang', type: 'String' },
-      ] },
+      { name: 'related', type: 'EntityConnection!', args: [{ name: 'id', type: 'ID!' }, ...relatedArgs(), { name: 'lang', type: 'String' }] },
     );
     this.type('Query', fields);
   }

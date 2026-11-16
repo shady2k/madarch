@@ -1152,7 +1152,7 @@
   {
     "rule": "i18n-text",
     "file": "wiki/app/src/kit-page.tsx",
-    "symbol": "1–2 / 2"
+    "symbol": "1\u20132 / 2"
   },
   {
     "rule": "i18n-text",
@@ -3132,7 +3132,7 @@
   {
     "rule": "no-regex",
     "file": "src/loop/entities.ts",
-    "symbol": "/[.!?…]$/"
+    "symbol": "/[.!?\u2026]$/"
   },
   {
     "rule": "no-regex",

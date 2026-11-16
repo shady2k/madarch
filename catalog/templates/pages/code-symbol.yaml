@@ -1,0 +1,119 @@
+template: code-symbol
+extends: entity
+records:
+- code.symbol
+sections:
+- id: facts
+  after: header
+  component: facts
+  title:
+    en: Details
+    ru: Сведения
+  query: |
+    repository
+    path
+    name
+    contested
+  params:
+    rows:
+    - label:
+        en: Repository
+        ru: Репозиторий
+      path: repository
+    - label:
+        en: Path
+        ru: Путь
+      path: path
+    - label:
+        en: Name
+        ru: Имя
+      path: name
+- id: source
+  after: facts
+  component: source
+  title:
+    en: Source
+    ru: Исходный текст
+  query: |
+    repository
+    path
+  params:
+    path: .
+- id: callers
+  component: text
+  title:
+    en: Callers
+    ru: Кто вызывает
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: callees
+  component: text
+  title:
+    en: Calls
+    ru: Что вызывает
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: members
+  component: text
+  title:
+    en: Fields and properties
+    ru: Поля и свойства
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: tests
+  component: text
+  title:
+    en: Tests
+    ru: Тесты
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: implements
+  component: text
+  title:
+    en: Implements
+    ru: Реализует
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: inherits
+  component: text
+  title:
+    en: Inherits
+    ru: Наследует
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename

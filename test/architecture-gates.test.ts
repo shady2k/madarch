@@ -4,7 +4,7 @@
  * fixture tree and reads the rule's own answer: a rule that cannot refuse its own plant is not a gate.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -66,6 +66,69 @@ describe('gate 1: the engine holds no product data', () => {
     });
     // `definition`, `labels` and `descriptions` are the format's; `statement` only the catalogue declares, so it is data.
     expect(productDataViolations(home).map((violation) => [violation.file, violation.symbol])).toEqual([['src/a.ts', 'statement']]);
+  });
+
+  test('SourceText may declare the actual file-read protocol fields that collide with catalogue fields', () => {
+    const home = fixture({
+      ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
+      'src/knowledge/file-text-shape.ts': readFileSync(new URL('../src/knowledge/file-text-shape.ts', import.meta.url), 'utf8'),
+      'src/graphql/schema.ts': readFileSync(new URL('../src/graphql/schema.ts', import.meta.url), 'utf8'),
+    });
+    expect(productDataViolations(home)).toEqual([]);
+  });
+
+  test('protocol vocabulary is scoped to direct SourceText field names, not arbitrary engine strings', () => {
+    const home = fixture({
+      ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n  - name: statement\n    type: text\n  - name: line\n    type: number\n'),
+      'src/knowledge/file-text-shape.ts': 'export interface FileTextResult { readonly bytes: number; readonly next: { readonly line: number }; }',
+      'src/graphql/schema.ts': [
+        "this.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+        "this.type('SourceText', [{ name: 'statement', type: 'String' }]);",
+        "this.type('SourceText', [{ name: 'line', type: 'Int!' }]);",
+        "this.type('OtherType', [{ name: 'bytes', type: 'Int!' }]);",
+        "this.type('SourceText', [{ name: 'text', type: 'bytes' }]);",
+        "export const arbitrary = 'bytes';",
+      ].join('\n'),
+      'src/a.ts': "export const arbitrary = 'bytes';\n",
+    });
+    expect(productDataViolations(home).map(({ file, line, symbol }) => [file, line, symbol])).toEqual([
+      ['src/a.ts', 1, 'bytes'],
+      ['src/graphql/schema.ts', 4, 'bytes'],
+      ['src/graphql/schema.ts', 3, 'line'],
+      ['src/graphql/schema.ts', 2, 'statement'],
+    ]);
+  });
+
+  test('a protocol word outside its declaration slot is still product data', () => {
+    for (const source of [
+      "export const arbitrary = 'bytes';",
+      "this.type('OtherType', [{ name: 'bytes', type: 'Int!' }]);",
+      "this.type('SourceText', [{ name: 'text', type: 'bytes' }]);",
+      "other.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+      "this.other('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+    ]) {
+      const home = fixture({
+        ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
+        'src/knowledge/file-text-shape.ts': 'export interface FileTextResult { readonly bytes: number; }',
+        'src/graphql/schema.ts': source,
+      });
+      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
+    }
+  });
+
+  test('only FileTextResult properties justify a protocol declaration', () => {
+    for (const declaration of [
+      'export interface OtherResult { readonly bytes: number; }',
+      'export interface FileTextResult { readonly text: string; }',
+      '',
+    ]) {
+      const home = fixture({
+        ...catalogue('demo.task', 'fields:\n  - name: bytes\n    type: number\n'),
+        'src/knowledge/file-text-shape.ts': declaration,
+        'src/graphql/schema.ts': "this.type('SourceText', [{ name: 'bytes', type: 'Int!' }]);",
+      });
+      expect(productDataViolations(home).map(({ symbol }) => symbol)).toEqual(['bytes']);
+    }
   });
 
   test('an import from catalog/ is refused: the engine reads the product\'s own files', async () => {

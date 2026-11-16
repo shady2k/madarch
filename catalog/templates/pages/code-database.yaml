@@ -1,0 +1,51 @@
+template: code-database
+extends: entity
+records:
+- code.database
+sections:
+- id: facts
+  after: header
+  component: facts
+  title:
+    en: Details
+    ru: Сведения
+  query: |
+    name
+    repository
+    contested
+  params:
+    rows:
+    - label:
+        en: Name
+        ru: Название
+      path: name
+    - label:
+        en: Repository
+        ru: Репозиторий
+      path: repository
+- id: tables
+  component: text
+  title:
+    en: Tables
+    ru: Таблицы
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: migrations
+  component: text
+  title:
+    en: Migrations
+    ru: Миграции
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename

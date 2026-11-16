@@ -248,9 +248,54 @@ export function manifestFormatWords(root: string): Set<string> {
   return words;
 }
 
+/**
+ * SourceText exposes the file-read protocol, not a catalogue kind. Only its direct field-name declarations may use
+ * properties of FileTextResult; the same word in a resolver, another type or an arbitrary string remains checked.
+ */
+function fileTextProtocolFields(modules: Map<string, GateModule>): Set<Node> {
+  const permitted = new Set<Node>();
+  const protocol = modules.get('src/knowledge/file-text-shape.ts');
+  const schema = modules.get('src/graphql/schema.ts');
+  if (protocol === undefined || schema === undefined) return permitted;
+  const fields = new Set<string>();
+  for (const node of nodesOf(protocol.tree)) {
+    if (node['type'] !== 'TsInterfaceDeclaration' || (node['id'] as Node | undefined)?.['value'] !== 'FileTextResult') continue;
+    const body = (node['body'] as Node)['body'] as Node[];
+    for (const property of body) {
+      if (property['type'] !== 'TsPropertySignature') continue;
+      const key = property['key'] as Node;
+      if (key['type'] === 'Identifier') fields.add(String(key['value']));
+      else if (key['type'] === 'StringLiteral') fields.add(String(key['value']));
+    }
+  }
+  for (const node of nodesOf(schema.tree)) {
+    if (node['type'] !== 'CallExpression') continue;
+    const callee = node['callee'] as Node;
+    if (callee['type'] !== 'MemberExpression' || (callee['object'] as Node)['type'] !== 'ThisExpression'
+      || (callee['property'] as Node)['type'] !== 'Identifier' || (callee['property'] as Node)['value'] !== 'type') continue;
+    const args = node['arguments'] as { expression: Node }[];
+    if (args[0]?.expression['type'] !== 'StringLiteral' || stringValue(args[0].expression) !== 'SourceText') continue;
+    const declarations = args[1]?.expression;
+    if (declarations?.['type'] !== 'ArrayExpression') continue;
+    for (const entry of declarations['elements'] as ({ expression: Node } | null)[]) {
+      const field = entry?.expression;
+      if (field?.['type'] !== 'ObjectExpression') continue;
+      for (const property of field['properties'] as Node[]) {
+        if (property['type'] !== 'KeyValueProperty') continue;
+        const key = property['key'] as Node;
+        if ((key['type'] !== 'Identifier' && key['type'] !== 'StringLiteral') || key['value'] !== 'name') continue;
+        const value = property['value'] as Node;
+        if (value['type'] === 'StringLiteral' && fields.has(String(value['value']))) permitted.add(value);
+      }
+    }
+  }
+  return permitted;
+}
+
 /** Gate 1: no string literal of the engine names a kind or a field the starter catalogue alone declares. */
 export function productDataViolations(root: string, modules: Map<string, GateModule> = modulesOf(root)): ArchitectureViolation[] {
   const format = manifestFormatWords(root);
+  const protocolFields = fileTextProtocolFields(modules);
   const names = new Set<string>();
   for (const kind of catalogueKinds(root)) {
     // A word the manifest format itself declares is the engine's vocabulary, not product data (`labels`, `definition`).
@@ -262,7 +307,7 @@ export function productDataViolations(root: string, modules: Map<string, GateMod
   for (const module of modules.values()) {
     for (const node of nodesOf(module.tree)) {
       const value = stringValue(node);
-      if (value === undefined || !names.has(value)) continue;
+      if (value === undefined || !names.has(value) || protocolFields.has(node)) continue;
       found.push({ rule: 'no-product-data', file: module.file, line: module.lineAt(spanOf(node)?.start ?? 1), symbol: value });
     }
     for (const node of nodesOf(module.tree)) {

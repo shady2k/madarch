@@ -447,6 +447,7 @@ export class ReadContext {
     if (name === 'contested') return this.contestedOf(entity);
     if (name === 'backlinks') return this.backlinks(entity, args);
     if (name === 'outgoing') return this.outgoing(entity, args);
+    if (name === 'related') return this.related({ ...args, id: entity.uid }, entity.lang);
     const field = this.fieldsByType.get(entity.typeName)?.get(name);
     if (field !== undefined) {
       const read = await this.fieldRead(entity, field);
@@ -1182,44 +1183,52 @@ export class ReadContext {
    * declares, and the bytes are read by the role that answers a read — never from a working copy.
    */
   private async sourceOf(args: Record<string, unknown>): Promise<unknown> {
-    if (this.readText === undefined) return null;
-    const repository = typeof args['repository'] === 'string' ? args['repository'] : '';
-    const path = typeof args['path'] === 'string' ? args['path'] : '';
-    if (repository === '' || path === '') return null;
-    const declared = fileTextKind(this.manifest);
-    const roles = declared?.fileText ?? catalogueFileTextRole();
-    const kind = declared?.name ?? roles.kind;
-    if (kind === undefined) return null;
-    const table = this.vertexTable.get(kind);
-    if (table === undefined) return null;
-    // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
-    const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
-        WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
-          AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`;
-      span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
-      const answer = await this.tx.query<{ blob: unknown }>(statementSql, [roles.repository, repository, roles.path, path]);
-      span.setAttribute('db.rows', answer.rows.length);
-      return answer;
+    return await withSpan('graph.sourceOf', {}, async () => {
+      if (this.readText === undefined) return null;
+      const repository = typeof args['repository'] === 'string' ? args['repository'] : '';
+      const path = typeof args['path'] === 'string' ? args['path'] : '';
+      if (repository === '' || path === '') return null;
+      const declared = fileTextKind(this.manifest);
+      const roles = declared?.fileText ?? catalogueFileTextRole();
+      const kind = declared?.name ?? roles.kind;
+      if (kind === undefined) return null;
+      const table = this.vertexTable.get(kind);
+      if (table === undefined) return null;
+      // A file's repository and path are its key: the vertex's own row holds them, and the blob is an opinion of it.
+      const found = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
+        const statementSql = `SELECT o."${roles.blob}" AS blob FROM node n JOIN "${table}" o ON o.node_id = n.id
+          WHERE n.context_id = 1 AND NOT n.removed AND o.context_id = 1 AND o.state = 'open'
+            AND n.key->>$1 = $2 AND n.key->>$3 = $4 ORDER BY o.id DESC LIMIT 1`;
+        span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
+        const answer = await this.tx.query<{ blob: unknown }>(statementSql, [roles.repository, repository, roles.path, path]);
+        span.setAttribute('db.rows', answer.rows.length);
+        return answer;
+      });
+      const blob = found.rows[0]?.blob;
+      if (typeof blob !== 'string' || blob === '') return null;
+      // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
+      // says so, so two revisions are never interleaved.
+      const held = typeof args['blob'] === 'string' ? args['blob'] : undefined;
+      const moved = held !== undefined && held !== blob;
+      const integer = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined;
+      const answer = await this.readText({
+        repository, path, blob, moved,
+        from: moved ? 1 : integer(args['from']) ?? 1,
+        ...(integer(args['to']) === undefined || moved ? {} : { to: integer(args['to'])! }),
+        ...(moved ? {} : integer(args['fromColumn']) === undefined ? {} : { fromColumn: integer(args['fromColumn'])! }),
+      });
+      return answer ?? null;
     });
-    const blob = found.rows[0]?.blob;
-    if (typeof blob !== 'string' || blob === '') return null;
-    // A reader's later range names the blob its first answer held: a blob that no longer stands restarts the view and
-    // says so, so two revisions are never interleaved.
-    const held = typeof args['blob'] === 'string' ? args['blob'] : undefined;
-    const moved = held !== undefined && held !== blob;
-    const integer = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined;
-    const answer = await this.readText({
-      repository, path, blob, moved,
-      from: moved ? 1 : integer(args['from']) ?? 1,
-      ...(integer(args['to']) === undefined || moved ? {} : { to: integer(args['to'])! }),
-      ...(moved ? {} : integer(args['fromColumn']) === undefined ? {} : { fromColumn: integer(args['fromColumn'])! }),
-    });
-    return answer ?? null;
   }
 
   private async root(field: string, args: Record<string, unknown>): Promise<unknown> {
     const lang = typeof args['lang'] === 'string' ? args['lang'] : undefined;
+    if (field === 'entityByKey') {
+      const kind = typeof args['kind'] === 'string' ? args['kind'] : '';
+      const key = args['key'];
+      if (!this.published.kinds.some((one) => one.name === kind) || key === null || typeof key !== 'object' || Array.isArray(key)) return null;
+      return this.referenceValue({ nodeId: '', uid: '', kind, key: {}, typeName: kindTypeNameOf(kind), ...(lang === undefined ? {} : { lang }) }, kind, { kind, key });
+    }
     if (field === 'entity') {
       const id = typeof args['id'] === 'string' ? args['id'] : '';
       if (id === '') return null;
@@ -1677,8 +1686,14 @@ export class ReadContext {
     const inverse = args['inverse'] === true;
     if (uid === '' || edgeName === '') return { edges: [], pageInfo: { endCursor: null, hasNextPage: false }, totalCount: 0 };
     const edge = this.published.edges.find((one) => one.name === edgeName);
-    const kinds = (inverse ? edge?.from : edge?.to) ?? [];
+    const depth = Math.trunc(Number(args['depth'] ?? 1));
+    if (depth < 1 || depth > 3) throw new Error('related depth must be between 1 and 3');
+    const requestedKinds = Array.isArray(args['kinds']) ? args['kinds'] as string[] : undefined;
+    const kinds = requestedKinds ?? (inverse ? edge?.from : edge?.to) ?? [];
     const kind = kinds.length === 1 ? this.published.kinds.find((one) => one.name === kinds[0]) : undefined;
+    if (kind === undefined && (args['where'] !== undefined && args['where'] !== null || Array.isArray(args['orderBy']) && args['orderBy'].length > 0)) {
+      throw new Error('related where and orderBy require one declared target kind');
+    }
     const sql = new Sql();
     const nearColumn = inverse ? 'e.to_node' : 'e.from_node';
     const otherColumn = inverse ? 'e.from_node' : 'e.to_node';
@@ -1690,13 +1705,22 @@ export class ReadContext {
     const after = this.afterClause(afterKeys, args['after'] as string | null | undefined, sql, 'other_id::bigint');
     const rankOrder = order.keys.length === 0 ? 'rows.other_id::bigint' : order.keys.map((one) => `rows."order_${String(one.at)}" ${one.direction} NULLS ${one.nulls}`).join(', ');
     const answer = await withSpan('db.query', { 'db.system': 'postgres' }, async (span) => {
-      const statementSql = `WITH filtered AS (
-         SELECT ${otherColumn}::text AS other_id, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
-         FROM edge e
+      const statementSql = `WITH RECURSIVE origin AS (
+         SELECT id FROM node WHERE uid = ${sql.param(uid, '::uuid')} AND context_id = 1 AND NOT removed
+       ), reach(id, level, visited) AS (
+         SELECT id, 0, ARRAY[id] FROM origin
+         UNION ALL
+         SELECT ${otherColumn}, r.level + 1, r.visited || ${otherColumn}
+         FROM reach r JOIN edge e ON ${nearColumn} = r.id AND e.context_id = 1
          JOIN entity en ON en.id = e.entity_id AND en.name = ${sql.param(edgeName, '::text')}
-         JOIN node n2 ON n2.id = ${otherColumn} AND n2.context_id = 1 AND NOT n2.removed
-         JOIN entity en2 ON en2.id = n2.entity_id
-         WHERE ${nearColumn} = (SELECT id FROM node WHERE uid = ${sql.param(uid, '::uuid')} AND context_id = 1 AND NOT removed) AND e.context_id = 1
+         JOIN node reached ON reached.id = ${otherColumn} AND reached.context_id = 1 AND NOT reached.removed
+         WHERE r.level < ${sql.param(depth, '::int')} AND NOT ${otherColumn} = ANY(r.visited)
+       ), filtered AS (
+         SELECT n2.id::text AS other_id, n2.id::text AS node_id, n2.uid::text AS uid, n2.key, en2.name AS entity${selectOrder === '' ? '' : `, ${selectOrder}`}
+         FROM node n2 JOIN entity en2 ON en2.id = n2.entity_id
+         WHERE n2.id IN (SELECT id FROM reach WHERE level > 0)
+           ${requestedKinds === undefined ? '' : `AND en2.name = ANY(${sql.param(requestedKinds, '::text[]')})`}
+           ${kind === undefined ? '' : (() => { const where = this.vertexWhere(kind, args['where'] as Readonly<Record<string, unknown>> | undefined, sql, 'n2', lang); return where === '' ? '' : `AND (${where})`; })()}
        ), rows AS (SELECT * FROM filtered${after === '' ? '' : ` WHERE ${after}`}), ranked AS (
          SELECT rows.*, row_number() OVER (ORDER BY ${rankOrder}, rows.node_id::bigint) AS rn,
                 (SELECT count(*) FROM filtered) AS total
@@ -1807,7 +1831,7 @@ export class ReadContext {
            WHERE e.to_node IN (SELECT other FROM mine) AND e.from_node <> (SELECT id FROM me) AND e.context_id = 1
        ),
        shared AS (SELECT node, count(DISTINCT other)::int AS n FROM sibling GROUP BY node)
-       SELECT node, n FROM shared WHERE n >= 2 ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`;
+       SELECT node, n, (SELECT count(DISTINCT other)::int FROM mine) AS total FROM shared WHERE n >= 2 ORDER BY n DESC, node::bigint ASC LIMIT ${String(first)}`;
       span.setAttribute('db.sql.bytes', Buffer.byteLength(statementSql));
       const answer = await this.tx.query<Record<string, unknown>>(statementSql, [uid, edgeName]);
       span.setAttribute('db.rows', answer.rows.length);
@@ -1824,7 +1848,7 @@ export class ReadContext {
     })).rows;
     const byId = new Map(nodes.map((row) => [String(row['node_id']), this.entityFromRow(row, lang)]));
     return rows.rows
-      .map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']) }))
+      .map((row) => ({ node: byId.get(String(row['node'])), count: Number(row['n']), total: Number(row['total']), share: Number(row['n']) / Number(row['total']) * 100 }))
       .filter((one) => one.node !== undefined);
   }
 
@@ -1924,6 +1948,7 @@ export class ReadContext {
     if (name === 'label' || name === 'title') return this.catalogueTitle(value, lang);
     if (name === 'template') return this.productTemplates.catalogue;
     if (name === 'contested') return [];
+    if (name === 'related') return this.related({ ...args, id: value.uid }, lang);
     if (name === 'backlinks') return this.backlinks(this.catalogueEntityValue(value, lang), args);
     if (name === 'outgoing') return this.outgoing(this.catalogueEntityValue(value, lang), args);
     if (name === 'name') return value.name;

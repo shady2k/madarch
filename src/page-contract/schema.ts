@@ -19,14 +19,14 @@ export const LOCALIZED_TEXT_SCHEMA = {
 
 /** The components the app draws today. A template naming anything else is refused. */
 export const COMPONENT_NAMES = [
-  'header', 'facts', 'text', 'file-text', 'relations', 'table', 'bars', 'diagram', 'source', 'tabs', 'search', 'kinds',
+  'header', 'facts', 'text', 'file-text', 'relations', 'table', 'bars', 'treemap', 'diagram', 'source', 'source-page', 'tabs', 'search', 'kinds',
   // Command components (section 7): they call the command API and read what they show from the retained command reads.
   'catalogue', 'prepare', 'runs', 'first-run', 'fill-kind', 'run', 'problem-actions', 'settings-form', 'sources',
   'product-overview', 'repositories',
 ] as const;
 export type ComponentName = (typeof COMPONENT_NAMES)[number];
 
-const FORMATS = ['text', 'number', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
+const FORMATS = ['text', 'number', 'percent', 'date', 'bytes', 'link', 'links', 'commit', 'hash', 'boolean', 'group', 'purpose', 'audience', 'class', 'repository'] as const;
 const OPERATORS = ['_eq', '_neq', '_in', '_nin', '_contains', '_like', '_lt', '_lte', '_gt', '_gte', '_is_null'] as const;
 
 /**
@@ -79,7 +79,7 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['rows'],
   },
-  text: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  text: { parameters: { path: { type: 'string' }, emptyText: LOCALIZED_TEXT_SCHEMA }, required: ['path'] },
   /** A file's text, by (repository, blob id) through the plugin host (madarch-u3vw.16): its range and its page's chunks. */
   'file-text': {
     parameters: { repositoryPath: { type: 'string' }, pathPath: { type: 'string' }, languagePath: { type: 'string' }, chunk: { type: 'number' }, emptyText: LOCALIZED_TEXT_SCHEMA },
@@ -101,6 +101,8 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
   table: {
     parameters: {
       path: { type: 'string' },
+      rowAnchorPath: { type: 'string' },
+      rowAnchorPrefix: { type: 'string' },
       columns: {
         type: 'array',
         minItems: 1,
@@ -145,8 +147,33 @@ export const COMPONENT_SCHEMAS: Readonly<Record<ComponentName, { readonly parame
     },
     required: ['path'],
   },
+  treemap: {
+    parameters: {
+      path: { type: 'string' },
+      pathPath: { type: 'string' },
+      valuePath: { type: 'string' },
+      languagePath: { type: 'string' },
+      changedPath: { type: 'string' },
+      rootPath: { type: 'string' },
+      pageSize: { type: 'integer' },
+      valuePaths: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['label', 'path'],
+          additionalProperties: false,
+          properties: { label: LOCALIZED_TEXT_SCHEMA, path: { type: 'string' } },
+        },
+      },
+    },
+    required: ['path', 'pathPath', 'valuePath'],
+  },
   diagram: { parameters: { depth: { type: 'integer', enum: [1] }, aggregateAbove: { type: 'integer' } }, required: [] },
-  source: { parameters: { path: { type: 'string' } }, required: ['path'] },
+  source: { parameters: { path: { type: 'string' }, urlPath: { type: 'string' } }, required: ['path'] },
+  'source-page': {
+    parameters: { repoVariable: { type: 'string' }, pathVariable: { type: 'string' }, lineVariable: { type: 'string' } },
+    required: [],
+  },
   tabs: {
     parameters: {
       sections: { type: 'array', items: { type: 'string' } },

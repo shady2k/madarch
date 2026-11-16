@@ -257,7 +257,7 @@ test('a table offers a sort only when its query declares the order variable', as
     await act(async () => {
       option?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
     });
-    expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'path', direction: 'ASC' }] }]);
+    expect(withOrder.reloads).toEqual([{ rows_orderBy: [{ field: 'path', direction: 'ASC' }], rows_after: null }]);
   } finally {
     await withOrder.close();
   }

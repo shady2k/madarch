@@ -116,7 +116,8 @@ describe('the starter set madarch init seeds', () => {
     // The starter set is the manifest, the kinds, the plugins' files and the workflow: a page is the product's own
     // template under `templates/` (decision 0036, section 6), and the engine ships none.
     expect(STARTER_FILES.map((file) => file.path).sort(byCodePoint)).toEqual(['madarch/catalog.yaml', ...Object.values(CATALOG_KIND_FILES).map((path) => `madarch/kinds/${path}`), 'madarch/plugins.lock', 'madarch/workflows.yaml',
-      'templates/catalogue-code-file.yaml', 'templates/catalogue-entity.yaml', 'templates/catalogue.yaml', 'templates/code-file.yaml',
+      'templates/catalogue-code-file.yaml', 'templates/catalogue-entity.yaml', 'templates/catalogue.yaml',
+      'templates/code-contract.yaml', 'templates/code-database.yaml', 'templates/code-directory.yaml', 'templates/code-file.yaml', 'templates/code-operation.yaml', 'templates/code-repository.yaml', 'templates/code-route.yaml', 'templates/code-symbol.yaml', 'templates/code-table.yaml', 'templates/source.yaml',
       'templates/entity.yaml', 'templates/glossary.yaml', 'templates/home.yaml', 'templates/prepare.yaml', 'templates/problems.yaml', 'templates/run.yaml', 'templates/runs.yaml', 'templates/search.yaml', 'templates/settings.yaml', 'templates/sources.yaml', 'templates/text.yaml',
       ...BUNDLED_PLUGINS.flatMap((plugin) => plugin.files.map((file) => `${plugin.folder}/${file.path}`))].sort(byCodePoint));
     for (const file of STARTER_FILES) {

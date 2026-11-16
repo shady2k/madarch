@@ -1,0 +1,31 @@
+template: code-route
+extends: entity
+records:
+- code.route
+sections:
+- id: handlers
+  component: text
+  title:
+    en: Handlers
+    ru: Обработчики
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename
+- id: routes
+  component: text
+  title:
+    en: Routes to
+    ru: Направляет в
+  params:
+    path: .
+    emptyText:
+      en: 'Unavailable: the current catalogue does not declare a relation for this list.'
+      ru: 'Недоступно: текущий каталог не объявляет связь для этого списка.'
+  'on': root
+  query: |
+    __typename

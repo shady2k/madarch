@@ -85,6 +85,25 @@ beforeAll(async () => {
   execFileSync('git', ['init', '-q'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['add', '-A'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
   execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: folder, env: gitEnv(SAMPLE_IDENTITY) });
+  writeFileSync(join(folder, 'madarch/kinds/demo/core/demo.source.yaml'), `id: demo.source
+purpose: structure
+definition: A source text fixture.
+description: {en: A source text fixture., ru: Исходный текст для проверки.}
+sources: [https://example.test/standard]
+acquisition: [document]
+relation-constraints: {out: [], in: []}
+template-policy: page
+source: graph
+fields:
+  - {name: repository, type: text, producers: [agent]}
+  - {name: path, type: text, producers: [agent]}
+  - {name: blob, type: text, producers: [agent]}
+key: [repository, path]
+file-text: {repository: repository, path: path, blob: blob}
+labels:
+  en: {one: Source, many: Sources}
+  ru: {one: Источник, many: Источники}
+`);
   const read = readKinds(folder);
   if (!read.present) throw new Error('the fixture product holds no manifest');
   if (read.manifest.findings.length > 0) throw new Error(read.manifest.findings.map((one) => `${one.file}:${String(one.line)}: ${one.message}`).join('\n'));
@@ -99,6 +118,7 @@ beforeAll(async () => {
   await owner.transaction('write', async (tx) => {
     await publishGraphDrafts(tx, contract, {
       vertices: [
+        { kind: 'demo.source', key: {repository: 'source-repo', path: 'sample.ts'}, values: {blob: 'source-blob'}, producer: 'one', producerVersion: '1' },
         { kind: 'demo.repository', key: { name: 'r1' }, values: { url: 'https://one.test', size: 2, archived: true }, producer: 'one', producerVersion: '1' },
         { kind: 'demo.file', key: file('a.ts').key, values: { lines: 10, language: 'TypeScript', primary: repository('r1'), preferred: repository('r1') }, producer: 'one', producerVersion: '1' },
         { kind: 'demo.file', key: file('b.ts').key, values: { lines: 20, primary: repository('r1') }, producer: 'one', producerVersion: '1' },
@@ -168,6 +188,28 @@ afterAll(async () => {
 });
 
 describe('the GraphQL executor', () => {
+  test('stable keys resolve entities without guessing a kind or leaking missing keys', async () => {
+    const data = await graphql(`query { entityByKey(kind: "demo.repository", key: {name: "r1"}) { id label } missing: entityByKey(kind: "demo.repository", key: {name: "absent"}) { id } undeclared: entityByKey(kind: "missing.kind", key: {name: "r1"}) { id } }`);
+    expect(data['entityByKey']).toEqual({ id: repositoryId, label: 'r1' });
+    expect(data['missing']).toBeNull();
+    expect(data['undeclared']).toBeNull();
+  });
+
+  test('generic relations filter, sort, page and inherit the nested entity', async () => {
+    const query = `query ($id: ID!, $after: String) { entity(id: $id) { related(edge: "demo.contains", kinds: ["demo.file"], where: {lines: {_gte: 10}}, orderBy: [{field: "lines", direction: DESC}], first: 1, after: $after) { totalCount pageInfo { endCursor hasNextPage } edges { node { id label related(edge: "demo.contains", inverse: true) { totalCount edges { node { id } } } } } } } }`;
+    const first = await graphql(query, { id: repositoryId });
+    const connection = (first['entity'] as any).related;
+    expect(connection.totalCount).toBe(2);
+    expect(connection.pageInfo.hasNextPage).toBe(true);
+    expect(connection.edges[0].node.label).toBe('b.ts');
+    expect(connection.edges[0].node.related).toMatchObject({ totalCount: 1, edges: [{ node: { id: repositoryId } }] });
+    const second = await graphql(query, { id: repositoryId, after: connection.pageInfo.endCursor });
+    expect((second['entity'] as any).related).toMatchObject({ totalCount: 2, pageInfo: {hasNextPage: false}, edges: [{ node: { label: 'a.ts' } }] });
+    const invalid = await refusal(`{ related(id:"${repositoryId}",edge:"demo.contains",depth:4) {totalCount} }`);
+    expect(invalid.message).toContain('related depth must be between 1 and 3');
+  });
+
+
   test('an entity by id answers its fields and its reference', async () => {
     const data = await graphql(`query ($id: ID!) { entity(id: $id) { id kind label ... on KindDemoFile { path lines repository { ... on KindDemoRepository { name } } } } }`, { id: fileA });
     const entity = data['entity'] as Record<string, unknown>;
@@ -230,7 +272,7 @@ describe('the GraphQL executor', () => {
     expect(entry.fields.find((field: any) => field.name === 'repository').reference).toBe('demo.repository');
     expect(entry.derivesFrom.edges.map((edge: any) => edge.node.name)).toEqual(['demo.repository']);
     const all = await graphql(`{ allCatalogueEntity(first: 10) { totalCount edges { node { name } } } }`);
-    expect((all['allCatalogueEntity'] as Record<string, any>).totalCount).toBe(2);
+    expect((all['allCatalogueEntity'] as Record<string, any>).totalCount).toBe(3);
   });
 
   test('a query deeper than seven levels is refused with LIMIT_DEPTH', async () => {
@@ -463,7 +505,7 @@ describe('the GraphQL executor', () => {
 
   test('a null where argument is an omitted filter (#16)', async () => {
     const data = await graphql(`{ allDemoFile(where: null, first: 2) { edges { node { path } } } catalogue: allCatalogueEntity(where: null, first: 1) { totalCount } filtered: allDemoFile(where: { lines: { _is_null: true }, path: { _in: ["a.ts", "b.ts", "c.ts"] } }, first: 2) { edges { node { path } } } }`);
-    expect((data['catalogue'] as Record<string, any>).totalCount).toBe(2);
+    expect((data['catalogue'] as Record<string, any>).totalCount).toBe(3);
     expect((data['allDemoFile'] as Record<string, any>).edges).toHaveLength(2);
     expect((data['filtered'] as Record<string, any>).edges.map((edge: any) => edge.node.path)).toEqual(['c.ts']);
   });
@@ -596,3 +638,60 @@ test('search transfers only requested SQL rows while keeping exact distinct tota
   expect(transferred.pop()).toBeLessThanOrEqual(40);
 });
 
+
+test('recursive generic relations deduplicate paths, stop cycles and page their full count', async () => {
+  const ref = (name: string) => ({kind: 'demo.repository', key: {name}});
+  await owner.transaction('write', async (tx) => publishGraphDrafts(tx, contract, {
+    vertices: ['depth-root', 'depth-a', 'depth-b', 'depth-c'].map((name) => ({...ref(name), values: {}, producer: 'depth', producerVersion: '1'})),
+    edges: [['depth-root', 'depth-a'], ['depth-root', 'depth-b'], ['depth-a', 'depth-c'], ['depth-b', 'depth-c'], ['depth-c', 'depth-root']].map(([from, to]) => ({kind: 'mentions', from: ref(from!), to: ref(to!), discriminator: 'depth', producer: 'depth', producerVersion: '1'})),
+    removals: [],
+  }, 1, {author: 'depth@1'}));
+  const found = await graphql(`{entityByKey(kind:"demo.repository",key:{name:"depth-root"}) {id}}`);
+  const id = (found['entityByKey'] as any).id;
+  const query = `query($id:ID!,$depth:Int!,$after:String){related(id:$id,edge:"mentions",depth:$depth,kinds:["demo.repository"],orderBy:[{field:"name"}],first:2,after:$after){totalCount edges{node{label}} pageInfo{endCursor hasNextPage}}}`;
+  const one = (await graphql(query, {id,depth:1}))['related'] as any;
+  expect(one.totalCount).toBe(2);
+  expect(one.edges.map((e:any)=>e.node.label)).toEqual(['depth-a','depth-b']);
+  const two = (await graphql(query, {id,depth:2}))['related'] as any;
+  expect(two.totalCount).toBe(3);
+  expect(two.pageInfo.hasNextPage).toBe(true);
+  const rest = (await graphql(query, {id,depth:3,after:two.pageInfo.endCursor}))['related'] as any;
+  expect(rest.totalCount).toBe(3);
+  expect(rest.edges.map((e:any)=>e.node.label)).toEqual(['depth-c']);
+  expect(rest.pageInfo.hasNextPage).toBe(false);
+});
+
+test('cochange counts distinct shared events and the target event denominator', async () => {
+  const ref = (name: string) => ({kind: 'demo.repository', key: {name}});
+  const names = ['co-target','co-sibling','co-once','co-event1','co-event2','co-event3'];
+  await owner.transaction('write', async (tx) => publishGraphDrafts(tx, contract, {
+    vertices: names.map((name)=>({...ref(name),values:{},producer:'cochange',producerVersion:'1'})),
+    edges: [
+      ['co-event1','co-target','a'], ['co-event1','co-target','b'], ['co-event2','co-target','a'], ['co-event3','co-target','a'],
+      ['co-event1','co-sibling','a'], ['co-event1','co-sibling','b'], ['co-event2','co-sibling','a'], ['co-event1','co-once','a'],
+    ].map(([from,to,discriminator])=>({kind:'mentions',from:ref(from!),to:ref(to!),discriminator:discriminator!,producer:'cochange',producerVersion:'1'})),
+    removals: [],
+  },1,{author:'cochange@1'}));
+  const found = await graphql(`{entityByKey(kind:"demo.repository",key:{name:"co-target"}){id}}`);
+  const data = await graphql(`query($id:ID!){cochange(id:$id,edge:"mentions"){node{label}count total share}}`,{id:(found['entityByKey'] as any).id});
+  const rows = data['cochange'] as any[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({node:{label:'co-sibling'},count:2,total:3});
+  expect(rows[0].share).toBeCloseTo(200/3,8);
+});
+
+test('source answers the canonical byte count through the actual GraphQL response', async () => {
+  const asks: Record<string, unknown>[] = [];
+  const answer = await executeGraphql(owner, {
+    manifest, folder,
+    readText: async (ask) => {
+      asks.push(ask);
+      return {text: 'const n = 1;\n', blob: ask.blob, lines: 1, bytes: 13, binary: false, from: ask.from, complete: true, language: 'TypeScript', moved: ask.moved, next: null};
+    },
+  }, {query: '{source(repository:"source-repo",path:"sample.ts"){text blob lines bytes binary from complete language moved next{line column}}}'});
+  const body = answer.body as MessageBody;
+  expect(answer.status).toBe(200);
+  expect(body.errors).toBeUndefined();
+  expect(body.data).toEqual({source: {text: 'const n = 1;\n', blob: 'source-blob', lines: 1, bytes: 13, binary: false, from: 1, complete: true, language: 'TypeScript', moved: false, next: null}});
+  expect(asks).toEqual([{repository: 'source-repo', path: 'sample.ts', blob: 'source-blob', from: 1, moved: false}]);
+});
