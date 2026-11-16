@@ -248,7 +248,8 @@ describe('a catalog is read as its manifest declares it', () => {
     const seeded = parseKinds(starterManifestText(), 'madarch/catalog.yaml', starter);
     expect(seeded.findings).toEqual([]);
 
-    expect(read.catalog!.kinds.size).toBe(526);
+    // Every catalogue kind: the 526 of the areas and the page-template kind the decision of 2026-11-15 added.
+    expect(read.catalog!.kinds.size).toBe(527);
     expect(read.findings.filter((finding) => !finding.message.startsWith('"documents.expect"'))).toEqual([]);
     const areas = [...read.groups.values()].filter((group) => group.parent === undefined);
     const subgroups = [...read.groups.values()].filter((group) => group.parent !== undefined);

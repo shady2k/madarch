@@ -228,6 +228,12 @@ export interface QueueService {
    */
   heartbeat(queue: string, job: ClaimedJob): Promise<boolean>;
   /**
+   * One job's state and, when it was settled done, the output it was settled with: the queue's own record read by the
+   * id an enqueue answered. It is how a caller that asked for work reads the answer back without a store of its own
+   * (madarch-u3vw.16). Null when the queue holds no such job, which a queue that forgets settled jobs answers.
+   */
+  job<Output = unknown>(queue: string, id: string): Promise<{ readonly state: 'created' | 'retry' | 'active' | 'completed' | 'cancelled' | 'failed'; readonly output?: Output } | null>;
+  /**
    * Settles `job` as done, storing `output` beside it, inside `transaction` when
    * one is given so the settlement commits with the caller's own work. True when
    * this attempt settled it; false when the attempt was no longer the one in

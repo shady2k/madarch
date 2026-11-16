@@ -8,8 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { starterSchema } from './graphql-starter.js';
 
-const { sdl, refused } = starterSchema();
+const { sdl } = starterSchema();
 const target = join(import.meta.dir, '..', 'src/graphql/starter.graphql');
 writeFileSync(target, sdl);
-for (const one of refused) console.error(`${one.kind}: ${one.reason}`);
 console.error(`wrote ${target}`);

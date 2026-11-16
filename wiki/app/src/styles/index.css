@@ -1080,6 +1080,34 @@ likec4-view {
   font-size: var(--fs-small);
 }
 
+/* A file's source on its page (madarch-u3vw.16): the page's full width, its own scroll, and line numbers that line up
+   whether the lines wrap or run long. */
+.file-source {
+  max-inline-size: 100%;
+  overflow: auto;
+  max-block-size: 70vh;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--code-bg);
+}
+.file-source-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-inline-size: max-content;
+}
+.file-source-wrap .file-source-lines { min-inline-size: 0; }
+.file-source-line {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 12px;
+  padding-inline: 12px;
+  font: 13px/1.5 var(--font-mono);
+}
+.file-source-number { color: var(--text-muted); text-align: right; user-select: none; }
+.file-source-code { white-space: pre; }
+.file-source-wrap .file-source-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* A ```mermaid fence in a document (madarch-u3vw.18): the Diagram / Source switch above the frame, the frame as every
  * diagram is drawn (a wide one scrolls in its own box at its natural size), and the fence's own text where a reader
  * asks for it. */

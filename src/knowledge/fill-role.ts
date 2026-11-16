@@ -13,6 +13,8 @@ import { startKnowledgeFill } from './fill-run.js';
 import { claimFillRun, FILL_RUN_QUEUE, openFillRunQueue, settleFillRun } from '../fill/run-jobs.js';
 import { withSpan, withSpanSync } from '../obs/trace.js';
 import { readFillEnd, writeFillEnd } from '../fill/orchestrator-store.js';
+import { declareFileTextQueue, serveFileTexts } from './file-texts.js';
+import { closeFileTextSessions } from '../plugin/file-reads.js';
 import { refuseStarts, stopStoreForExit } from '../adapters/postgres-cluster.js';
 
 /** The owner one store is read through, as `startKnowledgeFill` takes it: derived, so this module holds no connection. */
@@ -96,6 +98,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
     refuseStarts();
     withoutSignals();
     log('madarch fill: the process that started this role is gone, so the role ends and gives its stores up');
+    await closeFileTextSessions();
     const deadline = Date.now() + ENDING_MS;
     // Queues stop without holding up exit. Normal owner/run closes can enter the synchronous graceful server stop,
     // so the process-exit path uses only force shutdown below; giveUp keeps normal close behavior.
@@ -132,6 +135,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
   const giveUp = async (): Promise<void> => {
     if (watcher !== undefined) clearInterval(watcher);
     withoutSignals();
+    await closeFileTextSessions();
     await stopQueues(state);
     for (const owner of [...state.owners]) {
       if (process.platform === 'win32') await owner.close();
@@ -161,6 +165,7 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             state.databaseFolders.add(join(storeFolder, 'graph'));
             await owner.ready;
             held = { storeFolder, owner, queue: await openFillRunQueue(owner) };
+            await declareFileTextQueue(held.queue);
             state.queues.set(storeFolder, held.queue);
             watched.set(storeFolder, held);
           } catch (error) {
@@ -168,6 +173,11 @@ export async function runFillRole(options: FillRoleOptions): Promise<number> {
             continue;
           }
         }
+        // A file's text waits on this process, not on a fill (madarch-u3vw.16): the pages' requests are answered between
+        // fills, through the same plugin read the agent's file reads use.
+        await serveFileTexts(held.queue).catch((error: unknown) => {
+          log(`madarch fill: the store ${storeFolder} could not answer a file read: ${error instanceof Error ? error.message : String(error)}`);
+        });
         const job = await claimFillRun(held.queue).catch((error: unknown) => {
           log(`madarch fill: the queue of ${storeFolder} could not be claimed: ${error instanceof Error ? error.message : String(error)}`);
           return null;

@@ -325,6 +325,19 @@ export async function withSpan<T>(name: string, attributes: SpanAttributes, work
   }
 }
 
+/**
+ * A span the caller ends itself: for a body whose work is reached from a callback of its own — an `await` inside a `try`
+ * that also holds the outside call — where `withSpan`'s callback would put the call outside the span. Ended in `finally`.
+ */
+export function startSpan(name: string, attributes: SpanAttributes): Span {
+  if (!enabled) return NOOP_SPAN;
+  const parent = spanStorage.getStore();
+  const span = tracerOf().startSpan(name, { kind: SpanKind.INTERNAL, attributes: attributes as Attributes }, parent === undefined ? ROOT_CONTEXT : trace.setSpan(ROOT_CONTEXT, parent));
+  const run = runStorage.getStore();
+  if (run !== undefined && !run.closed) spanRuns.set(span, run);
+  return span;
+}
+
 /** The synchronous form of `withSpan`, for a call that cannot wait: a child process read whole, a small git answer. */
 export function withSpanSync<T>(name: string, attributes: SpanAttributes, work: (span: Span) => T): T {
   if (!enabled) return work(NOOP_SPAN);

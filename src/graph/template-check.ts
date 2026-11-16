@@ -10,12 +10,12 @@
 import { buildSchema, parse, validate, visit } from 'graphql';
 import { publishedManifestOf } from '../graphql/manifest.js';
 import { graphqlSchemaOf } from '../graphql/schema.js';
-import { homeKind, readKinds, type KindsManifest } from '../product/manifest/kinds.js';
+import { homeKind, type KindsManifest } from '../product/manifest/kinds.js';
 import { byCodePoint } from '../model/order.js';
 import { composePage, templateFor, type Bootstrap, type PageAddress } from '../page-contract/compose.js';
 import { resolveTemplate, type TemplateFile } from '../page-contract/template.js';
 import type { TemplateFinding } from '../page-contract/validate.js';
-import { readProductTemplates, readTemplateFiles, type ProductTemplates } from './product-templates.js';
+import { templatesOf, type ProductTemplates } from './product-templates.js';
 
 /** The address a template is checked at: an id stands in for the page's entity, which the validity of a query never reads. */
 const PLACEHOLDER_ID = '00000000-0000-0000-0000-000000000000';
@@ -33,23 +33,26 @@ function bootstrapOf(templates: ProductTemplates): Bootstrap {
   };
 }
 
-/** Every finding of a product's templates: the files' own, their inheritance's, and each bound page against the schema. */
-export function checkProductTemplates(folder: string, manifest?: KindsManifest): TemplateFinding[] {
-  const files = readTemplateFiles(folder);
-  const findings: TemplateFinding[] = [...files.findings];
-  const read = manifest === undefined ? readKinds(folder) : { present: true as const, manifest };
-  if (!read.present) return findings;
+/**
+ * Every finding of a product's templates: the files' own, their inheritance's, and each bound page against the schema.
+ * The files come from the graph, as entities of the kind its manifest declares for page templates (the owner's decision of
+ * 2026-11-15): a page is judged against the templates of the revision it reads, and the folder is never opened here.
+ */
+export function checkProductTemplates(files: readonly TemplateFile[], bodies: ReadonlyMap<string, string>, ownFindings: readonly TemplateFinding[], manifest?: KindsManifest): TemplateFinding[] {
+  if (manifest === undefined) return [...ownFindings];
+  const findings: TemplateFinding[] = [...ownFindings];
+  const read = { present: true as const, manifest };
   // A product with no templates draws no page: nothing of its own is checked, and nothing is refused for it.
-  if (files.files.length === 0 && files.findings.length === 0) return findings;
-  const templates = readProductTemplates(folder);
-  const byName = new Map<string, TemplateFile>(files.files.map((one) => [one.name, one]));
+  if (files.length === 0 && ownFindings.length === 0) return findings;
+  const templates = templatesOf(files, bodies, ownFindings);
+  const byName = new Map<string, TemplateFile>(files.map((one) => [one.name, one]));
   // Inheritance: every template of the product resolves, bound or not, so a broken base is named where it stands.
-  for (const template of files.files) findings.push(...resolveTemplate(template.name, byName).findings);
+  for (const template of files) findings.push(...resolveTemplate(template.name, byName).findings);
   const bootstrap = bootstrapOf(templates);
   const schema = buildSchema(graphqlSchemaOf(publishedManifestOf(read.manifest)));
   const lineOfSection = (template: string, alias: string): TemplateFinding => {
     const section = resolveTemplate(template, byName).resolved?.sections.find((one) => `s_${one.id}` === alias);
-    const source = files.files.find((file) => file.sections.includes(section!));
+    const source = files.find((file) => file.sections.includes(section!));
     return { file: source?.file ?? byName.get(template)?.file ?? `templates/${template}.yaml`, line: section?.line ?? 1, path: `sections.${section?.id ?? alias}`, message: '' };
   };
   const check = (address: PageAddress, template: string, at: string): void => {
@@ -99,7 +102,7 @@ export function checkProductTemplates(folder: string, manifest?: KindsManifest):
   // with a placeholder for each variable it declares, so a command page broken at start is refused like any other.
   const named = new Set<string>([...templates.records.values(), ...templates.own.values(), templates.catalogue, 'entity', templateFor(bootstrap, { home: true })]);
   const placeholder = (type: string): string => type === 'Boolean' ? 'false' : type === 'Int' || type === 'Float' ? '0' : type === 'JSON' || type.startsWith('[') ? 'null' : 'x';
-  for (const file of files.files) {
+  for (const file of files) {
     if (named.has(file.name)) continue;
     // A template whose section reads a subject is a page of an entity, not a page of `/p/<name>`; the base pages
     // (`entity`, `text`, `catalogue-entity`) are checked through the kinds and the catalogue above.

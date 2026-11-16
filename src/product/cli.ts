@@ -795,7 +795,7 @@ function productHomeOf(named: string | undefined): string {
     try { await withSpan('fs.mkdir', { 'file.path': cwd }, async () => await mkdir(cwd, { recursive: true })); }
     catch (error) { console.error(`cannot initialize ${cwd}: ${error instanceof Error ? error.message : String(error)}`); return 2; }
     const template = await templateChoice(parsed, language);
-    await isolationChoice(parsed, language);
+    await isolationChoice(parsed, language, productHomeOf(home));
     const result = initLife({ cwd, home, template, language });
     if (result.exit !== 0) return report(result);
     const folder = result.prints.find((line) => line.startsWith('folder: '))!.slice('folder: '.length);
@@ -1145,18 +1145,24 @@ async function askLanguage(): Promise<CommandLanguage> {
   }
 }
 
-/** The isolation answer this machine remembers, asked once in a terminal when the sandbox cannot work here. */
-async function isolationChoice(parsed: Parsed, language: CommandLanguage): Promise<void> {
+/**
+ * The isolation answer this machine remembers, asked once in a terminal when the sandbox cannot work here. The answer
+ * belongs to the products home this run serves, so `--home` places it beside that home rather than in the account's own
+ * settings (madarch-64o5.86).
+ */
+async function isolationChoice(parsed: Parsed, language: CommandLanguage, home: string): Promise<void> {
   if (parsed.json === true || !(process.stdin.isTTY && process.stdout.isTTY)) return;
   const { readPluginsUnconfined, writePluginsUnconfined } = await import('../knowledge/settings.js');
-  if (readPluginsUnconfined(process.env) !== undefined) return;
+  // The settings file of a products home stands in the madarch home that holds it.
+  const env = { ...process.env, MADARCH_HOME: dirname(home) };
+  if (readPluginsUnconfined(env) !== undefined) return;
   const { probePluginSandbox } = await import('../plugin/sandbox-probe.js');
-  const probe = await probePluginSandbox();
+  const probe = await probePluginSandbox({ env });
   if (probe.state === 'confined') return;
   const words = initWords(language);
   console.log(words.isolationQuestion(probe.reason));
   const answer = await askIsolation(language);
-  try { writePluginsUnconfined(process.env, answer); }
+  try { writePluginsUnconfined(env, answer); }
   catch (error) { console.error(`the isolation answer could not be remembered: ${(error as Error).message}`); }
 }
 

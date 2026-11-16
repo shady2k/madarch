@@ -1,6 +1,10 @@
 {
   "name": "imports",
   "version": "1.0.0",
+  "tier": "ordinary",
+  "capabilities": [
+    "git"
+  ],
   "entry": "main.ts",
   "runtime": {
     "name": "bun",
@@ -19,6 +23,6 @@
   "concurrency": 1,
   "labels": {
     "en": "Imports",
-    "ru": "Импорты"
+    "ru": "\u0418\u043c\u043f\u043e\u0440\u0442\u044b"
   }
 }

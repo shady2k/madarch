@@ -3,23 +3,23 @@
  * starter set `madarch init --template everything` writes is materialised in a temporary folder, its manifest is
  * read the way a product's is, and the plugin contracts it declares supply the fields of the kinds they fill.
  *
- * A kind the schema refuses — its name encodes to a reserved one, or a field's name does — is left out and named
- * in `refused` with the refusal's words, so the caller writes the schema of what can be derived and says what
- * could not. An edge whose end was left out is refused instead: a schema silently missing an edge is not written.
+ * Every kind of the catalogue holds its place in the schema: a kind's types carry the `Kind` prefix that keeps them apart
+ * from the engine's own names (src/graphql/names.ts), so no kind is left out for a name. A manifest whose kinds still
+ * collide with one another is refused by the schema itself, and nothing is written.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { STARTER_FILES } from '../src/knowledge/seed.js';
 import { readKinds } from '../src/product/manifest/kinds.js';
-import { publishedManifestOf, type PublishedEdge, type PublishedManifest } from '../src/graphql/manifest.js';
-import { isReservedTypeName, SchemaRefusal, typeNameOf } from '../src/graphql/names.js';
+import { publishedManifestOf, type PublishedManifest } from '../src/graphql/manifest.js';
+import { SchemaRefusal } from '../src/graphql/names.js';
 import { graphqlSchemaOf } from '../src/graphql/schema.js';
 
-/** The starter schema and the kinds it could not hold, each with the refusal that left it out. */
+/** The starter schema, with the kinds it holds. */
 export interface StarterSchema {
   readonly sdl: string;
-  readonly refused: readonly { readonly kind: string; readonly reason: string }[];
+  readonly kinds: readonly string[];
 }
 
 /** The starter set's published manifest, materialised in a temporary product as `madarch init` writes it. */
@@ -50,23 +50,12 @@ function starterManifest(): PublishedManifest {
  */
 export function starterSchema(): StarterSchema {
   const manifest = starterManifest();
-  const kinds = [];
-  const refused: { kind: string; reason: string }[] = [];
-  for (const kind of manifest.kinds) {
-    const type = typeNameOf(kind.name);
-    if (isReservedTypeName(type)) {
-      refused.push({ kind: kind.name, reason: `the kind "${kind.name}" encodes to the type name "${type}", which is reserved by the schema: rename it` });
-      continue;
-    }
-    kinds.push(kind);
-  }
+  const kinds = [...manifest.kinds];
   const held = new Set(kinds.map((kind) => kind.name));
-  const edges: PublishedEdge[] = [];
   for (const edge of manifest.edges) {
     const lost = [...edge.from, ...edge.to].find((end) => end !== 'any' && !held.has(end));
-    if (lost !== undefined) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${lost}", which the schema left out: the starter catalogue and the schema's names disagree about it`);
-    edges.push(edge);
+    if (lost !== undefined) throw new SchemaRefusal(`the edge "${edge.name}" names the kind "${lost}", which the starter catalogue does not declare: the catalogue and the schema's kinds disagree about it`);
   }
-  const sdl = graphqlSchemaOf({ kinds, edges });
-  return { sdl, refused };
+  const sdl = graphqlSchemaOf({ kinds, edges: [...manifest.edges] });
+  return { sdl, kinds: kinds.map((kind) => kind.name) };
 }
