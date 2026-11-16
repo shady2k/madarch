@@ -11,7 +11,7 @@ import { loadAssertions } from './assertion-read.js';
 import { selectAssertions } from './assertion-selection.js';
 import { acquireGraphWriteLock, bindWriteCapability, bootstrapWriteIdentity, canonicalJson, publishGraphDrafts, writeAssertion, type WriteCapability } from './write.js';
 import { newUid } from './uid.js';
-import { reconcileDisputes, installDisputeSelection, refreshDisputeSelection } from './disputes.js';
+import { reconcileDisputes } from './disputes.js';
 import type { ClaimedJob, EnqueueRequest, QueueService } from '../fill/queue.js';
 
 const WHERE = new URL(import.meta.url).pathname;
@@ -110,14 +110,12 @@ export async function setProductOperationRunState(owner:DatabaseOwner,contract:G
   return await withSpan('graph.operation.run-state.product', {}, async () => {
    await owner.transaction('write',async tx=>{
     await acquireGraphWriteLock(tx);
-    await installDisputeSelection(tx,contract);
     const rows=(await tx.query<{id:string;uid:string}>(`SELECT n.id::text,n.uid::text FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.run' ORDER BY n.uid`)).rows;
     for(const row of rows){
      if(await selected(tx,'system.run',row.uid,'run_name',1)!==runId)continue;
      const {binding}=await startupBinding(tx,contract,'engine-control',[]);
      await changeOperationRunState(tx,contract,binding,row.uid,state);
     }
-    await refreshDisputeSelection(tx,contract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
    });
   });
@@ -140,7 +138,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     const operationUid=newUid();
     await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
     bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
-    await installDisputeSelection(tx,options.contract);
     await set(tx,options.contract,'system.operation',operationUid,'$exists',true,context);
     const principal=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[options.capability.principalUid])).rows[0];
     if(!principal)throw new Error(`${WHERE}:120: TARGET_MISSING principal ${options.capability.principalUid}`);
@@ -150,7 +147,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
     await set(tx,options.contract,'system.unit',options.unitUid,'reason',reason,context);
     await set(tx,options.contract,'system.unit',options.unitUid,'last_progress',reason,context);
     await options.queue.fail(options.job.queue,options.job,reason,tx);
-    await refreshDisputeSelection(tx,options.contract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return true;
   })),execute:async<Result>(request:OperationRequest,apply:(tx:OuterTransaction,context:OperationWriteContext)=>Promise<Result>):Promise<Result>=> {
@@ -181,7 +177,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
         const operationUid=newUid();
         await bootstrapWriteIdentity(tx,'system.operation',operationUid,options.capability.productUid,context);
         bindWriteCapability(tx,trusted(options.capability,operationUid,options.unitUid));
-        await installDisputeSelection(tx,options.contract);
         await set(tx,options.contract,'system.operation',operationUid,'$exists',true,context);
         const principal=(await tx.query<{kind:string}>(`SELECT k.name AS kind FROM node n JOIN entity k ON k.id=n.entity_id WHERE n.uid=$1::uuid`,[options.capability.principalUid])).rows[0];
         if(!principal)throw new Error(`${WHERE}:116: TARGET_MISSING principal ${options.capability.principalUid}`);
@@ -202,7 +197,6 @@ export function createOperationHost(options:OperationHostOptions):OperationHost 
           if(!await options.queue.complete(options.job.queue,options.job,request.completion.output,tx))throw new Error(`${WHERE}:106: ATTEMPT_STALE completion`);
           for(const enqueue of request.completion.enqueue)await options.queue.enqueue({...enqueue,transaction:tx});
         }
-        await refreshDisputeSelection(tx,options.contract);
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
         return result;
       });

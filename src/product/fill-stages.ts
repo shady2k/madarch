@@ -14,7 +14,6 @@ import type { FillStageConfigurationRead } from './manifest/fill-config.js';
 import { assertPluginTurnsEnabled, readFillManifests, fillStageConfigurationFrom } from './manifest/fill-config.js';
 import { createOneGraphSchema } from '../graph/one-graph.js';
 import { withAssertionContract } from '../graph/system-contract.js';
-import { installDisputeSelection, refreshDisputeSelection } from '../graph/disputes.js';
 import { createOperationHost,resolveOperationScope,setProductOperationRunState } from '../graph/operation-host.js';
 import { EMPTY_CONTRACT } from '../graph/contract.js';
 import { graphContractOf } from '../fill/stages/plugin-contract.js';
@@ -235,12 +234,10 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
       const fullContract=withAssertionContract(withManifestContract(contract));
       const parents=await readSplitParents(options.database,unit.unitId,unit.generation);
       const opened=await withSpan('fill.operation.open',{},async()=>await options.database.transaction('write',async tx=>{
-        await installDisputeSelection(tx,fullContract);
         const {binding:capability}=await startupBinding(tx,fullContract,authority.sourceName,authority.permissions);
         const parentUids:string[]=[];
         for(const parent of parents)parentUids.push((await resolveOperationScope(tx,fullContract,capability,{runId:unit.runId,unitId:parent.unitId,generation:parent.generation})).unitUid);
         const scope=await resolveOperationScope(tx,fullContract,capability,{runId:unit.runId,unitId:unit.unitId,generation:unit.generation,scope:plan.stageUnitId,parentUids});
-        await refreshDisputeSelection(tx,fullContract);
         await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
         return {...scope,capability};
       }));

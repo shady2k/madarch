@@ -3,8 +3,7 @@ import type { OuterTransaction } from '../database-owner.js';
 import { withSpan } from '../../obs/trace.js';
 import { assertionValueTableName, type FieldContract, type GraphContract } from '../../graph/contract.js';
 import { validateValueContracts } from '../../graph/value-validation.js';
-import { DISPUTE_EXISTENCE_SETTING } from '../../graph/assertion-selection.js';
-import { isDisputableProperty, withAssertionContract } from '../../graph/system-contract.js';
+import { withAssertionContract } from '../../graph/system-contract.js';
 
 function sqlType(field: FieldContract): string {
   switch (field.type) {
@@ -66,18 +65,6 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
 
     // Deferred checks see the final operation, never a half-created child (0039.28).
     const literal = (value: string): string => "'" + value.split("'").join("''") + "'";
-    await tx.query(`CREATE OR REPLACE FUNCTION graph_dispute_selection(ctx bigint) RETURNS uuid[] LANGUAGE plpgsql AS $$
-      DECLARE projection jsonb; BEGIN
-        IF NOT EXISTS(SELECT 1 FROM node n JOIN entity k ON k.id=n.entity_id WHERE k.name='system.dispute-resolution') THEN RETURN NULL; END IF;
-        projection := nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb;
-        IF projection IS NULL OR projection->>'txid' IS DISTINCT FROM txid_current()::text
-          OR projection->>'revision' IS DISTINCT FROM coalesce(nullif(current_setting('madarch.graph_revision',true),''),'0')
-          OR projection->>'at' IS NULL
-          OR projection->>'recordedAt' IS NULL OR NOT (projection->'contexts' ? ctx::text) THEN
-          RAISE EXCEPTION '${import.meta.path}:60: DISPUTE_SELECTION_STALE: checked host must refresh canonical dispute selection';
-        END IF;
-        RETURN ARRAY(SELECT jsonb_array_elements_text(projection->'contexts'->ctx::text)::uuid);
-      END $$`);
     for (const sort of ['vertex','edge'] as const) {
       const setBranches = contract[sort].map(kind => {
         const valueTable = assertionValueTableName(kind.name,sort,'$exists');
@@ -92,7 +79,6 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
         if (sort==='vertex' && kind.name==='system.assertion') return `WHEN ${literal(kind.name)} THEN RETURN QUERY
           ${layers} SELECT a.assertion_id FROM assertion a JOIN layers layer ON layer.id=a.context_id AND (wanted_subject IS NULL OR a.assertion_id=wanted_subject)
           AND (layer.cutoff IS NULL OR a.recorded_sequence<=layer.cutoff);`;
-        const resolve = isDisputableProperty(sort,kind.name,'$exists');
         const targetAssertions = sort === 'vertex'
           ? 'SELECT s.assertion_id FROM edge se CROSS JOIN LATERAL (SELECT av.assertion_id FROM assertion_vertex_subject av WHERE av.subject_edge_id=se.id OFFSET 0) s WHERE se.to_node=wanted_subject'
           : 'SELECT s.assertion_id FROM assertion_edge_subject s WHERE s.edge_id=wanted_subject';
@@ -104,21 +90,19 @@ export async function createContractTablesIn(tx: OuterTransaction, declared: Gra
             JOIN edge source ON source.from_node=a.assertion_id
             JOIN entity sk ON sk.id=source.entity_id AND sk.name='system.assertion-source'
             LEFT JOIN "${valueTable}" v ON v.assertion_id=a.assertion_id
-            WHERE a.property='$exists' ${bounded ? '' : `AND (wanted_subject IS NULL OR ${id}=wanted_subject)`} ${resolve ? `AND (chosen IS NULL OR date_trunc('milliseconds',a.recorded_at)<=(nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb->>'recordedAt')::timestamptz)` : ''}
+            WHERE a.property='$exists' ${bounded ? '' : `AND (wanted_subject IS NULL OR ${id}=wanted_subject)`}
           ), current_stream AS (
-            SELECT DISTINCT ON (subject_id,source_id) subject_id,assertion_uid,operation,value FROM visible
+            SELECT DISTINCT ON (subject_id,source_id) subject_id,assertion_uid,operation,value,valid_from,recorded_sequence FROM visible
             WHERE depth=nearest AND date_trunc('milliseconds',valid_from)<=snapshot_at AND (valid_to IS NULL OR date_trunc('milliseconds',valid_to)>snapshot_at)
             ORDER BY subject_id,source_id,recorded_sequence DESC
-          ), candidates AS (SELECT * FROM current_stream WHERE operation='assert')
-          SELECT subject_id FROM candidates GROUP BY subject_id
-          HAVING CASE WHEN bool_or(assertion_uid=ANY(chosen)) THEN bool_or(value AND assertion_uid=ANY(chosen)) ELSE bool_or(value) END;`;
+          ), candidates AS (SELECT DISTINCT ON (subject_id) * FROM current_stream WHERE operation='assert' ORDER BY subject_id,valid_from DESC,recorded_sequence DESC,assertion_uid DESC)
+          SELECT subject_id FROM candidates WHERE value=TRUE;`;
         return `WHEN ${literal(kind.name)} THEN
-          ${resolve ? 'chosen := graph_dispute_selection(ctx);' : 'chosen := ARRAY[]::uuid[];'}
-          snapshot_at := CASE WHEN chosen IS NOT NULL AND ${resolve ? 'true' : 'false'} THEN (nullif(current_setting('${DISPUTE_EXISTENCE_SETTING}',true),'')::jsonb->>'at')::timestamptz ELSE date_trunc('milliseconds',clock_timestamp()) END;
+          snapshot_at := date_trunc('milliseconds',clock_timestamp());
           IF wanted_subject IS NULL THEN ${activeQuery(false)} ELSE ${activeQuery(true)} END IF;`;
       });
       await tx.query(`CREATE OR REPLACE FUNCTION graph_${sort}_active_ids(kind text,ctx bigint,wanted_subject bigint DEFAULT NULL) RETURNS SETOF bigint LANGUAGE plpgsql AS $$
-        DECLARE chosen uuid[]; snapshot_at timestamptz; BEGIN CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
+        DECLARE snapshot_at timestamptz; BEGIN CASE kind ${setBranches.join(' ')} ELSE RETURN; END CASE; END $$`);
       await tx.query(`CREATE OR REPLACE FUNCTION graph_${sort}_active(subject bigint,kind text,ctx bigint) RETURNS boolean LANGUAGE sql AS $$
         SELECT EXISTS(SELECT 1 FROM graph_${sort}_active_ids(kind,ctx,subject) active(id) WHERE active.id=subject)
       $$`);

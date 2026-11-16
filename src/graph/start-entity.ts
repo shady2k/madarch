@@ -9,7 +9,6 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { entityDraft, evidenceOf, writeContractOf } from './graph-writes.js';
 import { bindStartupWriter, readPublishedManifest } from './manifest-publication.js';
 import { publishGraphDrafts } from './write.js';
-import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
 import type { KeyValueDraft, VertexRemovalDraft } from './contract.js';
 import type { ProductEntity } from '../product/manifest.js';
 
@@ -19,7 +18,6 @@ export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEn
   await withSpan('graph.startEntity', {}, async () => await owner.transaction('write', async (tx) => {
     const manifest = await readPublishedManifest(tx);
     if (manifest === undefined) throw new Error(`${import.meta.path}:22: the startup page requires a published manifest`);
-    await installDisputeSelection(tx, writeContractOf(manifest));
     const contract = await bindStartupWriter(tx, writeContractOf(manifest), 'start');
     const catalogue = await readKindAssertions(tx, 'vertex', 'manifest.catalogue', ['declaration']);
     const evidenceTargets = [...new Set(catalogue.flatMap(row => row.selectedAssertions.flatMap(assertion => assertion.evidence)))];
@@ -29,7 +27,6 @@ export async function writeProductEntity(owner: DatabaseOwner, entity: ProductEn
     const records = await readKindAssertions(tx, 'vertex', vertex.name, [], { contract });
     const removals: VertexRemovalDraft[] = records.filter(one => JSON.stringify(one.key) !== JSON.stringify(entity.key)).map(one => ({kind: entity.kind,key:one.key as Record<string,KeyValueDraft>,uid:one.uid,producer:'start'}));
     await publishGraphDrafts(tx, contract, { vertices: [draft], removals }, 1, { author: 'start@1' });
-    await refreshDisputeSelection(tx, contract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
   }));
 }

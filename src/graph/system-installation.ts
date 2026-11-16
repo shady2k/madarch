@@ -2,7 +2,6 @@
 import { withSpan } from '../obs/trace.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { startupBinding } from './manifest-publication.js';
-import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
 import { readKindAssertions } from './records.js';
 import { publishGraphDrafts } from './write.js';
 import { homedir, userInfo } from 'node:os';
@@ -31,7 +30,6 @@ function localIdentity(): string { return identity([String(userInfo().uid), home
 async function install(owner: DatabaseOwner, contract: GraphContract, kind: string, key: string, values: Record<string, string>, links: readonly EdgeDraft[] = []): Promise<string> {
   return await withSpan('graph.system.install', { 'graph.system.kind': kind }, async () => await owner.transaction('write', async (tx) => await withSpan('graph.system.install.transaction', {}, async () => {
     await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`system-installation:${kind}:${key}`]);
-    await installDisputeSelection(tx, withAssertionContract(contract));
     const installed = await startupBinding(tx, contract, 'system-installation');
     const now = (await tx.query<{ now: string }>('SELECT clock_timestamp()::text AS now')).rows[0]!.now;
     const found = (await readKindAssertions(tx, 'vertex', kind, ['installation'], { validAt: now, recordedAt: now })).filter(record => record.values['installation'] === key);
@@ -39,7 +37,6 @@ async function install(owner: DatabaseOwner, contract: GraphContract, kind: stri
     const uid = found[0]?.uid ?? installationUid();
     const draft: VertexDraft = { kind, key: {}, uid, values: { installation: key, ...values }, selectedFields: Object.keys({ installation: key, ...values }), producer: 'system', producerVersion: '1' };
     await publishGraphDrafts(tx, installed.contract, { vertices: [draft], edges: links, removals: [] });
-    await refreshDisputeSelection(tx, installed.contract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return uid;
   })));
@@ -54,12 +51,10 @@ export async function registerSystemSource(owner: DatabaseOwner, contract: Graph
   const uid = await install(owner, contract, kind, key, { label: options.label ?? options.installationKey, version: options.version, scope: options.scope });
   if (options.principalUid !== undefined) {
     await owner.transaction('write', async (tx) => await withSpan('graph.system.principal', {}, async () => {
-      await installDisputeSelection(tx, withAssertionContract(contract));
       const person = await tx.query<{ key: Record<string, string> }>("SELECT n.key FROM node n JOIN entity e ON e.id = n.entity_id WHERE n.uid = $1::uuid AND e.name = 'person' AND n.context_id = 1 AND graph_vertex_active(n.id,e.name,1)", [options.principalUid]);
       if (person.rows[0] === undefined) throw new Error(`${import.meta.path}:1: source principal ${options.principalUid} does not resolve`);
       const installed = await startupBinding(tx, contract, 'system-installation');
       await publishGraphDrafts(tx, installed.contract, { vertices: [], removals: [], edges: [{ kind: 'source-principal', from: { kind, key: {}, uid }, to: { kind: 'person', key: {}, uid: options.principalUid }, producer: 'system', producerVersion: '1' }] });
-      await refreshDisputeSelection(tx, installed.contract);
       await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     }));
   }
@@ -81,10 +76,8 @@ export async function installAgentSession(owner: DatabaseOwner, contract: GraphC
   const key = identity([agent.uid, session]);
   const sessionUid = await install(owner, contract, 'agent-session', key, { label: session, scope: owner.location, version: '1' });
   await owner.transaction('write', async (tx) => await withSpan('graph.system.session', {}, async () => {
-    await installDisputeSelection(tx, withAssertionContract(contract));
     const installed = await startupBinding(tx, contract, 'system-installation');
     await publishGraphDrafts(tx, installed.contract, { vertices: [], removals: [], edges: [{ kind: 'session-agent', from: { kind: 'agent-session', key: {}, uid: sessionUid }, to: { kind: 'agent', key: {}, uid: agent.uid }, producer: 'system', producerVersion: '1' }] });
-    await refreshDisputeSelection(tx, installed.contract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
   }));
   const principal = await registerGraphPrincipal(owner, { producer: agent.producer, version: agent.version, kind: agent.kind, uid: agent.uid, sourceUid: agent.uid, principalUid: person.uid, scope: owner.location, sessionUid });

@@ -8,7 +8,6 @@ import { graphContractVersion, type EdgeDraft, type EdgeRemovalDraft, type Graph
 import { MANIFEST_CONTRACT, manifestDeclaration, MANIFEST_DEPENDS_ON, MANIFEST_RELATION_EDGE, withManifestContract } from '../graph/manifest-contract.js';
 import { acquireGraphWriteLock, activateBoundIdentities, bindWriteCapability, bootstrapWriteIdentity, publishGraphDrafts, resolveEntityRef, writeAssertion, type WriteCapability } from '../graph/write.js';
 import { newUid } from './uid.js';
-import { installDisputeSelection, refreshDisputeSelection } from './disputes.js';
 import { runningVersion } from '../product/version.js';
 import { withAssertionContract } from './system-contract.js';
 import { sha256Hex } from './digest.js';
@@ -267,7 +266,6 @@ export async function publishValidatedManifests(owner: DatabaseOwner, validated:
 /** The declarations alone: the manifest's kinds, fields, relations, dependencies and workflows, in one transaction. */
 async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedManifests, authored?: GraphContract): Promise<number> {
   return await withSpan('manifest.publishDeclarations', {}, async () => await owner.transaction('write', async (tx) => {
-    await installDisputeSelection(tx, withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest))));
     const { contract: publicationContract, binding } = await startupBinding(tx, withManifestContract(authored ?? graphContractOf(validated.manifest)), 'manifest');
     await publishGraphDrafts(tx, publicationContract, { vertices: validated.snapshots, removals: [] });
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
@@ -348,7 +346,6 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     if (valueKinds.size > 0) {
       written += await publishGraphDrafts(tx, valueContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
-    await refreshDisputeSelection(tx, publicationContract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');
     return written;
   }));
