@@ -3,6 +3,7 @@ import { parseKinds } from '../src/product/manifest/kinds.js';
 import { graphContractOf } from '../src/fill/stages/plugin-contract.js';
 import { MANIFEST_CONTRACT, withManifestContract } from '../src/graph/manifest-contract.js';
 import { parse, stringify } from 'yaml';
+import { SYSTEM_CONTRACT, withAssertionContract } from '../src/graph/system-contract.js';
 
 // The removed catalogue declaration, restored verbatim to exercise 0039 item 9.
 const stageYaml = `id: manifest.workflow-stage
@@ -124,4 +125,70 @@ test('catalogue refuses a required edge on either protected YAML end, including 
     body.edges[0]!.cardinality[side].min = 0;
     expect(parseKinds(stringify(body), file, '/fixture').findings).toEqual([]);
   }
+});
+
+function extension(name: string, fields: unknown[] = [{ name: 'note', type: 'text', nullable: true }]) {
+  return { kinds: { [name]: { extends: `system:${name}`, fields: fields.map(field => ({ ...(field as Record<string, unknown>), producers: ['fixture'] })) } } };
+}
+
+function edgeExtension(name: string, overlay: Record<string, unknown> = {}) {
+  return { kinds: {}, edges: [{ name, extends: `system:${name}`, fields: [{ name: 'note', type: 'text', nullable: true, producers: ['fixture'] }], ...overlay }] };
+}
+
+test('nullable manifest vertex extensions preserve inherited fields, identity and producer from YAML through the join', () => {
+  for (const base of MANIFEST_CONTRACT.vertex) {
+    const manifest = parseKinds(stringify(extension(base.name)), file, '/fixture');
+    expect(manifest.findings).toEqual([]);
+    const joined = withManifestContract(graphContractOf(manifest));
+    expect(joined.vertex.find(one => one.name === base.name)).toEqual({ ...base,
+      fields: [...base.fields, { name: 'note', type: 'text', nullable: true }],
+    });
+  }
+});
+
+test('operation extends system:operation remains installable over both system contracts', () => {
+  const manifest = parseKinds(stringify(extension('operation')), file, '/fixture');
+  expect(manifest.findings).toEqual([]);
+  const installed = withAssertionContract(withManifestContract(graphContractOf(manifest)));
+  expect(installed.vertex.find(one => one.name === 'operation')).toEqual({ ...SYSTEM_CONTRACT.vertex.find(one => one.name === 'operation')!,
+    fields: [{ name: 'label', type: 'text', nullable: true }, { name: 'note', type: 'text', nullable: true }],
+  });
+});
+
+test('nullable protected edge extensions inherit each manifest and system edge through the shared join', () => {
+  for (const base of [...MANIFEST_CONTRACT.edge, ...SYSTEM_CONTRACT.edge, ...withAssertionContract(MANIFEST_CONTRACT).edge.filter(one => one.name === 'system.unit-parent')]) {
+    const manifest = parseKinds(stringify(edgeExtension(base.name)), file, '/fixture');
+    expect(manifest.findings).toEqual([]);
+    const joined = withAssertionContract(withManifestContract(graphContractOf(manifest)));
+    expect(joined.edge.find(one => one.name === base.name)).toEqual({ ...base,
+      fields: [...base.fields, { name: 'note', type: 'text', nullable: true }],
+    });
+  }
+});
+
+test('protected YAML extensions refuse identity, endpoint and required-field replacements at their source lines', () => {
+  const cases = [
+    { body: extension(stageName, [{ name: 'note', type: 'text' }]), marker: 'name: note' },
+    { body: { kinds: { [stageName]: { ...extension(stageName).kinds[stageName], 'key-edges': [] } } }, marker: 'key-edges:' },
+    { body: edgeExtension('manifest.depends-on', { from: ['operation'] }), marker: 'from:' },
+    { body: edgeExtension('manifest.depends-on', { repeats: true }), marker: 'repeats:' },
+    { body: edgeExtension('manifest.depends-on', { fields: [{ name: 'note', type: 'text' }] }), marker: 'name: note' },
+    { body: edgeExtension('manifest.depends-on', { fields: [{ name: 'declaration', type: 'text', nullable: true }] }), marker: 'name: declaration' },
+  ];
+  for (const { body, marker } of cases) {
+    const yaml = stringify(body);
+    const line = yaml.split('\n').findIndex(one => one.includes(marker)) + 1;
+    expect(parseKinds(yaml, file, '/fixture').findings).toContainEqual(expect.objectContaining({ file, line }));
+  }
+});
+
+test('shared protected join permits nullable edge fields but refuses direct identity and field changes', () => {
+  const base = MANIFEST_CONTRACT.edge[1]!;
+  const contract = { vertex: [], dictionary: [], edge: [{ ...base, fields: [...base.fields, { name: 'note', type: 'text' as const, nullable: true }] }] };
+  expect(withManifestContract(contract).edge.find(one => one.name === base.name)).toEqual(contract.edge[0]);
+  for (const replacement of [
+    { ...base, from: ['operation'] }, { ...base, repeats: true }, { ...base, discriminator: 'note' },
+    { ...base, fields: [{ name: 'note', type: 'text' as const }] },
+    { ...base, fields: [{ name: 'declaration', type: 'integer' as const }] },
+  ]) expect(() => withManifestContract({ ...contract, edge: [replacement] })).toThrow();
 });

@@ -16,6 +16,7 @@ import { generatedTableName, type EdgeContract, type FieldContract, type GraphCo
 import type { GeneratedEdgeRead, GeneratedKindRead } from '../../knowledge/graph-read.js';
 import type { KindsManifest } from '../../product/manifest/kinds.js';
 import { planFillDeclarations } from '../../plugin/fill-declarations.js';
+import { inheritProtectedContract } from '../../graph/system-contract.js';
 
 /**
  * The vertex tables a manifest's own declarations make: one for every kind whose
@@ -25,10 +26,11 @@ import { planFillDeclarations } from '../../plugin/fill-declarations.js';
 export function manifestContractOf(manifest: KindsManifest): GraphContract {
   const vertex: VertexContract[] = [];
   for (const kind of manifest.kinds.values()) {
+    const base = kind.systemBase;
     // Every kind the product takes has its table (owner's rule, 2026-11-13): the agent through MCP is a producer of
     // any kind, so a kind that declares no fields still holds its key and the label its page is named by. A kind with
     // no key is a kind of entities a producer makes with a random identity (the amendment, point 2).
-    const keyFields = kind.key ?? [];
+    const keyFields = base?.key ?? kind.key ?? [];
     const fields: FieldContract[] = [];
     let capability = '';
     for (const field of kind.fields ?? []) {
@@ -36,10 +38,13 @@ export function manifestContractOf(manifest: KindsManifest): GraphContract {
       fields.push({ name: field.name, type: field.type, ...('valueType' in field && field.valueType !== undefined ? { valueType: field.valueType as string } : {}), ...(field.schema === undefined ? {} : { schema: field.schema }), ...(field.nullable === true ? { nullable: true } : {}) });
     }
     // A kind that declares no field still has a table, and it holds the label its page is named by.
-    if (fields.length === 0) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
-    vertex.push({ ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : 'system' });
+    if (fields.length === 0 && base === undefined) fields.push({ name: kind.title ?? 'label', type: 'text', nullable: true });
+    vertex.push({ ...base, ...(kind.evidence === undefined ? {} : { evidence: kind.evidence }), ...(kind.contractUid === undefined ? {} : { contractUid: kind.contractUid }), ...(kind.identity === undefined ? {} : { identity: kind.identity }), name: kind.name, table: generatedTableName(kind.name, 'vertex'), fields, key: keyFields, ...(kind.keyEdges === undefined ? {} : { keyEdges: kind.keyEdges }), capability: kind.systemBase === undefined ? (capability === '' ? 'agent' : capability) : base!.capability });
   }
-  return { vertex, edge: edgeContractsOf(manifest), dictionary: [], ...(manifest.valueTypes === undefined ? {} : { valueTypes: manifest.valueTypes }) };
+  return inheritProtectedContract({ vertex, edge: edgeContractsOf(manifest), dictionary: [], ...(manifest.valueTypes === undefined ? {} : { valueTypes: manifest.valueTypes }) }, {
+    vertex: [...manifest.kinds.values()].flatMap(kind => kind.systemBase === undefined ? [] : [kind.systemBase]),
+    edge: [], dictionary: [],
+  });
 }
 
 /**
@@ -60,8 +65,8 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
     edges.push({
       // Every declared edge keeps an opinion table, even with no fields of its own: the table holds the statement that
       // the edge exists and who made it, which is what a complete answer is compared with and removed by.
-      ...(edge.contractUid === undefined ? {} : { contractUid: edge.contractUid }), name: edge.name,
-      table: generatedTableName(edge.name, 'edge'),
+      ...edge.systemBase, ...(edge.contractUid === undefined ? {} : { contractUid: edge.contractUid }), name: edge.name,
+      ...(edge.systemBase === undefined ? { table: generatedTableName(edge.name, 'edge') } : edge.systemBase.table === undefined ? {} : { table: edge.systemBase.table }),
       cardinality: edge.cardinality,
       labels: edge.labels,
       from: edge.from,
@@ -72,7 +77,7 @@ function edgeContractsOf(manifest: KindsManifest): EdgeContract[] {
       capability: edge.capability ?? 'manifest',
     });
   }
-  return edges;
+  return [...inheritProtectedContract({ vertex: [], edge: edges, dictionary: [] }, { vertex: [], edge: [...(manifest.edges?.values() ?? [])].flatMap(edge => edge.systemBase === undefined ? [] : [edge.systemBase]), dictionary: [] }).edge];
 }
 
 /**

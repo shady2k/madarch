@@ -270,7 +270,6 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     const contract = withAssertionContract(withManifestContract(authored ?? graphContractOf(validated.manifest)));
     await installDisputeSelection(tx, contract);
     const { contract: publicationContract, binding } = await startupBinding(tx, contract, 'manifest');
-    await publishGraphDrafts(tx, publicationContract, { vertices: validated.snapshots, removals: [] });
     const identity = (draft: Pick<VertexDraft, 'kind' | 'key' | 'keyEdges'>): string => canonicalJson([draft.kind, draft.key, draft.keyEdges ?? {}]);
     const readPhase = async (sort: 'vertex' | 'edge', kinds: readonly string[], drafts: readonly (VertexDraft | EdgeDraft)[]): Promise<Map<string, AssertionRecord[]>> => {
       const fields = new Map(kinds.map(kind => [kind, new Set<string>()]));
@@ -283,6 +282,13 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       const records = await readKindsAssertions(tx, requests, { contract: publicationContract });
       return new Map(requests.map((request, index) => [request.kind, records[index]!]));
     };
+    const snapshots = await readPhase('vertex', [...new Set(validated.snapshots.map(draft => draft.kind))], validated.snapshots);
+    const missingSnapshots = validated.snapshots.filter(draft => {
+      const row = snapshots.get(draft.kind)?.find(row => canonicalJson(row.key) === canonicalJson(draft.key));
+      return row === undefined || !row.activeSources.includes(binding.sourceUid) ||
+        Object.entries(draft.values ?? {}).some(([property, value]) => !row.selectedAssertions.some(assertion => assertion.property === property && assertion.source === binding.sourceUid && canonicalJson(assertion.value) === canonicalJson(value)));
+    });
+    await publishGraphDrafts(tx, publicationContract, { vertices: missingSnapshots, removals: [] });
     const vertexRecords = await readPhase('vertex', MANIFEST_CONTRACT.vertex.map(kind => kind.name), validated.vertices);
     const held = new Map<string, VertexRemovalDraft>();
     for (const kind of MANIFEST_CONTRACT.vertex) for (const row of vertexRecords.get(kind.name)!) {
@@ -303,7 +309,7 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
       let record: import('./records.js').AssertionRecord | undefined;
       if ('key' in draft) {
         const prior = held.get(identity(draft));
-        record = prior === undefined ? undefined : rows.find(row => row.uid === prior.uid);
+        record = prior === undefined ? rows.find(row => canonicalJson(row.key) === canonicalJson(draft.key) && draft.keyEdges === undefined) : rows.find(row => row.uid === prior.uid);
       }
       else {
         const from = await resolveEntityRef(tx, publicationContract, draft.from);
@@ -346,7 +352,10 @@ async function publishDeclarations(owner: DatabaseOwner, validated: ValidatedMan
     written += await publishGraphDrafts(tx, publicationContract, { vertices: [], edges, removals: [], edgeRemovals }, 1, { author: 'manifest' });
     const valueKinds = new Set(validated.starterValues.map((draft) => draft.kind));
     if (valueKinds.size > 0) {
-      written += await publishGraphDrafts(tx, publicationContract, { vertices: validated.starterValues, edges: [], removals: [] }, 1, { author: 'manifest' });
+      const records = await readPhase('vertex', [...valueKinds], validated.starterValues);
+      const changed: VertexDraft[] = [];
+      for (const draft of validated.starterValues) if (!await unchanged(draft, records.get(draft.kind)!)) changed.push(draft);
+      written += await publishGraphDrafts(tx, publicationContract, { vertices: changed, edges: [], removals: [] }, 1, { author: 'manifest' });
     }
     await refreshDisputeSelection(tx, publicationContract);
     await tx.query('SET CONSTRAINTS ALL IMMEDIATE');

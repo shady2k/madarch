@@ -53,7 +53,7 @@ import { PluginContractFile, type PluginContractDeclaration } from '../../plugin
 import { majorOf, PLUGINS_LOCK_FILE, parsePluginLock } from '../../plugin/lock.js';
 import { workingTreeFiles, type ProductFileRead, type ProductFileSource } from '../../plugin/product-files.js';
 import { PluginManifest } from '../../plugin/closure.js';
-import { FIELD_TYPES, fieldTypeOf, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords } from '../../graph/contract.js';
+import { FIELD_TYPES, fieldTypeOf, type FieldType, type KeyEdgeContract, type EdgeCardinality, type EdgeWords, type VertexContract, type EdgeContract } from '../../graph/contract.js';
 import { byCodePoint } from '../../model/order.js';
 import { validateDeclaredJsonSchema } from '../../graph/value-validation.js';
 import { checkValueTypes, JSON_DIALECT, type JsonSchema, type ValueTypes, type ValueTypeDeclaration } from '../../graph/value-types.js';
@@ -245,6 +245,7 @@ export interface PluginDecl {
 
 /** One edge kind the manifest declares: its ends, its repeat rule and its typed attributes. */
 export interface EdgeDecl {
+  readonly systemBase?: EdgeContract;
   readonly contractUid?: string;
   readonly onParentDelete?: 'restrict' | 'cascade';
   readonly cardinality: EdgeCardinality;
@@ -323,7 +324,7 @@ export interface PurposeDecl {
 }
 
 export interface KindDecl {
-  readonly systemBase?: { readonly name: string };
+  readonly systemBase?: VertexContract;
   readonly evidence?: { readonly immutable: true; readonly digestField?: string; readonly contentField?: string; readonly digestAlgorithm?: 'sha256' };
   readonly templatePolicy?: 'page' | 'member' | 'none';
   readonly contractUid?: string;
@@ -1700,7 +1701,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     if (inherited !== undefined) {
       const start = findings.length;
       if (base === undefined) { problem(['extends'], 'a system extension names the same engine-owned kind as its declaration'); continue; }
-      for (const field of ['key', 'capability'] as const) if (raw[field] !== undefined) problem([field], `a system extension cannot replace its inherited ${field}`);
+      for (const field of ['key', 'key-edges', 'capability', 'identity', 'contract-uid', 'evidence'] as const) if (raw[field] !== undefined) problem([field], `a system extension cannot replace its inherited ${field}`);
       if (raw['source'] !== undefined && raw['source'] !== 'graph') problem(['source'], 'a system extension has source graph');
       const additions = raw['fields'];
       if (additions !== undefined && !Array.isArray(additions)) problem(['fields'], 'a system extension adds a list of nullable fields');
@@ -2160,7 +2161,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
     if (findings.length > before) continue;
     kinds.set(name, {
       name,
-      ...(base === undefined ? {} : { systemBase: { name: base.name } }),
+      ...(base === undefined ? {} : { systemBase: base }),
       ...(evidence === undefined ? {} : { evidence }),
       ...(policy === 'none' || policy === 'page' || policy === 'member' ? { templatePolicy: policy } : {}),
       source: source as 'graph' | 'markdown' | 'document',
@@ -2242,14 +2243,38 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
   if (rawEdges !== undefined) {
     if (!Array.isArray(rawEdges)) findings.push({ file, line: at(['edges']), message: '"edges" is a list of { name, from, to, repeats, discriminator, fields, capability }' });
     else rawEdges.forEach((entry: unknown, index) => {
-      const body = entry as Record<string, unknown> | null;
+      let body = entry as Record<string, unknown> | null;
       const line = at(['edges', index]);
+      let base: EdgeContract | undefined;
+      if (isRecord(body) && body['extends'] !== undefined) {
+        base = protectedContract.edge.find(kind => kind.name === body!['name'] && body!['extends'] === `system:${kind.name}`);
+        const problem = (path: (string | number)[], message: string): void => {
+          findings.push({ file, line: at(['edges', index, ...path]), message: `edge "${String(body!['name'])}": ${message}` });
+        };
+        if (base === undefined) { problem(['extends'], 'a system extension names the same engine-owned edge as its declaration'); return; }
+        const before = findings.length;
+        for (const property of ['from', 'to', 'cardinality', 'repeats', 'discriminator', 'capability', 'contract-uid', 'on-parent-delete']) {
+          if (body[property] !== undefined) problem([property], `a system extension cannot replace its inherited ${property}`);
+        }
+        const additions = body['fields'];
+        if (additions !== undefined && !Array.isArray(additions)) problem(['fields'], 'a system extension adds a list of nullable fields');
+        if (Array.isArray(additions)) for (const [fieldAt, field] of additions.entries()) {
+          if (!isRecord(field)) continue;
+          if (base.fields.some(held => held.name === field['name'])) problem(['fields', fieldAt, 'name'], `field "${String(field['name'])}" is inherited and cannot be replaced`);
+          if (field['nullable'] !== true) problem(['fields', fieldAt], 'an added system field must be nullable so engine-owned entities need not fill it');
+        }
+        if (findings.length !== before) return;
+        const bounds = (value: string): { min: number; max: number | null } => ({ min: value === 'one' || value === 'some' ? 1 : 0, max: value === 'one' || value === 'optional' ? 1 : null });
+        const { extends: _inherited, ...overlay } = body;
+        body = { from: base.from, to: base.to, cardinality: { from: bounds(base.cardinality.to), to: bounds(base.cardinality.from) },
+          labels: base.labels, repeats: base.repeats, ...(base.discriminator === undefined ? {} : { discriminator: base.discriminator }), capability: base.capability, ...overlay };
+      }
       const names = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((one) => typeof one === 'string' && one.trim() !== '');
       if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['name'] !== 'string' || body['name'].trim() === '' || !names(body['from']) || !names(body['to'])) {
         findings.push({ file, line, message: 'an edge is { name: <name>, from: [<kind>, ...], to: [<kind>, ...], repeats?: true, discriminator?: <field>, fields?: [...], capability?: <name> }' });
         return;
       }
-      if (protectedGraphKinds.has(body['name']) || protectedGraphEdges.has(body['name'])) {
+      if (base === undefined && (protectedGraphKinds.has(body['name']) || protectedGraphEdges.has(body['name']))) {
         findings.push({ file, line, message: `edge "${body['name']}": a protected name requires extends: system:<same name> (0039 item 9)` }); return;
       }
       const extra = Object.keys(body).filter((key) => !['name', 'from', 'to', 'repeats', 'discriminator', 'fields', 'capability', 'labels', 'cardinality', 'contract-uid', 'on-parent-delete'].includes(key));
@@ -2291,7 +2316,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       for (const direction of ['from', 'to'] as const) {
         const ends = body[direction] as string[];
         const endBound = rawCardinality[direction];
-        if (bound(endBound) && endBound.min > 0 && ends.some((name) => name === 'any' || protectedGraphKinds.has(name))) {
+        if (base === undefined && bound(endBound) && endBound.min > 0 && ends.some((name) => name === 'any' || protectedGraphKinds.has(name))) {
           findings.push({ file, line: at(['edges', index, 'cardinality', direction]), message: `edge "${body['name']}": a protected ${direction} end requires a zero lower bound (0039 item 9)` }); return;
         }
         if (ends.includes('any') && ends.length !== 1) { findings.push({ file, line: at(['edges', index, direction, ends.indexOf('any')]), message: `edge "${body['name']}": any stands alone in the ${direction} endpoint list (0039 item 1)` }); return; }
@@ -2325,7 +2350,7 @@ export function parseKinds(input: string | { root: unknown; at: (path: (string |
       if (repeats && discriminator === undefined) { findings.push({ file, line: at(['edges', index]), message: 'an edge kind that repeats names the field that tells its repeats apart (discriminator)' }); return; }
       if (!repeats && discriminator !== undefined) { findings.push({ file, line: at(['edges', index, 'discriminator']), message: 'an edge kind that does not repeat has no discriminator' }); return; }
       const capability = typeof body['capability'] === 'string' ? body['capability'] : undefined;
-      edges.set(body['name'], { ...(isUuid(contractUid) ? { contractUid } : {}), ...(onParentDelete === undefined ? {} : { onParentDelete }), cardinality: cardinality as unknown as EdgeCardinality, name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, labels: labels as unknown as EdgeWords, ...(capability === undefined ? {} : { capability }), line });
+      edges.set(body['name'], { ...(base === undefined ? {} : { systemBase: base }), ...(isUuid(contractUid) ? { contractUid } : {}), ...(onParentDelete === undefined ? {} : { onParentDelete }), cardinality: cardinality as unknown as EdgeCardinality, name: body['name'], from: body['from'] as string[], to: body['to'] as string[], repeats, ...(discriminator === undefined ? {} : { discriminator }), fields, labels: labels as unknown as EdgeWords, ...(capability === undefined ? {} : { capability }), line });
     });
   }
   // 0039 item 28: parent identity declarations are required relations and form a DAG.

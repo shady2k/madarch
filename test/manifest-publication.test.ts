@@ -424,3 +424,18 @@ test('plugin release changes preserve one source while distinct actors persist a
     expect(reopenedSecond.binding.principalUid).not.toBe(reopenedFirst.binding.principalUid);
   } finally { await owner.close(); }
 }, 30_000);
+
+test('repeat publication adds no snapshot or declaration assertions', async () => {
+  const folder = fixture();
+  const owner = await createTestDatabaseOwner({ graphContract: withManifestContract(EMPTY_CONTRACT) });
+  try {
+    await createOneGraphSchema(owner, withManifestContract(EMPTY_CONTRACT));
+    const read = validateProductManifests(folder);
+    if (!read.ok || read.value === undefined) throw new Error(JSON.stringify(read));
+    await publishValidatedManifests(owner, read.value);
+    const count = async () => await owner.run(async tx => (await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM assertion_vertex_subject s JOIN edge e ON e.id=s.subject_edge_id JOIN node n ON n.id=e.to_node JOIN entity k ON k.id=n.entity_id WHERE k.name LIKE 'manifest.%' OR k.name='system.content-snapshot'`)).rows[0]!.count);
+    const first = await count();
+    expect(await publishValidatedManifests(owner, read.value)).toBe(0);
+    expect(await count()).toBe(first);
+  } finally { await owner.close(); }
+}, 30_000);

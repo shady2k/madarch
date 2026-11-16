@@ -17,7 +17,7 @@ test('explicit system extension retains base identity, extra fields and edges', 
       - { type: knows, to: 'person:{label}' }
 `);
   expect(manifest.findings).toEqual([]);
-  expect(manifest.kinds.get('person')?.systemBase).toEqual({ name: 'person' });
+  expect(manifest.kinds.get('person')?.systemBase).toEqual(SYSTEM_CONTRACT.vertex.find(kind => kind.name === 'person'));
   expect(manifest.kinds.get('person')?.relations).toMatchObject([{ type: 'knows', to: 'person:{label}' }]);
   const person = withSystemContract(graphContractOf(manifest)).vertex.find((kind) => kind.name === 'person')!;
   const base = SYSTEM_CONTRACT.vertex.find((kind) => kind.name === 'person')!;
@@ -53,5 +53,6 @@ test('extensions reject mismatched bases, natural keys, inherited fields and req
 test('reserved names alone do not authorize system storage', () => {
   const ordinary = read('    source: graph\n');
   expect(ordinary.kinds.get('person')?.systemBase).toBeUndefined();
-  expect(() => withSystemContract(graphContractOf(ordinary))).toThrow('storage or producer person');
+  expect(ordinary.kinds.has('person')).toBe(false);
+  expect(ordinary.findings).toContainEqual(expect.objectContaining({ file: '/tmp/overlay/madarch/catalog.yaml', line: 2, message: expect.stringContaining('extends: system:') }));
 });
